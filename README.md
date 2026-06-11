@@ -1,29 +1,29 @@
-# Family Info Organizer
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-Family information organizer app, built in **Google AI Studio** (Build mode) and deployed by it to Cloud Run.
+# Run and deploy your AI Studio app
+
+This contains everything you need to run your app locally.
+
+View your app in AI Studio: https://ai.studio/apps/393d7146-0d1a-431e-bd58-b2a1478b5ff5
+
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Run the app:
+   `npm run dev`
+
+(`GEMINI_API_KEY` is in the AI Studio template but nothing in `src/` uses it — no `.env.local` needed. Data lives in the production Firestore, so local dev reads/writes the same data as the live app.)
+
+## Provenance / deployment
 
 - **Live URL:** https://family-info-organizer-1000796646145.europe-west2.run.app/
-- **Stack:** React 19 + Vite + Tailwind 4, Firebase (data), Gemini via `@google/genai`, jsPDF for exports. `server.cjs` is just a zero-dependency static file shim for Cloud Run.
-
-## Where the source of truth lives
-
-⚠️ **This folder is the COMPILED build output (version-2), not the editable source.**
-
-| What | Where |
-|---|---|
-| Editable source | AI Studio → https://aistudio.google.com/apps (applet `393d7146-0d1a-431e-bd58-b2a1478b5ff5`) |
-| GCP project | `gen-lang-client-0384516171` (number `1000796646145`) |
-| Cloud Run service | `family-info-organizer`, region `europe-west2` |
-| Build artifacts | `gs://ai-studio-bucket-1000796646145-europe-west2/services/family-info-organizer/` (version-1 and version-2) |
-
-To edit the app: open it in AI Studio, make changes, redeploy from there. To get the editable source under git, use AI Studio's download/GitHub export — then replace this compiled snapshot.
-
-This snapshot fetched 2026-06-12 via:
-
-```sh
-gcloud storage cp gs://ai-studio-bucket-1000796646145-europe-west2/services/family-info-organizer/version-2/compiled/build_artifacts.tar.gz .
-```
-
-## Note on the embedded API key
-
-`assets/index-*.js` contains a Firebase **web config** API key (`AIza…`). Firebase web keys are public by design (every visitor's browser downloads them); access control happens via Firebase security rules, not key secrecy. Not a credential leak.
+- Built in Google AI Studio (applet `393d7146-0d1a-431e-bd58-b2a1478b5ff5`), GCP project `gen-lang-client-0384516171`, Cloud Run service `family-info-organizer` in `europe-west2`.
+- This folder is the **editable source**, exported from AI Studio 2026-06-12 (Export → Download as .zip). Compiled deploy snapshot it replaced is in git history (commit 6a81cdc).
+- ⚠️ Edits made here do NOT reach the live app automatically. Either paste changes back into AI Studio and redeploy there, or deploy directly (`gcloud run deploy family-info-organizer --source . --project gen-lang-client-0384516171 --region europe-west2`) — but mixing both means AI Studio's copy and this one diverge; pick one as source of truth.
+- `firebase-applet-config.json` holds the Firebase **web** config (public by design; access control = `firestore.rules`).

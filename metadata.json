@@ -1,0 +1,6 @@
+{
+  "name": "Family Info Organizer",
+  "description": "Securely store and organize your family's essential information, children's clothing sizes, passport details, and key document records.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

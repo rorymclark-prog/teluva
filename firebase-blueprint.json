@@ -1,0 +1,26 @@
+{
+  "entities": {
+    "FamilyMember": {
+      "title": "Family Member",
+      "description": "Represents a family member profile",
+      "type": "object",
+      "properties": {}
+    },
+    "CalendarEvent": {
+      "title": "Calendar Event",
+      "description": "Represents an event on the calendar",
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "firestore": {
+    "users/{userId}/family_members/{memberId}": {
+      "schema": "FamilyMember",
+      "description": "Family members belonging to a user"
+    },
+    "users/{userId}/calendar_events/{eventId}": {
+      "schema": "CalendarEvent",
+      "description": "Calendar events for a user"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    match /users/{userId}/family_members/{memberId} {
+      allow read, write: if isSignedIn() && isOwner(userId);
+    }
+
+    match /users/{userId}/calendar_events/{eventId} {
+      allow read, write: if isSignedIn() && isOwner(userId);
+    }
+    
+    // We might want to save generic user data
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && isOwner(userId);
+    }
+  }
+}
