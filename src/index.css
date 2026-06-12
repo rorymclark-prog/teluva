@@ -1,7 +1,114 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Warm cream surface scale */
+  --color-cream-50: #FDFBF7;
+  --color-cream-100: #FAF6EF;
+  --color-cream-200: #F3ECE0;
+  --color-cream-300: #E9DFCE;
+  --color-cream-400: #D9CBB4;
+
+  /* Ink (warm near-black) */
+  --color-ink-400: #9A8F82;
+  --color-ink-500: #7A6F63;
+  --color-ink-600: #5C534A;
+  --color-ink-700: #453E37;
+  --color-ink-800: #322C26;
+  --color-ink-900: #25211C;
+
+  /* Clay (terracotta accent) */
+  --color-clay-50: #FBF1EC;
+  --color-clay-100: #F6E0D5;
+  --color-clay-200: #ECC3AF;
+  --color-clay-300: #E0A284;
+  --color-clay-400: #D28259;
+  --color-clay-500: #C26A40;
+  --color-clay-600: #A85432;
+  --color-clay-700: #86422a;
+
+  /* Sage (secondary accent) */
+  --color-sage-50: #F2F5EF;
+  --color-sage-100: #E2EADC;
+  --color-sage-200: #C5D4BA;
+  --color-sage-300: #A3BA94;
+  --color-sage-400: #82A06F;
+  --color-sage-500: #678754;
+  --color-sage-600: #506B42;
+  --color-sage-700: #405536;
+
+  /* Soft gold for highlights/warnings */
+  --color-honey-50: #FBF5E8;
+  --color-honey-100: #F6E9C9;
+  --color-honey-200: #EDD698;
+  --color-honey-500: #C9A227;
+  --color-honey-700: #8F7119;
+  --color-honey-900: #5C490F;
+
+  /* Dusty blue */
+  --color-dusk-50: #F0F3F7;
+  --color-dusk-100: #DEE6EF;
+  --color-dusk-500: #5E7B9B;
+  --color-dusk-700: #435970;
+
+  /* Soft rose */
+  --color-rosa-50: #FAF0F1;
+  --color-rosa-100: #F4DDE0;
+  --color-rosa-500: #C16A75;
+  --color-rosa-700: #945058;
+
+  --shadow-soft: 0 1px 2px rgba(43, 39, 34, 0.04), 0 4px 16px rgba(43, 39, 34, 0.06);
+  --shadow-lift: 0 2px 4px rgba(43, 39, 34, 0.05), 0 10px 28px rgba(43, 39, 34, 0.1);
+}
+
+@layer components {
+  /* Soft warm card */
+  .card {
+    @apply bg-white border border-cream-300/70 rounded-3xl shadow-soft;
+  }
+
+  /* Primary action button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 bg-clay-500 hover:bg-clay-600 text-white font-semibold text-sm rounded-2xl px-5 py-2.5 transition-colors cursor-pointer shadow-soft;
+  }
+
+  /* Quiet secondary button */
+  .btn-quiet {
+    @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-cream-100 text-ink-700 font-semibold text-sm border border-cream-300 rounded-2xl px-4 py-2.5 transition-colors cursor-pointer;
+  }
+
+  /* Danger button */
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 bg-rosa-500 hover:bg-rosa-700 text-white font-semibold text-sm rounded-2xl px-4 py-2 transition-colors cursor-pointer;
+  }
+
+  /* Section label — replaces the old 8-10px uppercase tracking-widest labels */
+  .section-label {
+    @apply text-xs font-bold text-ink-500;
+  }
+
+  /* Small informational chip */
+  .chip {
+    @apply inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2.5 py-0.5 leading-tight;
+  }
+
+  /* Segmented tab pill */
+  .tab-pill {
+    @apply px-3.5 py-2 rounded-xl text-[13px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap text-ink-500 hover:text-ink-800;
+  }
+  .tab-pill-active {
+    @apply bg-white text-ink-900 shadow-soft;
+  }
+
+  /* Form input */
+  .field {
+    @apply w-full border border-cream-300 rounded-xl px-3.5 py-2.5 text-sm bg-white text-ink-800 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-clay-300 focus:border-clay-400 transition-all;
+  }
+  .field-label {
+    @apply block text-[13px] font-semibold text-ink-600 mb-1.5;
+  }
 }

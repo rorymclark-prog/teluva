@@ -15,6 +15,10 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
 
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && isOwner(userId);
+    }
+
     match /users/{userId}/family_members/{memberId} {
       allow read, write: if isSignedIn() && isOwner(userId);
     }
@@ -22,9 +26,20 @@ service cloud.firestore {
     match /users/{userId}/calendar_events/{eventId} {
       allow read, write: if isSignedIn() && isOwner(userId);
     }
-    
-    // We might want to save generic user data
-    match /users/{userId} {
+
+    // Ordered-ID metadata docs written by every save batch — without this rule
+    // the atomic batch fails and nothing syncs.
+    match /users/{userId}/metadata/{docId} {
+      allow read, write: if isSignedIn() && isOwner(userId);
+    }
+
+    // Family chat, scoped per account (was a global /messages collection).
+    match /users/{userId}/messages/{messageId} {
+      allow read, write: if isSignedIn() && isOwner(userId);
+    }
+
+    // Drive sync index, scoped per account (was global /sharedDriveDocs).
+    match /users/{userId}/sharedDriveDocs/{docId} {
       allow read, write: if isSignedIn() && isOwner(userId);
     }
   }

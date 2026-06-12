@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CalendarEvent, FamilyMember } from '../types';
-import { 
-  Calendar, Clock, Plus, Trash2, Edit2, 
+import {
+  Calendar, Clock, Plus, Trash2, Edit2,
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X, Info,
   Cloud, RefreshCcw, Loader2, LogIn, Send, Download
 } from 'lucide-react';
 import { initAuth, googleSignIn, logout, getAccessToken } from '../utils/firebase';
+
+// Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
+const todayLocal = () => new Date().toLocaleDateString('en-CA');
 
 interface FamilyCalendarProps {
   members: FamilyMember[];
@@ -14,11 +17,13 @@ interface FamilyCalendarProps {
 }
 
 export default function FamilyCalendar({ members, events, onSaveEvents }: FamilyCalendarProps) {
-  const today = new Date('2026-05-22'); // Aligning with current local time sequence
+  // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
+  const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth()); // 0-indexed
-  const [selectedDateStr, setSelectedDateStr] = useState(today.toISOString().split('T')[0]);
-  
+  // Bug fix #6: use todayLocal() instead of toISOString().split('T')[0]
+  const [selectedDateStr, setSelectedDateStr] = useState(todayLocal());
+
   // Google Calendar Connection States
   const [needsAuth, setNeedsAuth] = useState(true);
   const [token, setToken] = useState<string | null>(null);
@@ -26,6 +31,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isGoogleCalendarSyncing, setIsGoogleCalendarSyncing] = useState(false);
   const [calendarSyncError, setCalendarSyncError] = useState<string | null>(null);
+
+  // Bug fix #2: run-once ref prevents stale-closure duplicate imports
+  const hasAutoImported = useRef(false);
 
   // Sync state observer
   useEffect(() => {
@@ -44,10 +52,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
     return () => unsubscribe();
   }, []);
 
-  // Auto-sync when token is available
+  // Bug fix #2: auto-sync fires only once per mount
   useEffect(() => {
-    if (token && events.length >= 0 && !isGoogleCalendarSyncing) {
-        handleImportFromGoogle();
+    if (token && !hasAutoImported.current) {
+      hasAutoImported.current = true;
+      handleImportFromGoogle();
     }
   }, [token]);
 
@@ -75,7 +84,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
       triggerReminderNotification('Please connect Google Calendar first.');
       return;
     }
-    
+
     setIsGoogleCalendarSyncing(true);
     setCalendarSyncError(null);
     try {
@@ -90,11 +99,13 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
         description: `${ev.description || ''}\n\nSynced from Family Hub.\nCategory: ${ev.category}`,
         start: {
           dateTime: startDateTime,
-          timeZone: 'UTC'
+          // Bug fix #4: was 'UTC', changed to Vienna local time
+          timeZone: 'Europe/Vienna'
         },
         end: {
           dateTime: endDateTime,
-          timeZone: 'UTC'
+          // Bug fix #4: was 'UTC', changed to Vienna local time
+          timeZone: 'Europe/Vienna'
         }
       };
 
@@ -144,8 +155,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
         const body = {
           summary: `[Family Hub] ${ev.title}`,
           description: `${ev.description || ''}\nCategory: ${ev.category}`,
-          start: { dateTime: startDateTime, timeZone: 'UTC' },
-          end: { dateTime: endDateTime, timeZone: 'UTC' }
+          // Bug fix #4: was 'UTC' in both, changed to Vienna local time
+          start: { dateTime: startDateTime, timeZone: 'Europe/Vienna' },
+          end: { dateTime: endDateTime, timeZone: 'Europe/Vienna' }
         };
 
         const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
@@ -206,7 +218,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
 
       const importedEvents: CalendarEvent[] = [];
       googleEvents.forEach((gEv: any) => {
-        const exists = events.some(e => e.title.toLowerCase() === (gEv.summary || '').toLowerCase());
+        // Bug fix #5: skip events previously exported from Family Hub
+        if ((gEv.summary || '').startsWith('[Family Hub]')) return;
+
+        // Bug fix #5: dedupe by Google event id instead of case-insensitive title
+        const exists = events.some(e => e.id === 'gcal-' + gEv.id);
         if (exists) return;
 
         const startVal = gEv.start?.dateTime || gEv.start?.date || '';
@@ -219,6 +235,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
         }
 
         importedEvents.push({
+          // Bug fix #5: id is now 'gcal-' + gEv.id so dedup works on next run
           id: 'gcal-' + gEv.id,
           title: gEv.summary || 'Google Appointment',
           date: datePart,
@@ -248,7 +265,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
-  const [eventDate, setEventDate] = useState(today.toISOString().split('T')[0]);
+  // Bug fix #6: use todayLocal() instead of toISOString().split('T')[0]
+  const [eventDate, setEventDate] = useState(todayLocal());
   const [eventTime, setEventTime] = useState('12:00');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<'Milestone' | 'Appointment' | 'School' | 'Travel' | 'Other'>('Other');
@@ -301,7 +319,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
     calendarCells.push(new Date(currentYear, currentMonth, d));
   }
 
-  // Format date correctly YYYY-MM-DD
+  // Format date correctly YYYY-MM-DD (local, not UTC)
   const formatDateString = (dateObj: Date) => {
     const year = dateObj.getFullYear();
     const month = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -382,7 +400,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
       };
       onSaveEvents([...events, newEvent]);
       triggerReminderNotification(
-        remindMe 
+        remindMe
           ? `Event listed. Digital reminders dispatched to all tagged family members!`
           : `Event listed on shared calendar!`
       );
@@ -415,67 +433,68 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
   const selectedDayEvents = events.filter(e => e.date === selectedDateStr)
     .sort((a, b) => (a.time || '00:00').localeCompare(b.time || '00:00'));
 
-  // Quick reminder feed (Events in the next 10 days)
-  const todayTime = new Date(selectedDateStr).getTime();
+  // Quick reminder feed (Events in the next 12 days from today)
+  const todayTime = new Date(todayLocal()).getTime();
   const upcomingReminders = events.filter(e => {
     const evTime = new Date(e.date).getTime();
     const diffDays = (evTime - todayTime) / (1000 * 60 * 60 * 24);
-    return diffDays >= 0 && diffDays <= 12; // Next 12 days
+    return diffDays >= 0 && diffDays <= 12;
   }).sort((a, b) => a.date.localeCompare(b.date));
+
+  // Real today string for highlighting the calendar cell
+  const realTodayStr = todayLocal();
 
   return (
     <div className="space-y-6">
-      {/* Notifications/Ref */}
+      {/* Toast notification */}
       {reminderNote && (
-        <div className="p-4 rounded-xl bg-gray-900 text-white text-xs flex items-center gap-2.5 animate-bounce shadow-md">
-          <Bell className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div className="p-4 rounded-2xl bg-ink-900 text-white text-sm flex items-center gap-2.5 animate-bounce shadow-lift">
+          <Bell className="w-4 h-4 text-sage-400 shrink-0" />
           <span>{reminderNote}</span>
         </div>
       )}
 
-      {/* Intro info bar */}
-      <section className="border-b border-gray-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Header bar */}
+      <section className="border-b border-cream-300 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2 uppercase tracking-wider">
-            <span className="w-1.5 h-3.5 bg-gray-900 rounded-full inline-block"></span>
-            Family Hub Events &amp; Calendar
+          <h3 className="text-xl font-display font-semibold text-ink-900 flex items-center gap-2">
+            <span className="w-1.5 h-4 bg-clay-400 rounded-full inline-block"></span>
+            Family calendar
           </h3>
-          <p className="text-xs text-gray-500 mt-1">Shared planning schedule. Coordinate flights, medical appointments, milestones, and school schedules seamlessly.</p>
+          <p className="text-[13px] text-ink-500 mt-1">Shared planning schedule. Coordinate flights, medical appointments, milestones, and school schedules seamlessly.</p>
         </div>
 
         <button
           onClick={handleOpenAddForm}
-          className="flex items-center space-x-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-gray-950 hover:bg-black rounded-xl transition-all shadow-sm cursor-pointer ml-auto sm:ml-0"
+          className="btn-primary ml-auto sm:ml-0 text-sm"
         >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Schedule New Event</span>
+          <Plus className="w-4 h-4" />
+          <span>Schedule new event</span>
         </button>
       </section>
 
-      {/* Google Calendar Synchronization Panel */}
-      <div className="bg-white border border-gray-150 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs">
+      {/* Google Calendar Sync Panel */}
+      <div className="card rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
-          <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 shrink-0">
+          <div className="p-2 rounded-xl bg-sage-100 text-sage-600 border border-sage-200 shrink-0">
             <Cloud className="w-4 h-4" />
           </div>
           <div>
-            <h4 className="text-xs font-bold text-gray-800 uppercase tracking-widest flex items-center gap-1.5">
-              Google Calendar Synchronization
+            <h4 className="text-[13px] font-semibold text-ink-800 flex items-center gap-2">
+              Google Calendar sync
               {needsAuth ? (
-                <span className="text-[9px] bg-slate-50 text-slate-500 border border-slate-200 px-2 py-0.5 rounded font-bold uppercase tracking-wider font-mono">
-                  Offline
-                </span>
+                <span className="chip bg-cream-200 text-ink-500">Offline</span>
               ) : (
-                <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded font-bold uppercase tracking-wider font-mono flex items-center gap-1">
-                  <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="chip bg-sage-100 text-sage-700 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sage-500 animate-pulse"></span>
                   Connected
                 </span>
               )}
             </h4>
-            <p className="text-xs text-gray-400 font-light mt-0.5">
-              {needsAuth 
-                ? "Link your Google account or workspace to enable active event import and exports."
-                : `Active connection established with ${user?.email || 'Google account'}.`
+            <p className="text-[13px] text-ink-400 mt-0.5">
+              {needsAuth
+                ? "Link your Google account to enable event import and export."
+                : `Active connection with ${user?.email || 'Google account'}.`
               }
             </p>
           </div>
@@ -483,7 +502,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           {calendarSyncError && (
-            <span className="text-[10px] text-red-650 font-medium mr-2 max-w-[200px] truncate leading-tight">
+            <span className="text-[12px] text-rosa-700 font-medium mr-2 max-w-[200px] truncate leading-tight">
               ⚠️ {calendarSyncError}
             </span>
           )}
@@ -492,16 +511,16 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
             <button
               onClick={handleLoginGoogle}
               disabled={isLoggingIn}
-              className="w-full sm:w-auto px-4 py-1.5 bg-gray-950 border border-gray-950 text-white rounded-xl text-xs font-bold uppercase tracking-wider cursor-pointer hover:bg-black flex items-center justify-center gap-1.5 shadow-2xs select-none"
+              className="btn-primary w-full sm:w-auto"
             >
               {isLoggingIn ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Authorizing...</span>
                 </>
               ) : (
                 <>
-                  <LogIn className="w-3.5 h-3.5" />
+                  <LogIn className="w-4 h-4" />
                   <span>Connect Google Calendar</span>
                 </>
               )}
@@ -511,27 +530,27 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
               <button
                 onClick={handleImportFromGoogle}
                 disabled={isGoogleCalendarSyncing}
-                className="flex-1 sm:flex-none px-3 py-1.5 bg-white border border-gray-250 text-gray-700 hover:text-gray-950 font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="btn-quiet flex-1 sm:flex-none disabled:opacity-50"
               >
                 {isGoogleCalendarSyncing ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-450" />
+                  <Loader2 className="w-4 h-4 animate-spin text-ink-400" />
                 ) : (
-                  <Download className="w-3.5 h-3.5 text-gray-500" />
+                  <Download className="w-4 h-4" />
                 )}
-                <span>Import Schedule</span>
+                <span>Import schedule</span>
               </button>
 
               <button
                 onClick={handleExportAllToGoogle}
                 disabled={isGoogleCalendarSyncing}
-                className="flex-1 sm:flex-none px-3 py-1.5 bg-gray-950 hover:bg-black text-white font-bold uppercase tracking-wider rounded-xl text-[10px] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="btn-primary flex-1 sm:flex-none disabled:opacity-50"
               >
                 {isGoogleCalendarSyncing ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <Send className="w-3.5 h-3.5" />
+                  <Send className="w-4 h-4" />
                 )}
-                <span>Export All Events</span>
+                <span>Export all events</span>
               </button>
             </div>
           )}
@@ -540,15 +559,15 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
 
       {/* Main Layout: Calendar Grid (LEFT) + Daily Activities (RIGHT) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
-        {/* MONTH CALENDAR CONTAINER: Col 12 on mobile, Col 7 on desktop */}
-        <div className="lg:col-span-7 bg-white border border-gray-150 rounded-2xl p-5 shadow-xs space-y-4">
-          
+
+        {/* MONTH CALENDAR CONTAINER */}
+        <div className="lg:col-span-7 card rounded-2xl p-5 space-y-4">
+
           {/* Calendar Header with Controls */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-gray-900" />
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-900">
+              <Calendar className="w-4 h-4 text-ink-600" />
+              <h4 className="text-[13px] font-semibold text-ink-800">
                 {monthNames[currentMonth]} {currentYear}
               </h4>
             </div>
@@ -556,21 +575,21 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
             <div className="flex items-center space-x-1">
               <button
                 onClick={handlePrevMonth}
-                className="p-1 px-1.5 hover:bg-gray-55 rounded-lg border border-gray-200 text-gray-600 transition-colors cursor-pointer"
+                className="p-1 px-1.5 hover:bg-cream-100 rounded-xl border border-cream-300 text-ink-500 transition-colors cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
                 onClick={handleNextMonth}
-                className="p-1 px-1.5 hover:bg-gray-55 rounded-lg border border-gray-200 text-gray-600 transition-colors cursor-pointer"
+                className="p-1 px-1.5 hover:bg-cream-100 rounded-xl border border-cream-300 text-ink-500 transition-colors cursor-pointer"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Weekday Labels */}
-          <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[10px] text-gray-400 uppercase tracking-widest pb-1">
+          {/* Weekday Labels — small ink-400 semibold, normal case */}
+          <div className="grid grid-cols-7 gap-1 text-center font-semibold text-[11px] text-ink-400 pb-1">
             <span>Sun</span>
             <span>Mon</span>
             <span>Tue</span>
@@ -584,45 +603,47 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
           <div className="grid grid-cols-7 gap-1">
             {calendarCells.map((cellDate, index) => {
               if (cellDate === null) {
-                return <div key={`empty-${index}`} className="aspect-square bg-gray-50/40 rounded-lg" />;
+                return <div key={`empty-${index}`} className="aspect-square bg-cream-100/60 rounded-xl" />;
               }
 
               const dateStr = formatDateString(cellDate);
               const isSelected = selectedDateStr === dateStr;
-              const isCurrentDay = today.toISOString().split('T')[0] === dateStr;
-              
-              // Count scheduled events for this day
+              // Bug fix #1: compare against real today string, not hardcoded date
+              const isCurrentDay = realTodayStr === dateStr;
+
               const dayEvents = events.filter(e => e.date === dateStr);
               const hasEvents = dayEvents.length > 0;
 
               return (
                 <button
-                  key={`day-${cellDate.getDate()}`}
+                  // Bug fix #3: key now includes year+month to avoid cross-month collisions
+                  key={`day-${cellDate.getFullYear()}-${cellDate.getMonth()}-${cellDate.getDate()}`}
                   onClick={() => handleDaySelect(cellDate)}
                   className={`aspect-square relative rounded-xl transition-all flex flex-col items-center justify-center cursor-pointer border text-xs ${
                     isSelected
-                      ? 'bg-gray-950 border-gray-950 text-white font-bold shadow-xs scale-102 z-10'
+                      ? 'bg-clay-500 border-clay-500 text-white font-bold shadow-soft scale-105 z-10'
                       : isCurrentDay
-                        ? 'bg-gray-100 border-gray-300 text-gray-900 font-bold'
-                        : 'bg-white border-gray-100 text-gray-700 hover:border-gray-250 hover:bg-gray-50/50'
+                        ? 'bg-clay-50 ring-1 ring-clay-300 border-clay-200 text-ink-900 font-bold'
+                        : 'bg-white border-cream-200 text-ink-700 hover:border-cream-300 hover:bg-cream-50'
                   }`}
                 >
                   <span className="text-xs leading-none">{cellDate.getDate()}</span>
-                  
-                  {/* Event Marker Dots */}
+
+                  {/* Event Marker Dots — category pastels */}
                   {hasEvents && (
                     <div className="absolute bottom-1.5 flex space-x-0.5 justify-center">
-                      {dayEvents.slice(0, 3).map((e, dotIndex) => (
-                        <span 
-                          key={e.id} 
+                      {dayEvents.slice(0, 3).map((e) => (
+                        <span
+                          key={e.id}
                           className={`w-1 h-1 rounded-full ${
-                            isSelected 
-                              ? 'bg-white' 
-                              : e.category === 'School' ? 'bg-indigo-500' :
-                                e.category === 'Travel' ? 'bg-amber-500' :
-                                e.category === 'Appointment' ? 'bg-emerald-500' :
-                                'bg-gray-400'
-                          }`} 
+                            isSelected
+                              ? 'bg-white/80'
+                              : e.category === 'School' ? 'bg-dusk-500' :
+                                e.category === 'Travel' ? 'bg-honey-500' :
+                                e.category === 'Appointment' ? 'bg-rosa-500' :
+                                e.category === 'Milestone' ? 'bg-sage-500' :
+                                'bg-ink-400'
+                          }`}
                         />
                       ))}
                     </div>
@@ -633,105 +654,114 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
           </div>
 
           {/* Color Code Legend */}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 pt-3.5 border-t border-gray-100 text-[10px] text-gray-505 font-mono">
-            <div className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block"></span>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 pt-3.5 border-t border-cream-200 text-[12px] text-ink-500 font-semibold">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-dusk-500 inline-block"></span>
               <span>School</span>
             </div>
-            <div className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block"></span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-honey-500 inline-block"></span>
               <span>Travel</span>
             </div>
-            <div className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-rosa-500 inline-block"></span>
               <span>Appointment</span>
             </div>
-            <div className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block"></span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-sage-500 inline-block"></span>
+              <span>Milestone</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-ink-400 inline-block"></span>
               <span>Other</span>
             </div>
           </div>
         </div>
 
-        {/* RIGHT AREA: Day specific events & Upcoming feed */}
+        {/* RIGHT AREA: Day events + Upcoming feed */}
         <div className="lg:col-span-5 space-y-6">
-          
-          {/* EVENTS LISTED ON SELECTED DAY */}
-          <section className="bg-white border border-gray-150 rounded-2xl p-5 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-              <h4 className="text-[10px] font-bold text-gray-950 uppercase tracking-widest">
+
+          {/* EVENTS ON SELECTED DAY */}
+          <section className="card rounded-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-cream-200">
+              <h4 className="text-[13px] font-semibold text-ink-800">
                 Agenda: {selectedDateStr}
               </h4>
-              <span className="text-[10px] font-semibold text-gray-450 font-mono">
-                {selectedDayEvents.length} list items
+              <span className="section-label">
+                {selectedDayEvents.length} items
               </span>
             </div>
 
             {selectedDayEvents.length === 0 ? (
-              <div className="text-center py-8 text-gray-400 text-xs italic">
-                No events scheduled. Choose a date and click &ldquo;Schedule New Event&rdquo; to start.
+              <div className="text-center py-8 text-ink-400 text-[13px] italic">
+                No events scheduled. Choose a date and click "Schedule new event" to start.
               </div>
             ) : (
               <div className="space-y-3">
                 {selectedDayEvents.map(ev => {
-                  // Find involved family members
                   const assignedMembers = members.filter(m => ev.memberIds?.includes(m.id));
 
                   return (
-                    <div 
-                      key={ev.id} 
-                      className={`p-4 rounded-xl border flex flex-col gap-2.5 transition-all text-xs ${
-                        ev.category === 'School' ? 'bg-indigo-50/40 border-indigo-100/50 text-indigo-950' :
-                        ev.category === 'Travel' ? 'bg-amber-50/40 border-amber-100/50 text-amber-950' :
-                        ev.category === 'Appointment' ? 'bg-emerald-50/40 border-emerald-100/50 text-emerald-950' :
-                        'bg-gray-50/60 border-gray-150 text-gray-950'
+                    <div
+                      key={ev.id}
+                      className={`p-4 rounded-2xl border flex flex-col gap-2.5 transition-all text-xs ${
+                        ev.category === 'School' ? 'bg-dusk-50 border-dusk-100 text-ink-900' :
+                        ev.category === 'Travel' ? 'bg-honey-50 border-honey-100 text-ink-900' :
+                        ev.category === 'Appointment' ? 'bg-rosa-50 border-rosa-100 text-ink-900' :
+                        ev.category === 'Milestone' ? 'bg-sage-50 border-sage-100 text-ink-900' :
+                        'bg-cream-100 border-cream-300 text-ink-900'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-0.5">
-                          <h5 className="font-bold text-gray-900 leading-snug">{ev.title}</h5>
+                          <h5 className="font-semibold text-ink-900 leading-snug text-[13px]">{ev.title}</h5>
                           {ev.time && (
-                            <p className="flex items-center gap-1 text-[10.5px] font-semibold text-gray-500 font-mono">
+                            <p className="flex items-center gap-1 text-[12px] font-semibold text-ink-500 font-mono">
                               <Clock className="w-3 h-3" />
                               {ev.time}
                             </p>
                           )}
                         </div>
 
-                        {/* Event Category Tag */}
-                        <span className="text-[9px] font-bold tracking-widest px-1.5 py-0.2 rounded uppercase bg-white border border-gray-200">
+                        {/* Category chip */}
+                        <span className={`chip shrink-0 ${
+                          ev.category === 'School' ? 'bg-dusk-100 text-dusk-700' :
+                          ev.category === 'Travel' ? 'bg-honey-100 text-honey-700' :
+                          ev.category === 'Appointment' ? 'bg-rosa-100 text-rosa-700' :
+                          ev.category === 'Milestone' ? 'bg-sage-100 text-sage-700' :
+                          'bg-cream-200 text-ink-600'
+                        }`}>
                           {ev.category}
                         </span>
                       </div>
 
                       {ev.description && (
-                        <p className="text-[11px] text-gray-700 leading-snug font-light italic">
+                        <p className="text-[12px] text-ink-600 leading-snug italic">
                           &ldquo;{ev.description}&rdquo;
                         </p>
                       )}
 
-                      {/* Tagged members + Remind Indicator */}
-                      <div className="flex items-center justify-between pt-2 border-t border-gray-200/50">
-                        {/* Avatar tag bubbles */}
+                      {/* Tagged members + actions */}
+                      <div className="flex items-center justify-between pt-2 border-t border-cream-300/60">
                         <div className="flex items-center space-x-1.5">
-                          <Users className="w-3 h-3 text-gray-400 mr-0.5" />
+                          <Users className="w-3 h-3 text-ink-400 mr-0.5" />
                           {assignedMembers.length === 0 ? (
-                            <span className="text-[10px] text-gray-400">All Family</span>
+                            <span className="text-[12px] text-ink-400">All family</span>
                           ) : (
                             <div className="flex -space-x-1">
                               {assignedMembers.map(m => (
                                 m.avatarUrl ? (
-                                  <span 
-                                    key={m.id} 
-                                    className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center border border-white shrink-0"
+                                  <span
+                                    key={m.id}
+                                    className="w-5 h-5 rounded-full overflow-hidden flex items-center justify-center border-2 border-white shrink-0"
                                     title={m.name}
                                   >
                                     <img src={m.avatarUrl} alt={m.name} className="w-full h-full object-cover" />
                                   </span>
                                 ) : (
-                                  <span 
-                                    key={m.id} 
-                                    className={`w-4 h-4 rounded-full ${m.avatarColor} text-[8px] font-bold text-white flex items-center justify-center border border-white shrink-0`}
+                                  <span
+                                    key={m.id}
+                                    className={`w-5 h-5 rounded-full ${m.avatarColor} text-[10px] font-bold text-white flex items-center justify-center border-2 border-white shrink-0`}
                                     title={m.name}
                                   >
                                     {m.name.charAt(0)}
@@ -742,18 +772,17 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                           )}
                         </div>
 
-                        {/* Reminder bell indicator */}
                         <div className="flex items-center space-x-1.5 shrink-0">
                           {ev.remindMe && (
-                            <span className="text-[9px] uppercase tracking-wide font-bold bg-gray-900 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <span className="chip bg-ink-900 text-white">
                               <Bell className="w-2.5 h-2.5" />
-                              Alert Active
+                              Alert on
                             </span>
                           )}
                           {!needsAuth && (
                             <button
                               onClick={() => pushEventToGoogle(ev)}
-                              className="p-1 hover:bg-white rounded text-emerald-600"
+                              className="p-1 hover:bg-cream-100 rounded-lg text-sage-600 transition-colors"
                               title="Sync to Google Calendar"
                             >
                               <Cloud className="w-3.5 h-3.5" />
@@ -761,15 +790,15 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                           )}
                           <button
                             onClick={() => handleOpenEditForm(ev)}
-                            className="p-1 hover:bg-white rounded text-gray-500"
-                            title="Edit Event"
+                            className="p-1 hover:bg-cream-100 rounded-lg text-ink-500 transition-colors"
+                            title="Edit event"
                           >
                             <Edit2 className="w-3 h-3" />
                           </button>
                           <button
                             onClick={() => handleDeleteEvent(ev.id)}
-                            className="p-1 hover:bg-white rounded text-red-650"
-                            title="Delete Event"
+                            className="p-1 hover:bg-rosa-50 rounded-lg text-rosa-600 transition-colors"
+                            title="Delete event"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -782,25 +811,25 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
             )}
           </section>
 
-          {/* SHARED FAMILY NOTIFICATIONS SIDEBAR */}
-          <section className="bg-white border border-gray-150 rounded-2xl p-5 shadow-xs space-y-4">
-            <h4 className="text-[10px] font-bold text-gray-950 uppercase tracking-widest flex items-center gap-1.5pb-2 border-b border-gray-100">
-              <Bell className="w-4 h-4 text-gray-500" />
-              Upcoming Shared Reminders
+          {/* UPCOMING REMINDERS SIDEBAR */}
+          <section className="card rounded-2xl p-5 space-y-4">
+            <h4 className="text-[13px] font-semibold text-ink-800 flex items-center gap-2 pb-2 border-b border-cream-200">
+              <Bell className="w-4 h-4 text-ink-400" />
+              Upcoming shared reminders
             </h4>
 
             {upcomingReminders.length === 0 ? (
-              <div className="text-center py-6 text-gray-400 text-xs italic font-sans">
-                No scheduled reminders inside the next 12 days.
+              <div className="text-center py-6 text-ink-400 text-[13px] italic">
+                No reminders in the next 12 days.
               </div>
             ) : (
-              <div className="space-y-3 text-xs leading-normal max-h-56 overflow-y-auto pr-1">
+              <div className="space-y-2.5 text-xs leading-normal max-h-56 overflow-y-auto pr-1">
                 {upcomingReminders.slice(0, 5).map(rem => (
-                  <div key={rem.id} className="flex gap-2.5 items-start bg-gray-50 border border-gray-150 p-2.5 rounded-xl hover:bg-gray-100/50 transition-colors">
-                    <Info className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                  <div key={rem.id} className="flex gap-2.5 items-start bg-cream-100 border border-cream-200 p-2.5 rounded-xl hover:bg-cream-200/50 transition-colors">
+                    <Info className="w-4 h-4 text-ink-400 mt-0.5 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <p className="font-bold text-gray-900 truncate pr-0.5">{rem.title}</p>
-                      <p className="font-mono text-[9px] text-gray-400 mt-0.5">{rem.date} {rem.time ? `• ${rem.time}` : ''}</p>
+                      <p className="font-semibold text-ink-800 truncate pr-0.5 text-[13px]">{rem.title}</p>
+                      <p className="font-mono text-[11px] text-ink-400 mt-0.5">{rem.date} {rem.time ? `• ${rem.time}` : ''}</p>
                     </div>
                   </div>
                 ))}
@@ -811,98 +840,88 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
         </div>
       </div>
 
-      {/* MODAL LIGHT FORM FOR CREATING / DOCUMENTATION UPDATES */}
+      {/* ADD / EDIT EVENT MODAL */}
       {isFormOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onClick={() => setIsFormOpen(false)} />
-          
-          <div className="relative bg-white border border-gray-150 rounded-2xl p-6 shadow-xl w-full max-w-md space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-900">
-                {editingEventId ? 'Edit Scheduled Event' : 'Create New Event'}
+          <div className="fixed inset-0 bg-ink-900/60 backdrop-blur-sm" onClick={() => setIsFormOpen(false)} />
+
+          <div className="relative bg-white border border-cream-300/70 rounded-3xl p-6 shadow-lift w-full max-w-md space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+              <h3 className="text-lg font-display font-semibold text-ink-900">
+                {editingEventId ? 'Edit event' : 'New event'}
               </h3>
-              <button onClick={() => setIsFormOpen(false)} className="p-1 hover:bg-gray-55 rounded text-gray-400">
+              <button onClick={() => setIsFormOpen(false)} className="p-1 hover:bg-cream-100 rounded-xl text-ink-400 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCommitEvent} className="space-y-4 text-xs">
+            <form onSubmit={handleCommitEvent} className="space-y-4">
               <div>
-                <label className="block text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                  Event Title
-                </label>
+                <label className="field-label">Event title</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Leo's Dental Clinic Visit"
+                  placeholder="e.g. Leo's dental clinic visit"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-250 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-950 font-sans"
+                  className="field"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                    Scheduled Date
-                  </label>
+                  <label className="field-label">Date</label>
                   <input
                     type="date"
                     required
                     value={eventDate}
                     onChange={(e) => setEventDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-250 rounded-xl focus:outline-none font-mono"
+                    className="field font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                    Scheduled Time
-                  </label>
+                  <label className="field-label">Time</label>
                   <input
                     type="time"
                     value={eventTime}
                     onChange={(e) => setEventTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-250 rounded-xl focus:outline-none font-mono"
+                    className="field font-mono"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                    Category Type
-                  </label>
+                  <label className="field-label">Category</label>
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value as any)}
-                    className="w-full px-3 py-2 bg-white border border-gray-250 rounded-xl focus:outline-none"
+                    className="field"
                   >
                     <option value="School">School / Homework</option>
-                    <option value="Appointment">Medical Appointment</option>
-                    <option value="Travel">Family Travel / Flights</option>
-                    <option value="Milestone">Family Milestone</option>
-                    <option value="Other">Other Events</option>
+                    <option value="Appointment">Medical appointment</option>
+                    <option value="Travel">Family travel / Flights</option>
+                    <option value="Milestone">Family milestone</option>
+                    <option value="Other">Other</option>
                   </select>
                 </div>
-                <div className="flex items-center space-x-2 pt-5">
+                <div className="flex items-center space-x-2 pt-7">
                   <input
                     type="checkbox"
                     id="remindBox"
                     checked={remindMe}
                     onChange={(e) => setRemindMe(e.target.checked)}
-                    className="w-4 h-4 border-gray-250 text-gray-900 bg-white rounded focus:ring-gray-900 focus:ring-0 accent-gray-950"
+                    className="w-4 h-4 border-cream-300 text-clay-500 bg-white rounded focus:ring-clay-300 accent-clay-500"
                   />
-                  <label htmlFor="remindBox" className="text-[10px] font-bold text-gray-700 tracking-wide select-none cursor-pointer">
-                    Enable Reminder Bells
+                  <label htmlFor="remindBox" className="text-[13px] font-semibold text-ink-700 select-none cursor-pointer">
+                    Enable reminders
                   </label>
                 </div>
               </div>
 
               <div>
-                <label className="block text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                  Tag Family Members (Enables Shared Calendar Access)
-                </label>
-                <div className="flex flex-wrap gap-2.5 pt-1">
+                <label className="field-label">Tag family members</label>
+                <div className="flex flex-wrap gap-2 pt-1">
                   {members.map(m => {
                     const isTagged = taggedMemberIds.includes(m.id);
                     return (
@@ -910,10 +929,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                         key={m.id}
                         type="button"
                         onClick={() => handleToggleMemberTag(m.id)}
-                        className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
-                          isTagged 
-                            ? 'bg-gray-900 text-white border-gray-950' 
-                            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                        className={`px-3 py-1.5 text-[12px] font-semibold rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${
+                          isTagged
+                            ? 'bg-clay-500 text-white border-clay-500 shadow-soft'
+                            : 'bg-white text-ink-600 border-cream-300 hover:bg-cream-100'
                         }`}
                       >
                         <span className={`w-2 h-2 rounded-full ${m.avatarColor}`}></span>
@@ -925,31 +944,29 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
               </div>
 
               <div>
-                <label className="block text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-                  Event Description
-                </label>
+                <label className="field-label">Description</label>
                 <textarea
                   rows={2}
                   placeholder="Details for flights, doctor addresses or specific preparations..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-250 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-950"
+                  className="field"
                 />
               </div>
 
-              <div className="flex justify-end space-x-2 pt-2 border-t border-gray-100">
+              <div className="flex justify-end space-x-2 pt-2 border-t border-cream-200">
                 <button
                   type="button"
                   onClick={() => setIsFormOpen(false)}
-                  className="px-4 py-2 bg-white border border-gray-200 text-gray-500 rounded-xl text-xs font-semibold hover:bg-gray-50 cursor-pointer"
+                  className="btn-quiet"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gray-950 hover:bg-black text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
+                  className="btn-primary"
                 >
-                  {editingEventId ? 'Save Edits' : 'Schedule Event'}
+                  {editingEventId ? 'Save edits' : 'Schedule event'}
                 </button>
               </div>
             </form>

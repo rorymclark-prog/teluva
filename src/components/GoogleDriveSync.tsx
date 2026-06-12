@@ -1,36 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  collection, 
-  onSnapshot, 
-  setDoc, 
-  deleteDoc, 
-  doc, 
-  serverTimestamp 
+import {
+  collection,
+  onSnapshot,
+  setDoc,
+  deleteDoc,
+  doc,
+  serverTimestamp
 } from 'firebase/firestore';
-import { 
-  db, 
-  auth, 
-  googleSignIn, 
-  initAuth, 
-  getAccessToken, 
-  logout, 
-  handleFirestoreError, 
-  OperationType 
+import {
+  db,
+  auth,
+  googleSignIn,
+  initAuth,
+  getAccessToken,
+  logout,
+  handleFirestoreError,
+  OperationType
 } from '../utils/firebase';
-import { 
-  Cloud, 
-  CloudLightning, 
-  Check, 
-  Trash2, 
-  ExternalLink, 
-  Search, 
-  FileText, 
-  FileSpreadsheet, 
-  Sliders, 
-  Loader2, 
-  RefreshCcw, 
-  Lock, 
-  User, 
+import {
+  Cloud,
+  CloudLightning,
+  Check,
+  Trash2,
+  ExternalLink,
+  Search,
+  FileText,
+  FileSpreadsheet,
+  Sliders,
+  Loader2,
+  RefreshCcw,
+  Lock,
+  User,
   AlertCircle,
   FileCode,
   File
@@ -65,7 +65,7 @@ export default function GoogleDriveSync() {
   // Lists
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
   const [sharedDocs, setSharedDocs] = useState<SharedDoc[]>([]);
-  
+
   // UX states
   const [isDriveLoading, setIsDriveLoading] = useState(false);
   const [isSyncingFileId, setIsSyncingFileId] = useState<string | null>(null);
@@ -90,9 +90,17 @@ export default function GoogleDriveSync() {
     return () => unsubscribe();
   }, []);
 
-  // Listen to Firestore sharedDriveDocs in real-time
+  // Listen to Firestore sharedDriveDocs in real-time — scoped to the signed-in user
   useEffect(() => {
-    const docsRef = collection(db, 'sharedDriveDocs');
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      // No authenticated user — clear list, do not subscribe
+      setSharedDocs([]);
+      return;
+    }
+
+    // Per-user path: users/{uid}/sharedDriveDocs
+    const docsRef = collection(db, 'users', uid, 'sharedDriveDocs');
     const unsubscribe = onSnapshot(docsRef, (snapshot) => {
       const docs: SharedDoc[] = [];
       snapshot.forEach((firestoreDoc) => {
@@ -114,7 +122,8 @@ export default function GoogleDriveSync() {
     });
 
     return () => unsubscribe();
-  }, []);
+  // Re-subscribe if the Firebase auth user changes
+  }, [auth.currentUser?.uid]);
 
   // Fetch from Google Drive when token becomes available
   useEffect(() => {
@@ -167,7 +176,7 @@ export default function GoogleDriveSync() {
         "mimeType = 'application/pdf'"
       );
       const url = `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=50&fields=files(id,name,mimeType,size,webViewLink)`;
-      
+
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -194,7 +203,7 @@ export default function GoogleDriveSync() {
           // Token expired, require reauth
           setNeedsAuth(true);
           setToken(null);
-          throw new Error('Google authorization token has expired. Please sign in again.');
+          throw new Error('Google authorisation token has expired. Please sign in again.');
         }
         throw new Error(`Google API returned error status: ${response.status}`);
       }
@@ -209,12 +218,16 @@ export default function GoogleDriveSync() {
     }
   };
 
-  // Sync a local Google Drive document metadata to Firestore shared collection
+  // Sync a local Google Drive document metadata to Firestore — scoped to the signed-in user
   const handleSyncToFamily = async (file: DriveFile) => {
     if (!user) return;
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
     setIsSyncingFileId(file.id);
     try {
-      const firestoreDocRef = doc(db, 'sharedDriveDocs', file.id);
+      // Per-user path: users/{uid}/sharedDriveDocs/{fileId}
+      const firestoreDocRef = doc(db, 'users', uid, 'sharedDriveDocs', file.id);
       await setDoc(firestoreDocRef, {
         fileId: file.id,
         name: file.name,
@@ -231,7 +244,7 @@ export default function GoogleDriveSync() {
     }
   };
 
-  // Remove a synced document from Firestore shared collection (Gated by confirmation dialog)
+  // Remove a synced document from Firestore — scoped to the signed-in user
   const handleRemoveSynced = async (sharedDoc: SharedDoc) => {
     // Explicit user confirmation dialog as mandated by workspace skill
     const confirmed = window.confirm(
@@ -239,8 +252,12 @@ export default function GoogleDriveSync() {
     );
     if (!confirmed) return;
 
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
     try {
-      const firestoreDocRef = doc(db, 'sharedDriveDocs', sharedDoc.fileId);
+      // Per-user path: users/{uid}/sharedDriveDocs/{fileId}
+      const firestoreDocRef = doc(db, 'users', uid, 'sharedDriveDocs', sharedDoc.fileId);
       await deleteDoc(firestoreDocRef);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `sharedDriveDocs/${sharedDoc.fileId}`);
@@ -250,15 +267,15 @@ export default function GoogleDriveSync() {
   const getMimeInfo = (mimeType: string) => {
     switch (mimeType) {
       case 'application/vnd.google-apps.document':
-        return { label: 'Google Doc', color: 'text-blue-600 bg-blue-50 border-blue-100', icon: FileText };
+        return { label: 'Google Doc', chipClass: 'bg-dusk-100 text-dusk-700 border-dusk-100', icon: FileText };
       case 'application/vnd.google-apps.spreadsheet':
-        return { label: 'Google Sheet', color: 'text-emerald-700 bg-emerald-50 border-emerald-100', icon: FileSpreadsheet };
+        return { label: 'Google Sheet', chipClass: 'bg-sage-100 text-sage-700 border-sage-200', icon: FileSpreadsheet };
       case 'application/vnd.google-apps.presentation':
-        return { label: 'Google Slide', color: 'text-amber-600 bg-amber-50 border-amber-100', icon: FileCode };
+        return { label: 'Google Slide', chipClass: 'bg-honey-100 text-honey-700 border-honey-200', icon: FileCode };
       case 'application/pdf':
-        return { label: 'PDF Document', color: 'text-red-600 bg-red-50 border-red-100', icon: File };
+        return { label: 'PDF Document', chipClass: 'bg-rosa-100 text-rosa-700 border-rosa-100', icon: File };
       default:
-        return { label: 'File', color: 'text-gray-500 bg-gray-50 border-gray-100', icon: File };
+        return { label: 'File', chipClass: 'bg-cream-100 text-ink-500 border-cream-300', icon: File };
     }
   };
 
@@ -271,31 +288,31 @@ export default function GoogleDriveSync() {
   };
 
   // Filter listings
-  const filteredDriveFiles = driveFiles.filter(f => 
+  const filteredDriveFiles = driveFiles.filter(f =>
     f.name.toLowerCase().includes(driveSearch.toLowerCase())
   );
-  
-  const filteredSharedDocs = sharedDocs.filter(f => 
+
+  const filteredSharedDocs = sharedDocs.filter(f =>
     f.name.toLowerCase().includes(sharedSearch.toLowerCase())
   );
 
   return (
-    <div className="bg-white border border-gray-150 rounded-2xl shadow-xs overflow-hidden min-h-[500px] flex flex-col font-sans">
+    <div className="card overflow-hidden min-h-[500px] flex flex-col font-sans">
       {/* Tab Banner Header info */}
-      <div className="p-5 border-b border-gray-100 bg-gray-50/25 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="p-5 border-b border-cream-200 bg-cream-50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center space-x-3.5">
-          <div className="p-2 rounded-xl bg-gray-900 text-white shrink-0">
-            <Cloud className="w-5 h-5 text-gray-100" />
+          <div className="p-2 rounded-xl bg-ink-800 text-white shrink-0">
+            <Cloud className="w-5 h-5 text-cream-100" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-gray-900 tracking-tight flex items-center gap-2">
-              Google Drive Cloud Sync
-              <span className="text-[10px] bg-sky-50 text-sky-700 px-2.5 py-0.5 rounded-full uppercase tracking-wider font-extrabold border border-sky-100">
-                Drive API V3
+            <h2 className="font-display text-xl font-semibold text-ink-900 flex items-center gap-2">
+              Google Drive Sync
+              <span className="chip bg-dusk-100 text-dusk-700 border border-dusk-100">
+                Drive API v3
               </span>
             </h2>
-            <p className="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wider font-bold">
-              Securely index and synchronize critical household documentation from Google Drive
+            <p className="text-[13px] font-semibold text-ink-500 mt-0.5">
+              Securely index and synchronise household documentation from Google Drive
             </p>
           </div>
         </div>
@@ -306,55 +323,55 @@ export default function GoogleDriveSync() {
             <button
               onClick={handleLogin}
               disabled={isLoggingIn}
-              className="px-4 py-2 bg-gray-950 hover:bg-black disabled:bg-gray-400 text-white rounded-xl text-xs font-bold uppercase tracking-wider cursor-pointer flex items-center gap-2.5 shadow-xs select-none"
+              className="btn-primary disabled:opacity-50"
             >
               {isLoggingIn ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Signing In...</span>
+                  <span>Signing in…</span>
                 </>
               ) : (
                 <>
                   <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22c-.62-.63-1.04-1.37-1.19-2.63z"/>
-                    <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22c-.62-.63-1.04-1.37-1.19-2.63z"/>
+                    <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                   </svg>
-                  <span>Connect Google Account</span>
+                  <span>Connect Google account</span>
                 </>
               )}
             </button>
           ) : (
             <div className="flex items-center space-x-3.5">
               <div className="text-right hidden sm:block">
-                <p className="text-xs font-semibold text-gray-800 flex items-center gap-1.5 justify-end">
-                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                <p className="text-[13px] font-semibold text-ink-800 flex items-center gap-1.5 justify-end">
+                  <span className="w-1.5 h-1.5 bg-sage-500 rounded-full"></span>
                   Connected
                 </p>
-                <p className="text-[10px] text-gray-400 truncate max-w-[200px]">
+                <p className="text-[13px] text-ink-400 truncate max-w-[200px]">
                   {user?.email}
                 </p>
               </div>
               <button
                 onClick={handleLogout}
-                className="px-3 py-1.5 border border-gray-200 text-gray-650 hover:bg-gray-50 text-[10px] font-bold uppercase tracking-wider rounded-xl cursor-pointer"
+                className="btn-quiet text-sm px-3 py-1.5"
               >
-                Sign Out
+                Sign out
               </button>
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-gray-150">
-        
-        {/* Drive Explorer (Only Visible when signed in) */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-cream-200">
+
+        {/* Drive Explorer (Only visible when signed in) */}
         <div className="lg:col-span-6 p-5 flex flex-col min-h-[300px]">
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-            <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+          <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+            <h3 className="text-[13px] font-semibold text-ink-800 flex items-center gap-1.5">
               My Google Drive
-              <span className="text-[10px] bg-gray-100 text-gray-650 px-2 py-0.5 rounded-full font-mono font-bold">
+              <span className="chip bg-cream-200 text-ink-600 font-mono">
                 {needsAuth ? 0 : filteredDriveFiles.length}
               </span>
             </h3>
@@ -363,7 +380,7 @@ export default function GoogleDriveSync() {
               <button
                 onClick={fetchDriveFiles}
                 disabled={isDriveLoading}
-                className="p-1 px-2 hover:bg-gray-100 text-gray-500 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer"
+                className="btn-quiet text-sm px-2.5 py-1.5 flex items-center gap-1"
                 title="Refresh Google Drive files list"
               >
                 <RefreshCcw className={`w-3 h-3 ${isDriveLoading ? 'animate-spin' : ''}`} />
@@ -373,54 +390,54 @@ export default function GoogleDriveSync() {
           </div>
 
           {driveError && (
-            <div className="mt-3 p-3 bg-red-50 border border-red-150 text-red-700 rounded-xl text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+            <div className="mt-3 p-3 bg-rosa-50 border border-rosa-100 text-rosa-700 rounded-2xl text-[13px] flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rosa-500 mt-0.5 shrink-0" />
               <p className="leading-relaxed">{driveError}</p>
             </div>
           )}
 
           {needsAuth ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center border border-sky-100 shadow-2xs">
+              <div className="w-12 h-12 rounded-2xl bg-dusk-50 text-dusk-500 flex items-center justify-center border border-dusk-100 shadow-soft">
                 <Lock className="w-5 h-5" />
               </div>
               <div className="space-y-1">
-                <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Account Connection Locked</h4>
-                <p className="text-xs text-gray-400 max-w-xs font-light leading-relaxed">
+                <h4 className="text-[13px] font-semibold text-ink-700">Account connection locked</h4>
+                <p className="text-[13px] text-ink-400 max-w-xs font-light leading-relaxed">
                   Authenticate your Google profile to securely retrieve digital certifications, plans, or medical records directly from your personal Drive space.
                 </p>
               </div>
               <button
                 onClick={handleLogin}
-                className="px-4 py-2 bg-sky-50 hover:bg-sky-100/80 border border-sky-200 text-sky-800 rounded-xl text-xs font-bold uppercase tracking-wide cursor-pointer"
+                className="btn-quiet"
               >
-                Sign In With Google
+                Sign in with Google
               </button>
             </div>
           ) : (
             <div className="flex-1 mt-4 flex flex-col">
               {/* Filter */}
               <div className="relative mb-3.5">
-                <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-gray-400" />
+                <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-ink-400" />
                 <input
                   type="text"
-                  placeholder="Query Docs, Sheets, PDFs in your Drive..."
+                  placeholder="Search Docs, Sheets, PDFs…"
                   value={driveSearch}
                   onChange={(e) => setDriveSearch(e.target.value)}
-                  className="w-full pl-8.5 pr-4 py-1.5 border border-gray-250 rounded-xl text-xs focus:ring-1 focus:ring-gray-900 focus:outline-none focus:border-gray-900 placeholder:text-gray-400"
+                  className="field pl-8.5"
                 />
               </div>
 
               {/* Loader */}
               {isDriveLoading ? (
                 <div className="flex-1 flex flex-col items-center justify-center py-12">
-                  <Loader2 className="w-6 h-6 text-gray-800 animate-spin mb-2" />
-                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Querying Cloud Files Catalog...</p>
+                  <Loader2 className="w-6 h-6 text-ink-700 animate-spin mb-2" />
+                  <p className="text-[13px] font-semibold text-ink-400">Querying cloud files…</p>
                 </div>
               ) : filteredDriveFiles.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-gray-400">
-                  <p className="text-xs italic">No compatible files found in this Drive folder.</p>
-                  <p className="text-[10px] mt-1 text-gray-350 max-w-[240px] font-light leading-snug">
+                <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-ink-400">
+                  <p className="text-[13px] italic">No compatible files found in this Drive folder.</p>
+                  <p className="text-[13px] mt-1 text-ink-400 max-w-[240px] font-light leading-snug">
                     Upload a file (Google Doc, Sheet, or PDF) to your personal Google Drive account to list it here.
                   </p>
                 </div>
@@ -434,17 +451,17 @@ export default function GoogleDriveSync() {
                     return (
                       <div
                         key={file.id}
-                        className="p-3 border border-gray-150 rounded-xl hover:bg-gray-50/50 flex items-center justify-between gap-3 transition-colors text-xs"
+                        className="p-3 border border-cream-300 rounded-2xl hover:bg-cream-50 flex items-center justify-between gap-3 transition-colors text-[13px]"
                       >
                         <div className="flex items-start gap-2.5 min-w-0">
-                          <div className={`p-2 rounded-lg shrink-0 border ${mime.color}`}>
+                          <div className={`p-2 rounded-xl shrink-0 border chip ${mime.chipClass}`}>
                             <Icon className="w-4 h-4" />
                           </div>
                           <div className="min-w-0">
-                            <h4 className="font-semibold text-gray-900 truncate" title={file.name}>
+                            <h4 className="font-semibold text-ink-800 truncate" title={file.name}>
                               {file.name}
                             </h4>
-                            <p className="text-[9px] text-gray-440 font-bold uppercase tracking-wider mt-0.5">
+                            <p className="text-[13px] font-semibold text-ink-500 mt-0.5">
                               {mime.label}
                             </p>
                           </div>
@@ -452,17 +469,17 @@ export default function GoogleDriveSync() {
 
                         <div>
                           {isSynced ? (
-                            <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 rounded-lg text-[9px] font-extrabold uppercase tracking-wider border border-emerald-100 flex items-center gap-1 whitespace-nowrap">
-                              <Check className="w-3 h-3 text-emerald-600" />
+                            <span className="chip bg-sage-100 text-sage-700 border border-sage-200 whitespace-nowrap">
+                              <Check className="w-3 h-3 text-sage-600" />
                               Synced
                             </span>
                           ) : (
                             <button
                               onClick={() => handleSyncToFamily(file)}
                               disabled={isSyncingFileId === file.id}
-                              className="px-3 py-1 bg-gray-950 hover:bg-black text-white rounded-lg text-[9px] font-bold uppercase tracking-wider cursor-pointer whitespace-nowrap disabled:opacity-40"
+                              className="btn-primary text-xs px-3 py-1.5 whitespace-nowrap disabled:opacity-40"
                             >
-                              {isSyncingFileId === file.id ? 'Syncing...' : 'Sync File'}
+                              {isSyncingFileId === file.id ? 'Syncing…' : 'Sync file'}
                             </button>
                           )}
                         </div>
@@ -476,11 +493,11 @@ export default function GoogleDriveSync() {
         </div>
 
         {/* Sync Panel List (Visible to all members) */}
-        <div className="lg:col-span-6 p-5 flex flex-col bg-gray-50/25 min-h-[300px]">
-          <div className="pb-3 border-b border-gray-100">
-            <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
-              Synced Family Documentation
-              <span className="text-[10px] bg-gray-950 text-white px-2.5 py-0.5 rounded-full font-mono font-bold">
+        <div className="lg:col-span-6 p-5 flex flex-col bg-cream-50 min-h-[300px]">
+          <div className="pb-3 border-b border-cream-200">
+            <h3 className="text-[13px] font-semibold text-ink-800 flex items-center gap-1.5">
+              Synced family documents
+              <span className="chip bg-ink-800 text-white font-mono">
                 {sharedDocs.length}
               </span>
             </h3>
@@ -488,22 +505,22 @@ export default function GoogleDriveSync() {
 
           <div className="flex-1 mt-4 flex flex-col">
             <div className="relative mb-3.5">
-              <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-gray-400" />
+              <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-ink-400" />
               <input
                 type="text"
-                placeholder="Find shared docs seen by the household..."
+                placeholder="Find shared docs…"
                 value={sharedSearch}
                 onChange={(e) => setSharedSearch(e.target.value)}
-                className="w-full pl-8.5 pr-4 py-1.5 border border-gray-250 bg-white rounded-xl text-xs focus:ring-1 focus:ring-gray-900 focus:outline-none focus:border-gray-900 placeholder:text-gray-400"
+                className="field pl-8.5"
               />
             </div>
 
             {filteredSharedDocs.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-400 border border-dashed border-gray-200 rounded-2xl bg-white">
-                <CloudLightning className="w-8 h-8 text-gray-300 mb-2.5" />
-                <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">No Docs Synced Yet</h4>
-                <p className="text-[11px] text-gray-400 mt-1 max-w-[240px] leading-relaxed font-light">
-                  Documents selected in your personal Google Drive window will sync down here for general family viewing instantly!
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-ink-400 border border-dashed border-cream-300 rounded-2xl bg-white">
+                <CloudLightning className="w-8 h-8 text-cream-400 mb-2.5" />
+                <h4 className="text-[13px] font-semibold text-ink-700">No docs synced yet</h4>
+                <p className="text-[13px] text-ink-400 mt-1 max-w-[240px] leading-relaxed font-light">
+                  Documents selected in your Google Drive window will sync here for family viewing instantly.
                 </p>
               </div>
             ) : (
@@ -515,19 +532,19 @@ export default function GoogleDriveSync() {
                   return (
                     <div
                       key={doc.id}
-                      className="p-3 bg-white border border-gray-150 rounded-xl hover:border-gray-300 shadow-2xs flex items-center justify-between gap-3 text-xs"
+                      className="p-3 bg-white border border-cream-300 rounded-2xl hover:border-cream-400 shadow-soft flex items-center justify-between gap-3 text-[13px]"
                     >
                       <div className="flex items-start gap-2.5 min-w-0">
-                        <div className={`p-2 rounded-lg shrink-0 border ${mime.color}`}>
+                        <div className={`p-2 rounded-xl shrink-0 border chip ${mime.chipClass}`}>
                           <Icon className="w-4 h-4" />
                         </div>
                         <div className="min-w-0">
-                          <h4 className="font-semibold text-gray-950 truncate" title={doc.name}>
+                          <h4 className="font-semibold text-ink-900 truncate" title={doc.name}>
                             {doc.name}
                           </h4>
-                          <p className="text-[9px] text-gray-450 font-bold uppercase tracking-wider flex items-center gap-1 flex-wrap mt-0.5">
+                          <p className="text-[13px] font-semibold text-ink-500 flex items-center gap-1 flex-wrap mt-0.5">
                             <span>{mime.label}</span>
-                            <span>•</span>
+                            <span>·</span>
                             <span>By {doc.syncedBy.split(' ')[0]}</span>
                           </p>
                         </div>
@@ -538,16 +555,16 @@ export default function GoogleDriveSync() {
                           href={doc.webViewLink}
                           target="_blank"
                           rel="noreferrer"
-                          className="p-1 px-2.5 border border-gray-150 hover:bg-gray-50 text-gray-700 hover:text-gray-950 rounded-lg text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-colors"
-                          title="Open document in Google client window"
+                          className="btn-quiet text-xs px-2.5 py-1.5 flex items-center gap-1"
+                          title="Open document in Google"
                         >
                           <ExternalLink className="w-3 h-3" />
                           <span>View</span>
                         </a>
                         <button
                           onClick={() => handleRemoveSynced(doc)}
-                          className="p-1 px-1.5 hover:bg-red-50 text-gray-400 hover:text-red-650 rounded-lg transition-colors cursor-pointer"
-                          title="Unsync and wipe metadata"
+                          className="p-1.5 hover:bg-rosa-50 text-ink-400 hover:text-rosa-700 rounded-xl transition-colors cursor-pointer"
+                          title="Remove from shared catalog"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

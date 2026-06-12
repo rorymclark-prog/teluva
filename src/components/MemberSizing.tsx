@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ClothingSizes, FamilyMember } from '../types';
-import { Save, Copy, Check, Info, TrendingUp, Scissors } from 'lucide-react';
+import { Save, Copy, Check, TrendingUp } from 'lucide-react';
 
 interface MemberSizingProps {
   member: FamilyMember;
@@ -10,12 +10,15 @@ interface MemberSizingProps {
 // Age calculator helper
 function calculateAgeInMonths(birthdate?: string): number {
   if (!birthdate) return -1;
-  const today = new Date('2026-05-22'); // Fix to the current metadata date
+  const today = new Date(); // Bug fix #2: was hardcoded new Date('2026-05-22')
   const birth = new Date(birthdate);
   const diffTime = Math.abs(today.getTime() - birth.getTime());
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   return Math.floor(diffDays / 30.4375);
 }
+
+// Bug fix #3: date-only helper
+const todayLocal = () => new Date().toLocaleDateString('en-CA');
 
 // Get Size Suggestions based on age and role using EU standards (height in cm, EU shoes)
 function getSizeSuggestions(ageMonths: number, role: string) {
@@ -55,21 +58,29 @@ function getSizeSuggestions(ageMonths: number, role: string) {
   }
 }
 
+const initSizes = (member: FamilyMember): ClothingSizes => ({
+  tops: member.clothingSizes.tops || '',
+  bottoms: member.clothingSizes.bottoms || '',
+  shoes: member.clothingSizes.shoes || '',
+  outerwear: member.clothingSizes.outerwear || '',
+  underwear: member.clothingSizes.underwear || '',
+  hatValue: member.clothingSizes.hatValue || '',
+  heightCm: member.clothingSizes.heightCm || '',
+  weightKg: member.clothingSizes.weightKg || '',
+  notes: member.clothingSizes.notes || '',
+});
+
 export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProps) {
-  const [sizes, setSizes] = useState<ClothingSizes>({
-    tops: member.clothingSizes.tops || '',
-    bottoms: member.clothingSizes.bottoms || '',
-    shoes: member.clothingSizes.shoes || '',
-    outerwear: member.clothingSizes.outerwear || '',
-    underwear: member.clothingSizes.underwear || '',
-    hatValue: member.clothingSizes.hatValue || '',
-    heightCm: member.clothingSizes.heightCm || '',
-    weightKg: member.clothingSizes.weightKg || '',
-    notes: member.clothingSizes.notes || '',
-  });
+  const [sizes, setSizes] = useState<ClothingSizes>(() => initSizes(member));
 
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Bug fix #1: re-sync when member.id changes
+  useEffect(() => {
+    setSizes(initSizes(member));
+    setSaved(false);
+  }, [member.id]);
 
   const ageMonths = member.birthdate ? calculateAgeInMonths(member.birthdate) : -1;
   const suggestions = getSizeSuggestions(ageMonths, member.role);
@@ -82,7 +93,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
   const handleSave = () => {
     onUpdateSizes(member.id, {
       ...sizes,
-      lastUpdated: new Date().toISOString().split('T')[0],
+      lastUpdated: todayLocal(), // Bug fix #3: date-only string
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -90,7 +101,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
 
   const handleCopy = () => {
     const textParts = [
-      `👕 Clothing Sizes for ${member.name}:`,
+      `Clothing Sizes for ${member.name}:`,
       sizes.tops ? `• Tops: ${sizes.tops}` : null,
       sizes.bottoms ? `• Bottoms: ${sizes.bottoms}` : null,
       sizes.shoes ? `• Shoes: ${sizes.shoes}` : null,
@@ -115,110 +126,111 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
       tops: suggestions.tops,
       bottoms: suggestions.bottoms,
       shoes: suggestions.shoes,
-      heightCm: suggestions.height.replace(/[^\d.]/g, ''),
-      weightKg: suggestions.weight.split(' ')[0],
+      // Bug fix #4: extract first number only, not all digits concatenated
+      heightCm: suggestions.height.match(/[\d.]+/)?.[0] || '',
+      weightKg: suggestions.weight.match(/[\d.]+/)?.[0] || '',
     }));
   };
 
   return (
     <div className="space-y-6">
-      {/* Sizing Stats Grid (Responsive adaptation of Design HTML) */}
+      {/* Sizing Stats Grid */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-xs">
-          <p className="text-[10px] uppercase tracking-widest text-gray-450 font-bold mb-1.5">Shirt Size</p>
-          <p className="text-2xl font-light text-gray-900">
-            {sizes.tops || <span className="text-gray-300 font-extralight">—</span>}
+        <div className="bg-cream-100 border border-cream-200 p-5 rounded-2xl shadow-soft">
+          <p className="section-label mb-1.5">Shirt size</p>
+          <p className="text-2xl font-light text-ink-900">
+            {sizes.tops || <span className="text-ink-400 font-extralight">—</span>}
           </p>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-xs">
-          <p className="text-[10px] uppercase tracking-widest text-gray-450 font-bold mb-1.5">Shoe Size</p>
-          <p className="text-2xl font-light text-gray-900">
-            {sizes.shoes || <span className="text-gray-300 font-extralight">—</span>}
+        <div className="bg-cream-100 border border-cream-200 p-5 rounded-2xl shadow-soft">
+          <p className="section-label mb-1.5">Shoe size</p>
+          <p className="text-2xl font-light text-ink-900">
+            {sizes.shoes || <span className="text-ink-400 font-extralight">—</span>}
           </p>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-xs">
-          <p className="text-[10px] uppercase tracking-widest text-gray-450 font-bold mb-1.5">Pant Size</p>
-          <p className="text-2xl font-light text-gray-900">
-            {sizes.bottoms || <span className="text-gray-300 font-extralight">—</span>}
+        <div className="bg-cream-100 border border-cream-200 p-5 rounded-2xl shadow-soft">
+          <p className="section-label mb-1.5">Pant size</p>
+          <p className="text-2xl font-light text-ink-900">
+            {sizes.bottoms || <span className="text-ink-400 font-extralight">—</span>}
           </p>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-xs">
-          <p className="text-[10px] uppercase tracking-widest text-gray-450 font-bold mb-1.5">Height &amp; Weight</p>
-          <p className="text-xl font-light text-gray-900 truncate">
-            {sizes.heightCm ? `${sizes.heightCm} cm` : <span className="text-gray-300 font-extralight">—</span>}
-            {sizes.weightKg && <span className="text-xs text-gray-400 font-normal ml-1">({sizes.weightKg} kg)</span>}
+        <div className="bg-cream-100 border border-cream-200 p-5 rounded-2xl shadow-soft">
+          <p className="section-label mb-1.5">Height &amp; weight</p>
+          <p className="text-xl font-light text-ink-900 truncate">
+            {sizes.heightCm ? `${sizes.heightCm} cm` : <span className="text-ink-400 font-extralight">—</span>}
+            {sizes.weightKg && <span className="text-xs text-ink-500 font-normal ml-1">({sizes.weightKg} kg)</span>}
           </p>
         </div>
       </section>
 
       {/* Header Info */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-cream-200 pb-4">
         <div>
-          <h3 className="text-sm font-bold text-gray-900 flex flex-wrap items-center gap-2 uppercase tracking-wider">
-            <span className="w-1.5 h-3.5 bg-blue-600 rounded-full inline-block"></span>
-            <span>Clothing &amp; Fit Values</span>
-            <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-blue-700 border border-blue-200">
-              🇪🇺 EU Standard Active
+          <h3 className="font-display text-lg font-semibold text-ink-900 flex flex-wrap items-center gap-2">
+            <span className="w-1.5 h-3.5 bg-dusk-500 rounded-full inline-block"></span>
+            <span>Clothing &amp; fit values</span>
+            <span className="chip bg-dusk-100 text-dusk-700">
+              🇪🇺 EU standard
             </span>
           </h3>
-          <p className="text-xs text-gray-500 mt-1">Configure complete sizing specifications for seamless family orders or wardrobe upgrades (EU Standard EN 13402).</p>
+          <p className="text-[13px] text-ink-500 mt-1">Configure complete sizing for seamless family orders or wardrobe upgrades (EU Standard EN 13402).</p>
         </div>
-        
+
         <div className="flex items-center space-x-2 shrink-0">
           <button
             type="button"
             onClick={handleCopy}
-            className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-gray-650 bg-white border border-gray-250 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer shadow-xs"
+            className="btn-quiet text-sm px-3 py-1.5"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied Details!' : 'Copy to Clipboard'}</span>
+            {copied ? <Check className="w-3.5 h-3.5 text-sage-600" /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{copied ? 'Copied!' : 'Copy to clipboard'}</span>
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="flex items-center space-x-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-gray-950 hover:bg-black rounded-xl transition-all shadow-sm cursor-pointer"
+            className="btn-primary text-sm px-4 py-1.5"
           >
             {saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-            <span>{saved ? 'Saved Successfully!' : 'Save Essentials'}</span>
+            <span>{saved ? 'Saved!' : 'Save essentials'}</span>
           </button>
         </div>
       </div>
 
-      {/* Suggestion Engine Alert */}
+      {/* Suggestion Engine */}
       {suggestions && (
-        <div className="p-4 rounded-2xl bg-gray-50 border border-gray-150 flex items-start space-x-3 shadow-xs">
-          <div className="p-1.5 rounded-xl bg-gray-100 text-gray-700 mt-0.5">
+        <div className="p-4 rounded-2xl bg-cream-100 border border-cream-200 flex items-start space-x-3 shadow-soft">
+          <div className="p-1.5 rounded-xl bg-honey-100 text-honey-700 mt-0.5">
             <TrendingUp className="w-4 h-4" />
           </div>
           <div className="flex-1">
-            <h4 className="text-[10px] font-bold text-gray-950 tracking-wider uppercase">Smart Fit Estimator</h4>
-            <p className="text-xs text-gray-600 mt-0.5">
-              Consistent standard sizing recommendation based on {member.name}&apos;s birthdate:
+            <h4 className="text-[13px] font-semibold text-ink-900">Smart fit estimator</h4>
+            <p className="text-[13px] text-ink-500 mt-0.5">
+              Standard sizing recommendation based on {member.name}&apos;s birthdate:
             </p>
             <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              <div className="bg-white p-2 rounded-xl border border-gray-150">
-                <span className="text-[9px] text-gray-400 block font-semibold uppercase tracking-wider">Tops/Pants</span>
-                <span className="font-semibold text-gray-800">{suggestions.tops}</span>
+              <div className="bg-white p-2 rounded-xl border border-cream-200">
+                <span className="section-label block mb-0.5">Tops/pants</span>
+                <span className="font-semibold text-ink-800">{suggestions.tops}</span>
               </div>
-              <div className="bg-white p-2 rounded-xl border border-gray-150">
-                <span className="text-[9px] text-gray-400 block font-semibold uppercase tracking-wider">Shoes</span>
-                <span className="font-semibold text-gray-800">{suggestions.shoes}</span>
+              <div className="bg-white p-2 rounded-xl border border-cream-200">
+                <span className="section-label block mb-0.5">Shoes</span>
+                <span className="font-semibold text-ink-800">{suggestions.shoes}</span>
               </div>
-              <div className="bg-white p-2 rounded-xl border border-gray-150">
-                <span className="text-[9px] text-gray-400 block font-semibold uppercase tracking-wider">Height</span>
-                <span className="font-semibold text-gray-800">{suggestions.height}</span>
+              <div className="bg-white p-2 rounded-xl border border-cream-200">
+                <span className="section-label block mb-0.5">Height</span>
+                <span className="font-semibold text-ink-800">{suggestions.height}</span>
               </div>
-              <div className="bg-white p-2 rounded-xl border border-gray-150">
-                <span className="text-[9px] text-gray-400 block font-semibold uppercase tracking-wider">Weight</span>
-                <span className="font-semibold text-gray-800">{suggestions.weight}</span>
+              <div className="bg-white p-2 rounded-xl border border-cream-200">
+                <span className="section-label block mb-0.5">Weight</span>
+                <span className="font-semibold text-ink-800">{suggestions.weight}</span>
               </div>
             </div>
             <button
               type="button"
               onClick={applySuggestions}
-              className="mt-3 text-xs font-bold text-gray-900 hover:text-black flex items-center gap-1 cursor-pointer underline underline-offset-2"
+              className="mt-3 text-[13px] font-semibold text-ink-700 hover:text-ink-900 flex items-center gap-1 cursor-pointer underline underline-offset-2"
             >
-              Apply Estimated Standard Sizes
+              Apply estimated standard sizes
             </button>
           </div>
         </div>
@@ -227,29 +239,25 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
       {/* Sizing Form Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         {/* Metric Height / Weight */}
-        <div className="p-4 rounded-2xl bg-gray-50 border border-gray-150 grid grid-cols-2 gap-4 col-span-1 sm:col-span-2 shadow-xs">
+        <div className="p-4 rounded-2xl bg-cream-100 border border-cream-200 grid grid-cols-2 gap-4 col-span-1 sm:col-span-2 shadow-soft">
           <div>
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
-              Height (cm)
-            </label>
+            <label className="field-label">Height (cm)</label>
             <input
               type="number"
               placeholder="e.g. 116"
               value={sizes.heightCm}
               onChange={(e) => handleFieldChange('heightCm', e.target.value)}
-              className="w-full px-3.5 py-2 bg-white border border-gray-250 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900"
+              className="field"
             />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
-              Weight (kg)
-            </label>
+            <label className="field-label">Weight (kg)</label>
             <input
               type="number"
               placeholder="e.g. 21"
               value={sizes.weightKg}
               onChange={(e) => handleFieldChange('weightKg', e.target.value)}
-              className="w-full px-3.5 py-2 bg-white border border-gray-250 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900"
+              className="field"
             />
           </div>
         </div>
@@ -257,99 +265,85 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
         {/* Basic Clothes Sizes */}
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
-              Tops / Shirts Size (EU)
-            </label>
+            <label className="field-label">Tops / shirts size (EU)</label>
             <input
               type="text"
               placeholder="e.g. EU 140, EU 38 (M), Medium"
               value={sizes.tops}
               onChange={(e) => handleFieldChange('tops', e.target.value)}
-              className="w-full px-3.5 py-2 bg-white border border-gray-250 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-colors"
+              className="field"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
-              Bottoms / Pants Size (EU)
-            </label>
+            <label className="field-label">Bottoms / pants size (EU)</label>
             <input
               type="text"
               placeholder="e.g. EU 140, EU 38 / 30W"
               value={sizes.bottoms}
               onChange={(e) => handleFieldChange('bottoms', e.target.value)}
-              className="w-full px-3.5 py-2 bg-white border border-gray-250 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-colors"
+              className="field"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
-              Shoe Size (EU)
-            </label>
+            <label className="field-label">Shoe size (EU)</label>
             <input
               type="text"
               placeholder="e.g. EU 35, EU 43"
               value={sizes.shoes}
               onChange={(e) => handleFieldChange('shoes', e.target.value)}
-              className="w-full px-3.5 py-2 bg-white border border-gray-250 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-colors"
+              className="field"
             />
           </div>
         </div>
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
-              Outerwear / Coats (EU)
-            </label>
+            <label className="field-label">Outerwear / coats (EU)</label>
             <input
               type="text"
               placeholder="e.g. EU 140, EU 40 (M)"
               value={sizes.outerwear}
               onChange={(e) => handleFieldChange('outerwear', e.target.value)}
-              className="w-full px-3.5 py-2 bg-white border border-gray-250 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-colors"
+              className="field"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
-              Underwear (EU)
-            </label>
+            <label className="field-label">Underwear (EU)</label>
             <input
               type="text"
               placeholder="e.g. EU 140, M"
               value={sizes.underwear}
               onChange={(e) => handleFieldChange('underwear', e.target.value)}
-              className="w-full px-3.5 py-2 bg-white border border-gray-250 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-colors"
+              className="field"
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
-              Hat / Head Circumference
-            </label>
+            <label className="field-label">Hat / head circumference</label>
             <input
               type="text"
               placeholder="e.g. 54 cm, 58 cm"
               value={sizes.hatValue}
               onChange={(e) => handleFieldChange('hatValue', e.target.value)}
-              className="w-full px-3.5 py-2 bg-white border border-gray-250 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-colors"
+              className="field"
             />
           </div>
         </div>
 
         {/* Brand Preferences & fit notes */}
         <div className="col-span-1 sm:col-span-2">
-          <label className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">
-            Brand preferences, allergies, or fit notes
-          </label>
+          <label className="field-label">Brand preferences, allergies, or fit notes</label>
           <textarea
             rows={2}
             placeholder="e.g. Prefers tagless designs, prefers organic cotton. Target brand runs small, size up."
             value={sizes.notes}
             onChange={(e) => handleFieldChange('notes', e.target.value)}
-            className="w-full px-3.5 py-2 bg-white border border-gray-250 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 transition-colors font-sans"
+            className="field font-sans"
           />
         </div>
       </div>
 
       {member.clothingSizes.lastUpdated && (
-        <p className="text-right text-[10px] text-gray-400 font-mono">
+        <p className="text-right text-xs text-ink-400 font-mono">
           Last updated: {member.clothingSizes.lastUpdated}
         </p>
       )}

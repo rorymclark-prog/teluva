@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyMember, ClothingSizes, PassportInfo, FamilyDocument, CalendarEvent } from '../types';
-import { 
-  loadFamilyMembers, saveFamilyMembers, DEFAULT_FAMILY,
-  loadCalendarEvents, saveCalendarEvents, DEFAULT_EVENTS 
+import {
+  loadFamilyMembers, saveFamilyMembers,
+  loadCalendarEvents, saveCalendarEvents
 } from '../utils/db';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { DEMO_MEMBERS, DEMO_EVENTS, isDemoMode } from '../utils/demoData';
+import { warmAvatarColor } from '../utils/avatarPalette';
 import AddMemberModal from './AddMemberModal';
 import EditMemberModal from './EditMemberModal';
 import MemberSizing from './MemberSizing';
@@ -18,11 +20,10 @@ import FamilyCalendar from './FamilyCalendar';
 import FamilyChat from './FamilyChat';
 import GoogleDriveSync from './GoogleDriveSync';
 import MemberFavorites from './MemberFavorites';
-import { 
-  Users, UserPlus, FileText, Compass, Search, 
-  Layers, Bell, AlertTriangle, User, ShieldCheck, 
-  Scissors, Trash2, Lock, Unlock, Key, TrendingUp, Calendar, Info,
-  Download, Heart, LogOut, LogIn
+import {
+  Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
+  Scissors, Trash2, Lock, Key, TrendingUp, Calendar, Heart,
+  LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -31,47 +32,80 @@ export function calculateAge(birthdate?: string): string | null {
   const birthDate = new Date(birthdate);
   if (isNaN(birthDate.getTime())) return null;
   const today = new Date();
-  
+
   let age = today.getFullYear() - birthDate.getFullYear();
   const m = today.getMonth() - birthDate.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
     age--;
   }
-  
+
   if (age < 0) return null;
   if (age === 0) {
     const months = (today.getFullYear() - birthDate.getFullYear()) * 12 + today.getMonth() - birthDate.getMonth();
-    if (months <= 0) return "Newborn";
+    if (months <= 0) return 'Newborn';
     return `${months}m`;
   }
   return `${age} yrs`;
 }
 
+type TabId = 'sizes' | 'favorites' | 'growth' | 'passport' | 'documents' | 'secrets';
+type ViewId = 'profiles' | 'calendar' | 'chat' | 'drive';
+
+const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
+  { id: 'sizes', label: 'Sizes', icon: Scissors },
+  { id: 'favorites', label: 'Likes', icon: Heart },
+  { id: 'growth', label: 'Growth', icon: TrendingUp },
+  { id: 'passport', label: 'Passport', icon: Lock },
+  { id: 'documents', label: 'Documents', icon: FileText },
+  { id: 'secrets', label: 'Secrets', icon: Key },
+];
+
+const VIEWS: { id: ViewId; label: string; icon: React.ElementType }[] = [
+  { id: 'profiles', label: 'Profiles', icon: Users },
+  { id: 'calendar', label: 'Calendar', icon: Calendar },
+  { id: 'chat', label: 'Chat', icon: MessageCircle },
+  { id: 'drive', label: 'Drive', icon: Cloud },
+];
+
 export default function Dashboard() {
+  const demo = isDemoMode();
+
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isAuthLoading, setIsAuthLoading] = useState(!demo);
 
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'sizes' | 'growth' | 'passport' | 'documents' | 'secrets' | 'favorites'>('sizes');
+  const [activeTab, setActiveTab] = useState<TabId>('sizes');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<FamilyDocument | null>(null);
   const [selectedDocumentMemberName, setSelectedDocumentMemberName] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
-  
-  // High level View selector
-  const [mainView, setMainView] = useState<'profiles' | 'calendar' | 'chat' | 'drive'>('profiles');
+
+  const [mainView, setMainView] = useState<ViewId>('profiles');
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
+  // null = no save attempted yet; true/false = last save reached cloud or not
+  const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 4500);
+  };
+
   useEffect(() => {
-    // Set a timeout to prevent infinite loading spinner in Safari if auth is blocked
-    const timeout = setTimeout(() => {
-      if (isAuthLoading) {
-        setIsAuthLoading(false);
-      }
-    }, 3000);
+    if (demo) {
+      setCurrentUser({ displayName: 'Demo family', isDemo: true });
+      setMembers(DEMO_MEMBERS);
+      setEvents(DEMO_EVENTS);
+      setSelectedMemberId(DEMO_MEMBERS[0].id);
+      return;
+    }
+
+    // Safety timeout so a blocked auth popup never leaves an infinite spinner
+    const timeout = setTimeout(() => setIsAuthLoading(false), 3000);
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
@@ -82,72 +116,51 @@ export default function Dashboard() {
       unsubscribe();
       clearTimeout(timeout);
     };
-  }, [isAuthLoading]);
+  }, []);
 
-  // Load families & events on mount or user change
+  // Load family & events when the signed-in user changes
   useEffect(() => {
+    if (demo) return;
+
     async function init() {
-      // Don't auto-load unless authenticated to prevent local mixups
       if (!currentUser) {
         setMembers([]);
         setEvents([]);
         return;
       }
 
-      let data = await loadFamilyMembers();
+      const data = await loadFamilyMembers();
       if (data && data.length > 0) {
-        // Automatically purge any remaining old mock data from localStorage
-        const oldLength = data.length;
-        data = data.filter(m => {
-          const lowerName = m.name.toLowerCase();
-          // Filter out Vita (the one triggering the expiry warning) and other generic mocks
-          return !['vita', 'amina', 'amya'].includes(lowerName);
-        });
-        
-        if (data.length !== oldLength) {
-          await saveFamilyMembers(data);
-        }
-        
         setMembers(data);
-        if (data.length > 0) {
-          setSelectedMemberId(data[0].id);
-        }
+        setSelectedMemberId(data[0].id);
       } else {
         setMembers([]);
       }
 
-      // Load calendar
       const calData = await loadCalendarEvents();
-      if (calData && calData.length > 0) {
-        const filteredEvents = calData.filter(e => !e.title.toLowerCase().includes('wellness') && !e.title.toLowerCase().includes("amya"));
-        if (filteredEvents.length !== calData.length) {
-            await saveCalendarEvents(filteredEvents);
-        }
-        setEvents(filteredEvents);
-      } else {
-        setEvents([]);
-      }
+      setEvents(calData && calData.length > 0 ? calData : []);
     }
     init();
   }, [currentUser]);
 
-  // Sync back on modify
   const persistChanges = async (updated: FamilyMember[]) => {
     setMembers(updated);
-    await saveFamilyMembers(updated);
+    if (demo) return;
+    const ok = await saveFamilyMembers(updated);
+    setCloudSynced(ok);
+    if (!ok) showToast("Saved on this device — cloud sync didn't go through.");
   };
 
   const handleSaveEvents = async (updatedEvents: CalendarEvent[]) => {
     setEvents(updatedEvents);
-    await saveCalendarEvents(updatedEvents);
+    if (demo) return;
+    const ok = await saveCalendarEvents(updatedEvents);
+    setCloudSynced(ok);
+    if (!ok) showToast("Saved on this device — cloud sync didn't go through.");
   };
 
-  // Profile actions
   const handleAddMember = async (newMember: Omit<FamilyMember, 'documents'>) => {
-    const fullMember: FamilyMember = {
-      ...newMember,
-      documents: []
-    };
+    const fullMember: FamilyMember = { ...newMember, documents: [] };
     const updated = [...members, fullMember];
     await persistChanges(updated);
     setSelectedMemberId(fullMember.id);
@@ -157,69 +170,42 @@ export default function Dashboard() {
     const updated = members.filter(m => m.id !== id);
     await persistChanges(updated);
     setDeleteConfirmMemberId(null);
-    if (selectedMemberId === id && updated.length > 0) {
-      setSelectedMemberId(updated[0].id);
+    if (selectedMemberId === id) {
+      setSelectedMemberId(updated.length > 0 ? updated[0].id : '');
     }
   };
 
   const handleUpdateSizes = async (memberId: string, sizes: ClothingSizes) => {
-    const updated = members.map(m => {
-      if (m.id === memberId) {
-        return { ...m, clothingSizes: sizes };
-      }
-      return m;
-    });
-    await persistChanges(updated);
+    await persistChanges(members.map(m => (m.id === memberId ? { ...m, clothingSizes: sizes } : m)));
   };
 
   const handleUpdatePassport = async (memberId: string, passport: PassportInfo | undefined) => {
-    const updated = members.map(m => {
-      if (m.id === memberId) {
-        return { ...m, passport };
-      }
-      return m;
-    });
-    await persistChanges(updated);
+    await persistChanges(members.map(m => (m.id === memberId ? { ...m, passport } : m)));
   };
 
-  const handleAddDocument = async (memberId: string, doc: FamilyDocument) => {
-    const updated = members.map(m => {
-      if (m.id === memberId) {
-        return { ...m, documents: [...m.documents, doc] };
-      }
-      return m;
-    });
-    await persistChanges(updated);
+  const handleAddDocument = async (memberId: string, docToAdd: FamilyDocument) => {
+    await persistChanges(members.map(m => (m.id === memberId ? { ...m, documents: [...m.documents, docToAdd] } : m)));
   };
 
   const handleDeleteDocument = async (memberId: string, docId: string) => {
-    const updated = members.map(m => {
-      if (m.id === memberId) {
-        return { ...m, documents: m.documents.filter(d => d.id !== docId) };
-      }
-      return m;
-    });
-    await persistChanges(updated);
+    await persistChanges(members.map(m => (m.id === memberId ? { ...m, documents: m.documents.filter(d => d.id !== docId) } : m)));
   };
 
   const handleUpdateMember = async (updatedMember: FamilyMember) => {
-    const updated = members.map(m => m.id === updatedMember.id ? updatedMember : m);
-    await persistChanges(updated);
+    await persistChanges(members.map(m => (m.id === updatedMember.id ? updatedMember : m)));
   };
 
-  const handleViewDocument = (doc: FamilyDocument, memberName: string) => {
-    setSelectedDocument(doc);
+  const handleViewDocument = (docToView: FamilyDocument, memberName: string) => {
+    setSelectedDocument(docToView);
     setSelectedDocumentMemberName(memberName);
   };
-
-// Member update actions
 
   const handleExportAllData = () => {
     try {
       const backupData = {
         exportedAt: new Date().toISOString(),
-        author: 'Family Vault Backup Agent',
-        members: members,
+        author: 'Family Vault backup',
+        members,
         calendarEvents: events,
       };
 
@@ -227,18 +213,17 @@ export default function Dashboard() {
       const blob = new Blob([dataStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
 
-      const exportFileDefaultName = `family_vault_backup_${new Date().toISOString().split('T')[0]}.json`;
+      const exportFileDefaultName = `family_vault_backup_${new Date().toLocaleDateString('en-CA')}.json`;
 
       const linkElement = document.createElement('a');
       linkElement.setAttribute('href', url);
       linkElement.setAttribute('download', exportFileDefaultName);
       linkElement.click();
 
-      // Clean up the URL object after clicking
       setTimeout(() => URL.revokeObjectURL(url), 100);
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Failed to generate offline backup data.');
+      showToast('Could not generate the backup file.');
     }
   };
 
@@ -251,33 +236,33 @@ export default function Dashboard() {
       try {
         const content = e.target?.result as string;
         const backupData = JSON.parse(content);
-        
+
         if (backupData.members && Array.isArray(backupData.members)) {
           await persistChanges(backupData.members);
+          if (backupData.members.length > 0) setSelectedMemberId(backupData.members[0].id);
         }
-        
+
         if (backupData.calendarEvents && Array.isArray(backupData.calendarEvents)) {
           await handleSaveEvents(backupData.calendarEvents);
         }
-        
-        alert('Data successfully imported and synchronized!');
+
+        showToast('Backup imported.');
       } catch (error) {
         console.error('Import failed:', error);
-        alert('Failed to parse backup data. Ensure it is a valid family vault JSON file.');
+        showToast("Couldn't read that backup file — is it a Family Vault export?");
       }
     };
     reader.readAsText(file);
+    event.target.value = '';
   };
 
-  // Compute stats helper
-  const totalDocuments = members.reduce((acc, m) => acc + (m.documents?.length || 0), 0);
   const selectedMember = members.find(m => m.id === selectedMemberId);
 
-  // Expiry notifications generator for full family
+  // Passport expiry notices (9-month horizon, computed from the real date)
   const passportWarnings = members
     .filter(m => m.passport?.expiryDate)
     .map(m => {
-      const today = new Date('2026-05-22');
+      const today = new Date();
       const expiry = new Date(m.passport!.expiryDate);
       const diffTime = expiry.getTime() - today.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -286,16 +271,15 @@ export default function Dashboard() {
     })
     .filter(warning => warning.status !== 'none');
 
-  // Multi-attribute search matching
-  const filteredMembers = searchQuery.trim() === '' 
-    ? members 
+  const filteredMembers = searchQuery.trim() === ''
+    ? members
     : members.filter(m => {
         const query = searchQuery.toLowerCase();
         const sizesText = JSON.stringify(m.clothingSizes).toLowerCase();
         const schoolText = m.education?.schoolName?.toLowerCase() || '';
         const digitalAccountsText = JSON.stringify(m.digitalAccounts || []).toLowerCase();
         const passportNo = m.passport?.passportNumber.toLowerCase() || '';
-        return m.name.toLowerCase().includes(query) || 
+        return m.name.toLowerCase().includes(query) ||
                m.role.toLowerCase().includes(query) ||
                sizesText.includes(query) ||
                schoolText.includes(query) ||
@@ -305,169 +289,130 @@ export default function Dashboard() {
 
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen bg-[#F4F7F6] flex items-center justify-center font-sans">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      <div className="min-h-screen bg-cream-100 flex items-center justify-center font-sans">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-clay-500"></div>
       </div>
     );
   }
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-[#F4F7F6] flex items-center justify-center font-sans">
-        <div className="bg-white p-8 rounded-2xl shadow-sm text-center max-w-sm w-full mx-4 border border-gray-150">
-          <ShieldCheck className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
-          <h1 className="text-xl font-bold tracking-tight text-gray-900 mb-2">Family Vault</h1>
-          <p className="text-sm text-gray-500 mb-8">Secure your family's records with encrypted cloud sync across all your devices.</p>
-          <button
-            onClick={loginWithGoogle}
-            className="w-full flex items-center justify-center space-x-2 bg-gray-950 hover:bg-gray-900 text-white py-3 px-4 rounded-xl font-semibold transition-colors shadow-sm"
-          >
-            <LogIn className="w-5 h-5" />
+      <div className="min-h-screen bg-cream-100 flex items-center justify-center font-sans px-4">
+        <div className="card p-10 text-center max-w-md w-full">
+          <div className="w-16 h-16 rounded-full bg-sage-100 flex items-center justify-center mx-auto mb-5">
+            <ShieldCheck className="w-8 h-8 text-sage-600" />
+          </div>
+          <h1 className="font-display text-3xl font-semibold text-ink-900 mb-3">Family Vault</h1>
+          <p className="text-sm text-ink-500 leading-relaxed mb-8">
+            Sizes, documents, growth and plans for the whole family — together in one private place.
+          </p>
+          <button onClick={loginWithGoogle} className="btn-primary w-full py-3">
+            <LogIn className="w-4 h-4" />
             <span>Sign in with Google</span>
           </button>
+          <a href="?demo=1" className="inline-block mt-5 text-xs text-ink-400 underline underline-offset-2 hover:text-ink-600">
+            or take a peek at the demo
+          </a>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F4F7F6] text-gray-900 pb-12 font-sans">
-      {/* Top Header Panel */}
-      <header className="bg-white border-b border-gray-150 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap sm:flex-nowrap items-center justify-between gap-4">
-          <div className="flex items-center space-x-3.5">
-            <span className="w-1.5 h-6 bg-gray-900 rounded-full inline-block"></span>
+    <div className="min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans">
+      {/* Header */}
+      <header className="bg-cream-50/90 backdrop-blur border-b border-cream-300/60 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5 text-sage-600" />
+            </div>
             <div>
-              <h1 className="text-sm font-bold tracking-widest text-gray-900 uppercase">
-                Family Organizer
-              </h1>
-              <p className="text-[9px] text-gray-450 uppercase tracking-widest font-bold mt-0.5">Secure Records &amp; Planner</p>
+              <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight">Family Vault</h1>
+              <p className="hidden sm:block text-[11px] text-ink-400 font-medium leading-tight">Records, sizes &amp; plans in one place</p>
             </div>
           </div>
 
-          {/* Core Navigation Toggle: Member Profiles vs Calendar vs Workspace Chat */}
-          <div className="flex items-center space-x-4 overflow-x-auto mx-auto sm:mx-0">
-            <div className="flex items-center space-x-1 bg-gray-100 p-0.5 rounded-xl border border-gray-150">
+          {/* Main view switcher */}
+          <nav className="flex items-center bg-cream-200 p-1 rounded-2xl mx-auto sm:mx-0 overflow-x-auto">
+            {VIEWS.map(view => (
               <button
+                key={view.id}
                 type="button"
-                onClick={() => setMainView('profiles')}
-                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-                  mainView === 'profiles'
-                    ? 'bg-white text-gray-950 shadow-xs'
-                    : 'text-gray-500 hover:text-gray-800'
-                }`}
+                onClick={() => setMainView(view.id)}
+                className={`tab-pill ${mainView === view.id ? 'tab-pill-active' : ''}`}
               >
-                Profiles
+                <view.icon className="w-4 h-4" />
+                <span className="hidden md:inline">{view.label}</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setMainView('calendar')}
-                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-                  mainView === 'calendar'
-                    ? 'bg-white text-gray-950 shadow-xs'
-                    : 'text-gray-500 hover:text-gray-800'
-                }`}
-              >
-                Calendar
-              </button>
-              <button
-                type="button"
-                onClick={() => setMainView('chat')}
-                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-                  mainView === 'chat'
-                    ? 'bg-white text-gray-950 shadow-xs'
-                    : 'text-gray-500 hover:text-gray-800'
-                }`}
-              >
-                Chat
-              </button>
-              <button
-                type="button"
-                onClick={() => setMainView('drive')}
-                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
-                  mainView === 'drive'
-                    ? 'bg-white text-gray-950 shadow-xs'
-                    : 'text-gray-500 hover:text-gray-800'
-                }`}
-              >
-                Sync
-              </button>
-            </div>
-          </div>
+            ))}
+          </nav>
 
-          <div className="flex items-center space-x-3 ml-auto sm:ml-0">
-            {/* Search Input bar */}
-            <div className="relative hidden md:block">
-              <Search className="absolute left-3.5 top-2.5 w-3.5 h-3.5 text-gray-450" />
+          <div className="flex items-center gap-2 ml-auto sm:ml-0">
+            <div className="relative hidden lg:block">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
               <input
                 type="text"
-                placeholder="Search sizes, portals, SSN, documents..."
+                placeholder="Search the family…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-4 py-1.5 w-64 border border-gray-200 rounded-xl text-xs bg-gray-50 hover:bg-gray-100 focus:bg-white focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-950 transition-all font-sans"
+                className="pl-10 pr-4 py-2 w-56 border border-cream-300 rounded-xl text-[13px] bg-white text-ink-800 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-clay-300 focus:border-clay-400 transition-all"
               />
             </div>
 
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="flex items-center space-x-1 px-4 py-2 bg-gray-950 hover:bg-black text-white rounded-xl text-xs font-bold uppercase tracking-wider cursor-pointer transition-all whitespace-nowrap"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Add Profile</span>
+            <button onClick={() => setIsAddModalOpen(true)} className="btn-primary px-4 py-2">
+              <UserPlus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add member</span>
             </button>
-            
-            <button
-              onClick={logout}
-              className="flex items-center space-x-1 px-3 py-2 bg-white text-gray-700 hover:bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold uppercase tracking-wider cursor-pointer transition-all whitespace-nowrap"
-              title="Sign out"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </button>
+
+            {!demo && (
+              <>
+                <button onClick={handleExportAllData} className="btn-quiet px-3 py-2" title="Download a backup of everything">
+                  <Download className="w-4 h-4" />
+                </button>
+                <label className="btn-quiet px-3 py-2 cursor-pointer" title="Restore from a backup file">
+                  <Upload className="w-4 h-4" />
+                  <input type="file" accept="application/json" onChange={handleImportAllData} className="hidden" />
+                </label>
+                <button onClick={logout} className="btn-quiet px-3 py-2" title="Sign out">
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Main Panel Content container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
-        
-        {/* Render CALENDAR view directly if selected */}
         {mainView === 'calendar' && (
-          <FamilyCalendar
-            members={members}
-            events={events}
-            onSaveEvents={handleSaveEvents}
-          />
+          <FamilyCalendar members={members} events={events} onSaveEvents={handleSaveEvents} />
         )}
 
-        {/* Render FAMILY REAL-TIME CHAT if selected */}
         {mainView === 'chat' && (
-          <FamilyChat
-            members={members}
-            selectedMemberId={selectedMemberId}
-          />
+          demo ? (
+            <DemoUnavailable label="Family chat" />
+          ) : (
+            <FamilyChat members={members} selectedMemberId={selectedMemberId} />
+          )
         )}
 
-        {/* Render GOOGLE DRIVE SYNC EXPLORER if selected */}
         {mainView === 'drive' && (
-          <GoogleDriveSync />
+          demo ? <DemoUnavailable label="Drive sync" /> : <GoogleDriveSync />
         )}
-        
+
         {mainView === 'profiles' && (
           <>
-            {/* Urgent Warnings Box if passports expire soon */}
             {passportWarnings.length > 0 && (
-              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200/55 flex items-start gap-3 shadow-xs">
-                <div className="p-1.5 rounded-xl bg-amber-100/80 text-amber-800 mt-0.5 shrink-0">
+              <div className="p-4 rounded-3xl bg-honey-50 border border-honey-100 flex items-start gap-3 shadow-soft">
+                <div className="p-2 rounded-2xl bg-honey-100 text-honey-700 mt-0.5 shrink-0">
                   <Bell className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-[10px] font-bold text-amber-950 uppercase tracking-wider font-sans">
-                    Passport Expiry Notices
-                  </h3>
-                  <div className="mt-1 space-y-1 text-xs text-amber-800 font-sans">
+                  <h3 className="text-[13px] font-bold text-honey-900">Passport renewals</h3>
+                  <div className="mt-1 space-y-1 text-[13px] text-honey-900/90">
                     {passportWarnings.map((warning, i) => (
                       <p key={i}>
-                        ✈️ <strong>{warning.member.name}</strong>&apos;s passport {warning.status === 'expired' ? 'has expired' : `is expiring within ${warning.monthsLeft} months`}. Consider scheduling a renewal check on the family schedule.
+                        <strong>{warning.member.name}</strong>&apos;s passport {warning.status === 'expired' ? 'has expired' : `expires in about ${warning.monthsLeft} months`} — worth booking the renewal soon.
                       </p>
                     ))}
                   </div>
@@ -475,321 +420,197 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Dashboard layout Grid system */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              
-              {/* Member Profile Sidebar Column */}
-              <section className="lg:col-span-4 space-y-5">
-                {/* Mobile Search block */}
-                <div className="block md:hidden font-sans">
-                  <div className="relative">
-                    <Search className="absolute left-3.5 top-3 w-3.5 h-3.5 text-gray-450" />
-                    <input
-                      type="text"
-                      placeholder="Search credentials, SSN, logins..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9 pr-4 py-2.5 w-full border border-gray-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900"
-                    />
-                  </div>
+            {members.length === 0 ? (
+              <div className="card text-center py-20 px-6">
+                <div className="w-16 h-16 rounded-full bg-clay-50 flex items-center justify-center mx-auto mb-5">
+                  <Users className="w-8 h-8 text-clay-400" />
                 </div>
-
-                <div className="bg-white border border-gray-150 rounded-2xl p-5 space-y-4 shadow-xs">
-                  <div className="flex items-center justify-between pb-3.5 border-b border-gray-100">
-                    <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Family Directory
-                    </h4>
-                    <span className="text-[10px] font-bold text-gray-900 bg-gray-105 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                      {members.length} Profile{members.length !== 1 ? 's' : ''}
-                    </span>
+                <h2 className="font-display text-2xl font-semibold text-ink-900 mb-2">Welcome to your Family Vault</h2>
+                <p className="text-sm text-ink-500 max-w-md mx-auto mb-7">
+                  Keep everyone&apos;s clothing sizes, documents, growth history and wish lists in one tidy, private place.
+                </p>
+                <button onClick={() => setIsAddModalOpen(true)} className="btn-primary">
+                  <UserPlus className="w-4 h-4" />
+                  <span>Add your first family member</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* Family directory */}
+                <section className="lg:col-span-4 space-y-5">
+                  <div className="block lg:hidden">
+                    <div className="relative">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
+                      <input
+                        type="text"
+                        placeholder="Search the family…"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="field pl-10"
+                      />
+                    </div>
                   </div>
 
-                  {/* Filtering summary warning if query typed */}
-                  {searchQuery && (
-                    <p className="text-xs text-gray-500 italic mt-1 bg-gray-50 p-2 rounded-lg border border-gray-100">
-                      Filtering by: &ldquo;{searchQuery}&rdquo;
-                    </p>
-                  )}
-
-                  {filteredMembers.length === 0 ? (
-                    <div className="text-center py-10">
-                      <p className="text-xs font-semibold text-gray-400">No profile matches found.</p>
+                  <div className="card p-5 space-y-4">
+                    <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
+                      <h4 className="section-label">Your family</h4>
+                      <span className="chip bg-cream-200 text-ink-600">
+                        {members.length} member{members.length !== 1 ? 's' : ''}
+                      </span>
                     </div>
-                  ) : (
-                    <div className="space-y-3 font-sans">
-                      {filteredMembers.map((member) => (
-                        <div
-                          key={member.id}
-                          onClick={() => {
-                            setSelectedMemberId(member.id);
-                            setDeleteConfirmMemberId(null);
-                          }}
-                          className={`w-full text-left p-4 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
-                            selectedMemberId === member.id
-                              ? 'border-gray-950 bg-gray-50/50 shadow-xs ring-1 ring-gray-950/5'
-                              : 'border-gray-150 bg-white hover:bg-gray-50 hover:border-gray-200'
-                          }`}
-                        >
-                          <div className="flex items-center space-x-3.5 min-w-0">
-                            {/* Avatar initials badge or photo */}
-                            <div className="relative shrink-0">
+
+                    {filteredMembers.length === 0 ? (
+                      <div className="text-center py-10">
+                        <p className="text-[13px] font-medium text-ink-400">No one matches &ldquo;{searchQuery}&rdquo;.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {filteredMembers.map((member) => (
+                          <div
+                            key={member.id}
+                            onClick={() => {
+                              setSelectedMemberId(member.id);
+                              setDeleteConfirmMemberId(null);
+                            }}
+                            className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                              selectedMemberId === member.id
+                                ? 'border-clay-300 bg-clay-50 ring-1 ring-clay-200'
+                                : 'border-cream-200 bg-white hover:bg-cream-100 hover:border-cream-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
                               {member.avatarUrl ? (
-                                <div className="w-9 h-9 rounded-xl overflow-hidden shrink-0 border border-gray-150 relative">
+                                <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-cream-300">
                                   <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
                                 </div>
                               ) : (
-                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 transition-colors uppercase ${
-                                  selectedMemberId === member.id 
-                                    ? `${member.avatarColor} text-white shadow-xs` 
-                                    : 'bg-gray-100 text-gray-650'
-                                }`}>
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-white shrink-0 uppercase ${warmAvatarColor(member.avatarColor)}`}>
                                   {member.name.charAt(0).toUpperCase()}
                                 </div>
                               )}
-                              {(member.id === selectedMemberId || !!member.isOnline) && (
-                                <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5 select-none">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 border border-white"></span>
-                                </span>
-                              )}
+                              <div className="min-w-0">
+                                <h4 className="text-sm font-semibold text-ink-900 truncate flex items-center gap-1.5 flex-wrap">
+                                  <span>{member.name}</span>
+                                  <span className="chip bg-cream-200 text-ink-600">{member.role}</span>
+                                  {member.birthdate && (
+                                    <span className="chip bg-dusk-100 text-dusk-700">{calculateAge(member.birthdate)}</span>
+                                  )}
+                                </h4>
+                                <p className="text-[11px] text-ink-400 font-medium truncate mt-0.5">
+                                  {member.documents?.length || 0} document{(member.documents?.length || 0) !== 1 ? 's' : ''} · {member.growthHistory?.length || 0} growth entr{(member.growthHistory?.length || 0) !== 1 ? 'ies' : 'y'}
+                                </p>
+                              </div>
                             </div>
-                            <div className="min-w-0">
-                              <h4 className="text-xs sm:text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5 flex-wrap">
-                                <span>{member.name}</span>
-                                <span className="text-[8px] font-bold uppercase tracking-wider text-gray-450 bg-gray-105 rounded-md px-1.5 py-0.5 leading-none shrink-0">
-                                  {member.role}
-                                </span>
-                                {member.birthdate && (
-                                  <span className="text-[8px] font-bold text-indigo-650 bg-indigo-50 border border-indigo-100/60 rounded px-1.5 py-0.5 font-mono leading-none shrink-0">
-                                    {calculateAge(member.birthdate)}
-                                  </span>
-                                )}
-                                {(member.id === selectedMemberId || !!member.isOnline) && (
-                                  <span className="text-[7.5px] font-extrabold text-emerald-600 bg-emerald-50 border border-emerald-150 rounded px-1 py-0.5 uppercase tracking-wider leading-none shrink-0 flex items-center gap-0.5">
-                                    <span className="w-1 h-1 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-                                    On
-                                  </span>
-                                )}
-                              </h4>
-                              <p className="text-[10px] text-gray-400 font-medium truncate mt-0.5">
-                                {member.documents?.length || 0} doc{member.documents?.length !== 1 ? 's' : ''} • {member.growthHistory?.length || 0} checkups • {member.digitalAccounts?.length || 0} secure keys
-                              </p>
-                            </div>
-                          </div>
 
-                          {/* Trash button icon */}
-                          {selectedMemberId === member.id && (
-                            <div onClick={(e) => e.stopPropagation()} className="relative flex items-center">
-                              {deleteConfirmMemberId === member.id ? (
-                                <div className="flex items-center space-x-1 text-[8px] font-bold uppercase tracking-wider">
+                            {selectedMemberId === member.id && (
+                              <div onClick={(e) => e.stopPropagation()} className="relative flex items-center shrink-0">
+                                {deleteConfirmMemberId === member.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleDeleteMember(member.id)}
+                                      className="px-2.5 py-1.5 bg-rosa-500 hover:bg-rosa-700 text-white rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                                    >
+                                      Remove
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteConfirmMemberId(null)}
+                                      className="px-2 py-1.5 border border-cream-300 text-ink-500 rounded-lg bg-white hover:bg-cream-100 text-[11px] font-semibold cursor-pointer"
+                                    >
+                                      Keep
+                                    </button>
+                                  </div>
+                                ) : (
                                   <button
-                                    onClick={() => handleDeleteMember(member.id)}
-                                    className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors cursor-pointer"
+                                    onClick={() => setDeleteConfirmMemberId(member.id)}
+                                    className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg transition-colors cursor-pointer"
+                                    title="Remove member"
                                   >
-                                    Del
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
-                                  <button
-                                    onClick={() => setDeleteConfirmMemberId(null)}
-                                    className="px-1.5 py-1 border border-gray-200 text-gray-550 rounded-md bg-white hover:bg-gray-50 cursor-pointer"
-                                  >
-                                    No
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => setDeleteConfirmMemberId(member.id)}
-                                  className="p-1 px-1.5 text-gray-400 hover:text-red-650 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
-                                  title="Remove Profile"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                {/* Selected member detail */}
+                <section className="lg:col-span-8 space-y-5">
+                  {selectedMember ? (
+                    <div className="card overflow-hidden min-h-[500px] flex flex-col">
+                      <div className="p-5 sm:p-6 border-b border-cream-200 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4 min-w-0">
+                          {selectedMember.avatarUrl ? (
+                            <div className="w-14 h-14 rounded-2xl overflow-hidden border border-cream-300 shadow-soft shrink-0 bg-white">
+                              <img src={selectedMember.avatarUrl} alt={selectedMember.name} className="w-full h-full object-cover" />
+                            </div>
+                          ) : (
+                            <div className={`w-14 h-14 rounded-2xl ${warmAvatarColor(selectedMember.avatarColor)} text-white font-semibold text-xl flex items-center justify-center shadow-soft uppercase shrink-0`}>
+                              {selectedMember.name.charAt(0).toUpperCase()}
                             </div>
                           )}
+                          <div className="min-w-0">
+                            <h2 className="font-display text-2xl font-semibold text-ink-900 flex items-center gap-2.5 flex-wrap">
+                              <span className="truncate">{selectedMember.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => setIsEditingProfile(true)}
+                                className="text-[12px] font-sans font-semibold bg-cream-200 hover:bg-cream-300 text-ink-600 px-2.5 py-1 rounded-lg transition-colors cursor-pointer select-none"
+                              >
+                                Edit
+                              </button>
+                            </h2>
+                            <p className="text-[12px] text-ink-500 font-medium mt-1 flex flex-wrap items-center gap-1.5">
+                              <span className="chip bg-cream-200 text-ink-600">{selectedMember.role}</span>
+                              {selectedMember.birthdate && (
+                                <>
+                                  <span className="chip bg-dusk-100 text-dusk-700">{calculateAge(selectedMember.birthdate)}</span>
+                                  <span className="text-ink-400">born {selectedMember.birthdate}</span>
+                                </>
+                              )}
+                            </p>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </section>
 
-              {/* Active Profile detail Section */}
-              <section className="lg:col-span-8 space-y-5">
-                {selectedMember ? (
-                  <div className="bg-white border border-gray-150 rounded-2xl shadow-xs overflow-hidden min-h-[500px] flex flex-col">
-                    
-                    {/* Active Member Bio panel */}
-                    <div className="p-5 sm:p-6 bg-white border-b border-gray-100 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-                      <div className="flex items-center space-x-4 min-w-0">
-                        {selectedMember.avatarUrl ? (
-                          <div className="w-11 h-11 rounded-xl overflow-hidden border border-gray-150 shadow-xs relative shrink-0 bg-white">
-                            <img src={selectedMember.avatarUrl} alt={selectedMember.name} className="w-full h-full object-cover" />
-                          </div>
-                        ) : (
-                          <div className={`w-11 h-11 rounded-xl ${selectedMember.avatarColor} text-white font-semibold text-base flex items-center justify-center shadow-xs uppercase shrink-0`}>
-                            {selectedMember.name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <h2 className="text-base font-semibold text-gray-950 tracking-tight flex items-center gap-2">
-                            <span>{selectedMember.name}&apos;s Folder</span>
+                        <div className="flex flex-wrap gap-1 bg-cream-200 p-1 rounded-2xl w-fit self-start md:self-auto select-none">
+                          {TABS.map(tab => (
                             <button
+                              key={tab.id}
                               type="button"
-                              onClick={() => setIsEditingProfile(true)}
-                              className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-0.5 rounded-md border border-slate-250 transition-colors cursor-pointer select-none"
-                              title="Edit Member Name, Role, or Portrait"
+                              onClick={() => setActiveTab(tab.id)}
+                              className={`tab-pill px-3 ${activeTab === tab.id ? 'tab-pill-active' : ''}`}
                             >
-                              ⚙️ Edit Profile
+                              <tab.icon className={`w-4 h-4 ${tab.id === 'favorites' ? 'fill-rosa-500 text-rosa-500' : ''}`} />
+                              <span className="hidden sm:inline">{tab.label}</span>
                             </button>
-                          </h2>
-                          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-0.5 flex flex-wrap items-center gap-1.5 leading-none">
-                            <span>{selectedMember.role}</span>
-                            {selectedMember.birthdate && (
-                              <>
-                                <span>•</span>
-                                <span>Birthdate: {selectedMember.birthdate}</span>
-                                <span className="text-[9px] font-extrabold text-indigo-700 bg-indigo-50/80 border border-indigo-150 rounded px-1.5 py-0.5 normal-case font-mono shrink-0">
-                                  {calculateAge(selectedMember.birthdate)} old
-                                </span>
-                              </>
-                            )}
-                            <span>•</span>
-                            {(selectedMember.id === selectedMemberId || !!selectedMember.isOnline) ? (
-                              <span className="text-[9px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-150 rounded px-1.5 py-0.5 normal-case font-mono shrink-0 flex items-center gap-1 uppercase tracking-wider">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                Active Now
-                              </span>
-                            ) : (
-                              <span className="text-[9px] font-semibold text-slate-400 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 normal-case font-mono shrink-0 flex items-center gap-1 uppercase tracking-wider">
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
-                                offline
-                              </span>
-                            )}
-                          </p>
+                          ))}
                         </div>
                       </div>
 
-                      {/* Responsive, balanced tab navigation inside profile */}
-                      <div className="flex flex-wrap gap-1 bg-gray-100 p-1 rounded-xl w-fit self-start md:self-auto select-none">
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab('sizes')}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                            activeTab === 'sizes'
-                              ? 'bg-white text-gray-950 shadow-xs'
-                              : 'text-gray-500 hover:text-gray-800'
-                          }`}
-                        >
-                          <Scissors className="w-3.5 h-3.5" />
-                          <span>Sizes</span>
-                        </button>
-                        
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab('favorites')}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                            activeTab === 'favorites'
-                              ? 'bg-white text-gray-950 shadow-xs'
-                              : 'text-gray-500 hover:text-gray-800'
-                          }`}
-                        >
-                          <Heart className="w-3.5 h-3.5 fill-rose-500 text-rose-500" />
-                          <span>Likes</span>
-                        </button>
-                        
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab('growth')}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                            activeTab === 'growth'
-                              ? 'bg-white text-gray-950 shadow-xs'
-                              : 'text-gray-500 hover:text-gray-800'
-                          }`}
-                        >
-                          <TrendingUp className="w-3.5 h-3.5" />
-                          <span>Growth</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab('passport')}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                            activeTab === 'passport'
-                              ? 'bg-white text-gray-950 shadow-xs'
-                              : 'text-gray-500 hover:text-gray-800'
-                          }`}
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                          <span>Passport</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab('documents')}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                            activeTab === 'documents'
-                              ? 'bg-white text-gray-950 shadow-xs'
-                              : 'text-gray-500 hover:text-gray-800'
-                          }`}
-                        >
-                          <FileText className="w-3.5 h-3.5" />
-                          <span>Scans</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab('secrets')}
-                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                            activeTab === 'secrets'
-                              ? 'bg-white text-gray-950 shadow-xs'
-                              : 'text-gray-500 hover:text-gray-800'
-                          }`}
-                        >
-                          <Key className="w-3.5 h-3.5" />
-                          <span>Secrets</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Sub-module render panel */}
-                    <div className="p-5 sm:p-6 flex-1">
-                      <AnimatePresence mode="wait">
-                        <motion.div
-                          key={activeTab + '-' + selectedMember.id}
-                          initial={{ opacity: 0, y: 3 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -3 }}
-                          transition={{ duration: 0.12 }}
-                        >
+                      <div className="p-5 sm:p-6 flex-1">
+                          {/* Enter-only animation: an exit phase can stall in throttled background tabs */}
+                          <motion.div
+                            key={activeTab + '-' + selectedMember.id}
+                            initial={{ opacity: 0, y: 3 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.12 }}
+                          >
                             <>
                               {activeTab === 'sizes' && (
-                                <MemberSizing
-                                  member={selectedMember}
-                                  onUpdateSizes={handleUpdateSizes}
-                                />
+                                <MemberSizing member={selectedMember} onUpdateSizes={handleUpdateSizes} />
                               )}
-
                               {activeTab === 'favorites' && (
-                                <MemberFavorites
-                                  member={selectedMember}
-                                  onUpdateMember={handleUpdateMember}
-                                />
+                                <MemberFavorites member={selectedMember} onUpdateMember={handleUpdateMember} />
                               )}
-
                               {activeTab === 'growth' && (
-                                <GrowthTracker
-                                  member={selectedMember}
-                                  onUpdateMember={handleUpdateMember}
-                                />
+                                <GrowthTracker member={selectedMember} onUpdateMember={handleUpdateMember} />
                               )}
-
                               {activeTab === 'passport' && (
-                                <PassportDetails
-                                  member={selectedMember}
-                                  onUpdatePassport={handleUpdatePassport}
-                                />
+                                <PassportDetails member={selectedMember} onUpdatePassport={handleUpdatePassport} />
                               )}
-
                               {activeTab === 'documents' && (
                                 <MemberDocuments
                                   member={selectedMember}
@@ -798,43 +619,64 @@ export default function Dashboard() {
                                   onViewDocument={handleViewDocument}
                                 />
                               )}
-
                               {activeTab === 'secrets' && (
-                                <SecureSecrets
-                                  member={selectedMember}
-                                  onUpdateMember={handleUpdateMember}
-                                />
+                                <SecureSecrets member={selectedMember} onUpdateMember={handleUpdateMember} />
                               )}
                             </>
-                        </motion.div>
-                      </AnimatePresence>
+                          </motion.div>
+                      </div>
                     </div>
-
-                  </div>
-                ) : (
-                  <div className="bg-white border border-gray-150 rounded-2xl shadow-xs text-center py-24 px-4 font-sans">
-                    <User className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                    <h3 className="text-sm font-semibold text-gray-800">No profile selected</h3>
-                    <p className="text-xs text-gray-400 mt-1">Please select or register a household member from the directory list.</p>
-                  </div>
-                )}
-              </section>
-            </div>
+                  ) : (
+                    <div className="card text-center py-24 px-4">
+                      <User className="w-10 h-10 text-ink-400/50 mx-auto mb-3" />
+                      <h3 className="text-sm font-semibold text-ink-800">No one selected</h3>
+                      <p className="text-[13px] text-ink-400 mt-1">Pick a family member from the list to see their things.</p>
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
           </>
         )}
       </main>
 
-      {/* Clean Minimalism Encrypted Footer Banner */}
+      {/* Footer with honest sync status */}
       <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 text-center pb-6">
-        <div className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-white rounded-full border border-gray-150 shadow-xs text-[10px] uppercase tracking-widest font-bold text-gray-400">
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-          <span>End-to-End Encrypted Access Only</span>
-          <span className="text-gray-300 font-light">•</span>
-          <span>Device Auth Enabled</span>
+        <div className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white rounded-full border border-cream-300/70 shadow-soft text-[12px] font-semibold text-ink-500">
+          {demo ? (
+            <>
+              <span className="w-2 h-2 bg-honey-500 rounded-full"></span>
+              <span>Demo preview — nothing is saved</span>
+            </>
+          ) : cloudSynced === false ? (
+            <>
+              <CloudOff className="w-3.5 h-3.5 text-honey-700" />
+              <span>Saved on this device — cloud sync unavailable</span>
+            </>
+          ) : (
+            <>
+              <Cloud className="w-3.5 h-3.5 text-sage-600" />
+              <span>Private to your Google account{cloudSynced ? ' · synced' : ''}</span>
+            </>
+          )}
         </div>
       </footer>
 
-      {/* Main Document inspection Viewer modal */}
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 card px-5 py-3 text-[13px] font-semibold text-ink-800 flex items-center gap-2"
+          >
+            <CloudOff className="w-4 h-4 text-honey-700 shrink-0" />
+            <span>{toast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <DocumentViewer
         document={selectedDocument}
         memberName={selectedDocumentMemberName}
@@ -844,20 +686,27 @@ export default function Dashboard() {
         }}
       />
 
-      {/* Profile creation Modal */}
       <AddMemberModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAdd={handleAddMember}
       />
 
-      {/* Profile edit Modal */}
       <EditMemberModal
         isOpen={isEditingProfile}
         member={selectedMember}
         onClose={() => setIsEditingProfile(false)}
         onSave={handleUpdateMember}
       />
+    </div>
+  );
+}
+
+function DemoUnavailable({ label }: { label: string }) {
+  return (
+    <div className="card text-center py-20 px-6">
+      <h3 className="font-display text-xl font-semibold text-ink-900 mb-2">{label} isn&apos;t part of the demo</h3>
+      <p className="text-[13px] text-ink-500">Sign in with Google to use it with your own family.</p>
     </div>
   );
 }

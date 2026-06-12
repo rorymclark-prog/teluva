@@ -5,28 +5,28 @@ import { doc, getDoc, setDoc, deleteDoc, collection, getDocs, writeBatch } from 
 const MEMBERS_KEY = 'family_members';
 const CALENDAR_KEY = 'family_calendar';
 
-export async function saveFamilyMembers(members: FamilyMember[]): Promise<void> {
+// Returns true when the data reached Firestore, false when it only landed in
+// localStorage — callers surface that so silent sync failures are impossible.
+export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolean> {
   const user = auth.currentUser;
-  
+  let cloudOk = false;
+
   if (user) {
     try {
       const batch = writeBatch(db);
-      const membersRef = collection(db, 'users', user.uid, 'family_members');
-      
-      // Before setting, we should ideally clear old ones, but to keep it simple, we just set them.
-      // Wait, a better way is to save the entire array to a single document to preserve order and simplicity.
-      // 1MB limit is usually enough for a family if avatars are compressed, but if there are large base64 strings, we should save each member.
+
       for (const member of members) {
         if (!member.id) continue;
         const docRef = doc(db, 'users', user.uid, 'family_members', member.id);
         batch.set(docRef, member, { merge: true });
       }
-      
+
       // Handle deleted members by maintaining a list of active IDs in a metadata doc
       const metaRef = doc(db, 'users', user.uid, 'metadata', 'members');
       batch.set(metaRef, { ids: members.map(m => m.id) });
-      
+
       await batch.commit();
+      cloudOk = true;
     } catch (error) {
       console.error('Error saving to Firestore:', error);
     }
@@ -38,6 +38,8 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<void> 
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
+
+  return cloudOk;
 }
 
 export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
@@ -75,23 +77,25 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
   return null;
 }
 
-export async function saveCalendarEvents(events: CalendarEvent[]): Promise<void> {
+export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boolean> {
   const user = auth.currentUser;
-  
+  let cloudOk = false;
+
   if (user) {
     try {
       const batch = writeBatch(db);
-      
+
       for (const event of events) {
         if (!event.id) continue;
         const docRef = doc(db, 'users', user.uid, 'calendar_events', event.id);
         batch.set(docRef, event, { merge: true });
       }
-      
+
       const metaRef = doc(db, 'users', user.uid, 'metadata', 'events');
       batch.set(metaRef, { ids: events.map(e => e.id) });
-      
+
       await batch.commit();
+      cloudOk = true;
     } catch (error) {
       console.error('Error saving to Firestore:', error);
     }
@@ -102,6 +106,8 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<void>
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
+
+  return cloudOk;
 }
 
 export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
