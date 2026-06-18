@@ -17,6 +17,7 @@ import {
   handleFirestoreError,
   OperationType
 } from '../utils/firebase';
+import { FAMILY_ID } from '../utils/db';
 import {
   Cloud,
   CloudLightning,
@@ -99,8 +100,8 @@ export default function GoogleDriveSync() {
       return;
     }
 
-    // Per-user path: users/{uid}/sharedDriveDocs
-    const docsRef = collection(db, 'users', uid, 'sharedDriveDocs');
+    // Shared household path: families/{FAMILY_ID}/sharedDriveDocs
+    const docsRef = collection(db, 'families', FAMILY_ID, 'sharedDriveDocs');
     const unsubscribe = onSnapshot(docsRef, (snapshot) => {
       const docs: SharedDoc[] = [];
       snapshot.forEach((firestoreDoc) => {
@@ -226,8 +227,8 @@ export default function GoogleDriveSync() {
 
     setIsSyncingFileId(file.id);
     try {
-      // Per-user path: users/{uid}/sharedDriveDocs/{fileId}
-      const firestoreDocRef = doc(db, 'users', uid, 'sharedDriveDocs', file.id);
+      // Shared household path: families/{FAMILY_ID}/sharedDriveDocs/{fileId}
+      const firestoreDocRef = doc(db, 'families', FAMILY_ID, 'sharedDriveDocs', file.id);
       await setDoc(firestoreDocRef, {
         fileId: file.id,
         name: file.name,
@@ -256,8 +257,8 @@ export default function GoogleDriveSync() {
     if (!uid) return;
 
     try {
-      // Per-user path: users/{uid}/sharedDriveDocs/{fileId}
-      const firestoreDocRef = doc(db, 'users', uid, 'sharedDriveDocs', sharedDoc.fileId);
+      // Shared household path: families/{FAMILY_ID}/sharedDriveDocs/{fileId}
+      const firestoreDocRef = doc(db, 'families', FAMILY_ID, 'sharedDriveDocs', sharedDoc.fileId);
       await deleteDoc(firestoreDocRef);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `sharedDriveDocs/${sharedDoc.fileId}`);

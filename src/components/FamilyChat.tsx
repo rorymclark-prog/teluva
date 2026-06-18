@@ -8,6 +8,7 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../utils/firebase';
+import { FAMILY_ID } from '../utils/db';
 import { FamilyMember } from '../types';
 import {
   Send,
@@ -74,8 +75,8 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
     }
 
     setIsLoading(true);
-    // Per-user path: users/{uid}/messages
-    const messagesRef = collection(db, 'users', uid, 'messages');
+    // Shared household path: families/{FAMILY_ID}/messages
+    const messagesRef = collection(db, 'families', FAMILY_ID, 'messages');
     const q = query(messagesRef, orderBy('createdAt', 'asc'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -123,8 +124,8 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
     setInputText('');
 
     try {
-      // Write to the per-user messages sub-collection
-      await addDoc(collection(db, 'users', uid, 'messages'), {
+      // Write to the shared household messages sub-collection
+      await addDoc(collection(db, 'families', FAMILY_ID, 'messages'), {
         text: messageText,
         senderId: uid,
         senderName: chatUser.name,
