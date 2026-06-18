@@ -9,6 +9,7 @@ import {
   signOut,
 } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // iOS Safari blocks the sign-in popup and partitions its storage, so popup
@@ -42,6 +43,10 @@ export const db = initializeFirestore(
   { ignoreUndefinedProperties: true },
   firebaseConfig.firestoreDatabaseId
 );
+
+// Firebase Storage — the Document Vault stores real files here (not base64 in
+// Firestore), so passports/certificates/scans of any size work.
+export const storage = getStorage(app);
 
 export const provider = new GoogleAuthProvider();
 

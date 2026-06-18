@@ -4,5 +4,11 @@
       "database": "ai-studio-393d7146-0d1a-431e-bd58-b2a1478b5ff5",
       "rules": "firestore.rules"
     }
+  ],
+  "storage": [
+    {
+      "bucket": "gen-lang-client-0384516171-vault",
+      "rules": "storage.rules"
+    }
   ]
 }

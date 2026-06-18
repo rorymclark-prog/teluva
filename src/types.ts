@@ -291,6 +291,24 @@ export interface FamilyTimeline {
   entries: TimelineEntry[];
 }
 
+// --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---
+export type VaultCategory = 'Identity' | 'Education' | 'Medical' | 'Financial' | 'Travel' | 'Other';
+
+export interface VaultDocument {
+  id: string;
+  name: string;
+  category: VaultCategory;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  storagePath: string;   // path within the Firebase Storage bucket
+  downloadUrl: string;
+  uploadedAt: string;    // YYYY-MM-DD
+  uploadedBy?: string;
+  memberId?: string;     // optional link to a family member
+  notes?: string;
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;

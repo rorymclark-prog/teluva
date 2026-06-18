@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Only the household's Google accounts can read/write family files.
+    function isFamilyMember() {
+      return request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email in [
+          'rorymclark@gmail.com',
+          'partner@example.com',
+          'child@example.com'
+        ];
+    }
+
+    match /families/{familyId}/{allPaths=**} {
+      allow read, write: if isFamilyMember();
+    }
+
+    // Everything else: locked.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

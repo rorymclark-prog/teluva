@@ -1,6 +1,7 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline } from '../types';
-import { db, auth } from '../lib/firebase';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument } from '../types';
+import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 const MEMBERS_KEY = 'family_members';
 const CALENDAR_KEY = 'family_calendar';
@@ -271,6 +272,30 @@ export const loadFinances = () => loadReferenceDoc<FinancesInfo>('finances', 'fa
 
 export const saveTimeline = (t: FamilyTimeline) => saveReferenceDoc('timeline', t, 'family_timeline');
 export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', 'family_timeline');
+
+// --- Document Vault: files in Firebase Storage, metadata in Firestore ---
+export async function uploadVaultFile(file: File, docId: string): Promise<{ storagePath: string; downloadUrl: string }> {
+  const safeName = (file.name || 'file').replace(/[^\w.\-]+/g, '_');
+  const storagePath = `families/${FAMILY_ID}/documents/${docId}/${safeName}`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, file, { contentType: file.type || 'application/octet-stream' });
+  const downloadUrl = await getDownloadURL(r);
+  return { storagePath, downloadUrl };
+}
+
+export async function deleteVaultFile(storagePath: string): Promise<void> {
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (e) {
+    console.error('Vault file delete failed (metadata will still be removed):', e);
+  }
+}
+
+export const saveDocuments = (docs: VaultDocument[]) => saveReferenceDoc('documents', { docs }, 'family_documents');
+export async function loadDocuments(): Promise<VaultDocument[]> {
+  const data = await loadReferenceDoc<{ docs: VaultDocument[] }>('documents', 'family_documents');
+  return data?.docs || [];
+}
 
 export const DEFAULT_EVENTS: CalendarEvent[] = [];
 export const DEFAULT_FAMILY: FamilyMember[] = [];

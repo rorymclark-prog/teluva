@@ -32,11 +32,12 @@ import EmergencyView from './EmergencyView';
 import HouseholdView from './HouseholdView';
 import FinancesView from './FinancesView';
 import TimelineView from './TimelineView';
+import DocumentVault from './DocumentVault';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Lock, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
-  HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart
+  HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -62,7 +63,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'passport' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'chat' | 'drive';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'chat' | 'drive';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'medical', label: 'Medical', icon: HeartPulse },
@@ -86,6 +87,7 @@ const VIEWS: { id: ViewId; label: string; icon: React.ElementType }[] = [
   { id: 'household', label: 'Household', icon: Home },
   { id: 'finances', label: 'Finances', icon: Landmark },
   { id: 'timeline', label: 'Timeline', icon: CalendarHeart },
+  { id: 'vault', label: 'Documents', icon: FolderArchive },
   { id: 'chat', label: 'Chat', icon: MessageCircle },
   { id: 'drive', label: 'Drive', icon: Cloud },
 ];
@@ -452,6 +454,10 @@ export default function Dashboard() {
         {mainView === 'finances' && <FinancesView />}
 
         {mainView === 'timeline' && <TimelineView />}
+
+        {mainView === 'vault' && (
+          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} />
+        )}
 
         {mainView === 'chat' && (
           demo ? (
