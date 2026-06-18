@@ -1,7 +1,8 @@
-// Downscale an image (data URL) to a small avatar thumbnail so it fits well
+// Downscale an image (data URL) to a good-quality but bounded size so it fits
 // inside a Firestore member record (which caps at ~1MB). A full phone photo as
-// base64 is several MB and silently fails to save — this keeps it ~10-40KB.
-export async function compressImageToAvatar(src: string, maxDim = 256, quality = 0.72): Promise<string> {
+// base64 is several MB and silently fails to save; 1024px @ 0.85 keeps it crisp
+// (and large enough to expand) while staying ~200-500KB.
+export async function compressImageToAvatar(src: string, maxDim = 1024, quality = 0.85): Promise<string> {
   return new Promise((resolve) => {
     try {
       const img = new Image();

@@ -27,7 +27,8 @@ export default function ImageLightbox({ src, onClose }: Props) {
             src={src}
             alt="Photo"
             onClick={(e) => e.stopPropagation()}
-            className="max-w-full max-h-full rounded-3xl shadow-2xl object-contain bg-white"
+            style={{ width: 'min(92vw, 90vh)' }}
+            className="max-w-[92vw] max-h-[90vh] rounded-3xl shadow-2xl object-contain bg-white"
           />
           <button
             onClick={onClose}

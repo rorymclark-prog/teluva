@@ -3,7 +3,7 @@ import { FamilyMember, VaultCategory, VaultDocument } from '../types';
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
-  loadDocuments, saveDocuments, uploadVaultFile,
+  loadDocuments, saveDocuments, uploadVaultFile, loadCalendarEvents,
 } from '../utils/db';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
@@ -106,10 +106,11 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
   };
 
   const buildContext = async () => {
-    const [info, household, finances, timeline] = await Promise.all([
-      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(),
+    const [info, household, finances, timeline, docs, events] = await Promise.all([
+      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(),
     ]);
-    return { members: slimMembers(members), info, household, finances, timeline };
+    const documents = (docs || []).map(d => ({ name: d.name, category: d.category, memberId: d.memberId, uploadedAt: d.uploadedAt }));
+    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [] };
   };
 
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -248,6 +249,13 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
                 </button>
               ))}
             </div>
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="btn-primary mt-1"
+            >
+              <Paperclip className="w-4 h-4" />
+              Scan a document
+            </button>
           </div>
         )}
 
@@ -340,6 +348,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
             className="btn-quiet px-3 py-2.5 shrink-0 disabled:opacity-40"
           >
             <Paperclip className="w-4 h-4" />
+            <span className="hidden sm:inline">Scan</span>
           </button>
           <input
             type="text"

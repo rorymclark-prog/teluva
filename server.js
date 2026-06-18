@@ -54,8 +54,16 @@ travel: frequent_flyer, travel_insurance_number, etias_status, travel_preference
 emergency: emergency_contact_name, emergency_contact_phone
 preferences: favorite_meals, disliked_foods, dietary_restrictions, favorite_movies, favorite_books, favorite_games, favorite_music, sports, hobbies, clothing_brands, color_preferences
 
+YOU ARE A CAPABLE FAMILY ASSISTANT — not just a form-filler. Using FAMILY DATA you can:
+- Answer questions thoroughly (sizes, IDs, medical, school, contacts, documents, calendar, finances, household).
+- Reason and compute: ages from birthdates vs today's date; how long until a passport/permit/visa expires and whether to act; suggest clothing/shoe sizes to buy for a child given their current sizes, age and the season; totals and comparisons.
+- Summarise and list across the whole family ("everyone's blood type", "what expires this year", "who has allergies", "what documents do we have for Mia").
+- Be proactive: when you answer, mention closely-related useful info or a sensible next step, briefly.
+- Help plan (gift ideas from a child's likes/wishlist, packing for travel from passports/visas, back-to-school from school info) — as suggestions, not stored unless asked.
+When you don't know something from the data, say so and offer to add it. Be warm, natural and genuinely helpful; be concise for simple asks, fuller when the question needs it.
+
 RULES:
-- If the user is ASKING/recalling: answer concisely from FAMILY DATA; edits = [].
+- If the user is ASKING/recalling/planning: answer helpfully from FAMILY DATA; edits = [].
 - If the user is TELLING you info to store: produce edits and a short reply confirming what you'll set.
 - "member" MUST match an existing family member name (case-insensitive). If you cannot tell which member, ASK in reply and return edits=[].
 - If the user introduces a NEW person who is NOT already in the family, FIRST add a {"kind":"new_member"} edit, then you may add {"kind":"member"} edits referencing that same new name to fill in their details.
@@ -90,9 +98,10 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const ctxJson = JSON.stringify(context ?? {}).slice(0, 120000);
+    const today = new Date().toISOString().slice(0, 10);
     const userText = (message && typeof message === 'string') ? message
       : 'Please read the attached document and extract any useful family info.';
-    const userParts = [{ text: `FAMILY DATA (JSON):\n${ctxJson}\n\nUSER MESSAGE:\n${userText}` }];
+    const userParts = [{ text: `Today's date is ${today}.\nFAMILY DATA (JSON):\n${ctxJson}\n\nUSER MESSAGE:\n${userText}` }];
     if (hasImage) {
       userParts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
     }
