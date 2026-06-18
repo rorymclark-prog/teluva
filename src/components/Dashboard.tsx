@@ -9,6 +9,7 @@ import {
 import { applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits } from '../utils/aiApply';
 import AIChatbot, { AiEdit } from './AIChatbot';
 import HubSettingsModal from './HubSettingsModal';
+import ImageLightbox from './ImageLightbox';
 import { HubSettings } from '../types';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -108,6 +109,7 @@ export default function Dashboard() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [settings, setSettings] = useState<HubSettings>({});
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<FamilyDocument | null>(null);
   const [selectedDocumentMemberName, setSelectedDocumentMemberName] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -578,7 +580,11 @@ export default function Dashboard() {
                           >
                             <div className="flex items-center gap-3 min-w-0">
                               {member.avatarUrl ? (
-                                <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-cream-300">
+                                <div
+                                  onClick={(e) => { e.stopPropagation(); setLightboxImage(member.avatarUrl!); }}
+                                  className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-cream-300 cursor-zoom-in"
+                                  title="View photo"
+                                >
                                   <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
                                 </div>
                               ) : (
@@ -642,9 +648,14 @@ export default function Dashboard() {
                       <div className="p-5 sm:p-6 border-b border-cream-200 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                         <div className="flex items-center gap-4 min-w-0">
                           {selectedMember.avatarUrl ? (
-                            <div className="w-14 h-14 rounded-2xl overflow-hidden border border-cream-300 shadow-soft shrink-0 bg-white">
+                            <button
+                              type="button"
+                              onClick={() => setLightboxImage(selectedMember.avatarUrl!)}
+                              className="w-14 h-14 rounded-2xl overflow-hidden border border-cream-300 shadow-soft shrink-0 bg-white cursor-zoom-in"
+                              title="View photo"
+                            >
                               <img src={selectedMember.avatarUrl} alt={selectedMember.name} className="w-full h-full object-cover" />
-                            </div>
+                            </button>
                           ) : (
                             <div className={`w-14 h-14 rounded-2xl ${warmAvatarColor(selectedMember.avatarColor)} text-white font-semibold text-xl flex items-center justify-center shadow-soft uppercase shrink-0`}>
                               {selectedMember.name.charAt(0).toUpperCase()}
@@ -815,6 +826,8 @@ export default function Dashboard() {
         onClose={() => setIsSettingsOpen(false)}
         onSave={handleSaveSettings}
       />
+
+      <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
     </div>
   );
 }
