@@ -1,0 +1,322 @@
+import React, { useState, useEffect } from 'react';
+import { FamilyMember, TravelInfo, VisaRecord } from '../types';
+import {
+  Plane, Plus, Trash2, Pencil, Check, X, ShieldCheck,
+} from 'lucide-react';
+
+const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
+
+interface MemberTravelProps {
+  member: FamilyMember;
+  onUpdate: (patch: Partial<FamilyMember>) => void;
+}
+
+const initTravel = (member: FamilyMember): TravelInfo => ({
+  frequentFlyer: member.travel?.frequentFlyer || '',
+  travelInsuranceNumber: member.travel?.travelInsuranceNumber || '',
+  etiasStatus: member.travel?.etiasStatus || '',
+  emergencyTravelContact: member.travel?.emergencyTravelContact || '',
+  preferences: member.travel?.preferences || '',
+  visas: member.travel?.visas || [],
+});
+
+/* ---- Expiry chip ---- */
+function ExpiryChip({ expiryDate }: { expiryDate?: string }) {
+  if (!expiryDate) return null;
+
+  const today = new Date();
+  const expiry = new Date(expiryDate);
+  const diffMs = expiry.getTime() - today.getTime();
+
+  if (diffMs < 0) {
+    return <span className="chip bg-rosa-100 text-rosa-700">Expired</span>;
+  }
+
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  const monthsLeft = diffDays / 30.4375;
+
+  if (monthsLeft <= 6) {
+    return <span className="chip bg-honey-100 text-honey-700">Expires soon</span>;
+  }
+
+  return <span className="chip bg-sage-100 text-sage-700">Valid</span>;
+}
+
+/* ---- Visa form (add / edit) ---- */
+function VisaForm({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial?: VisaRecord;
+  onSave: (v: VisaRecord) => void;
+  onCancel: () => void;
+}) {
+  const [country, setCountry] = useState(initial?.country || '');
+  const [number, setNumber] = useState(initial?.number || '');
+  const [expiryDate, setExpiryDate] = useState(initial?.expiryDate || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+
+  const save = () => {
+    if (!country.trim()) { onCancel(); return; }
+    onSave({
+      id: initial?.id || newId(),
+      country: country.trim(),
+      number: number.trim() || undefined,
+      expiryDate: expiryDate || undefined,
+      notes: notes.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
+      <input
+        autoFocus
+        className="field"
+        placeholder="Country / territory (e.g. United States)"
+        value={country}
+        onChange={e => setCountry(e.target.value)}
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input
+          className="field font-mono"
+          placeholder="Visa / stamp number (optional)"
+          value={number}
+          onChange={e => setNumber(e.target.value)}
+        />
+        <input
+          type="date"
+          className="field"
+          title="Expiry date"
+          value={expiryDate}
+          onChange={e => setExpiryDate(e.target.value)}
+        />
+      </div>
+      <input
+        className="field"
+        placeholder="Notes (optional)"
+        value={notes}
+        onChange={e => setNotes(e.target.value)}
+      />
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5">
+          <X className="w-3.5 h-3.5" /> Cancel
+        </button>
+        <button onClick={save} className="btn-primary text-xs px-3 py-1.5">
+          <Check className="w-3.5 h-3.5" /> Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Main component ---- */
+export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
+  const [travel, setTravel] = useState<TravelInfo>(() => initTravel(member));
+  const [addingVisa, setAddingVisa] = useState(false);
+  const [editVisaId, setEditVisaId] = useState<string | null>(null);
+
+  // Reset when selected member changes
+  useEffect(() => {
+    setTravel(initTravel(member));
+    setAddingVisa(false);
+    setEditVisaId(null);
+  }, [member.id]);
+
+  /* Free-text field helpers */
+  const setField = <K extends keyof TravelInfo>(key: K, value: TravelInfo[K]) => {
+    setTravel(prev => ({ ...prev, [key]: value }));
+  };
+
+  const blurField = <K extends keyof TravelInfo>(key: K, value: TravelInfo[K]) => {
+    const next = { ...travel, [key]: value };
+    setTravel(next);
+    onUpdate({ travel: next });
+  };
+
+  /* Visa list helpers */
+  const saveVisa = (v: VisaRecord) => {
+    const visas = travel.visas || [];
+    const exists = visas.find(x => x.id === v.id);
+    const nextVisas = exists ? visas.map(x => x.id === v.id ? v : x) : [...visas, v];
+    const next = { ...travel, visas: nextVisas };
+    setTravel(next);
+    onUpdate({ travel: next });
+    setAddingVisa(false);
+    setEditVisaId(null);
+  };
+
+  const deleteVisa = (id: string) => {
+    const nextVisas = (travel.visas || []).filter(v => v.id !== id);
+    const next = { ...travel, visas: nextVisas };
+    setTravel(next);
+    onUpdate({ travel: next });
+  };
+
+  const visas = travel.visas || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-3 pb-4 border-b border-cream-200">
+        <div className="p-2.5 rounded-2xl bg-dusk-100 text-dusk-700 shrink-0">
+          <Plane className="w-5 h-5" />
+        </div>
+        <div>
+          <h3 className="font-display text-lg font-semibold text-ink-900">
+            Travel info
+          </h3>
+          <p className="text-[13px] text-ink-500 mt-0.5">
+            Frequent flyer, insurance, visas, and travel preferences for {member.name}.
+          </p>
+        </div>
+      </div>
+
+      {/* Top fields */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div>
+          <label className="field-label">Frequent flyer number</label>
+          <input
+            type="text"
+            className="field font-mono"
+            placeholder="e.g. LH 123456789"
+            value={travel.frequentFlyer || ''}
+            onChange={e => setField('frequentFlyer', e.target.value)}
+            onBlur={e => blurField('frequentFlyer', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="field-label">Travel insurance number</label>
+          <input
+            type="text"
+            className="field font-mono"
+            placeholder="e.g. TI-98765432"
+            value={travel.travelInsuranceNumber || ''}
+            onChange={e => setField('travelInsuranceNumber', e.target.value)}
+            onBlur={e => blurField('travelInsuranceNumber', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="field-label">ESTA / ETIAS status</label>
+          <input
+            type="text"
+            className="field"
+            placeholder="e.g. ESTA approved — expires 2027-03-15"
+            value={travel.etiasStatus || ''}
+            onChange={e => setField('etiasStatus', e.target.value)}
+            onBlur={e => blurField('etiasStatus', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="field-label">Emergency travel contact</label>
+          <input
+            type="text"
+            className="field"
+            placeholder="e.g. Rory +43 123 456 789"
+            value={travel.emergencyTravelContact || ''}
+            onChange={e => setField('emergencyTravelContact', e.target.value)}
+            onBlur={e => blurField('emergencyTravelContact', e.target.value)}
+          />
+        </div>
+
+        <div className="col-span-1 sm:col-span-2">
+          <label className="field-label">Travel preferences — seats, meals, etc.</label>
+          <textarea
+            rows={3}
+            className="field font-sans"
+            placeholder="e.g. Window seat, vegetarian meal, no middle seats, priority boarding"
+            value={travel.preferences || ''}
+            onChange={e => setField('preferences', e.target.value)}
+            onBlur={e => blurField('preferences', e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Visas section */}
+      <section className="card p-5 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+          <h4 className="section-label flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5" /> Visas
+          </h4>
+          <button
+            onClick={() => { setAddingVisa(true); setEditVisaId(null); }}
+            className="btn-primary text-xs px-3 py-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add
+          </button>
+        </div>
+
+        {addingVisa && (
+          <VisaForm
+            onSave={saveVisa}
+            onCancel={() => setAddingVisa(false)}
+          />
+        )}
+
+        {visas.length === 0 && !addingVisa ? (
+          <p className="text-[13px] text-ink-400 py-6 text-center">
+            No visas added yet — track entry visas, work permits, and tourist stamps here.
+          </p>
+        ) : (
+          <div className="space-y-2.5">
+            {visas.map(v =>
+              editVisaId === v.id ? (
+                <div key={v.id}>
+                  <VisaForm
+                    initial={v}
+                    onSave={saveVisa}
+                    onCancel={() => setEditVisaId(null)}
+                  />
+                </div>
+              ) : (
+                <div
+                  key={v.id}
+                  className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-[14px] font-semibold text-ink-900">{v.country}</p>
+                      <ExpiryChip expiryDate={v.expiryDate} />
+                    </div>
+                    {v.number && (
+                      <p className="font-mono text-[13px] text-ink-600 break-all">{v.number}</p>
+                    )}
+                    {v.expiryDate && (
+                      <p className="text-[12px] text-ink-500">
+                        Expires {new Date(v.expiryDate).toLocaleDateString('en-GB', {
+                          day: 'numeric', month: 'short', year: 'numeric',
+                        })}
+                      </p>
+                    )}
+                    {v.notes && (
+                      <p className="text-[12px] text-ink-400">{v.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => { setEditVisaId(v.id); setAddingVisa(false); }}
+                      className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg"
+                      title="Edit"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deleteVisa(v.id)}
+                      className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

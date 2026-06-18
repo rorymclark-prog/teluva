@@ -21,10 +21,19 @@ import FamilyChat from './FamilyChat';
 import GoogleDriveSync from './GoogleDriveSync';
 import ImportantInfo from './ImportantInfo';
 import MemberFavorites from './MemberFavorites';
+import MemberMedical from './MemberMedical';
+import MemberIDs from './MemberIDs';
+import MemberTravel from './MemberTravel';
+import MemberPreferences from './MemberPreferences';
+import EmergencyView from './EmergencyView';
+import HouseholdView from './HouseholdView';
+import FinancesView from './FinancesView';
+import TimelineView from './TimelineView';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Lock, Key, TrendingUp, Calendar, Heart,
-  LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard
+  LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
+  HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -49,13 +58,17 @@ export function calculateAge(birthdate?: string): string | null {
   return `${age} yrs`;
 }
 
-type TabId = 'sizes' | 'favorites' | 'growth' | 'passport' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'calendar' | 'info' | 'chat' | 'drive';
+type TabId = 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'passport' | 'documents' | 'secrets';
+type ViewId = 'profiles' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'chat' | 'drive';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
+  { id: 'medical', label: 'Medical', icon: HeartPulse },
+  { id: 'ids', label: 'IDs', icon: IdCard },
   { id: 'sizes', label: 'Sizes', icon: Scissors },
   { id: 'favorites', label: 'Likes', icon: Heart },
   { id: 'growth', label: 'Growth', icon: TrendingUp },
+  { id: 'travel', label: 'Travel', icon: Plane },
+  { id: 'preferences', label: 'Likes & needs', icon: Sparkles },
   { id: 'passport', label: 'Passport', icon: Lock },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'secrets', label: 'Secrets', icon: Key },
@@ -63,8 +76,12 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 
 const VIEWS: { id: ViewId; label: string; icon: React.ElementType }[] = [
   { id: 'profiles', label: 'Profiles', icon: Users },
+  { id: 'emergency', label: 'Emergency', icon: Siren },
   { id: 'calendar', label: 'Calendar', icon: Calendar },
   { id: 'info', label: 'Info', icon: IdCard },
+  { id: 'household', label: 'Household', icon: Home },
+  { id: 'finances', label: 'Finances', icon: Landmark },
+  { id: 'timeline', label: 'Timeline', icon: CalendarHeart },
   { id: 'chat', label: 'Chat', icon: MessageCircle },
   { id: 'drive', label: 'Drive', icon: Cloud },
 ];
@@ -185,6 +202,12 @@ export default function Dashboard() {
     await persistChanges(members.map(m => (m.id === memberId ? { ...m, passport } : m)));
   };
 
+  // Generic patch for the selected member — used by the medical/ids/travel/preferences tabs
+  const handlePatchSelectedMember = async (patch: Partial<FamilyMember>) => {
+    if (!selectedMemberId) return;
+    await persistChanges(members.map(m => (m.id === selectedMemberId ? { ...m, ...patch } : m)));
+  };
+
   const handleAddDocument = async (memberId: string, docToAdd: FamilyDocument) => {
     await persistChanges(members.map(m => (m.id === memberId ? { ...m, documents: [...m.documents, docToAdd] } : m)));
   };
@@ -260,18 +283,28 @@ export default function Dashboard() {
 
   const selectedMember = members.find(m => m.id === selectedMemberId);
 
-  // Passport expiry notices (9-month horizon, computed from the real date)
-  const passportWarnings = members
-    .filter(m => m.passport?.expiryDate)
-    .map(m => {
-      const today = new Date();
-      const expiry = new Date(m.passport!.expiryDate);
+  // Renewal notices across passports, permits, licenses and visas (real date)
+  const expiryWarnings = (() => {
+    const today = new Date();
+    const items: { memberName: string; label: string; monthsLeft: number; status: 'expired' | 'critical' }[] = [];
+    const consider = (memberName: string, label: string, dateStr?: string, horizonMonths = 9) => {
+      if (!dateStr) return;
+      const expiry = new Date(dateStr);
+      if (isNaN(expiry.getTime())) return;
       const diffTime = expiry.getTime() - today.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      const monthsLeft = Number((diffDays / 30.4375).toFixed(1));
-      return { member: m, monthsLeft, status: diffTime < 0 ? 'expired' : monthsLeft <= 9 ? 'critical' : 'none' };
-    })
-    .filter(warning => warning.status !== 'none');
+      const monthsLeft = Number((Math.ceil(diffTime / (1000 * 60 * 60 * 24)) / 30.4375).toFixed(1));
+      if (diffTime < 0) items.push({ memberName, label, monthsLeft, status: 'expired' });
+      else if (monthsLeft <= horizonMonths) items.push({ memberName, label, monthsLeft, status: 'critical' });
+    };
+    members.forEach(m => {
+      consider(m.name, 'passport', m.passport?.expiryDate);
+      (m.passports || []).forEach(p => consider(m.name, `${p.country || ''} passport`.trim(), p.expiryDate));
+      consider(m.name, 'residence permit', m.identity?.residencePermitExpiry);
+      consider(m.name, "driver's license", m.identity?.driversLicenseExpiry);
+      (m.travel?.visas || []).forEach(v => consider(m.name, `${v.country || ''} visa`.trim(), v.expiryDate, 6));
+    });
+    return items;
+  })();
 
   const filteredMembers = searchQuery.trim() === ''
     ? members
@@ -392,6 +425,14 @@ export default function Dashboard() {
 
         {mainView === 'info' && <ImportantInfo />}
 
+        {mainView === 'emergency' && <EmergencyView members={members} />}
+
+        {mainView === 'household' && <HouseholdView />}
+
+        {mainView === 'finances' && <FinancesView />}
+
+        {mainView === 'timeline' && <TimelineView />}
+
         {mainView === 'chat' && (
           demo ? (
             <DemoUnavailable label="Family chat" />
@@ -406,17 +447,17 @@ export default function Dashboard() {
 
         {mainView === 'profiles' && (
           <>
-            {passportWarnings.length > 0 && (
+            {expiryWarnings.length > 0 && (
               <div className="p-4 rounded-3xl bg-honey-50 border border-honey-100 flex items-start gap-3 shadow-soft">
                 <div className="p-2 rounded-2xl bg-honey-100 text-honey-700 mt-0.5 shrink-0">
                   <Bell className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-[13px] font-bold text-honey-900">Passport renewals</h3>
+                  <h3 className="text-[13px] font-bold text-honey-900">Renewals due</h3>
                   <div className="mt-1 space-y-1 text-[13px] text-honey-900/90">
-                    {passportWarnings.map((warning, i) => (
+                    {expiryWarnings.map((warning, i) => (
                       <p key={i}>
-                        <strong>{warning.member.name}</strong>&apos;s passport {warning.status === 'expired' ? 'has expired' : `expires in about ${warning.monthsLeft} months`} — worth booking the renewal soon.
+                        <strong>{warning.memberName}</strong>&apos;s {warning.label} {warning.status === 'expired' ? 'has expired' : `expires in about ${warning.monthsLeft} months`} — worth sorting the renewal.
                       </p>
                     ))}
                   </div>
@@ -603,6 +644,12 @@ export default function Dashboard() {
                             transition={{ duration: 0.12 }}
                           >
                             <>
+                              {activeTab === 'medical' && (
+                                <MemberMedical member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                              )}
+                              {activeTab === 'ids' && (
+                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                              )}
                               {activeTab === 'sizes' && (
                                 <MemberSizing member={selectedMember} onUpdateSizes={handleUpdateSizes} />
                               )}
@@ -611,6 +658,12 @@ export default function Dashboard() {
                               )}
                               {activeTab === 'growth' && (
                                 <GrowthTracker member={selectedMember} onUpdateMember={handleUpdateMember} />
+                              )}
+                              {activeTab === 'travel' && (
+                                <MemberTravel member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                              )}
+                              {activeTab === 'preferences' && (
+                                <MemberPreferences member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
                               {activeTab === 'passport' && (
                                 <PassportDetails member={selectedMember} onUpdatePassport={handleUpdatePassport} />

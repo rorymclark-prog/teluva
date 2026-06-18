@@ -7,6 +7,9 @@ export interface ClothingSizes {
   outerwear?: string;
   underwear?: string;
   hatValue?: string;
+  dressSize?: string;
+  jacketSize?: string;
+  ringSize?: string;
   heightCm?: string;
   weightKg?: string;
   notes?: string;
@@ -95,20 +98,197 @@ export interface FavoriteItem {
 export interface FamilyMember {
   id: string;
   name: string;
+  nickname?: string;
   role: MemberRole;
   birthdate?: string;
+  placeOfBirth?: string;
+  nationality?: string;     // comma-separated is fine, free text
+  languages?: string;
+  gender?: string;
   avatarColor: string; // e.g., 'bg-blue-500'
   avatarUrl?: string;  // Base64 representation of uploaded / captured photo
   isOnline?: boolean;  // System status online indicator flag
   clothingSizes: ClothingSizes;
   passport?: PassportInfo;
+  passports?: PassportRecord[];     // multiple passports (UK / SA / AT …)
   documents: FamilyDocument[];
   growthHistory?: GrowthLog[];
   digitalAccounts?: DigitalAccount[];
   financialAccounts?: FinancialAccount[];
   education?: EducationDetails;
   identifiers?: NationalIdentifiers;
+  identity?: IdentityRecord;        // richer ID/permit numbers
+  medical?: MedicalRecord;
+  travel?: TravelInfo;
+  preferences?: Preferences;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
   favorites?: FavoriteItem[];
+}
+
+// --- Medical ---
+export interface Vaccination {
+  id: string;
+  name: string;
+  date?: string;
+  notes?: string;
+}
+
+export interface MedicalRecord {
+  bloodGroup?: string;
+  allergies?: string;
+  medications?: string;
+  conditions?: string;          // chronic conditions
+  vaccinations?: Vaccination[];
+  surgeries?: string;
+  emergencyMedication?: string;
+  organDonor?: boolean;
+  familyHistory?: string;       // diabetes, heart disease, cancer, genetic
+  notes?: string;
+}
+
+// --- Identity / IDs (multiple passports + permits) ---
+export interface PassportRecord {
+  id: string;
+  country: string;              // e.g. "Austria", "United Kingdom", "South Africa"
+  number: string;
+  expiryDate?: string;
+  issueDate?: string;
+  notes?: string;
+}
+
+export interface VisaRecord {
+  id: string;
+  country: string;
+  number?: string;
+  expiryDate?: string;
+  notes?: string;
+}
+
+export interface IdentityRecord {
+  // Austria
+  eCardNumber?: string;
+  svNumber?: string;            // Sozialversicherungsnummer
+  taxNumber?: string;
+  studentNumber?: string;
+  schoolRegNumber?: string;
+  // Residence / national / international
+  residencePermitNumber?: string;
+  residencePermitExpiry?: string;
+  nationalIdNumber?: string;    // e.g. SA ID number
+  citizenshipCertNumber?: string;
+  driversLicenseNumber?: string;
+  driversLicenseExpiry?: string;
+  notes?: string;
+}
+
+// --- Travel ---
+export interface TravelInfo {
+  frequentFlyer?: string;
+  travelInsuranceNumber?: string;
+  etiasStatus?: string;         // ESTA / ETIAS status
+  visas?: VisaRecord[];
+  preferences?: string;
+  emergencyTravelContact?: string;
+}
+
+// --- Personal preferences ---
+export interface Preferences {
+  favoriteMeals?: string;
+  dislikedFoods?: string;
+  dietaryRestrictions?: string;
+  favoriteMovies?: string;
+  favoriteBooks?: string;
+  favoriteGames?: string;
+  favoriteMusic?: string;
+  sports?: string;
+  hobbies?: string;
+  clothingBrands?: string;
+  colorPreferences?: string;
+}
+
+// --- Household (family-wide) ---
+export interface Vehicle {
+  id: string;
+  name: string;                 // e.g. "VW Golf"
+  registration?: string;
+  vin?: string;
+  insuranceNumber?: string;
+  serviceDate?: string;
+  notes?: string;
+}
+
+export interface Pet {
+  id: string;
+  name: string;
+  species?: string;
+  vet?: string;
+  vaccinations?: string;
+  microchip?: string;
+  notes?: string;
+}
+
+export interface UtilityProvider {
+  id: string;
+  type: string;                 // e.g. "Electricity", "Internet"
+  provider?: string;
+  accountNumber?: string;
+  notes?: string;
+}
+
+export interface HouseholdInfo {
+  address?: string;
+  doorCode?: string;
+  wifiName?: string;
+  wifiPassword?: string;
+  utilities?: UtilityProvider[];
+  vehicles?: Vehicle[];
+  pets?: Pet[];
+}
+
+// --- Finances (family-wide references, not passwords) ---
+export interface BankAccount {
+  id: string;
+  bankName: string;
+  accountHolder?: string;
+  iban?: string;
+  bic?: string;
+  notes?: string;
+}
+
+export interface InsurancePolicy {
+  id: string;
+  provider: string;
+  type?: string;                // e.g. "Home", "Health", "Car"
+  policyNumber?: string;
+  renewalDate?: string;
+  notes?: string;
+}
+
+export interface BenefitInfo {
+  id: string;
+  name: string;                 // e.g. "Familienbeihilfe"
+  reference?: string;
+  notes?: string;
+}
+
+export interface FinancesInfo {
+  banks?: BankAccount[];
+  insurance?: InsurancePolicy[];
+  benefits?: BenefitInfo[];
+}
+
+// --- Family timeline ---
+export interface TimelineEntry {
+  id: string;
+  date: string;                 // YYYY-MM-DD
+  title: string;
+  type?: string;                // Birth, Wedding, Graduation, Memory …
+  note?: string;
+}
+
+export interface FamilyTimeline {
+  entries: TimelineEntry[];
 }
 
 export interface CalendarEvent {

@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline } from '../types';
 import { db, auth } from '../lib/firebase';
 import { doc, getDoc, setDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 
@@ -220,6 +220,57 @@ export async function loadFamilyInfo(): Promise<FamilyInfo | null> {
   }
   return null;
 }
+
+// --- Generic shared single-doc reference store (household / finances / timeline) ---
+// Each lives at families/{FAMILY_ID}/reference/{key}, shared across the household.
+async function saveReferenceDoc<T>(key: string, value: T, localKey: string): Promise<boolean> {
+  const user = auth.currentUser;
+  let cloudOk = false;
+  if (user) {
+    try {
+      await setDoc(doc(db, 'families', FAMILY_ID, 'reference', key), value as any);
+      cloudOk = true;
+    } catch (error) {
+      console.error(`Error saving ${key}:`, error);
+    }
+  }
+  try {
+    localStorage.setItem(localKey, JSON.stringify(value));
+  } catch (e) {
+    console.error('LocalStorage fallback failed', e);
+  }
+  return cloudOk;
+}
+
+async function loadReferenceDoc<T>(key: string, localKey: string): Promise<T | null> {
+  const user = auth.currentUser;
+  if (user) {
+    try {
+      const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', key));
+      if (snap.exists()) {
+        const data = snap.data() as T;
+        localStorage.setItem(localKey, JSON.stringify(data));
+        return data;
+      }
+    } catch (error) {
+      console.error(`Error loading ${key}:`, error);
+    }
+  }
+  const local = localStorage.getItem(localKey);
+  if (local) {
+    try { return JSON.parse(local); } catch (e) { return null; }
+  }
+  return null;
+}
+
+export const saveHousehold = (h: HouseholdInfo) => saveReferenceDoc('household', h, 'family_household');
+export const loadHousehold = () => loadReferenceDoc<HouseholdInfo>('household', 'family_household');
+
+export const saveFinances = (f: FinancesInfo) => saveReferenceDoc('finances', f, 'family_finances');
+export const loadFinances = () => loadReferenceDoc<FinancesInfo>('finances', 'family_finances');
+
+export const saveTimeline = (t: FamilyTimeline) => saveReferenceDoc('timeline', t, 'family_timeline');
+export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', 'family_timeline');
 
 export const DEFAULT_EVENTS: CalendarEvent[] = [];
 export const DEFAULT_FAMILY: FamilyMember[] = [];
