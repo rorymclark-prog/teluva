@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FamilyMember, ClothingSizes, PassportInfo, FamilyDocument, CalendarEvent } from '../types';
 import {
   loadFamilyMembers, saveFamilyMembers,
@@ -49,9 +49,9 @@ import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Lock, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
-  HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive
+  HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, Reorder } from 'motion/react';
 
 export function calculateAge(birthdate?: string): string | null {
   if (!birthdate) return null;
@@ -201,6 +201,95 @@ export default function Dashboard() {
     setIsSettingsOpen(false);
     if (!demo) await saveSettings(next);
   };
+
+  // Drag-to-reorder the family list. onReorder updates live; we persist the
+  // new order (the saved metadata.ids array preserves it) when the drag ends.
+  const membersRef = useRef(members);
+  useEffect(() => { membersRef.current = members; }, [members]);
+
+  const handleReorder = (newOrder: FamilyMember[]) => {
+    setMembers(newOrder);
+    membersRef.current = newOrder;
+  };
+
+  const saveOrder = async () => {
+    if (demo) return;
+    const ok = await saveFamilyMembers(membersRef.current);
+    setCloudSynced(ok);
+    if (!ok) showToast("Saved on this device — cloud sync didn't go through.");
+  };
+
+  const cardClass = (member: FamilyMember) =>
+    `w-full text-left p-3.5 rounded-2xl border transition-all flex items-center justify-between ${
+      selectedMemberId === member.id
+        ? 'border-clay-300 bg-clay-50 ring-1 ring-clay-200'
+        : 'border-cream-200 bg-white hover:bg-cream-100 hover:border-cream-300'
+    }`;
+
+  // Inner content of a family-list card. `draggable` adds a grip handle and
+  // stops pointer-down on the avatar / action buttons from starting a drag.
+  const memberCardInner = (member: FamilyMember, draggable: boolean) => (
+    <>
+      <div className="flex items-center gap-3 min-w-0">
+        {draggable && <GripVertical className="w-4 h-4 text-ink-300 shrink-0" />}
+        {member.avatarUrl ? (
+          <div
+            onClick={(e) => { e.stopPropagation(); setLightboxImage(member.avatarUrl!); }}
+            onPointerDownCapture={(e) => e.stopPropagation()}
+            className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-cream-300 cursor-zoom-in"
+            title="View photo"
+          >
+            <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
+          </div>
+        ) : (
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-white shrink-0 uppercase ${warmAvatarColor(member.avatarColor)}`}>
+            {member.name.charAt(0).toUpperCase()}
+          </div>
+        )}
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold text-ink-900 truncate flex items-center gap-1.5 flex-wrap">
+            <span>{memberName(member)}</span>
+            <span className="chip bg-cream-200 text-ink-600">{member.role}</span>
+            {member.birthdate && (
+              <span className="chip bg-dusk-100 text-dusk-700">{calculateAge(member.birthdate)}</span>
+            )}
+          </h4>
+          <p className="text-[11px] text-ink-400 font-medium truncate mt-0.5">
+            {member.documents?.length || 0} document{(member.documents?.length || 0) !== 1 ? 's' : ''} · {member.growthHistory?.length || 0} growth entr{(member.growthHistory?.length || 0) !== 1 ? 'ies' : 'y'}
+          </p>
+        </div>
+      </div>
+
+      {selectedMemberId === member.id && (
+        <div onClick={(e) => e.stopPropagation()} onPointerDownCapture={(e) => e.stopPropagation()} className="relative flex items-center shrink-0">
+          {deleteConfirmMemberId === member.id ? (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => handleDeleteMember(member.id)}
+                className="px-2.5 py-1.5 bg-rosa-500 hover:bg-rosa-700 text-white rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+              >
+                Remove
+              </button>
+              <button
+                onClick={() => setDeleteConfirmMemberId(null)}
+                className="px-2 py-1.5 border border-cream-300 text-ink-500 rounded-lg bg-white hover:bg-cream-100 text-[11px] font-semibold cursor-pointer"
+              >
+                Keep
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setDeleteConfirmMemberId(member.id)}
+              className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg transition-colors cursor-pointer"
+              title="Remove member"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
+    </>
+  );
 
   const persistChanges = async (updated: FamilyMember[]) => {
     setMembers(updated);
@@ -645,80 +734,32 @@ export default function Dashboard() {
                       <div className="text-center py-10">
                         <p className="text-[13px] font-medium text-ink-400">No one matches &ldquo;{searchQuery}&rdquo;.</p>
                       </div>
-                    ) : (
+                    ) : searchQuery.trim() !== '' ? (
                       <div className="space-y-2.5">
                         {filteredMembers.map((member) => (
                           <div
                             key={member.id}
-                            onClick={() => {
-                              setSelectedMemberId(member.id);
-                              setDeleteConfirmMemberId(null);
-                            }}
-                            className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
-                              selectedMemberId === member.id
-                                ? 'border-clay-300 bg-clay-50 ring-1 ring-clay-200'
-                                : 'border-cream-200 bg-white hover:bg-cream-100 hover:border-cream-300'
-                            }`}
+                            onClick={() => { setSelectedMemberId(member.id); setDeleteConfirmMemberId(null); }}
+                            className={`${cardClass(member)} cursor-pointer`}
                           >
-                            <div className="flex items-center gap-3 min-w-0">
-                              {member.avatarUrl ? (
-                                <div
-                                  onClick={(e) => { e.stopPropagation(); setLightboxImage(member.avatarUrl!); }}
-                                  className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-cream-300 cursor-zoom-in"
-                                  title="View photo"
-                                >
-                                  <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
-                                </div>
-                              ) : (
-                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-white shrink-0 uppercase ${warmAvatarColor(member.avatarColor)}`}>
-                                  {member.name.charAt(0).toUpperCase()}
-                                </div>
-                              )}
-                              <div className="min-w-0">
-                                <h4 className="text-sm font-semibold text-ink-900 truncate flex items-center gap-1.5 flex-wrap">
-                                  <span>{memberName(member)}</span>
-                                  <span className="chip bg-cream-200 text-ink-600">{member.role}</span>
-                                  {member.birthdate && (
-                                    <span className="chip bg-dusk-100 text-dusk-700">{calculateAge(member.birthdate)}</span>
-                                  )}
-                                </h4>
-                                <p className="text-[11px] text-ink-400 font-medium truncate mt-0.5">
-                                  {member.documents?.length || 0} document{(member.documents?.length || 0) !== 1 ? 's' : ''} · {member.growthHistory?.length || 0} growth entr{(member.growthHistory?.length || 0) !== 1 ? 'ies' : 'y'}
-                                </p>
-                              </div>
-                            </div>
-
-                            {selectedMemberId === member.id && (
-                              <div onClick={(e) => e.stopPropagation()} className="relative flex items-center shrink-0">
-                                {deleteConfirmMemberId === member.id ? (
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() => handleDeleteMember(member.id)}
-                                      className="px-2.5 py-1.5 bg-rosa-500 hover:bg-rosa-700 text-white rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
-                                    >
-                                      Remove
-                                    </button>
-                                    <button
-                                      onClick={() => setDeleteConfirmMemberId(null)}
-                                      className="px-2 py-1.5 border border-cream-300 text-ink-500 rounded-lg bg-white hover:bg-cream-100 text-[11px] font-semibold cursor-pointer"
-                                    >
-                                      Keep
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => setDeleteConfirmMemberId(member.id)}
-                                    className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg transition-colors cursor-pointer"
-                                    title="Remove member"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </div>
-                            )}
+                            {memberCardInner(member, false)}
                           </div>
                         ))}
                       </div>
+                    ) : (
+                      <Reorder.Group axis="y" values={members} onReorder={handleReorder} className="space-y-2.5">
+                        {members.map((member) => (
+                          <Reorder.Item
+                            key={member.id}
+                            value={member}
+                            onDragEnd={saveOrder}
+                            onClick={() => { setSelectedMemberId(member.id); setDeleteConfirmMemberId(null); }}
+                            className={`${cardClass(member)} cursor-grab active:cursor-grabbing`}
+                          >
+                            {memberCardInner(member, true)}
+                          </Reorder.Item>
+                        ))}
+                      </Reorder.Group>
                     )}
                   </div>
                 </section>
