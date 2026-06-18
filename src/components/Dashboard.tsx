@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { FamilyMember, ClothingSizes, PassportInfo, FamilyDocument, CalendarEvent } from '../types';
 import {
   loadFamilyMembers, saveFamilyMembers,
-  loadCalendarEvents, saveCalendarEvents
+  loadCalendarEvents, saveCalendarEvents,
+  loadFamilyInfo, saveFamilyInfo
 } from '../utils/db';
+import { applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits } from '../utils/aiApply';
+import AIChatbot, { AiEdit } from './AIChatbot';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { DEMO_MEMBERS, DEMO_EVENTS, isDemoMode } from '../utils/demoData';
@@ -59,7 +62,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'passport' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'chat' | 'drive';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'chat' | 'drive';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'medical', label: 'Medical', icon: HeartPulse },
@@ -76,6 +79,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 
 const VIEWS: { id: ViewId; label: string; icon: React.ElementType }[] = [
   { id: 'profiles', label: 'Profiles', icon: Users },
+  { id: 'assistant', label: 'Assistant', icon: Sparkles },
   { id: 'emergency', label: 'Emergency', icon: Siren },
   { id: 'calendar', label: 'Calendar', icon: Calendar },
   { id: 'info', label: 'Info', icon: IdCard },
@@ -206,6 +210,18 @@ export default function Dashboard() {
   const handlePatchSelectedMember = async (patch: Partial<FamilyMember>) => {
     if (!selectedMemberId) return;
     await persistChanges(members.map(m => (m.id === selectedMemberId ? { ...m, ...patch } : m)));
+  };
+
+  // Apply edits proposed by the AI assistant (after the user confirms).
+  const handleApplyAiEdits = async (edits: AiEdit[]) => {
+    if (hasMemberEdits(edits)) {
+      const next = applyMemberEdits(members, edits);
+      await persistChanges(next);
+    }
+    if (hasInfoEdits(edits)) {
+      const info = (await loadFamilyInfo()) || { numbers: [], contacts: [] };
+      await saveFamilyInfo(applyInfoEdits(info, edits));
+    }
   };
 
   const handleAddDocument = async (memberId: string, docToAdd: FamilyDocument) => {
@@ -421,6 +437,10 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
         {mainView === 'calendar' && (
           <FamilyCalendar members={members} events={events} onSaveEvents={handleSaveEvents} />
+        )}
+
+        {mainView === 'assistant' && (
+          demo ? <DemoUnavailable label="The assistant" /> : <AIChatbot members={members} onApplyEdits={handleApplyAiEdits} />
         )}
 
         {mainView === 'info' && <ImportantInfo />}
