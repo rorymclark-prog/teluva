@@ -3,8 +3,10 @@ import { FamilyMember } from '../types';
 import { auth } from '../lib/firebase';
 import { loadFamilyInfo, loadHousehold, loadFinances, loadTimeline } from '../utils/db';
 import {
-  Sparkles, Send, Loader2, Check, X, Wand2, User, Bot
+  Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus
 } from 'lucide-react';
+
+const CHAT_KEY = 'assistant_chat_v1';
 
 export type AiEdit =
   | { kind: 'member'; member: string; field: string; value: string }
@@ -43,7 +45,11 @@ const SUGGESTIONS = [
 ];
 
 export default function AIChatbot({ members, onApplyEdits }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Conversation persists across tab switches and refreshes until "New chat".
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try { const raw = localStorage.getItem(CHAT_KEY); return raw ? JSON.parse(raw) : []; }
+    catch { return []; }
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
@@ -53,6 +59,18 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  // Keep the conversation saved on this device.
+  useEffect(() => {
+    try { localStorage.setItem(CHAT_KEY, JSON.stringify(messages.slice(-60))); } catch { /* ignore */ }
+  }, [messages]);
+
+  const startNewChat = () => {
+    setMessages([]);
+    setError(null);
+    setInput('');
+    try { localStorage.removeItem(CHAT_KEY); } catch { /* ignore */ }
+  };
 
   const buildContext = async () => {
     const [info, household, finances, timeline] = await Promise.all([
@@ -117,10 +135,16 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
         <div className="p-2.5 rounded-2xl bg-clay-500 text-white shrink-0">
           <Sparkles className="w-5 h-5" />
         </div>
-        <div>
+        <div className="min-w-0">
           <h2 className="font-display text-xl font-semibold text-ink-900">Family assistant</h2>
-          <p className="text-[13px] text-ink-500 font-medium">Ask about anything, or just tell me a fact and I'll file it for you.</p>
+          <p className="text-[13px] text-ink-500 font-medium truncate">Ask about anything, or just tell me a fact and I'll file it for you.</p>
         </div>
+        {messages.length > 0 && (
+          <button onClick={startNewChat} className="btn-quiet text-xs px-3 py-1.5 ml-auto shrink-0" title="Clear and start a fresh conversation">
+            <MessageSquarePlus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">New chat</span>
+          </button>
+        )}
       </div>
 
       {/* Messages */}

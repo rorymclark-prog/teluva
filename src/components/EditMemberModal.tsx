@@ -3,6 +3,7 @@ import { X, Sparkles, Camera, Upload, RefreshCcw, Save, Trash2 } from 'lucide-re
 import { FamilyMember, MemberRole } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
+import { compressImageToAvatar } from '../utils/imageCompress';
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -92,10 +93,10 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
       if (ctx) {
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        setUploadedBase64(dataUrl);
-        setUploadFileName('snapshot.jpg');
         stopCamera();
+        setUploadFileName('snapshot.jpg');
         setAvatarMode('upload');
+        compressImageToAvatar(dataUrl).then(setUploadedBase64);
       }
     }
   };
@@ -108,11 +109,12 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
         return;
       }
       setUploadFileName(file.name);
+      setAvatarMode('upload');
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         if (typeof reader.result === 'string') {
-          setUploadedBase64(reader.result);
-          setAvatarMode('upload');
+          const small = await compressImageToAvatar(reader.result);
+          setUploadedBase64(small);
         }
       };
       reader.readAsDataURL(file);

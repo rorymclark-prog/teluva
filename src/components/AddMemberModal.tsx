@@ -3,6 +3,7 @@ import { X, UserPlus, Sparkles, Camera, Upload, RefreshCcw } from 'lucide-react'
 import { FamilyMember, MemberRole } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
+import { compressImageToAvatar } from '../utils/imageCompress';
 
 interface AddMemberModalProps {
   isOpen: boolean;
@@ -73,10 +74,10 @@ export default function AddMemberModal({ isOpen, onClose, onAdd }: AddMemberModa
       if (ctx) {
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        setUploadedBase64(dataUrl);
-        setUploadFileName('snapshot.jpg');
         stopCamera();
+        setUploadFileName('snapshot.jpg');
         setAvatarMode('upload');
+        compressImageToAvatar(dataUrl).then(setUploadedBase64);
       }
     }
   };
@@ -90,9 +91,10 @@ export default function AddMemberModal({ isOpen, onClose, onAdd }: AddMemberModa
       }
       setUploadFileName(file.name);
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         if (typeof reader.result === 'string') {
-          setUploadedBase64(reader.result);
+          const small = await compressImageToAvatar(reader.result);
+          setUploadedBase64(small);
         }
       };
       reader.readAsDataURL(file);
