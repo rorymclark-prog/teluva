@@ -8,7 +8,7 @@ import {
   onAuthStateChanged,
   signOut,
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // iOS Safari blocks the sign-in popup and partitions its storage, so popup
@@ -32,7 +32,16 @@ const config = isIOS && typeof window !== 'undefined'
 
 const app = initializeApp(config);
 export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// ignoreUndefinedProperties: optional fields left blank (no birthdate, no photo)
+// arrive as `undefined`, which Firestore otherwise REJECTS — that silently failed
+// every new-member save, so added members vanished on refresh. Dropping undefined
+// fields instead makes all writes (add/edit) robust.
+export const db = initializeFirestore(
+  app,
+  { ignoreUndefinedProperties: true },
+  firebaseConfig.firestoreDatabaseId
+);
 
 export const provider = new GoogleAuthProvider();
 
