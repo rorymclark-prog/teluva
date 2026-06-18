@@ -19,11 +19,12 @@ import SecureSecrets from './SecureSecrets';
 import FamilyCalendar from './FamilyCalendar';
 import FamilyChat from './FamilyChat';
 import GoogleDriveSync from './GoogleDriveSync';
+import ImportantInfo from './ImportantInfo';
 import MemberFavorites from './MemberFavorites';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Lock, Key, TrendingUp, Calendar, Heart,
-  LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle
+  LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -49,7 +50,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'sizes' | 'favorites' | 'growth' | 'passport' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'calendar' | 'chat' | 'drive';
+type ViewId = 'profiles' | 'calendar' | 'info' | 'chat' | 'drive';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'sizes', label: 'Sizes', icon: Scissors },
@@ -63,6 +64,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 const VIEWS: { id: ViewId; label: string; icon: React.ElementType }[] = [
   { id: 'profiles', label: 'Profiles', icon: Users },
   { id: 'calendar', label: 'Calendar', icon: Calendar },
+  { id: 'info', label: 'Info', icon: IdCard },
   { id: 'chat', label: 'Chat', icon: MessageCircle },
   { id: 'drive', label: 'Drive', icon: Cloud },
 ];
@@ -387,6 +389,8 @@ export default function Dashboard() {
         {mainView === 'calendar' && (
           <FamilyCalendar members={members} events={events} onSaveEvents={handleSaveEvents} />
         )}
+
+        {mainView === 'info' && <ImportantInfo />}
 
         {mainView === 'chat' && (
           demo ? (

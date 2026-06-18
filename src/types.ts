@@ -121,3 +121,28 @@ export interface CalendarEvent {
   remindMe: boolean;
   memberIds?: string[]; // Tagged family members
 }
+
+// --- Important Info tab: a shared family quick-reference sheet ---
+// A free-form labelled number/value (social security, passport no, insurance,
+// policy numbers, anything worth keeping in one place).
+export interface InfoEntry {
+  id: string;
+  label: string;        // e.g. "Mia – Social security"
+  value: string;        // e.g. "1234 010118"
+  note?: string;
+}
+
+// A person/place to contact (school office, teacher, doctor, friend, emergency).
+export interface ContactEntry {
+  id: string;
+  name: string;         // e.g. "Frau Müller" or "Volksschule Ottakring"
+  relation?: string;    // e.g. "Class teacher 3b", "School", "Pediatrician", "Friend"
+  phone?: string;
+  email?: string;
+  note?: string;
+}
+
+export interface FamilyInfo {
+  numbers: InfoEntry[];
+  contacts: ContactEntry[];
+}

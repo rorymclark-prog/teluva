@@ -34,7 +34,10 @@ import {
   User,
   AlertCircle,
   FileCode,
-  File
+  File,
+  Folder,
+  ChevronRight,
+  HardDrive
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -65,7 +68,12 @@ export default function GoogleDriveSync() {
 
   // Lists
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
+  const [folders, setFolders] = useState<DriveFile[]>([]);
   const [sharedDocs, setSharedDocs] = useState<SharedDoc[]>([]);
+
+  // Folder navigation — breadcrumb trail starting at the Drive root
+  const [folderPath, setFolderPath] = useState<{ id: string; name: string }[]>([{ id: 'root', name: 'My Drive' }]);
+  const [isSyncingFolder, setIsSyncingFolder] = useState(false);
 
   // UX states
   const [isDriveLoading, setIsDriveLoading] = useState(false);
@@ -126,12 +134,12 @@ export default function GoogleDriveSync() {
   // Re-subscribe if the Firebase auth user changes
   }, [auth.currentUser?.uid]);
 
-  // Fetch from Google Drive when token becomes available
+  // Fetch the current folder's contents when token or folder changes
   useEffect(() => {
     if (token) {
-      fetchDriveFiles();
+      fetchFolder(folderPath[folderPath.length - 1].id);
     }
-  }, [token]);
+  }, [token, folderPath]);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
@@ -157,47 +165,26 @@ export default function GoogleDriveSync() {
       setToken(null);
       setUser(null);
       setDriveFiles([]);
+      setFolders([]);
+      setFolderPath([{ id: 'root', name: 'My Drive' }]);
       setNeedsAuth(true);
     } catch (err) {
       console.error('Logout error:', err);
     }
   };
 
-  // Fetch real files from Google Drive REST API
-  const fetchDriveFiles = async () => {
+  // Fetch the folders + files inside a Drive folder (root = 'root')
+  const fetchFolder = async (folderId: string) => {
     if (!token) return;
     setIsDriveLoading(true);
     setDriveError(null);
     try {
-      // Query parameters to get relevant formats (Docs, Sheets, Slides, PDFs)
-      const q = encodeURIComponent(
-        "mimeType = 'application/vnd.google-apps.document' or " +
-        "mimeType = 'application/vnd.google-apps.spreadsheet' or " +
-        "mimeType = 'application/vnd.google-apps.presentation' or " +
-        "mimeType = 'application/pdf'"
-      );
-      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=50&fields=files(id,name,mimeType,size,webViewLink)`;
+      const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=200&orderBy=name&fields=files(id,name,mimeType,size,webViewLink)`;
 
       const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-
-      // Check token scopes first if possible
-      try {
-        const tokenInfoRes = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${token}`);
-        if (tokenInfoRes.ok) {
-          const tokenInfo = await tokenInfoRes.json();
-          if (tokenInfo.scope && !tokenInfo.scope.includes('drive.readonly') && !tokenInfo.scope.includes('drive')) {
-            setNeedsAuth(true);
-            setToken(null);
-            throw new Error('You did not grant Google Drive permissions. You MUST check the box for Google Drive on the sign-in screen.');
-          }
-        }
-      } catch (e) {
-        // Ignore tokeninfo fetch errors and proceed
-      }
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -206,16 +193,56 @@ export default function GoogleDriveSync() {
           setToken(null);
           throw new Error('Google authorisation token has expired. Please sign in again.');
         }
+        if (response.status === 403) {
+          throw new Error('Google Drive permission missing — sign out and sign in again, ticking the Google Drive box.');
+        }
         throw new Error(`Google API returned error status: ${response.status}`);
       }
 
       const data = await response.json();
-      setDriveFiles(data.files || []);
+      const all: DriveFile[] = data.files || [];
+      const FOLDER_MIME = 'application/vnd.google-apps.folder';
+      setFolders(all.filter(f => f.mimeType === FOLDER_MIME));
+      setDriveFiles(all.filter(f => f.mimeType !== FOLDER_MIME));
     } catch (err: any) {
       console.error('Google Drive Fetch Error:', err);
       setDriveError(err.message || 'Error communicating with Google Drive services.');
     } finally {
       setIsDriveLoading(false);
+    }
+  };
+
+  // Drill into a subfolder / jump back via the breadcrumb
+  const openFolder = (folder: DriveFile) => {
+    setDriveSearch('');
+    setFolderPath(prev => [...prev, { id: folder.id, name: folder.name }]);
+  };
+  const goToCrumb = (index: number) => {
+    setDriveSearch('');
+    setFolderPath(prev => prev.slice(0, index + 1));
+  };
+
+  // Sync EVERY file in the current folder to the family vault in one go
+  const handleSyncFolder = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid || !user || driveFiles.length === 0) return;
+    setIsSyncingFolder(true);
+    try {
+      await Promise.all(driveFiles.map(file =>
+        setDoc(doc(db, 'families', FAMILY_ID, 'sharedDriveDocs', file.id), {
+          fileId: file.id,
+          name: file.name,
+          mimeType: file.mimeType,
+          webViewLink: file.webViewLink,
+          syncedBy: user.displayName || user.email || 'Family Admin',
+          syncedAt: serverTimestamp(),
+          size: file.size ? parseInt(file.size, 10) : null
+        })
+      ));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'sharedDriveDocs (folder sync)');
+    } finally {
+      setIsSyncingFolder(false);
     }
   };
 
@@ -290,6 +317,10 @@ export default function GoogleDriveSync() {
 
   // Filter listings
   const filteredDriveFiles = driveFiles.filter(f =>
+    f.name.toLowerCase().includes(driveSearch.toLowerCase())
+  );
+
+  const filteredFolders = folders.filter(f =>
     f.name.toLowerCase().includes(driveSearch.toLowerCase())
   );
 
@@ -373,20 +404,33 @@ export default function GoogleDriveSync() {
             <h3 className="text-[13px] font-semibold text-ink-800 flex items-center gap-1.5">
               My Google Drive
               <span className="chip bg-cream-200 text-ink-600 font-mono">
-                {needsAuth ? 0 : filteredDriveFiles.length}
+                {needsAuth ? 0 : filteredFolders.length + filteredDriveFiles.length}
               </span>
             </h3>
 
             {!needsAuth && (
-              <button
-                onClick={fetchDriveFiles}
-                disabled={isDriveLoading}
-                className="btn-quiet text-sm px-2.5 py-1.5 flex items-center gap-1"
-                title="Refresh Google Drive files list"
-              >
-                <RefreshCcw className={`w-3 h-3 ${isDriveLoading ? 'animate-spin' : ''}`} />
-                <span>Refresh</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {driveFiles.length > 0 && (
+                  <button
+                    onClick={handleSyncFolder}
+                    disabled={isSyncingFolder}
+                    className="btn-primary text-xs px-2.5 py-1.5 flex items-center gap-1 disabled:opacity-50"
+                    title="Sync every file in this folder to the family"
+                  >
+                    {isSyncingFolder ? <Loader2 className="w-3 h-3 animate-spin" /> : <Cloud className="w-3 h-3" />}
+                    <span>Sync folder ({driveFiles.length})</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => fetchFolder(folderPath[folderPath.length - 1].id)}
+                  disabled={isDriveLoading}
+                  className="btn-quiet text-sm px-2.5 py-1.5 flex items-center gap-1"
+                  title="Refresh this folder"
+                >
+                  <RefreshCcw className={`w-3 h-3 ${isDriveLoading ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -417,17 +461,59 @@ export default function GoogleDriveSync() {
             </div>
           ) : (
             <div className="flex-1 mt-4 flex flex-col">
+              {/* Breadcrumb */}
+              <div className="flex items-center flex-wrap gap-0.5 mb-3 text-[12px] font-semibold">
+                {folderPath.map((crumb, i) => (
+                  <span key={crumb.id} className="flex items-center gap-0.5">
+                    {i > 0 && <ChevronRight className="w-3 h-3 text-ink-300" />}
+                    <button
+                      onClick={() => goToCrumb(i)}
+                      disabled={i === folderPath.length - 1}
+                      className={`px-1.5 py-0.5 rounded-md flex items-center gap-1 ${
+                        i === folderPath.length - 1
+                          ? 'text-ink-800'
+                          : 'text-ink-400 hover:text-ink-700 hover:bg-cream-100'
+                      }`}
+                    >
+                      {i === 0 && <HardDrive className="w-3 h-3" />}
+                      <span className="truncate max-w-[140px]">{crumb.name}</span>
+                    </button>
+                  </span>
+                ))}
+              </div>
+
               {/* Filter */}
               <div className="relative mb-3.5">
                 <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-ink-400" />
                 <input
                   type="text"
-                  placeholder="Search Docs, Sheets, PDFs…"
+                  placeholder="Search this folder…"
                   value={driveSearch}
                   onChange={(e) => setDriveSearch(e.target.value)}
                   className="field pl-8.5"
                 />
               </div>
+
+              {/* Folders in this directory */}
+              {!isDriveLoading && filteredFolders.length > 0 && (
+                <div className="space-y-2 mb-2">
+                  {filteredFolders.map((folder) => (
+                    <button
+                      key={folder.id}
+                      onClick={() => openFolder(folder)}
+                      className="w-full p-3 border border-cream-300 rounded-2xl hover:bg-cream-50 flex items-center justify-between gap-3 transition-colors text-[13px] text-left"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="p-2 rounded-xl shrink-0 bg-honey-100 text-honey-700">
+                          <Folder className="w-4 h-4" />
+                        </div>
+                        <h4 className="font-semibold text-ink-800 truncate" title={folder.name}>{folder.name}</h4>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-ink-300 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Loader */}
               {isDriveLoading ? (
@@ -436,12 +522,14 @@ export default function GoogleDriveSync() {
                   <p className="text-[13px] font-semibold text-ink-400">Querying cloud files…</p>
                 </div>
               ) : filteredDriveFiles.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-ink-400">
-                  <p className="text-[13px] italic">No compatible files found in this Drive folder.</p>
-                  <p className="text-[13px] mt-1 text-ink-400 max-w-[240px] font-light leading-snug">
-                    Upload a file (Google Doc, Sheet, or PDF) to your personal Google Drive account to list it here.
-                  </p>
-                </div>
+                filteredFolders.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-ink-400">
+                    <p className="text-[13px] italic">{driveSearch ? 'Nothing matches your search here.' : 'This folder is empty.'}</p>
+                    <p className="text-[13px] mt-1 text-ink-400 max-w-[240px] font-light leading-snug">
+                      Open a folder above, or add files to it in Google Drive.
+                    </p>
+                  </div>
+                ) : null
               ) : (
                 <div className="flex-1 overflow-y-auto space-y-2 max-h-[340px] pr-1.5">
                   {filteredDriveFiles.map((file) => {

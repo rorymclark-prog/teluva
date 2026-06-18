@@ -1,9 +1,10 @@
-import { FamilyMember, CalendarEvent } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo } from '../types';
 import { db, auth } from '../lib/firebase';
 import { doc, getDoc, setDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 
 const MEMBERS_KEY = 'family_members';
 const CALENDAR_KEY = 'family_calendar';
+const INFO_KEY = 'family_info';
 
 // One shared vault for the whole household. Every authorised family account
 // (see firestore.rules) reads and writes this same path, so Mama, Papa and the
@@ -160,6 +161,56 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
   }
 
   const local = localStorage.getItem(CALENDAR_KEY);
+  if (local) {
+    try {
+      return JSON.parse(local);
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
+}
+
+// --- Important Info: one shared doc for the whole household ---
+export async function saveFamilyInfo(info: FamilyInfo): Promise<boolean> {
+  const user = auth.currentUser;
+  let cloudOk = false;
+
+  if (user) {
+    try {
+      await setDoc(doc(db, 'families', FAMILY_ID, 'reference', 'info'), info);
+      cloudOk = true;
+    } catch (error) {
+      console.error('Error saving family info:', error);
+    }
+  }
+
+  try {
+    localStorage.setItem(INFO_KEY, JSON.stringify(info));
+  } catch (e) {
+    console.error('LocalStorage fallback failed', e);
+  }
+
+  return cloudOk;
+}
+
+export async function loadFamilyInfo(): Promise<FamilyInfo | null> {
+  const user = auth.currentUser;
+
+  if (user) {
+    try {
+      const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', 'info'));
+      if (snap.exists()) {
+        const info = snap.data() as FamilyInfo;
+        localStorage.setItem(INFO_KEY, JSON.stringify(info));
+        return info;
+      }
+    } catch (error) {
+      console.error('Error loading family info:', error);
+    }
+  }
+
+  const local = localStorage.getItem(INFO_KEY);
   if (local) {
     try {
       return JSON.parse(local);
