@@ -72,14 +72,30 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([arr], { type: mime });
 }
 
-const SUGGESTIONS = [
-  "What's Mia's shoe size?",
-  'When does my residence permit expire?',
-  'Ben is allergic to penicillin',
-  'Add the school office number: 01 234 5678',
-];
+const firstName = (m: FamilyMember): string => (m.nickname || m.name).trim().split(/\s+/)[0];
+
+// Starter suggestions built from the REAL family, not placeholders.
+function buildSuggestions(members: FamilyMember[]): string[] {
+  if (!members.length) {
+    return [
+      'Add a new family member',
+      'What can you help me with?',
+      'What’s coming up on the calendar?',
+    ];
+  }
+  const kids = members.filter(m => m.role === 'Child');
+  const a = kids[0] || members[0];
+  const b = kids[1] || kids[0] || members[0];
+  return Array.from(new Set([
+    `What’s ${firstName(a)}’s shoe size?`,
+    'When does my residence permit expire?',
+    `How old is ${firstName(b)} and what clothes size should I get?`,
+    'Whose passport expires soonest?',
+  ]));
+}
 
 export default function AIChatbot({ members, onApplyEdits }: Props) {
+  const suggestions = buildSuggestions(members);
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try { const raw = localStorage.getItem(CHAT_KEY); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
@@ -304,7 +320,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2 max-w-md">
-              {SUGGESTIONS.map(s => (
+              {suggestions.map(s => (
                 <button key={s} onClick={() => send(s)} className="chip bg-cream-100 text-ink-600 border border-cream-300 hover:bg-cream-200 transition-colors">
                   {s}
                 </button>
