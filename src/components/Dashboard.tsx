@@ -3,10 +3,13 @@ import { FamilyMember, ClothingSizes, PassportInfo, FamilyDocument, CalendarEven
 import {
   loadFamilyMembers, saveFamilyMembers,
   loadCalendarEvents, saveCalendarEvents,
-  loadFamilyInfo, saveFamilyInfo
+  loadFamilyInfo, saveFamilyInfo,
+  loadSettings, saveSettings
 } from '../utils/db';
 import { applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits } from '../utils/aiApply';
 import AIChatbot, { AiEdit } from './AIChatbot';
+import HubSettingsModal from './HubSettingsModal';
+import { HubSettings } from '../types';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { DEMO_MEMBERS, DEMO_EVENTS, isDemoMode } from '../utils/demoData';
@@ -100,9 +103,11 @@ export default function Dashboard() {
 
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<TabId>('sizes');
+  const [activeTab, setActiveTab] = useState<TabId>('medical');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [settings, setSettings] = useState<HubSettings>({});
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<FamilyDocument | null>(null);
   const [selectedDocumentMemberName, setSelectedDocumentMemberName] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -164,9 +169,20 @@ export default function Dashboard() {
 
       const calData = await loadCalendarEvents();
       setEvents(calData && calData.length > 0 ? calData : []);
+
+      const hub = await loadSettings();
+      if (hub) setSettings(hub);
     }
     init();
   }, [currentUser]);
+
+  const hubName = settings.hubName || 'Family Hub';
+
+  const handleSaveSettings = async (next: HubSettings) => {
+    setSettings(next);
+    setIsSettingsOpen(false);
+    if (!demo) await saveSettings(next);
+  };
 
   const persistChanges = async (updated: FamilyMember[]) => {
     setMembers(updated);
@@ -355,7 +371,7 @@ export default function Dashboard() {
           <div className="w-16 h-16 rounded-full bg-sage-100 flex items-center justify-center mx-auto mb-5">
             <ShieldCheck className="w-8 h-8 text-sage-600" />
           </div>
-          <h1 className="font-display text-3xl font-semibold text-ink-900 mb-3">Family Vault</h1>
+          <h1 className="font-display text-3xl font-semibold text-ink-900 mb-3">{hubName}</h1>
           <p className="text-sm text-ink-500 leading-relaxed mb-8">
             Sizes, documents, growth and plans for the whole family — together in one private place.
           </p>
@@ -376,15 +392,26 @@ export default function Dashboard() {
       {/* Header */}
       <header className="bg-cream-50/90 backdrop-blur border-b border-cream-300/60 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0">
-              <ShieldCheck className="w-5 h-5 text-sage-600" />
-            </div>
+          <button
+            type="button"
+            onClick={() => !demo && setIsSettingsOpen(true)}
+            className={`flex items-center gap-3 text-left rounded-2xl -m-1 p-1 transition-colors ${demo ? '' : 'hover:bg-cream-200/60 cursor-pointer'}`}
+            title={demo ? undefined : 'Hub settings — name &amp; family photo'}
+          >
+            {settings.familyPhotoUrl ? (
+              <div className="w-9 h-9 rounded-2xl overflow-hidden shrink-0 border border-cream-300 shadow-soft">
+                <img src={settings.familyPhotoUrl} alt="Family" className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-9 h-9 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5 text-sage-600" />
+              </div>
+            )}
             <div>
-              <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight">Family Vault</h1>
-              <p className="hidden sm:block text-[11px] text-ink-400 font-medium leading-tight">Records, sizes &amp; plans in one place</p>
+              <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight">{hubName}</h1>
+              <p className="hidden sm:block text-[11px] text-ink-400 font-medium leading-tight">Everything for the family, in one place</p>
             </div>
-          </div>
+          </button>
 
           {/* Main view switcher */}
           <nav className="flex items-center bg-cream-200 p-1 rounded-2xl mx-auto sm:mx-0 overflow-x-auto">
@@ -496,7 +523,7 @@ export default function Dashboard() {
                 <div className="w-16 h-16 rounded-full bg-clay-50 flex items-center justify-center mx-auto mb-5">
                   <Users className="w-8 h-8 text-clay-400" />
                 </div>
-                <h2 className="font-display text-2xl font-semibold text-ink-900 mb-2">Welcome to your Family Vault</h2>
+                <h2 className="font-display text-2xl font-semibold text-ink-900 mb-2">Welcome to your {hubName}</h2>
                 <p className="text-sm text-ink-500 max-w-md mx-auto mb-7">
                   Keep everyone&apos;s clothing sizes, documents, growth history and wish lists in one tidy, private place.
                 </p>
@@ -780,6 +807,13 @@ export default function Dashboard() {
         member={selectedMember}
         onClose={() => setIsEditingProfile(false)}
         onSave={handleUpdateMember}
+      />
+
+      <HubSettingsModal
+        isOpen={isSettingsOpen}
+        settings={settings}
+        onClose={() => setIsSettingsOpen(false)}
+        onSave={handleSaveSettings}
       />
     </div>
   );

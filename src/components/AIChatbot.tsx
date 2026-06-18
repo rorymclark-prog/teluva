@@ -1,24 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FamilyMember } from '../types';
+import { FamilyMember, VaultCategory, VaultDocument } from '../types';
 import { auth } from '../lib/firebase';
-import { loadFamilyInfo, loadHousehold, loadFinances, loadTimeline } from '../utils/db';
 import {
-  Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus
+  loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
+  loadDocuments, saveDocuments, uploadVaultFile,
+} from '../utils/db';
+import {
+  Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
+  Paperclip, FileText, Image as ImageIcon,
 } from 'lucide-react';
 
 const CHAT_KEY = 'assistant_chat_v1';
+const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
 export type AiEdit =
   | { kind: 'member'; member: string; field: string; value: string }
   | { kind: 'passport'; member: string; country: string; number: string; expiry?: string }
   | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string }
-  | { kind: 'number'; label: string; value: string };
+  | { kind: 'number'; label: string; value: string }
+  | { kind: 'document'; name: string; category: VaultCategory };
+
+interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   edits?: AiEdit[];
   applied?: boolean;
+  image?: string;            // dataUrl preview on a user message (stripped from storage)
+  sourceImage?: Attachment;  // carried on the assistant message so 'document' edits can file the scan
 }
 
 interface Props {
@@ -26,7 +36,6 @@ interface Props {
   onApplyEdits: (edits: AiEdit[]) => Promise<void>;
 }
 
-// Strip heavy base64 (avatars, document file data) before sending as context.
 function slimMembers(members: FamilyMember[]) {
   return members.map(m => {
     const { avatarUrl, documents, ...rest } = m as any;
@@ -37,38 +46,61 @@ function slimMembers(members: FamilyMember[]) {
   });
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as string);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [head, b64] = dataUrl.split(',');
+  const mime = (head.match(/data:(.*?);base64/) || [])[1] || 'application/octet-stream';
+  const bin = atob(b64 || '');
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
 const SUGGESTIONS = [
   "What's Mia's shoe size?",
   'When does my residence permit expire?',
-  "Ben is allergic to penicillin",
-  "Add the school office number: 01 234 5678",
+  'Ben is allergic to penicillin',
+  'Add the school office number: 01 234 5678',
 ];
 
 export default function AIChatbot({ members, onApplyEdits }: Props) {
-  // Conversation persists across tab switches and refreshes until "New chat".
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try { const raw = localStorage.getItem(CHAT_KEY); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
   });
   const [input, setInput] = useState('');
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [loading, setLoading] = useState(false);
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Keep the conversation saved on this device.
+  // Persist the conversation (minus heavy image data) on this device.
   useEffect(() => {
-    try { localStorage.setItem(CHAT_KEY, JSON.stringify(messages.slice(-60))); } catch { /* ignore */ }
+    try {
+      const slim = messages.slice(-60).map(({ image, sourceImage, ...m }) => m);
+      localStorage.setItem(CHAT_KEY, JSON.stringify(slim));
+    } catch { /* ignore */ }
   }, [messages]);
 
   const startNewChat = () => {
     setMessages([]);
     setError(null);
     setInput('');
+    setAttachment(null);
     try { localStorage.removeItem(CHAT_KEY); } catch { /* ignore */ }
   };
 
@@ -79,13 +111,30 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     return { members: slimMembers(members), info, household, finances, timeline };
   };
 
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { setError('That file is over 20MB — please use a smaller scan.'); return; }
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setAttachment({ name: file.name, mimeType: file.type || 'application/octet-stream', dataUrl });
+      setError(null);
+    } catch {
+      setError("Couldn't read that file.");
+    }
+  };
+
   const send = async (text: string) => {
     const msg = text.trim();
-    if (!msg || loading) return;
+    const att = attachment;
+    if ((!msg && !att) || loading) return;
     setError(null);
     setInput('');
+    setAttachment(null);
+
     const history = messages.map(m => ({ role: m.role, text: m.text }));
-    setMessages(prev => [...prev, { role: 'user', text: msg }]);
+    setMessages(prev => [...prev, { role: 'user', text: msg || `📎 ${att?.name}`, image: att?.dataUrl }]);
     setLoading(true);
 
     try {
@@ -94,16 +143,24 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
       const token = await user.getIdToken();
       const context = await buildContext();
 
+      const body: any = { message: msg, context, history };
+      if (att) body.image = { mimeType: att.mimeType, data: att.dataUrl.split(',')[1] };
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message: msg, context, history }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'The assistant is unavailable right now.');
 
       const edits: AiEdit[] = Array.isArray(data.edits) ? data.edits : [];
-      setMessages(prev => [...prev, { role: 'assistant', text: data.reply || '…', edits: edits.length ? edits : undefined }]);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: data.reply || '…',
+        edits: edits.length ? edits : undefined,
+        sourceImage: att || undefined,
+      }]);
     } catch (e: any) {
       setError(e?.message || 'Something went wrong.');
       setMessages(prev => [...prev, { role: 'assistant', text: "Sorry — I couldn't reach the assistant just now." }]);
@@ -112,10 +169,35 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     }
   };
 
+  // Upload the scanned file to the Document Vault for any 'document' edits.
+  const fileScans = async (docEdits: AiEdit[], src: Attachment) => {
+    const blob = dataUrlToBlob(src.dataUrl);
+    const file = new File([blob], src.name, { type: src.mimeType });
+    const existing = await loadDocuments();
+    const today = new Date().toISOString().slice(0, 10);
+    const by = auth.currentUser?.displayName || auth.currentUser?.email || 'Family';
+    const added: VaultDocument[] = [];
+    for (const e of docEdits) {
+      if (e.kind !== 'document') continue;
+      const id = newId();
+      const { storagePath, downloadUrl } = await uploadVaultFile(file, id);
+      added.push({
+        id, name: e.name, category: e.category,
+        fileName: src.name, fileType: src.mimeType, fileSize: blob.size,
+        storagePath, downloadUrl, uploadedAt: today, uploadedBy: by,
+      });
+    }
+    if (added.length) await saveDocuments([...added, ...existing]);
+  };
+
   const applyEdits = async (idx: number, edits: AiEdit[]) => {
     setApplyingIdx(idx);
     try {
-      await onApplyEdits(edits);
+      const dataEdits = edits.filter(e => e.kind !== 'document');
+      const docEdits = edits.filter(e => e.kind === 'document');
+      if (dataEdits.length) await onApplyEdits(dataEdits);
+      const src = messages[idx]?.sourceImage;
+      if (docEdits.length && src) await fileScans(docEdits, src);
       setMessages(prev => prev.map((m, i) => i === idx ? { ...m, applied: true } : m));
     } catch (e: any) {
       setError(e?.message || "Couldn't save those changes.");
@@ -137,7 +219,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
         </div>
         <div className="min-w-0">
           <h2 className="font-display text-xl font-semibold text-ink-900">Family assistant</h2>
-          <p className="text-[13px] text-ink-500 font-medium truncate">Ask about anything, or just tell me a fact and I'll file it for you.</p>
+          <p className="text-[13px] text-ink-500 font-medium truncate">Ask, tell me a fact, or attach a document to scan.</p>
         </div>
         {messages.length > 0 && (
           <button onClick={startNewChat} className="btn-quiet text-xs px-3 py-1.5 ml-auto shrink-0" title="Clear and start a fresh conversation">
@@ -157,7 +239,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
             <div className="space-y-1">
               <h3 className="font-display text-lg font-semibold text-ink-900">How can I help?</h3>
               <p className="text-[13px] text-ink-500 max-w-sm">
-                Try telling me something like “Mia wears EU 30 shoes and is allergic to peanuts”, or ask “when does Papa's passport expire?”
+                Tell me a fact like “Mia wears EU 30 shoes”, ask “when does Papa's passport expire?”, or 📎 attach a passport/certificate and I'll read it and file it.
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2 max-w-md">
@@ -176,6 +258,9 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
               {m.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
             </div>
             <div className={`max-w-[80%] space-y-2 ${m.role === 'user' ? 'items-end' : ''}`}>
+              {m.image && (
+                <img src={m.image} alt="attachment" className="max-w-[180px] rounded-2xl border border-cream-300 shadow-soft" />
+              )}
               <div className={`p-3 rounded-2xl text-[14px] leading-relaxed ${m.role === 'user' ? 'bg-dusk-500 text-white rounded-tr-md' : 'bg-cream-100 text-ink-800 rounded-tl-md'}`}>
                 {m.text}
               </div>
@@ -195,7 +280,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
                   </ul>
                   {m.applied ? (
                     <p className="text-[12px] font-semibold text-sage-700 flex items-center gap-1.5">
-                      <Check className="w-3.5 h-3.5" /> Saved to the vault.
+                      <Check className="w-3.5 h-3.5" /> Saved.
                     </p>
                   ) : (
                     <div className="flex gap-2 pt-1">
@@ -223,7 +308,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
               <Bot className="w-4 h-4" />
             </div>
             <div className="p-3 rounded-2xl bg-cream-100 text-ink-400 flex items-center gap-2 text-[13px]">
-              <Loader2 className="w-4 h-4 animate-spin" /> Thinking…
+              <Loader2 className="w-4 h-4 animate-spin" /> {attachment ? 'Reading the document…' : 'Thinking…'}
             </div>
           </div>
         )}
@@ -233,16 +318,39 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
       {/* Input */}
       <div className="p-4 border-t border-cream-200 bg-white">
         {error && <p className="text-[12px] text-rosa-700 mb-2">{error}</p>}
+
+        {attachment && (
+          <div className="mb-2 flex items-center gap-2 p-2 rounded-xl bg-cream-100 border border-cream-300 w-fit max-w-full">
+            {attachment.mimeType.startsWith('image/') ? (
+              <img src={attachment.dataUrl} alt="" className="w-8 h-8 rounded-lg object-cover border border-cream-300" />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-rosa-100 text-rosa-700 flex items-center justify-center"><FileText className="w-4 h-4" /></div>
+            )}
+            <span className="text-[12px] font-semibold text-ink-700 truncate max-w-[180px]">{attachment.name}</span>
+            <button onClick={() => setAttachment(null)} className="p-1 text-ink-400 hover:text-rosa-500 rounded-lg"><X className="w-3.5 h-3.5" /></button>
+          </div>
+        )}
+
         <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="flex gap-2 items-center">
+          <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickFile} className="hidden" />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={loading}
+            title="Attach a document or photo to scan"
+            className="btn-quiet px-3 py-2.5 shrink-0 disabled:opacity-40"
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
           <input
             type="text"
-            placeholder="Ask or tell me something…"
+            placeholder={attachment ? 'Add a note, or just send to scan…' : 'Ask or tell me something…'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={loading}
             className="field flex-1"
           />
-          <button type="submit" disabled={!input.trim() || loading} className="btn-primary px-3 py-2.5 shrink-0 disabled:opacity-40">
+          <button type="submit" disabled={(!input.trim() && !attachment) || loading} className="btn-primary px-3 py-2.5 shrink-0 disabled:opacity-40">
             <Send className="w-4 h-4" />
           </button>
         </form>
@@ -257,5 +365,6 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'passport') return `${e.member}: add ${e.country} passport ${e.number}${e.expiry ? ` (exp ${e.expiry})` : ''}`;
   if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}`;
   if (e.kind === 'number') return `Add number “${e.label}” → ${e.value}`;
+  if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})`;
   return JSON.stringify(e);
 }

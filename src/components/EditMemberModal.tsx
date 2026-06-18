@@ -14,6 +14,7 @@ interface EditMemberModalProps {
 
 export default function EditMemberModal({ isOpen, member, onClose, onSave }: EditMemberModalProps) {
   const [name, setName] = useState('');
+  const [nickname, setNickname] = useState('');
   const [role, setRole] = useState<MemberRole>('Child');
   const [birthdate, setBirthdate] = useState('');
   const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
@@ -33,6 +34,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
   useEffect(() => {
     if (member) {
       setName(member.name);
+      setNickname(member.nickname || '');
       setRole(member.role);
       setBirthdate(member.birthdate || '');
       setSelectedColor(warmAvatarColor(member.avatarColor));
@@ -144,6 +146,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
     const updated: FamilyMember = {
       ...member,
       name: name.trim(),
+      nickname: nickname.trim() || undefined,
       role,
       birthdate: birthdate || undefined,
       avatarColor: selectedColor,
@@ -195,16 +198,28 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
 
             {/* Form */}
             <form onSubmit={handleSaveSubmit} className="mt-4 space-y-4">
-              <div>
-                <label className="field-label">Full Name / Nickname</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Charlie"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="field"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="field-label">Full name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Charlie"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="field"
+                  />
+                </div>
+                <div>
+                  <label className="field-label">Nickname</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Charlie-bear"
+                    value={nickname}
+                    onChange={(e) => setNickname(e.target.value)}
+                    className="field"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

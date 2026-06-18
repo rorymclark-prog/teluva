@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -272,6 +272,9 @@ export const loadFinances = () => loadReferenceDoc<FinancesInfo>('finances', 'fa
 
 export const saveTimeline = (t: FamilyTimeline) => saveReferenceDoc('timeline', t, 'family_timeline');
 export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', 'family_timeline');
+
+export const saveSettings = (s: HubSettings) => saveReferenceDoc('settings', s, 'family_settings');
+export const loadSettings = () => loadReferenceDoc<HubSettings>('settings', 'family_settings');
 
 // --- Document Vault: files in Firebase Storage, metadata in Firestore ---
 export async function uploadVaultFile(file: File, docId: string): Promise<{ storagePath: string; downloadUrl: string }> {

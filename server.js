@@ -41,6 +41,7 @@ Edit is one of:
 - {"kind":"passport","member":<name>,"country":<country>,"number":<string>,"expiry":<YYYY-MM-DD or "">}
 - {"kind":"contact","name":<string>,"relation":<string>,"phone":<string>,"email":<string>}   // a shared family contact (school office, doctor, a friend, etc.)
 - {"kind":"number","label":<string>,"value":<string>}                                          // a shared standalone reference number
+- {"kind":"document","name":<string>,"category":"Identity"|"Education"|"Medical"|"Financial"|"Travel"|"Other"}  // suggest filing the ATTACHED scan into the Document Vault
 
 Canonical member field keys (use ONLY these):
 basic: name, nickname, birthdate, place_of_birth, nationality, languages, gender
@@ -58,6 +59,7 @@ RULES:
 - "member" MUST match an existing family member name (case-insensitive). If you cannot tell which member, ASK in reply and return edits=[].
 - Dates: YYYY-MM-DD. organ_donor value: "yes" or "no".
 - Use kind "passport" for passports, "contact" for people/places to phone (school, doctor, friend), "number" for a loose reference number not tied to a person.
+- IF AN IMAGE/DOCUMENT IS ATTACHED: read it (OCR). Extract every useful field into member/passport/contact/number edits (match the right family member by name if the doc names a person). If it's a keepable document (passport, ID, residence card, birth/marriage certificate, school report, insurance card, medical letter, tax doc), ALSO add ONE {"kind":"document"} edit with a short descriptive name and the best-fit category, so the scan itself gets filed. In the reply, briefly say what you read and what you'll save.
 - NEVER invent data. If something needed is missing, ask for it in reply. Keep reply warm and brief.`;
 
 app.post('/api/chat', async (req, res) => {
@@ -79,18 +81,25 @@ app.post('/api/chat', async (req, res) => {
       return res.status(403).json({ error: 'This assistant is limited to the family accounts.' });
     }
 
-    const { message, context, history } = req.body || {};
-    if (!message || typeof message !== 'string') {
+    const { message, context, history, image } = req.body || {};
+    const hasImage = image && image.data && image.mimeType;
+    if ((!message || typeof message !== 'string') && !hasImage) {
       return res.status(400).json({ error: 'No message.' });
     }
 
     const ctxJson = JSON.stringify(context ?? {}).slice(0, 120000);
+    const userText = (message && typeof message === 'string') ? message
+      : 'Please read the attached document and extract any useful family info.';
+    const userParts = [{ text: `FAMILY DATA (JSON):\n${ctxJson}\n\nUSER MESSAGE:\n${userText}` }];
+    if (hasImage) {
+      userParts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+    }
     const contents = [
       ...((Array.isArray(history) ? history : []).slice(-8).map(h => ({
         role: h.role === 'user' ? 'user' : 'model',
         parts: [{ text: String(h.text || '').slice(0, 4000) }],
       }))),
-      { role: 'user', parts: [{ text: `FAMILY DATA (JSON):\n${ctxJson}\n\nUSER MESSAGE:\n${message}` }] },
+      { role: 'user', parts: userParts },
     ];
 
     const gRes = await fetch(

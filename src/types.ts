@@ -291,6 +291,12 @@ export interface FamilyTimeline {
   entries: TimelineEntry[];
 }
 
+// --- Hub settings (shared): the family's name for their hub + a family photo ---
+export interface HubSettings {
+  hubName?: string;
+  familyPhotoUrl?: string;   // compressed base64 thumbnail
+}
+
 // --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---
 export type VaultCategory = 'Identity' | 'Education' | 'Medical' | 'Financial' | 'Travel' | 'Other';
 
