@@ -4,9 +4,17 @@ import {
   loadFamilyMembers, saveFamilyMembers,
   loadCalendarEvents, saveCalendarEvents,
   loadFamilyInfo, saveFamilyInfo,
-  loadSettings, saveSettings
+  loadHousehold, saveHousehold,
+  loadFinances, saveFinances,
+  loadTimeline, saveTimeline,
+  loadSettings, saveSettings,
+  loadDocuments, saveDocuments,
 } from '../utils/db';
-import { applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits } from '../utils/aiApply';
+import {
+  applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
+  applyCalendarEdits, applyHouseholdEdits, applyFinancesEdits, applyTimelineEdits,
+  hasCalendarEdits, hasHouseholdEdits, hasFinancesEdits, hasTimelineEdits,
+} from '../utils/aiApply';
 import AIChatbot, { AiEdit } from './AIChatbot';
 import HubSettingsModal from './HubSettingsModal';
 import ImageLightbox from './ImageLightbox';
@@ -250,6 +258,21 @@ export default function Dashboard() {
       const info = (await loadFamilyInfo()) || { numbers: [], contacts: [] };
       await saveFamilyInfo(applyInfoEdits(info, edits));
     }
+    if (hasCalendarEdits(edits)) {
+      await handleSaveEvents(applyCalendarEdits(events, edits, members));
+    }
+    if (hasHouseholdEdits(edits)) {
+      const h = (await loadHousehold()) || {};
+      await saveHousehold(applyHouseholdEdits(h, edits));
+    }
+    if (hasFinancesEdits(edits)) {
+      const f = (await loadFinances()) || {};
+      await saveFinances(applyFinancesEdits(f, edits));
+    }
+    if (hasTimelineEdits(edits)) {
+      const t = (await loadTimeline()) || { entries: [] };
+      await saveTimeline(applyTimelineEdits(t, edits));
+    }
   };
 
   const handleAddDocument = async (memberId: string, docToAdd: FamilyDocument) => {
@@ -269,13 +292,43 @@ export default function Dashboard() {
     setSelectedDocumentMemberName(memberName);
   };
 
-  const handleExportAllData = () => {
+  const handleExportAllData = async () => {
     try {
+      const [info, household, finances, timeline, docs] = await Promise.all([
+        loadFamilyInfo(),
+        loadHousehold(),
+        loadFinances(),
+        loadTimeline(),
+        loadDocuments(),
+      ]);
+
+      // Documents: metadata only (no binary content — files live in Cloud Storage)
+      const documentsMeta = (docs || []).map(d => ({
+        id: d.id,
+        name: d.name,
+        category: d.category,
+        memberId: d.memberId,
+        fileName: d.fileName,
+        fileType: d.fileType,
+        fileSize: d.fileSize,
+        uploadedAt: d.uploadedAt,
+        uploadedBy: d.uploadedBy,
+        storagePath: d.storagePath,
+        downloadUrl: d.downloadUrl,
+      }));
+
       const backupData = {
+        version: 2,
         exportedAt: new Date().toISOString(),
         author: 'Family Vault backup',
         members,
         calendarEvents: events,
+        info: info || null,
+        household: household || null,
+        finances: finances || null,
+        timeline: timeline || null,
+        documents: documentsMeta,
+        settings,
       };
 
       const dataStr = JSON.stringify(backupData, null, 2);
@@ -313,6 +366,27 @@ export default function Dashboard() {
 
         if (backupData.calendarEvents && Array.isArray(backupData.calendarEvents)) {
           await handleSaveEvents(backupData.calendarEvents);
+        }
+
+        // v2 sections — only restore if present in the backup
+        if (backupData.info && typeof backupData.info === 'object') {
+          await saveFamilyInfo(backupData.info);
+        }
+        if (backupData.household && typeof backupData.household === 'object') {
+          await saveHousehold(backupData.household);
+        }
+        if (backupData.finances && typeof backupData.finances === 'object') {
+          await saveFinances(backupData.finances);
+        }
+        if (backupData.timeline && typeof backupData.timeline === 'object') {
+          await saveTimeline(backupData.timeline);
+        }
+        if (backupData.documents && Array.isArray(backupData.documents)) {
+          await saveDocuments(backupData.documents);
+        }
+        if (backupData.settings && typeof backupData.settings === 'object') {
+          await saveSettings(backupData.settings);
+          setSettings(backupData.settings);
         }
 
         showToast('Backup imported.');

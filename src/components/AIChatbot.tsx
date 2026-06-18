@@ -7,8 +7,13 @@ import {
 } from '../utils/db';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
-  Paperclip, FileText, Image as ImageIcon,
+  Paperclip, FileText, Image as ImageIcon, Mic, MicOff,
 } from 'lucide-react';
+
+// Web Speech API — may be undefined in unsupported browsers
+const SR: any = (typeof window !== 'undefined')
+  ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+  : undefined;
 
 const CHAT_KEY = 'assistant_chat_v1';
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -19,7 +24,9 @@ export type AiEdit =
   | { kind: 'passport'; member: string; country: string; number: string; expiry?: string }
   | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string }
   | { kind: 'number'; label: string; value: string }
-  | { kind: 'document'; name: string; category: VaultCategory };
+  | { kind: 'document'; name: string; category: VaultCategory }
+  | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
+  | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline'; item: Record<string, string> };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
@@ -82,8 +89,20 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
   const [loading, setLoading] = useState(false);
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
+
+  // Clean up speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { /* ignore */ }
+        recognitionRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -125,6 +144,42 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     } catch {
       setError("Couldn't read that file.");
     }
+  };
+
+  const toggleVoice = () => {
+    if (!SR) return;
+
+    if (listening) {
+      try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+      return; // onend will set listening=false
+    }
+
+    const rec = new SR();
+    rec.lang = 'en-US';
+    rec.interimResults = true;
+    rec.continuous = false;
+
+    rec.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setInput(transcript);
+    };
+
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    rec.onerror = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = rec;
+    rec.start();
+    setListening(true);
   };
 
   const send = async (text: string) => {
@@ -249,6 +304,26 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
                 </button>
               ))}
             </div>
+            <div className="flex flex-wrap justify-center gap-2 max-w-sm pt-1">
+              <button
+                onClick={() => send("Give me a quick check-up across the whole family: anything expired or expiring soon (passports, residence permits, visas, driver's licenses), anyone missing a blood type or emergency contact, and anything important that looks incomplete.")}
+                className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+              >
+                🩺 Family check-up
+              </button>
+              <button
+                onClick={() => send("Suggest birthday and Christmas gift ideas for each child, based on their likes, wishlist and current sizes.")}
+                className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+              >
+                🎁 Gift ideas
+              </button>
+              <button
+                onClick={() => send("What's coming up on the family calendar in the next few weeks?")}
+                className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+              >
+                📅 What's coming up
+              </button>
+            </div>
             <button
               onClick={() => fileRef.current?.click()}
               className="btn-primary mt-1"
@@ -340,6 +415,21 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
 
         <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="flex gap-2 items-center">
           <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickFile} className="hidden" />
+          {SR && (
+            <button
+              type="button"
+              onClick={toggleVoice}
+              disabled={loading}
+              title={listening ? 'Stop recording' : 'Speak your message'}
+              className={`px-3 py-2.5 shrink-0 rounded-2xl border font-semibold text-sm transition-colors disabled:opacity-40 ${
+                listening
+                  ? 'bg-rosa-500 text-white border-rosa-500 animate-pulse'
+                  : 'bg-white hover:bg-cream-100 text-ink-700 border-cream-300'
+              }`}
+            >
+              {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
@@ -375,5 +465,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}`;
   if (e.kind === 'number') return `Add number “${e.label}” → ${e.value}`;
   if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})`;
+  if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;
+  if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
   return JSON.stringify(e);
 }

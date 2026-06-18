@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { AVATAR_COLORS } from './avatarPalette';
 
@@ -145,3 +145,76 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
 
 export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number');
+
+const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;
+type CalendarCat = typeof VALID_CALENDAR_CATS[number];
+
+// Add calendar events from AI edits, resolving memberNames to memberIds.
+export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], members: FamilyMember[]): CalendarEvent[] {
+  const added: CalendarEvent[] = [];
+  for (const e of edits) {
+    if (e.kind !== 'calendar_event') continue;
+    const cat: CalendarCat = (VALID_CALENDAR_CATS as readonly string[]).includes(e.category || '')
+      ? (e.category as CalendarCat)
+      : 'Other';
+    const memberIds = (e.memberNames || [])
+      .map(n => members.find(m => m.name.toLowerCase() === n.toLowerCase())?.id)
+      .filter((id): id is string => Boolean(id));
+    added.push({
+      id: newId(),
+      title: e.title,
+      date: e.date,
+      time: e.time || undefined,
+      description: '',
+      category: cat,
+      remindMe: false,
+      memberIds: memberIds.length ? memberIds : undefined,
+    });
+  }
+  return [...events, ...added];
+}
+
+// Append a row to a household list (vehicles / pets / utilities).
+export function applyHouseholdEdits(h: HouseholdInfo, edits: AiEdit[]): HouseholdInfo {
+  let next = { ...h };
+  for (const e of edits) {
+    if (e.kind !== 'list_add') continue;
+    if (e.list === 'vehicles') {
+      next = { ...next, vehicles: [...(next.vehicles || []), { id: newId(), ...e.item } as any] };
+    } else if (e.list === 'pets') {
+      next = { ...next, pets: [...(next.pets || []), { id: newId(), ...e.item } as any] };
+    } else if (e.list === 'utilities') {
+      next = { ...next, utilities: [...(next.utilities || []), { id: newId(), ...e.item } as any] };
+    }
+  }
+  return next;
+}
+
+// Append a row to a finances list (banks / insurance / benefits).
+export function applyFinancesEdits(f: FinancesInfo, edits: AiEdit[]): FinancesInfo {
+  let next = { ...f };
+  for (const e of edits) {
+    if (e.kind !== 'list_add') continue;
+    if (e.list === 'banks') {
+      next = { ...next, banks: [...(next.banks || []), { id: newId(), ...e.item } as any] };
+    } else if (e.list === 'insurance') {
+      next = { ...next, insurance: [...(next.insurance || []), { id: newId(), ...e.item } as any] };
+    } else if (e.list === 'benefits') {
+      next = { ...next, benefits: [...(next.benefits || []), { id: newId(), ...e.item } as any] };
+    }
+  }
+  return next;
+}
+
+// Append an entry to the family timeline.
+export function applyTimelineEdits(t: FamilyTimeline, edits: AiEdit[]): FamilyTimeline {
+  const added = edits
+    .filter((e): e is Extract<AiEdit, { kind: 'list_add' }> => e.kind === 'list_add' && e.list === 'timeline')
+    .map(e => ({ id: newId(), ...e.item } as any));
+  return { ...t, entries: [...(t.entries || []), ...added] };
+}
+
+export const hasCalendarEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'calendar_event');
+export const hasHouseholdEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['vehicles', 'pets', 'utilities'].includes(e.list));
+export const hasFinancesEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['banks', 'insurance', 'benefits'].includes(e.list));
+export const hasTimelineEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && e.list === 'timeline');

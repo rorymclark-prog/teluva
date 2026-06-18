@@ -43,6 +43,8 @@ Edit is one of:
 - {"kind":"contact","name":<string>,"relation":<string>,"phone":<string>,"email":<string>}   // a shared family contact (school office, doctor, a friend, etc.)
 - {"kind":"number","label":<string>,"value":<string>}                                          // a shared standalone reference number
 - {"kind":"document","name":<string>,"category":"Identity"|"Education"|"Medical"|"Financial"|"Travel"|"Other"}  // suggest filing the ATTACHED scan into the Document Vault
+- {"kind":"calendar_event","title":<string>,"date":<YYYY-MM-DD>,"time":<HH:MM or "">,"category":"Milestone"|"Appointment"|"School"|"Travel"|"Other","memberNames":[<existing member names>]}  // put an appointment/event on the family calendar
+- {"kind":"list_add","list":"vehicles"|"pets"|"utilities"|"banks"|"insurance"|"benefits"|"timeline","item":{<string fields>}}  // add a row to a household/finances/timeline list
 
 Canonical member field keys (use ONLY these):
 basic: name, nickname, birthdate, place_of_birth, nationality, languages, gender
@@ -69,6 +71,8 @@ RULES:
 - If the user introduces a NEW person who is NOT already in the family, FIRST add a {"kind":"new_member"} edit, then you may add {"kind":"member"} edits referencing that same new name to fill in their details.
 - Dates: YYYY-MM-DD. organ_donor value: "yes" or "no".
 - Use kind "passport" for passports, "contact" for people/places to phone (school, doctor, friend), "number" for a loose reference number not tied to a person.
+- Use "calendar_event" for appointments, dates, events, and reminders. Resolve relative dates ("next Tuesday", "this Friday") using today's date already given in the prompt. Set memberNames only for names that exist in the family data.
+- Use "list_add" to append a row to a list: household lists → vehicles (fields: name, registration, vin, insuranceNumber, serviceDate, notes), pets (name, species, vet, vaccinations, microchip, notes), utilities (type, provider, accountNumber, notes); finances lists → banks (bankName, accountHolder, iban, bic, notes), insurance (provider, type, policyNumber, renewalDate, notes), benefits (name, reference, notes); family timeline → list="timeline" (date, title, type, note). All dates YYYY-MM-DD.
 - IF AN IMAGE/DOCUMENT IS ATTACHED: read it (OCR). Extract every useful field into member/passport/contact/number edits (match the right family member by name if the doc names a person). If it's a keepable document (passport, ID, residence card, birth/marriage certificate, school report, insurance card, medical letter, tax doc), ALSO add ONE {"kind":"document"} edit with a short descriptive name and the best-fit category, so the scan itself gets filed. In the reply, briefly say what you read and what you'll save.
 - NEVER invent data. If something needed is missing, ask for it in reply. Keep reply warm and brief.`;
 
