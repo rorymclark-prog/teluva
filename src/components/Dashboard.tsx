@@ -180,6 +180,14 @@ export default function Dashboard() {
 
   const hubName = settings.hubName || 'Family Hub';
 
+  // How to render a member's name (fun display preference)
+  const memberName = (m: FamilyMember) => {
+    const mode = settings.nameDisplay || 'both';
+    if (mode === 'nick') return m.nickname || m.name;
+    if (mode === 'real') return m.name;
+    return m.nickname ? `${m.name} “${m.nickname}”` : m.name;
+  };
+
   const handleSaveSettings = async (next: HubSettings) => {
     setSettings(next);
     setIsSettingsOpen(false);
@@ -594,7 +602,7 @@ export default function Dashboard() {
                               )}
                               <div className="min-w-0">
                                 <h4 className="text-sm font-semibold text-ink-900 truncate flex items-center gap-1.5 flex-wrap">
-                                  <span>{member.name}</span>
+                                  <span>{memberName(member)}</span>
                                   <span className="chip bg-cream-200 text-ink-600">{member.role}</span>
                                   {member.birthdate && (
                                     <span className="chip bg-dusk-100 text-dusk-700">{calculateAge(member.birthdate)}</span>
@@ -663,7 +671,7 @@ export default function Dashboard() {
                           )}
                           <div className="min-w-0">
                             <h2 className="font-display text-2xl font-semibold text-ink-900 flex items-center gap-2.5 flex-wrap">
-                              <span className="truncate">{selectedMember.name}</span>
+                              <span className="truncate">{memberName(selectedMember)}</span>
                               <button
                                 type="button"
                                 onClick={() => setIsEditingProfile(true)}

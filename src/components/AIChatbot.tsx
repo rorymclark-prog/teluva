@@ -14,6 +14,7 @@ const CHAT_KEY = 'assistant_chat_v1';
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
 export type AiEdit =
+  | { kind: 'new_member'; name: string; role?: string; nickname?: string; birthdate?: string }
   | { kind: 'member'; member: string; field: string; value: string }
   | { kind: 'passport'; member: string; country: string; number: string; expiry?: string }
   | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string }
@@ -221,12 +222,10 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
           <h2 className="font-display text-xl font-semibold text-ink-900">Family assistant</h2>
           <p className="text-[13px] text-ink-500 font-medium truncate">Ask, tell me a fact, or attach a document to scan.</p>
         </div>
-        {messages.length > 0 && (
-          <button onClick={startNewChat} className="btn-quiet text-xs px-3 py-1.5 ml-auto shrink-0" title="Clear and start a fresh conversation">
-            <MessageSquarePlus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">New chat</span>
-          </button>
-        )}
+        <button onClick={startNewChat} disabled={loading} className="btn-quiet text-xs px-3 py-1.5 ml-auto shrink-0 disabled:opacity-40" title="Clear and start a fresh conversation">
+          <MessageSquarePlus className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">New chat</span>
+        </button>
       </div>
 
       {/* Messages */}
@@ -361,6 +360,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
 }
 
 function describeEdit(e: AiEdit): string {
+  if (e.kind === 'new_member') return `Add a new ${(e.role || 'family member').toLowerCase()}: ${e.name}${e.nickname ? ` “${e.nickname}”` : ''}`;
   if (e.kind === 'member') return `${e.member}: set ${e.field.replace(/_/g, ' ')} → “${e.value}”`;
   if (e.kind === 'passport') return `${e.member}: add ${e.country} passport ${e.number}${e.expiry ? ` (exp ${e.expiry})` : ''}`;
   if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}`;

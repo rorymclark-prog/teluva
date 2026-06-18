@@ -1,7 +1,23 @@
-import { FamilyMember, FamilyInfo } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
+import { AVATAR_COLORS } from './avatarPalette';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
+const VALID_ROLES: MemberRole[] = ['Parent', 'Child', 'Grandparent', 'Other'];
+
+function createMember(name: string, role: string | undefined, nickname: string | undefined, birthdate: string | undefined, idx: number): FamilyMember {
+  const r = (role && VALID_ROLES.includes(role as MemberRole)) ? role as MemberRole : 'Child';
+  return {
+    id: newId(),
+    name,
+    nickname: nickname || undefined,
+    role: r,
+    birthdate: birthdate || undefined,
+    avatarColor: AVATAR_COLORS[idx % AVATAR_COLORS.length],
+    clothingSizes: {},
+    documents: [],
+  };
+}
 
 const setSizes = (m: FamilyMember, k: string, v: string): FamilyMember => ({ ...m, clothingSizes: { ...m.clothingSizes, [k]: v } });
 const setMedical = (m: FamilyMember, k: string, v: any): FamilyMember => ({ ...m, medical: { ...(m.medical || {}), [k]: v } });
@@ -90,6 +106,13 @@ function resolveMember(members: FamilyMember[], name: string): FamilyMember | un
 // Apply member + passport edits, returning the next members array.
 export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[]): FamilyMember[] {
   let next = members;
+  // Pass 1: create any new members first, so later field edits can target them.
+  for (const e of edits) {
+    if (e.kind === 'new_member' && e.name) {
+      next = [...next, createMember(e.name, e.role, e.nickname, e.birthdate, next.length)];
+    }
+  }
+  // Pass 2: field + passport edits.
   for (const e of edits) {
     if (e.kind === 'member') {
       const target = resolveMember(next, e.member);
@@ -120,5 +143,5 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   return { numbers, contacts };
 }
 
-export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport');
+export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number');

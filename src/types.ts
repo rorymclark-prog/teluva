@@ -295,6 +295,7 @@ export interface FamilyTimeline {
 export interface HubSettings {
   hubName?: string;
   familyPhotoUrl?: string;   // compressed base64 thumbnail
+  nameDisplay?: 'real' | 'nick' | 'both';   // how member names show (default 'both')
 }
 
 // --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---

@@ -37,6 +37,7 @@ Output ONLY valid JSON of the form:
 {"reply": string, "edits": Edit[]}
 
 Edit is one of:
+- {"kind":"new_member","name":<string>,"role":"Parent"|"Child"|"Grandparent"|"Other","nickname":<string or "">,"birthdate":<YYYY-MM-DD or "">}  // create a brand-new family member
 - {"kind":"member","member":<existing member name>,"field":<canonical key>,"value":<string>}
 - {"kind":"passport","member":<name>,"country":<country>,"number":<string>,"expiry":<YYYY-MM-DD or "">}
 - {"kind":"contact","name":<string>,"relation":<string>,"phone":<string>,"email":<string>}   // a shared family contact (school office, doctor, a friend, etc.)
@@ -57,6 +58,7 @@ RULES:
 - If the user is ASKING/recalling: answer concisely from FAMILY DATA; edits = [].
 - If the user is TELLING you info to store: produce edits and a short reply confirming what you'll set.
 - "member" MUST match an existing family member name (case-insensitive). If you cannot tell which member, ASK in reply and return edits=[].
+- If the user introduces a NEW person who is NOT already in the family, FIRST add a {"kind":"new_member"} edit, then you may add {"kind":"member"} edits referencing that same new name to fill in their details.
 - Dates: YYYY-MM-DD. organ_donor value: "yes" or "no".
 - Use kind "passport" for passports, "contact" for people/places to phone (school, doctor, friend), "number" for a loose reference number not tied to a person.
 - IF AN IMAGE/DOCUMENT IS ATTACHED: read it (OCR). Extract every useful field into member/passport/contact/number edits (match the right family member by name if the doc names a person). If it's a keepable document (passport, ID, residence card, birth/marriage certificate, school report, insurance card, medical letter, tax doc), ALSO add ONE {"kind":"document"} edit with a short descriptive name and the best-fit category, so the scan itself gets filed. In the reply, briefly say what you read and what you'll save.

@@ -15,6 +15,7 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
   const [hubName, setHubName] = useState('');
   const [photo, setPhoto] = useState<string>('');
   const [uploadFileName, setUploadFileName] = useState('');
+  const [nameDisplay, setNameDisplay] = useState<'real' | 'nick' | 'both'>('both');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -23,6 +24,7 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
     if (isOpen) {
       setHubName(settings.hubName || '');
       setPhoto(settings.familyPhotoUrl || '');
+      setNameDisplay(settings.nameDisplay || 'both');
       setUploadFileName('');
     }
   }, [isOpen, settings]);
@@ -56,6 +58,7 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
     onSave({
       hubName: hubName.trim() || undefined,
       familyPhotoUrl: photo || undefined,
+      nameDisplay,
     });
     onClose();
   };
@@ -111,6 +114,30 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
                   onChange={(e) => setHubName(e.target.value)}
                   className="field"
                 />
+              </div>
+
+              {/* How names show */}
+              <div>
+                <label className="field-label">Show member names as</label>
+                <div className="flex bg-cream-100 p-1 rounded-xl border border-cream-300 select-none">
+                  {([
+                    { id: 'real', label: 'Real name' },
+                    { id: 'nick', label: 'Nickname' },
+                    { id: 'both', label: 'Both' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setNameDisplay(opt.id)}
+                      className={`flex-1 py-1.5 text-[13px] font-semibold rounded-lg transition-all ${
+                        nameDisplay === opt.id ? 'bg-white text-ink-900 shadow-soft' : 'text-ink-500 hover:text-ink-800'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[12px] text-ink-400 mt-1.5">Just for fun — e.g. show “Mia ‘Mimi’” or only “Mimi”.</p>
               </div>
 
               {/* Family photo field */}
