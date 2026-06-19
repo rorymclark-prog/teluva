@@ -51,7 +51,7 @@ import {
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical
 } from 'lucide-react';
-import { motion, AnimatePresence, Reorder } from 'motion/react';
+import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
 export function calculateAge(birthdate?: string): string | null {
   if (!birthdate) return null;
@@ -103,6 +103,42 @@ const VIEWS: { id: ViewId; label: string; icon: React.ElementType }[] = [
   { id: 'chat', label: 'Chat', icon: MessageCircle },
   { id: 'drive', label: 'Drive', icon: Cloud },
 ];
+
+// A draggable family-list row where ONLY the grip handle starts a drag
+// (dragListener disabled), so tapping or scrolling the card never reorders it.
+interface DraggableRowProps {
+  member: FamilyMember;
+  className: string;
+  onSelect: () => void;
+  onDragEnd: () => void;
+  renderInner: (member: FamilyMember, grip?: React.ReactNode) => React.ReactNode;
+}
+
+const DraggableRow: React.FC<DraggableRowProps> = ({ member, className, onSelect, onDragEnd, renderInner }) => {
+  const controls = useDragControls();
+  const grip = (
+    <div
+      onPointerDown={(e) => { e.stopPropagation(); controls.start(e); }}
+      onClick={(e) => e.stopPropagation()}
+      className="cursor-grab active:cursor-grabbing touch-none p-1.5 -ml-1 rounded-lg text-ink-300 hover:text-ink-600 hover:bg-cream-100 shrink-0"
+      title="Drag to reorder"
+    >
+      <GripVertical className="w-4 h-4" />
+    </div>
+  );
+  return (
+    <Reorder.Item
+      value={member}
+      dragListener={false}
+      dragControls={controls}
+      onDragEnd={onDragEnd}
+      onClick={onSelect}
+      className={className}
+    >
+      {renderInner(member, grip)}
+    </Reorder.Item>
+  );
+}
 
 export default function Dashboard() {
   const demo = isDemoMode();
@@ -226,12 +262,12 @@ export default function Dashboard() {
         : 'border-cream-200 bg-white hover:bg-cream-100 hover:border-cream-300'
     }`;
 
-  // Inner content of a family-list card. `draggable` adds a grip handle and
-  // stops pointer-down on the avatar / action buttons from starting a drag.
-  const memberCardInner = (member: FamilyMember, draggable: boolean) => (
+  // Inner content of a family-list card. `grip` (when provided) is the drag
+  // handle node — only it starts a drag, so tapping/scrolling the card is safe.
+  const memberCardInner = (member: FamilyMember, grip?: React.ReactNode) => (
     <>
-      <div className="flex items-center gap-3 min-w-0">
-        {draggable && <GripVertical className="w-4 h-4 text-ink-300 shrink-0" />}
+      <div className="flex items-center gap-2 min-w-0">
+        {grip}
         {member.avatarUrl ? (
           <div
             onClick={(e) => { e.stopPropagation(); setLightboxImage(member.avatarUrl!); }}
@@ -742,22 +778,21 @@ export default function Dashboard() {
                             onClick={() => { setSelectedMemberId(member.id); setDeleteConfirmMemberId(null); }}
                             className={`${cardClass(member)} cursor-pointer`}
                           >
-                            {memberCardInner(member, false)}
+                            {memberCardInner(member)}
                           </div>
                         ))}
                       </div>
                     ) : (
                       <Reorder.Group axis="y" values={members} onReorder={handleReorder} className="space-y-2.5">
                         {members.map((member) => (
-                          <Reorder.Item
+                          <DraggableRow
                             key={member.id}
-                            value={member}
+                            member={member}
+                            className={`${cardClass(member)} cursor-pointer`}
+                            onSelect={() => { setSelectedMemberId(member.id); setDeleteConfirmMemberId(null); }}
                             onDragEnd={saveOrder}
-                            onClick={() => { setSelectedMemberId(member.id); setDeleteConfirmMemberId(null); }}
-                            className={`${cardClass(member)} cursor-grab active:cursor-grabbing`}
-                          >
-                            {memberCardInner(member, true)}
-                          </Reorder.Item>
+                            renderInner={memberCardInner}
+                          />
                         ))}
                       </Reorder.Group>
                     )}
