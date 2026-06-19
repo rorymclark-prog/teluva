@@ -5,6 +5,7 @@ import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, loadCalendarEvents,
 } from '../utils/db';
+import { compressImageToAvatar } from '../utils/imageCompress';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff,
@@ -154,8 +155,15 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     if (!file) return;
     if (file.size > 20 * 1024 * 1024) { setError('That file is over 20MB — please use a smaller scan.'); return; }
     try {
-      const dataUrl = await fileToDataUrl(file);
-      setAttachment({ name: file.name, mimeType: file.type || 'application/octet-stream', dataUrl });
+      let dataUrl = await fileToDataUrl(file);
+      let mimeType = file.type || 'application/octet-stream';
+      // Shrink photos before sending — a raw phone photo is too big for the
+      // request and slows the scan; 1600px is plenty for OCR. PDFs pass through.
+      if (mimeType.startsWith('image/')) {
+        dataUrl = await compressImageToAvatar(dataUrl, 1600, 0.82);
+        mimeType = 'image/jpeg';
+      }
+      setAttachment({ name: file.name, mimeType, dataUrl });
       setError(null);
     } catch {
       setError("Couldn't read that file.");

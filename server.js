@@ -26,7 +26,7 @@ const authProxy = createProxyMiddleware({
 });
 app.use(authProxy);
 
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 const SYSTEM_INSTRUCTION = `You are the assistant inside a private family records app ("Family Vault").
 You do two things:
@@ -117,7 +117,7 @@ app.post('/api/chat', async (req, res) => {
       { role: 'user', parts: userParts },
     ];
 
-    const gRes = await fetch(
+    const callGemini = () => fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
       {
         method: 'POST',
@@ -129,11 +129,23 @@ app.post('/api/chat', async (req, res) => {
         }),
       }
     );
-    const gData = await gRes.json();
-    const text = gData?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    // Gemini occasionally returns a transient 503/429 under load — retry a couple times.
+    let gData;
+    let text;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const gRes = await callGemini();
+      gData = await gRes.json();
+      text = gData?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) break;
+      const code = gData?.error?.code;
+      if (code !== 503 && code !== 429 && gRes.ok) break; // non-retryable
+      await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+    }
     if (!text) {
       console.error('Gemini empty response:', JSON.stringify(gData).slice(0, 500));
-      return res.status(502).json({ error: gData?.error?.message || 'The assistant did not respond.' });
+      const busy = gData?.error?.code === 503 || gData?.error?.code === 429;
+      return res.status(502).json({ error: busy ? 'The assistant is busy right now — please try again in a moment.' : (gData?.error?.message || 'The assistant did not respond.') });
     }
 
     let parsed;
