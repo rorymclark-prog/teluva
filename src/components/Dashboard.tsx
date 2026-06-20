@@ -81,10 +81,10 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'medical', label: 'Medical', icon: HeartPulse },
   { id: 'ids', label: 'IDs', icon: IdCard },
   { id: 'sizes', label: 'Sizes', icon: Scissors },
-  { id: 'favorites', label: 'Likes', icon: Heart },
+  { id: 'favorites', label: 'Wishlist', icon: Heart },
   { id: 'growth', label: 'Growth', icon: TrendingUp },
   { id: 'travel', label: 'Travel', icon: Plane },
-  { id: 'preferences', label: 'Likes & needs', icon: Sparkles },
+  { id: 'preferences', label: 'Likes', icon: Sparkles },
   { id: 'passport', label: 'Passport', icon: Lock },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'secrets', label: 'Secrets', icon: Key },
@@ -272,13 +272,13 @@ export default function Dashboard() {
           <div
             onClick={(e) => { e.stopPropagation(); setLightboxImage(member.avatarUrl!); }}
             onPointerDownCapture={(e) => e.stopPropagation()}
-            className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-cream-300 cursor-zoom-in"
+            className="w-12 h-12 rounded-full overflow-hidden shrink-0 border border-cream-300 cursor-zoom-in"
             title="View photo"
           >
             <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
           </div>
         ) : (
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm text-white shrink-0 uppercase ${warmAvatarColor(member.avatarColor)}`}>
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-base text-white shrink-0 uppercase ${warmAvatarColor(member.avatarColor)}`}>
             {member.name.charAt(0).toUpperCase()}
           </div>
         )}
@@ -290,9 +290,17 @@ export default function Dashboard() {
               <span className="chip bg-dusk-100 text-dusk-700">{calculateAge(member.birthdate)}</span>
             )}
           </h4>
-          <p className="text-[11px] text-ink-400 font-medium truncate mt-0.5">
-            {member.documents?.length || 0} document{(member.documents?.length || 0) !== 1 ? 's' : ''} · {member.growthHistory?.length || 0} growth entr{(member.growthHistory?.length || 0) !== 1 ? 'ies' : 'y'}
-          </p>
+          {(() => {
+            const parts: string[] = [];
+            if (member.medical?.bloodGroup) parts.push(member.medical.bloodGroup);
+            if (member.role === 'Child' && member.education?.schoolName) parts.push(member.education.schoolName);
+            if (member.medical?.allergies) parts.push(`⚠ ${member.medical.allergies}`);
+            const docCount = member.documents?.length || 0;
+            if (docCount > 0 && parts.length < 2) parts.push(`${docCount} doc${docCount !== 1 ? 's' : ''}`);
+            return parts.length > 0 ? (
+              <p className="text-[11px] text-ink-400 font-medium truncate mt-0.5">{parts.join(' · ')}</p>
+            ) : null;
+          })()}
         </div>
       </div>
 

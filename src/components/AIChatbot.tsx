@@ -107,6 +107,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -213,6 +214,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     setError(null);
     setInput('');
     setAttachment(null);
+    setIsScanning(!!att);
 
     const history = messages.map(m => ({ role: m.role, text: m.text }));
     setMessages(prev => [...prev, { role: 'user', text: msg || `📎 ${att?.name}`, image: att?.dataUrl }]);
@@ -243,10 +245,12 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
         sourceImage: att || undefined,
       }]);
     } catch (e: any) {
-      setError(e?.message || 'Something went wrong.');
-      setMessages(prev => [...prev, { role: 'assistant', text: "Sorry — I couldn't reach the assistant just now." }]);
+      const errMsg = e?.message || 'Something went wrong.';
+      setError(null);
+      setMessages(prev => [...prev, { role: 'assistant', text: errMsg }]);
     } finally {
       setLoading(false);
+      setIsScanning(false);
     }
   };
 
@@ -305,7 +309,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
         <h2 className="font-display text-lg font-semibold text-ink-900 sm:hidden">Assistant</h2>
         <button
           onClick={startNewChat}
-          disabled={loading}
+          disabled={loading || messages.length === 0}
           className="btn-quiet text-xs px-3.5 py-2 ml-auto shrink-0 border border-cream-300 disabled:opacity-40"
           title="Clear the conversation and start fresh"
         >
@@ -420,7 +424,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
               <Bot className="w-4 h-4" />
             </div>
             <div className="p-3 rounded-2xl bg-cream-100 text-ink-400 flex items-center gap-2 text-[13px]">
-              <Loader2 className="w-4 h-4 animate-spin" /> {attachment ? 'Reading the document…' : 'Thinking…'}
+              <Loader2 className="w-4 h-4 animate-spin" /> {isScanning ? 'Reading the document…' : 'Thinking…'}
             </div>
           </div>
         )}

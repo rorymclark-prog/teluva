@@ -131,21 +131,31 @@ app.post('/api/chat', async (req, res) => {
     );
 
     // Gemini occasionally returns a transient 503/429 under load — retry a couple times.
+    console.log(`[chat] ${hasImage ? 'image+' : ''}text request from ${email}`);
     let gData;
     let text;
     for (let attempt = 0; attempt < 3; attempt++) {
       const gRes = await callGemini();
       gData = await gRes.json();
-      text = gData?.candidates?.[0]?.content?.parts?.[0]?.text;
+      // Search all parts — 2.5 Flash thinking model may put output in any part
+      const parts = gData?.candidates?.[0]?.content?.parts || [];
+      text = parts.find((p) => p.text)?.text;
       if (text) break;
       const code = gData?.error?.code;
+      console.warn(`[chat] attempt ${attempt + 1} no text — status ${gRes.status} code ${code}`);
       if (code !== 503 && code !== 429 && gRes.ok) break; // non-retryable
       await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
     }
     if (!text) {
-      console.error('Gemini empty response:', JSON.stringify(gData).slice(0, 500));
-      const busy = gData?.error?.code === 503 || gData?.error?.code === 429;
-      return res.status(502).json({ error: busy ? 'The assistant is busy right now — please try again in a moment.' : (gData?.error?.message || 'The assistant did not respond.') });
+      const errDetail = JSON.stringify(gData).slice(0, 800);
+      console.error('Gemini empty response:', errDetail);
+      const errCode = gData?.error?.code;
+      const errMsg = gData?.error?.message || '';
+      if (errCode === 429) return res.status(502).json({ error: 'Gemini quota limit reached — the assistant is temporarily unavailable. Check the API key billing.' });
+      if (errCode === 503) return res.status(502).json({ error: 'The assistant is busy right now — please try again in a moment.' });
+      const finishReason = gData?.candidates?.[0]?.finishReason;
+      if (finishReason && finishReason !== 'STOP') return res.status(502).json({ error: `The assistant stopped unexpectedly (${finishReason}). Please try again.` });
+      return res.status(502).json({ error: errMsg || 'The assistant did not respond. Please try again.' });
     }
 
     let parsed;
