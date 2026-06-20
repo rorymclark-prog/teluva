@@ -197,7 +197,8 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
       // Shrink photos before sending — a raw phone photo is too big for the
       // request and slows the scan; 1600px is plenty for OCR. PDFs pass through.
       if (mimeType.startsWith('image/')) {
-        dataUrl = await compressImageToAvatar(dataUrl, 1600, 0.82);
+        // 1200px @ 0.75 is plenty for OCR and keeps the payload small on mobile
+        dataUrl = await compressImageToAvatar(dataUrl, 1200, 0.75);
         mimeType = 'image/jpeg';
       }
       setAttachment({ name: file.name, mimeType, dataUrl });
@@ -243,9 +244,9 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     setListening(true);
   };
 
-  const send = async (text: string) => {
+  const send = async (text: string, retryAtt?: Attachment | null) => {
     const msg = text.trim();
-    const att = attachment;
+    const att = retryAtt !== undefined ? retryAtt : attachment;
     if ((!msg && !att) || loading) return;
     setError(null);
     setInput('');
@@ -286,9 +287,16 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
         return updatedMessages;
       });
     } catch (e: any) {
-      const errMsg = e?.message || 'Something went wrong.';
-      setError(null);
-      setMessages(prev => [...prev, { role: 'assistant', text: errMsg }]);
+      const raw = e?.message || 'Something went wrong.';
+      // "Load failed" is Safari/iOS's fetch abort error — surface a clearer message
+      // and restore the attachment + text so the user can retry without re-uploading.
+      const errMsg = raw === 'Load failed' || raw === 'Failed to fetch'
+        ? 'Network error — the scan timed out. Tap Retry to try again.'
+        : raw;
+      setMessages(prev => prev.slice(0, -1)); // remove optimistic user message
+      setInput(msg);                           // restore text
+      if (att) setAttachment(att);             // restore attachment
+      setError(errMsg);
     } finally {
       setLoading(false);
       setIsScanning(false);
