@@ -2,61 +2,108 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global catch-all
+
+    // Deny everything not explicitly matched below.
     match /{document=**} {
       allow read, write: if false;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
+    // ── Helpers ─────────────────────────────────────────────────────────────────
+
+    // Is the caller a verified, signed-in user?
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
     }
 
-    function isOwner(userId) {
-      return request.auth.uid == userId;
+    // Does a roles doc exist for the caller in this family?
+    function isMemberOf(familyId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/families/$(familyId)/roles/$(request.auth.uid));
     }
 
-    // The household: the Google accounts allowed into the shared family vault.
-    // Add a new family member's email here to grant them access.
-    function isFamilyMember() {
-      return request.auth != null &&
-        request.auth.token.email_verified == true &&
-        request.auth.token.email in [
-          'rorymclark@gmail.com',
-          'partner@example.com',
-          'child@example.com'
-        ];
+    // What is the caller's role in this family?
+    function roleIn(familyId) {
+      return get(/databases/$(database)/documents/families/$(familyId)/roles/$(request.auth.uid)).data.role;
     }
 
-    // Shared family vault — every authorised household account reads/writes the
-    // same data (members, calendar, metadata, chat, drive index).
-    match /families/{familyId}/{document=**} {
-      allow read, write: if isFamilyMember();
+    // Caller is admin of this family.
+    function isAdminOf(familyId) {
+      return isMemberOf(familyId) && roleIn(familyId) == 'admin';
     }
 
-    // Legacy per-account paths (pre-sharing). Harmless to keep; lets anything a
-    // single account saved before the switch still load for that account.
-    match /users/{userId} {
-      allow read, write: if isSignedIn() && isOwner(userId);
+    // Caller is admin or member (not child) — can write shared lists and calendar.
+    function canWriteIn(familyId) {
+      return isMemberOf(familyId) && roleIn(familyId) != 'child';
     }
 
-    match /users/{userId}/family_members/{memberId} {
-      allow read, write: if isSignedIn() && isOwner(userId);
+    // ── User profiles ────────────────────────────────────────────────────────────
+    // Each user owns their own doc (chat history, displayName, familyId).
+    // Admins may update the 'role' field on any profile within the same family
+    // (used by setFamilyMemberRole when role change is saved via Family Settings).
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+
+      allow update: if signedIn()
+        && request.auth.uid != uid
+        && isAdminOf(resource.data.familyId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']);
     }
 
-    match /users/{userId}/calendar_events/{eventId} {
-      allow read, write: if isSignedIn() && isOwner(userId);
-    }
+    // ── Families ─────────────────────────────────────────────────────────────────
 
-    match /users/{userId}/metadata/{docId} {
-      allow read, write: if isSignedIn() && isOwner(userId);
-    }
+    match /families/{familyId} {
 
-    match /users/{userId}/messages/{messageId} {
-      allow read, write: if isSignedIn() && isOwner(userId);
-    }
+      // Family metadata (name, createdAt, adminUid).
+      match /info/{doc} {
+        allow read: if isMemberOf(familyId);
+        allow write: if isAdminOf(familyId);
+      }
 
-    match /users/{userId}/sharedDriveDocs/{docId} {
-      allow read, write: if isSignedIn() && isOwner(userId);
+      // Role assignments — one doc per user uid.
+      // Any signed-in user can create their OWN role doc (bootstrap on first login).
+      // Only admins can change or remove roles.
+      match /roles/{uid} {
+        allow read:   if isMemberOf(familyId);
+        allow create: if signedIn() && request.auth.uid == uid;
+        allow update, delete: if isAdminOf(familyId);
+      }
+
+      // Family member profiles (name, medical, sizes, education, etc.).
+      // All members can read; only admins can add, edit or delete.
+      match /members/{memberId} {
+        allow read:  if isMemberOf(familyId);
+        allow write: if isAdminOf(familyId);
+      }
+
+      // Shared contacts (doctors, schools, friends).
+      match /contacts/{contactId} {
+        allow read:  if isMemberOf(familyId);
+        allow write: if isAdminOf(familyId);
+      }
+
+      // Shared reference numbers (NI, tax, policy numbers).
+      match /numbers/{numberId} {
+        allow read:  if isMemberOf(familyId);
+        allow write: if isAdminOf(familyId);
+      }
+
+      // Family calendar events.
+      // All members can read; admin and member (not child) can add/edit/delete.
+      match /calendar/{eventId} {
+        allow read:  if isMemberOf(familyId);
+        allow write: if canWriteIn(familyId);
+      }
+
+      // Reference documents:
+      //   shopping  → anyone who isn't a child can add/check off items
+      //   all others (vehicles, pets, utilities, banks, insurance, benefits) → admin only
+      match /reference/{docId} {
+        allow read: if isMemberOf(familyId);
+        allow write: if docId == 'shopping'
+          ? canWriteIn(familyId)
+          : isAdminOf(familyId);
+      }
     }
   }
 }
