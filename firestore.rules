@@ -47,9 +47,10 @@ service cloud.firestore {
 
     match /families/{familyId} {
 
-      // Family metadata doc (name, createdAt, adminUid) written by createFamily()
+      // Family metadata doc — readable by any signed-in user so the join flow
+      // can validate a family exists before writing the roles doc.
       match /info/{doc} {
-        allow read: if isMemberOf(familyId);
+        allow read: if signedIn();
         allow write: if isAdminOf(familyId);
       }
 

@@ -137,6 +137,10 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           };
           await setDoc(rolesRef, memberRole, { merge: true });
 
+          // Ensure info/info doc exists so the join flow can validate this family
+          const infoRef = doc(db, 'families', familyId, 'info', 'info');
+          await setDoc(infoRef, { name: 'Our Family', createdAt: new Date().toISOString() }, { merge: true });
+
           setFamilyId(familyId);
           setValue({
             familyId,

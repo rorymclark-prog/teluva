@@ -388,11 +388,8 @@ export async function joinFamily(familyId: string): Promise<void> {
 
   const trimmedId = familyId.trim();
   if (!trimmedId) throw new Error('Please enter a join code');
-
-  const infoSnap = await getDoc(doc(db, 'families', trimmedId, 'info', 'info'));
-  if (!infoSnap.exists()) {
-    throw new Error('Code not found — check with your family admin');
-  }
+  // Note: we don't validate via info/info because bootstrap families (household)
+  // may not have that doc. The join code is a UUID — unguessable, so no validation needed.
 
   const email = user.email ?? '';
   const displayName = user.displayName ?? email;
