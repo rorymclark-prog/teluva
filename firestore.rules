@@ -104,6 +104,18 @@ service cloud.firestore {
           ? canWriteIn(familyId)
           : isAdminOf(familyId);
       }
+
+      // Asset inventory — members read; admin write
+      match /assets/{assetId} {
+        allow read:  if isMemberOf(familyId);
+        allow write: if isAdminOf(familyId);
+      }
+
+      // Shared family passwords — admin and member read/write; child NO ACCESS
+      // (children should not be able to see shared passwords at all)
+      match /passwords/{pwId} {
+        allow read, write: if canWriteIn(familyId);
+      }
     }
   }
 }

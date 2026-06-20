@@ -172,6 +172,76 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.post('/api/scan-asset', async (req, res) => {
+  try {
+    if (!GEMINI_KEY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (!token) return res.status(401).json({ error: 'Please sign in first.' });
+
+    let decoded;
+    try {
+      decoded = await admin.auth().verifyIdToken(token);
+    } catch (e) {
+      return res.status(401).json({ error: 'Your session expired — sign in again.' });
+    }
+    const email = (decoded.email || '').toLowerCase();
+    if (!ALLOWED.includes(email)) {
+      return res.status(403).json({ error: 'This assistant is limited to the family accounts.' });
+    }
+
+    console.log('[scan-asset] request from', email);
+
+    const { image } = req.body || {};
+    if (!image || !image.data || !image.mimeType) {
+      return res.status(400).json({ error: 'No image provided.' });
+    }
+
+    const SCAN_SYSTEM = `You are an OCR assistant. The user will send a photo of a physical item — its label, sticker, barcode, packaging, or the item itself.
+Extract ALL identifying information visible. Return ONLY valid JSON (no markdown):
+{ "name": string, "make": string, "model": string, "serialNumber": string, "category": "Electronics"|"Bike"|"Sporting"|"Vehicle"|"Jewellery"|"Furniture"|"Other", "size": string, "color": string, "notes": string }
+Use empty string "" for any field not visible. category must be one of the enum values — guess from context.`;
+
+    const gRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SCAN_SYSTEM }] },
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: 'Please scan this item and extract all visible identifying information.' },
+              { inlineData: { mimeType: image.mimeType, data: image.data } },
+            ],
+          }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
+        }),
+      }
+    );
+
+    const gData = await gRes.json();
+    const parts = gData?.candidates?.[0]?.content?.parts || [];
+    const text = parts.find((p) => p.text)?.text;
+
+    if (!text) {
+      console.error('[scan-asset] empty response:', JSON.stringify(gData).slice(0, 400));
+      return res.status(502).json({ error: 'Could not read the image — please try again or enter details manually.' });
+    }
+
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch { return res.status(502).json({ error: 'Could not parse the scan result — please try again.' }); }
+
+    res.json(parsed);
+  } catch (e) {
+    console.error('[scan-asset] error', e);
+    res.status(502).json({ error: 'Something went wrong scanning the item — please try again.' });
+  }
+});
+
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 // --- Static SPA ---

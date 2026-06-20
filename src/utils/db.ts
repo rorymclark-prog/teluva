@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -477,4 +477,34 @@ export async function saveChatHistory(
     { chatHistory: messages.slice(-50) },
     { merge: true },
   );
+}
+
+// ── Assets ──
+export async function loadAssets(): Promise<AssetItem[]> {
+  const snap = await getDocs(collection(db, 'families', FAMILY_ID, 'assets'));
+  const items = snap.docs.map(d => d.data() as AssetItem);
+  return items.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function saveAsset(asset: AssetItem): Promise<void> {
+  await setDoc(doc(db, 'families', FAMILY_ID, 'assets', asset.id), asset);
+}
+
+export async function deleteAsset(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'families', FAMILY_ID, 'assets', id));
+}
+
+// ── Passwords ──
+export async function loadPasswords(): Promise<PasswordEntry[]> {
+  const snap = await getDocs(collection(db, 'families', FAMILY_ID, 'passwords'));
+  const entries = snap.docs.map(d => d.data() as PasswordEntry);
+  return entries.sort((a, b) => a.service.localeCompare(b.service));
+}
+
+export async function savePassword(entry: PasswordEntry): Promise<void> {
+  await setDoc(doc(db, 'families', FAMILY_ID, 'passwords', entry.id), entry);
+}
+
+export async function deletePassword(id: string): Promise<void> {
+  await deleteDoc(doc(db, 'families', FAMILY_ID, 'passwords', id));
 }

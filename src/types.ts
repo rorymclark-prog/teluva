@@ -384,3 +384,29 @@ export interface FamilyMemberRole {
   email: string;
   displayName: string;
 }
+
+export interface AssetItem {
+  id: string;
+  name: string;
+  category: 'Electronics' | 'Bike' | 'Sporting' | 'Vehicle' | 'Jewellery' | 'Furniture' | 'Other';
+  assignedMember?: string;
+  make?: string;
+  model?: string;
+  serialNumber?: string;
+  purchaseDate?: string;
+  purchasePrice?: string;
+  notes?: string;
+  photoDataUrl?: string;
+  createdAt: string;
+}
+
+export interface PasswordEntry {
+  id: string;
+  service: string;
+  url?: string;
+  username?: string;
+  email?: string;
+  password: string;
+  notes?: string;
+  createdAt: string;
+}

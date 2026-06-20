@@ -49,11 +49,14 @@ import HouseholdView from './HouseholdView';
 import FinancesView from './FinancesView';
 import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
+import Assets from './Assets';
+import FamilyPasswords from './FamilyPasswords';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Lock, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
-  HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart
+  HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
+  Package, KeyRound
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -79,7 +82,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'passport' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'medical', label: 'Medical', icon: HeartPulse },
@@ -104,7 +107,9 @@ const VIEWS: { id: ViewId; label: string; icon: React.ElementType }[] = [
   { id: 'finances', label: 'Finances', icon: Landmark },
   { id: 'timeline', label: 'Timeline', icon: CalendarHeart },
   { id: 'vault', label: 'Documents', icon: FolderArchive },
+  { id: 'assets', label: 'Assets', icon: Package },
   { id: 'shopping', label: 'Shopping', icon: ShoppingCart },
+  { id: 'passwords', label: 'Passwords', icon: KeyRound },
   { id: 'chat', label: 'Chat', icon: MessageCircle },
   { id: 'drive', label: 'Drive', icon: Cloud },
 ];
@@ -647,7 +652,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
           {/* Main view switcher */}
           <nav className="flex items-center bg-cream-200 p-1 rounded-2xl mx-auto sm:mx-0 overflow-x-auto">
-            {VIEWS.filter(view => !(view.id === 'finances' && !canWrite)).map(view => (
+            {VIEWS.filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && role === 'child')).map(view => (
               <button
                 key={view.id}
                 type="button"
@@ -743,6 +748,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'drive' && (
           demo ? <DemoUnavailable label="Drive sync" /> : <GoogleDriveSync />
+        )}
+
+        {mainView === 'assets' && (
+          demo ? <DemoUnavailable label="Family assets" /> : <Assets />
+        )}
+
+        {mainView === 'passwords' && (
+          demo ? <DemoUnavailable label="Family passwords" /> : <FamilyPasswords />
         )}
 
         {mainView === 'profiles' && (
