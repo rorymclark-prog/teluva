@@ -174,17 +174,20 @@ export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], mem
   return [...events, ...added];
 }
 
-// Append a row to a household list (vehicles / pets / utilities).
+// Apply household edits: set scalar fields (address, wifi, door code) or append to lists.
 export function applyHouseholdEdits(h: HouseholdInfo, edits: AiEdit[]): HouseholdInfo {
   let next = { ...h };
   for (const e of edits) {
-    if (e.kind !== 'list_add') continue;
-    if (e.list === 'vehicles') {
-      next = { ...next, vehicles: [...(next.vehicles || []), { id: newId(), ...e.item } as any] };
-    } else if (e.list === 'pets') {
-      next = { ...next, pets: [...(next.pets || []), { id: newId(), ...e.item } as any] };
-    } else if (e.list === 'utilities') {
-      next = { ...next, utilities: [...(next.utilities || []), { id: newId(), ...e.item } as any] };
+    if (e.kind === 'household_set') {
+      next = { ...next, [e.field]: e.value };
+    } else if (e.kind === 'list_add') {
+      if (e.list === 'vehicles') {
+        next = { ...next, vehicles: [...(next.vehicles || []), { id: newId(), ...e.item } as any] };
+      } else if (e.list === 'pets') {
+        next = { ...next, pets: [...(next.pets || []), { id: newId(), ...e.item } as any] };
+      } else if (e.list === 'utilities') {
+        next = { ...next, utilities: [...(next.utilities || []), { id: newId(), ...e.item } as any] };
+      }
     }
   }
   return next;
@@ -232,6 +235,10 @@ export function applyShoppingEdits(items: ShoppingItem[], edits: AiEdit[]): Shop
   return [...items, ...added];
 }
 export const hasAssetEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'asset');
-export const hasHouseholdEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['vehicles', 'pets', 'utilities'].includes(e.list));
+export const hasHouseholdEdits = (edits: AiEdit[]) =>
+  edits.some(e =>
+    (e.kind === 'list_add' && ['vehicles', 'pets', 'utilities'].includes(e.list)) ||
+    e.kind === 'household_set',
+  );
 export const hasFinancesEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['banks', 'insurance', 'benefits'].includes(e.list));
 export const hasTimelineEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && e.list === 'timeline');

@@ -31,7 +31,8 @@ export type AiEdit =
   | { kind: 'document'; name: string; category: VaultCategory }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
-  | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string };
+  | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string }
+  | { kind: 'household_set'; field: 'address' | 'doorCode' | 'wifiName' | 'wifiPassword' | 'garageCode'; value: string };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
@@ -547,5 +548,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})`;
   if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;
   if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
+  if (e.kind === 'household_set') return `Set household ${e.field.replace(/([A-Z])/g, ' $1').toLowerCase()}: "${e.value}"`;
+  if (e.kind === 'asset') return `Add asset: ${e.name}${e.category ? ` (${e.category})` : ''}`;
   return JSON.stringify(e);
 }
