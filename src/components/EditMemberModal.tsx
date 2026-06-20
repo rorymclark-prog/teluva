@@ -17,6 +17,9 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
   const [nickname, setNickname] = useState('');
   const [role, setRole] = useState<MemberRole>('Child');
   const [birthdate, setBirthdate] = useState('');
+  const [address, setAddress] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
   const [isOnline, setIsOnline] = useState(false);
 
@@ -37,6 +40,9 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
       setNickname(member.nickname || '');
       setRole(member.role);
       setBirthdate(member.birthdate || '');
+      setAddress(member.address || '');
+      setPhone(member.phone || '');
+      setEmail(member.email || '');
       setSelectedColor(warmAvatarColor(member.avatarColor));
       setIsOnline(member.isOnline ?? false);
       if (member.avatarUrl) {
@@ -149,6 +155,9 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
       nickname: nickname.trim() || undefined,
       role,
       birthdate: birthdate || undefined,
+      address: address.trim() || undefined,
+      phone: phone.trim() || undefined,
+      email: email.trim() || undefined,
       avatarColor: selectedColor,
       avatarUrl: finalAvatarUrl,
       isOnline
@@ -185,7 +194,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
                 </div>
                 <div>
                   <h3 className="font-display text-xl font-semibold text-ink-900">Edit Profile Settings</h3>
-                  <p className="text-[13px] font-semibold text-ink-500">Update name, theme color and custom portrait picture.</p>
+                  <p className="text-[13px] font-semibold text-ink-500">Update name, contact details, address, theme color and photo.</p>
                 </div>
               </div>
               <button
@@ -243,6 +252,41 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
                     type="date"
                     value={birthdate}
                     onChange={(e) => setBirthdate(e.target.value)}
+                    className="field"
+                  />
+                </div>
+              </div>
+
+              {/* Contact & address — visible to the whole family. Members can live at different addresses. */}
+              <div>
+                <label className="field-label">Address</label>
+                <input
+                  type="text"
+                  placeholder="Street, city, postcode"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="field"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="field-label">Phone</label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. +43 660 1234567"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="field"
+                  />
+                </div>
+                <div>
+                  <label className="field-label">Email</label>
+                  <input
+                    type="email"
+                    placeholder="name@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="field"
                   />
                 </div>

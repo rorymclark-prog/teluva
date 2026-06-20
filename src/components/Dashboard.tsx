@@ -60,7 +60,7 @@ import {
   Scissors, Trash2, Lock, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
-  Package, KeyRound
+  Package, KeyRound, MapPin, Phone, Mail
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -972,6 +972,34 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                 </>
                               )}
                             </p>
+                            {/* Contact & address — visible to every family member */}
+                            {(selectedMember.address || selectedMember.phone || selectedMember.email) && (
+                              <div className="mt-2 flex flex-col gap-1 text-[12.5px] text-ink-600">
+                                {selectedMember.address && (
+                                  <a
+                                    href={`https://maps.google.com/?q=${encodeURIComponent(selectedMember.address)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-start gap-1.5 hover:text-clay-600 transition-colors"
+                                  >
+                                    <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-clay-500" />
+                                    <span className="font-medium">{selectedMember.address}</span>
+                                  </a>
+                                )}
+                                {selectedMember.phone && (
+                                  <a href={`tel:${selectedMember.phone}`} className="flex items-center gap-1.5 hover:text-clay-600 transition-colors">
+                                    <Phone className="w-3.5 h-3.5 shrink-0 text-sage-600" />
+                                    <span className="font-medium">{selectedMember.phone}</span>
+                                  </a>
+                                )}
+                                {selectedMember.email && (
+                                  <a href={`mailto:${selectedMember.email}`} className="flex items-center gap-1.5 hover:text-clay-600 transition-colors">
+                                    <Mail className="w-3.5 h-3.5 shrink-0 text-dusk-600" />
+                                    <span className="font-medium break-all">{selectedMember.email}</span>
+                                  </a>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
 

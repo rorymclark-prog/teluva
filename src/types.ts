@@ -105,6 +105,11 @@ export interface FamilyMember {
   nationality?: string;     // comma-separated is fine, free text
   languages?: string;
   gender?: string;
+  // Where this member lives + how to reach them. Visible to the whole family
+  // (members can live at different addresses, e.g. an adult child or relative).
+  address?: string;
+  phone?: string;
+  email?: string;
   avatarColor: string; // e.g., 'bg-blue-500'
   avatarUrl?: string;  // Base64 representation of uploaded / captured photo
   isOnline?: boolean;  // System status online indicator flag

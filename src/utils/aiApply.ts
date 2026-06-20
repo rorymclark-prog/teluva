@@ -36,6 +36,10 @@ const MEMBER_FIELD_MAP: Record<string, (m: FamilyMember, v: string) => FamilyMem
   languages: (m, v) => ({ ...m, languages: v }),
   gender: (m, v) => ({ ...m, gender: v }),
 
+  address: (m, v) => ({ ...m, address: v }),
+  phone: (m, v) => ({ ...m, phone: v }),
+  email: (m, v) => ({ ...m, email: v }),
+
   shirt_size: (m, v) => setSizes(m, 'tops', v),
   pants_size: (m, v) => setSizes(m, 'bottoms', v),
   shoe_size: (m, v) => setSizes(m, 'shoes', v),
