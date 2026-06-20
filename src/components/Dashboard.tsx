@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FamilyMember, ClothingSizes, PassportInfo, FamilyDocument, CalendarEvent } from '../types';
+import { FamilyMember, ClothingSizes, PassportInfo, FamilyDocument, CalendarEvent, AssetItem } from '../types';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   loadFamilyMembers, saveFamilyMembers,
@@ -11,12 +11,13 @@ import {
   loadSettings, saveSettings,
   loadDocuments, saveDocuments,
   loadShopping, saveShopping,
+  saveAsset,
 } from '../utils/db';
 import {
   applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
   applyCalendarEdits, applyHouseholdEdits, applyFinancesEdits, applyTimelineEdits,
   hasCalendarEdits, hasHouseholdEdits, hasFinancesEdits, hasTimelineEdits,
-  hasShoppingEdits, applyShoppingEdits,
+  hasShoppingEdits, applyShoppingEdits, hasAssetEdits,
 } from '../utils/aiApply';
 import AIChatbot, { AiEdit } from './AIChatbot';
 import HubSettingsModal from './HubSettingsModal';
@@ -425,6 +426,29 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     if (hasShoppingEdits(edits)) {
       const s = await loadShopping();
       await saveShopping(applyShoppingEdits(s, edits));
+    }
+    if (hasAssetEdits(edits)) {
+      const VALID_CATS: AssetItem['category'][] = ['Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other'];
+      for (const e of edits) {
+        if (e.kind !== 'asset') continue;
+        const cat = VALID_CATS.includes(e.category as AssetItem['category'])
+          ? (e.category as AssetItem['category'])
+          : 'Other';
+        const asset: AssetItem = {
+          id: Date.now().toString() + Math.floor(Math.random() * 1000),
+          name: e.name || 'Unnamed',
+          category: cat,
+          assignedMember: e.assignedMember || undefined,
+          make: e.make || undefined,
+          model: e.model || undefined,
+          serialNumber: e.serialNumber || undefined,
+          purchaseDate: e.purchaseDate || undefined,
+          purchasePrice: e.purchasePrice || undefined,
+          notes: e.notes || undefined,
+          createdAt: new Date().toISOString().slice(0, 10),
+        };
+        await saveAsset(asset);
+      }
     }
   };
 

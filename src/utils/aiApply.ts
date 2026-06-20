@@ -231,6 +231,7 @@ export function applyShoppingEdits(items: ShoppingItem[], edits: AiEdit[]): Shop
     }));
   return [...items, ...added];
 }
+export const hasAssetEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'asset');
 export const hasHouseholdEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['vehicles', 'pets', 'utilities'].includes(e.list));
 export const hasFinancesEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['banks', 'insurance', 'benefits'].includes(e.list));
 export const hasTimelineEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && e.list === 'timeline');
