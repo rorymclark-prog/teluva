@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FamilyMember, ClothingSizes, PassportInfo, FamilyDocument, CalendarEvent, AssetItem } from '../types';
+import { useT } from '../i18n/LangContext';
+import { Strings } from '../i18n/locales';
+import LanguageSelector from './LanguageSelector';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   loadFamilyMembers, saveFamilyMembers,
@@ -98,22 +101,38 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'secrets', label: 'Secrets', icon: Key },
 ];
 
-const VIEWS: { id: ViewId; label: string; icon: React.ElementType }[] = [
-  { id: 'profiles', label: 'Profiles', icon: Users },
-  { id: 'assistant', label: 'Assistant', icon: Sparkles },
-  { id: 'emergency', label: 'Emergency', icon: Siren },
-  { id: 'calendar', label: 'Calendar', icon: Calendar },
-  { id: 'info', label: 'Info', icon: IdCard },
-  { id: 'household', label: 'Household', icon: Home },
-  { id: 'finances', label: 'Finances', icon: Landmark },
-  { id: 'timeline', label: 'Timeline', icon: CalendarHeart },
-  { id: 'vault', label: 'Documents', icon: FolderArchive },
-  { id: 'assets', label: 'Assets', icon: Package },
-  { id: 'shopping', label: 'Shopping', icon: ShoppingCart },
-  { id: 'passwords', label: 'Passwords', icon: KeyRound },
-  { id: 'chat', label: 'Chat', icon: MessageCircle },
-  { id: 'drive', label: 'Drive', icon: Cloud },
+const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
+  { id: 'profiles', icon: Users },
+  { id: 'assistant', icon: Sparkles },
+  { id: 'emergency', icon: Siren },
+  { id: 'calendar', icon: Calendar },
+  { id: 'info', icon: IdCard },
+  { id: 'household', icon: Home },
+  { id: 'finances', icon: Landmark },
+  { id: 'timeline', icon: CalendarHeart },
+  { id: 'vault', icon: FolderArchive },
+  { id: 'assets', icon: Package },
+  { id: 'shopping', icon: ShoppingCart },
+  { id: 'passwords', icon: KeyRound },
+  { id: 'chat', icon: MessageCircle },
+  { id: 'drive', icon: Cloud },
 ];
+
+function viewLabel(id: ViewId, t: Strings): string {
+  const map: Partial<Record<ViewId, string>> = {
+    profiles: t.nav_family,
+    assistant: t.nav_assistant,
+    calendar: t.nav_calendar,
+    info: t.nav_info,
+    household: t.nav_household,
+    finances: t.nav_finances,
+    timeline: t.nav_timeline,
+    vault: t.nav_documents,
+    assets: t.nav_assets,
+    passwords: t.nav_passwords,
+  };
+  return map[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
+}
 
 // A draggable family-list row where ONLY the grip handle starts a drag
 // (dragListener disabled), so tapping or scrolling the card never reorders it.
@@ -159,6 +178,7 @@ interface DashboardProps {
 export default function Dashboard({ familySettingsButton }: DashboardProps = {}) {
   const demo = isDemoMode();
   const { isAdmin, canWrite, role } = useFamilyCtx();
+  const { t } = useT();
 
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(!demo);
@@ -684,7 +704,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 className={`tab-pill ${mainView === view.id ? 'tab-pill-active' : ''}`}
               >
                 <view.icon className="w-4 h-4" />
-                <span className="hidden md:inline">{view.label}</span>
+                <span className="hidden md:inline">{viewLabel(view.id, t)}</span>
               </button>
             ))}
           </nav>
@@ -708,10 +728,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               />
             </div>
 
+            <LanguageSelector />
+
             {isAdmin && (
               <button onClick={() => setIsAddModalOpen(true)} className="btn-primary px-4 py-2">
                 <UserPlus className="w-4 h-4" />
-                <span className="hidden sm:inline">Add member</span>
+                <span className="hidden sm:inline">{t.btn_add}</span>
               </button>
             )}
 

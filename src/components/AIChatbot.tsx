@@ -7,6 +7,7 @@ import {
   loadChatHistory, saveChatHistory,
 } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
+import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
@@ -100,6 +101,7 @@ function buildSuggestions(members: FamilyMember[]): string[] {
 
 export default function AIChatbot({ members, onApplyEdits }: Props) {
   const { uid } = useFamilyCtx();
+  const { lang, t } = useT();
   const suggestions = buildSuggestions(members);
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try { const raw = localStorage.getItem(CHAT_KEY); return raw ? JSON.parse(raw) : []; }
@@ -259,7 +261,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
       const token = await user.getIdToken();
       const context = await buildContext();
 
-      const body: any = { message: msg, context, history };
+      const body: any = { message: msg, context, history, lang };
       if (att) body.image = { mimeType: att.mimeType, data: att.dataUrl.split(',')[1] };
 
       const res = await fetch('/api/chat', {
@@ -434,7 +436,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
                   </ul>
                   {m.applied ? (
                     <p className="text-[12px] font-semibold text-sage-700 flex items-center gap-1.5">
-                      <Check className="w-3.5 h-3.5" /> Saved.
+                      <Check className="w-3.5 h-3.5" /> {t.ai_applied}
                     </p>
                   ) : (
                     <div className="flex gap-2 pt-1">
@@ -443,10 +445,10 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
                         disabled={applyingIdx === i}
                         className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50"
                       >
-                        {applyingIdx === i ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Apply
+                        {applyingIdx === i ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} {t.btn_apply}
                       </button>
                       <button onClick={() => dismissEdits(i)} className="btn-quiet text-xs px-3 py-1.5">
-                        <X className="w-3.5 h-3.5" /> Dismiss
+                        <X className="w-3.5 h-3.5" /> {t.btn_cancel}
                       </button>
                     </div>
                   )}
@@ -526,7 +528,10 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
           </button>
         </form>
         <p className="text-[11px] text-ink-400 mt-2 text-center">
-          Paste a screenshot with <kbd className="px-1 py-0.5 bg-cream-200 rounded text-[10px] font-mono">Ctrl+V</kbd> · Nothing saves until you tap Apply.
+          {t.ai_hint.split('Ctrl+V').length > 1
+            ? <>{t.ai_hint.split('Ctrl+V')[0]}<kbd className="px-1 py-0.5 bg-cream-200 rounded text-[10px] font-mono">Ctrl+V</kbd>{t.ai_hint.split('Ctrl+V')[1]}</>
+            : t.ai_hint
+          }
         </p>
       </div>
     </div>

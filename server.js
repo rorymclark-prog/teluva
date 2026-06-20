@@ -99,17 +99,19 @@ app.post('/api/chat', async (req, res) => {
       return res.status(403).json({ error: 'This assistant is limited to the family accounts.' });
     }
 
-    const { message, context, history, image } = req.body || {};
+    const { message, context, history, image, lang } = req.body || {};
     const hasImage = image && image.data && image.mimeType;
     if ((!message || typeof message !== 'string') && !hasImage) {
       return res.status(400).json({ error: 'No message.' });
     }
 
+    const LANG_NAMES = { en:'English',de:'German',es:'Spanish',fr:'French',pt:'Portuguese',it:'Italian',nl:'Dutch',pl:'Polish',af:'Afrikaans' };
+    const langName = LANG_NAMES[lang] || 'English';
     const ctxJson = JSON.stringify(context ?? {}).slice(0, 120000);
     const today = new Date().toISOString().slice(0, 10);
     const userText = (message && typeof message === 'string') ? message
       : 'Please read the attached document and extract any useful family info.';
-    const userParts = [{ text: `Today's date is ${today}.\nFAMILY DATA (JSON):\n${ctxJson}\n\nUSER MESSAGE:\n${userText}` }];
+    const userParts = [{ text: `Today's date is ${today}.\nRESPOND IN: ${langName}. Write your "reply" field in ${langName}. All edit field values stay in the original language (names, labels, dates — never translate these).\nFAMILY DATA (JSON):\n${ctxJson}\n\nUSER MESSAGE:\n${userText}` }];
     if (hasImage) {
       userParts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
     }

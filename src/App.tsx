@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { LangProvider } from './i18n/LangContext';
 import { FamilyProvider, useFamilyCtx } from './contexts/FamilyContext';
 import Dashboard from './components/Dashboard';
 import FamilyOnboarding from './components/FamilyOnboarding';
@@ -69,8 +70,10 @@ function AppInner() {
 
 export default function App() {
   return (
-    <FamilyProvider>
-      <AppInner />
-    </FamilyProvider>
+    <LangProvider>
+      <FamilyProvider>
+        <AppInner />
+      </FamilyProvider>
+    </LangProvider>
   );
 }
