@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Home, Key, Loader2 } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { createFamily, joinFamily } from '../utils/db';
@@ -6,21 +6,48 @@ import { auth, logout } from '../lib/firebase';
 
 type Mode = 'idle' | 'create' | 'join';
 
+// Extract join code from URL: /join/{code}
+function codeFromUrl(): string {
+  const match = window.location.pathname.match(/^\/join\/(.+)/);
+  return match ? match[1].trim() : '';
+}
+
 /**
  * Shown when a user is signed in but has no family assigned yet.
  * Lets them start a brand-new family or join an existing one with a code.
+ * If the URL is /join/{code}, the join form is pre-filled automatically.
  */
 export default function FamilyOnboarding() {
   const { email } = useFamilyCtx();
-  // auth.currentUser is always present here — App only renders this when signed in.
   const displayName = auth.currentUser?.displayName ?? email ?? 'there';
   const firstName = displayName.split(' ')[0];
 
-  const [mode, setMode] = useState<Mode>('idle');
+  const urlCode = codeFromUrl();
+  const [mode, setMode] = useState<Mode>(urlCode ? 'join' : 'idle');
   const [familyName, setFamilyName] = useState('');
-  const [joinCode, setJoinCode] = useState('');
+  const [joinCode, setJoinCode] = useState(urlCode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-submit if we landed here via a /join/{code} link
+  useEffect(() => {
+    if (urlCode) {
+      handleJoinDirect(urlCode);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleJoinDirect(code: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await joinFamily(code);
+      window.location.href = '/';
+    } catch (err: any) {
+      setError(err?.message ?? 'Invalid link — ask your admin to share a new one.');
+      setBusy(false);
+    }
+  }
 
   function resetError() { setError(null); }
 

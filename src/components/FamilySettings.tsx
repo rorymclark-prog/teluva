@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Users, ShieldCheck, Loader2 } from 'lucide-react';
+import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { loadFamilyRoles, setFamilyMemberRole } from '../utils/db';
 import { FamilyRole, FamilyMemberRole } from '../types';
@@ -24,15 +24,29 @@ function initials(displayName: string, email: string): string {
 export default function FamilySettings({ onClose }: FamilySettingsProps) {
   const { familyId, uid: currentUid } = useFamilyCtx();
 
-  // --- Invite code copy ---
+  // --- Invite link ---
+  const joinUrl = familyId ? `${window.location.origin}/join/${familyId}` : null;
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
-    if (!familyId) return;
-    navigator.clipboard.writeText(familyId).then(() => {
+    if (!joinUrl) return;
+    navigator.clipboard.writeText(joinUrl).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setTimeout(() => setCopied(false), 2500);
     });
+  }
+
+  function handleShare() {
+    if (!joinUrl) return;
+    if (navigator.share) {
+      navigator.share({
+        title: 'Join our Family Vault',
+        text: 'Tap this link to join our private family vault.',
+        url: joinUrl,
+      }).catch(() => {});
+    } else {
+      handleCopy();
+    }
   }
 
   // --- Member roles ---
@@ -98,33 +112,37 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
 
         {/* Body */}
         <div className="flex-1 p-6 space-y-6">
-          {/* Section 1: Invite Code */}
+          {/* Section 1: Invite Link */}
           <div className="card p-5 space-y-3">
-            <h3 className="text-xs font-semibold text-ink-400 uppercase tracking-wider">
-              Family Invite Code
+            <h3 className="text-xs font-semibold text-ink-400 uppercase tracking-wider flex items-center gap-2">
+              <Link size={13} />
+              Family Invite Link
             </h3>
             <p className="text-[13px] text-ink-500">
-              Share this code with family members to join your vault.
+              Send this link to anyone you want to add — they tap it, sign in with Google, and join instantly.
             </p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 bg-cream-100 border border-cream-300 rounded-xl px-3 py-2 text-xs font-mono text-ink-800 break-all select-all">
-                {familyId ?? '—'}
+              <code className="flex-1 bg-cream-100 border border-cream-300 rounded-xl px-3 py-2 text-[11px] font-mono text-ink-700 break-all select-all leading-relaxed">
+                {joinUrl ?? '—'}
               </code>
               <button
                 onClick={handleCopy}
-                title={copied ? 'Copied!' : 'Copy code'}
+                title={copied ? 'Copied!' : 'Copy link'}
                 className="shrink-0 btn-quiet p-2 rounded-xl"
-                disabled={!familyId}
+                disabled={!joinUrl}
               >
-                {copied
-                  ? <Check size={16} className="text-sage-500" />
-                  : <Copy size={16} />
-                }
+                {copied ? <Check size={16} className="text-sage-500" /> : <Copy size={16} />}
               </button>
             </div>
-            {copied && (
-              <p className="text-xs text-sage-600">Copied to clipboard!</p>
-            )}
+            <button
+              onClick={handleShare}
+              disabled={!joinUrl}
+              className="btn-primary w-full justify-center gap-2 disabled:opacity-40"
+            >
+              <Share2 size={15} />
+              {typeof navigator !== 'undefined' && navigator.share ? 'Share invite link' : 'Copy invite link'}
+            </button>
+            {copied && <p className="text-xs text-sage-600 text-center">Link copied to clipboard!</p>}
           </div>
 
           {/* Section 2: Family Members */}
