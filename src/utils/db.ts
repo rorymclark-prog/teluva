@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -302,3 +302,10 @@ export async function loadDocuments(): Promise<VaultDocument[]> {
 
 export const DEFAULT_EVENTS: CalendarEvent[] = [];
 export const DEFAULT_FAMILY: FamilyMember[] = [];
+
+// --- Shopping list ---
+export const saveShopping = (items: ShoppingItem[]) => saveReferenceDoc('shopping', { items }, 'family_shopping');
+export async function loadShopping(): Promise<ShoppingItem[]> {
+  const data = await loadReferenceDoc<{ items: ShoppingItem[] }>('shopping', 'family_shopping');
+  return data?.items || [];
+}

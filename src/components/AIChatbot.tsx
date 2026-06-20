@@ -27,7 +27,7 @@ export type AiEdit =
   | { kind: 'number'; label: string; value: string }
   | { kind: 'document'; name: string; category: VaultCategory }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
-  | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline'; item: Record<string, string> };
+  | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
@@ -148,6 +148,27 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     ]);
     const documents = (docs || []).map(d => ({ name: d.name, category: d.category, memberId: d.memberId, uploadedAt: d.uploadedAt }));
     return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [] };
+  };
+
+  const onPasteImage = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (!file) continue;
+        e.preventDefault();
+        try {
+          let dataUrl = await fileToDataUrl(file);
+          dataUrl = await compressImageToAvatar(dataUrl, 1600, 0.82);
+          setAttachment({ name: 'screenshot.jpg', mimeType: 'image/jpeg', dataUrl });
+          setError(null);
+        } catch {
+          setError("Couldn't read the pasted image.");
+        }
+        return;
+      }
+    }
   };
 
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -468,17 +489,18 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={loading}
-            title="Attach a document or photo to scan"
+            title="Attach a photo, PDF or file — or paste a screenshot with Ctrl+V / Cmd+V. For Google Drive files, open the file in Drive and use File → Download first."
             className="btn-quiet px-3 py-2.5 shrink-0 disabled:opacity-40"
           >
             <Paperclip className="w-4 h-4" />
-            <span className="hidden sm:inline">Scan</span>
+            <span className="hidden sm:inline">Attach</span>
           </button>
           <input
             type="text"
             placeholder={attachment ? 'Add a note, or just send to scan…' : 'Ask or tell me something…'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={onPasteImage}
             disabled={loading}
             className="field flex-1"
           />
@@ -486,7 +508,9 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
             <Send className="w-4 h-4" />
           </button>
         </form>
-        <p className="text-[11px] text-ink-400 mt-2 text-center">The assistant suggests changes — nothing is saved until you tap Apply.</p>
+        <p className="text-[11px] text-ink-400 mt-2 text-center">
+          Paste a screenshot with <kbd className="px-1 py-0.5 bg-cream-200 rounded text-[10px] font-mono">Ctrl+V</kbd> · Nothing saves until you tap Apply.
+        </p>
       </div>
     </div>
   );

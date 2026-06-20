@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { AVATAR_COLORS } from './avatarPalette';
 
@@ -215,6 +215,22 @@ export function applyTimelineEdits(t: FamilyTimeline, edits: AiEdit[]): FamilyTi
 }
 
 export const hasCalendarEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'calendar_event');
+
+export const hasShoppingEdits = (edits: AiEdit[]) =>
+  edits.some(e => e.kind === 'list_add' && e.list === 'shopping');
+
+export function applyShoppingEdits(items: ShoppingItem[], edits: AiEdit[]): ShoppingItem[] {
+  const today = new Date().toISOString().slice(0, 10);
+  const added = edits
+    .filter((e): e is Extract<AiEdit, { kind: 'list_add' }> => e.kind === 'list_add' && e.list === 'shopping')
+    .map(e => ({
+      id: Date.now().toString() + Math.floor(Math.random() * 1000),
+      name: e.item.name || Object.values(e.item).filter(Boolean)[0] || 'Item',
+      checked: false,
+      addedAt: today,
+    }));
+  return [...items, ...added];
+}
 export const hasHouseholdEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['vehicles', 'pets', 'utilities'].includes(e.list));
 export const hasFinancesEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['banks', 'insurance', 'benefits'].includes(e.list));
 export const hasTimelineEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && e.list === 'timeline');

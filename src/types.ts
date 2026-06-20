@@ -351,3 +351,11 @@ export interface FamilyInfo {
   numbers: InfoEntry[];
   contacts: ContactEntry[];
 }
+
+// --- Shopping list ---
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  checked: boolean;
+  addedAt?: string;
+}

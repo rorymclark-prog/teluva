@@ -9,11 +9,13 @@ import {
   loadTimeline, saveTimeline,
   loadSettings, saveSettings,
   loadDocuments, saveDocuments,
+  loadShopping, saveShopping,
 } from '../utils/db';
 import {
   applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
   applyCalendarEdits, applyHouseholdEdits, applyFinancesEdits, applyTimelineEdits,
   hasCalendarEdits, hasHouseholdEdits, hasFinancesEdits, hasTimelineEdits,
+  hasShoppingEdits, applyShoppingEdits,
 } from '../utils/aiApply';
 import AIChatbot, { AiEdit } from './AIChatbot';
 import HubSettingsModal from './HubSettingsModal';
@@ -34,6 +36,7 @@ import SecureSecrets from './SecureSecrets';
 import FamilyCalendar from './FamilyCalendar';
 import FamilyChat from './FamilyChat';
 import GoogleDriveSync from './GoogleDriveSync';
+import ShoppingList from './ShoppingList';
 import ImportantInfo from './ImportantInfo';
 import MemberFavorites from './MemberFavorites';
 import MemberMedical from './MemberMedical';
@@ -49,7 +52,7 @@ import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Lock, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
-  HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical
+  HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -75,7 +78,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'passport' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'chat' | 'drive';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'medical', label: 'Medical', icon: HeartPulse },
@@ -100,6 +103,7 @@ const VIEWS: { id: ViewId; label: string; icon: React.ElementType }[] = [
   { id: 'finances', label: 'Finances', icon: Landmark },
   { id: 'timeline', label: 'Timeline', icon: CalendarHeart },
   { id: 'vault', label: 'Documents', icon: FolderArchive },
+  { id: 'shopping', label: 'Shopping', icon: ShoppingCart },
   { id: 'chat', label: 'Chat', icon: MessageCircle },
   { id: 'drive', label: 'Drive', icon: Cloud },
 ];
@@ -406,6 +410,10 @@ export default function Dashboard() {
       const t = (await loadTimeline()) || { entries: [] };
       await saveTimeline(applyTimelineEdits(t, edits));
     }
+    if (hasShoppingEdits(edits)) {
+      const s = await loadShopping();
+      await saveShopping(applyShoppingEdits(s, edits));
+    }
   };
 
   const handleAddDocument = async (memberId: string, docToAdd: FamilyDocument) => {
@@ -701,6 +709,10 @@ export default function Dashboard() {
 
         {mainView === 'vault' && (
           demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} />
+        )}
+
+        {mainView === 'shopping' && (
+          demo ? <DemoUnavailable label="The shopping list" /> : <ShoppingList />
         )}
 
         {mainView === 'chat' && (

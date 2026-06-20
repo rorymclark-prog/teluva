@@ -3,9 +3,11 @@ import { CalendarEvent, FamilyMember } from '../types';
 import {
   Calendar, Clock, Plus, Trash2, Edit2,
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X, Info,
-  Cloud, RefreshCcw, Loader2, LogIn, Send, Download
+  Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine
 } from 'lucide-react';
 import { initAuth, googleSignIn, logout, getAccessToken } from '../utils/firebase';
+import { auth } from '../lib/firebase';
+import { compressImageToAvatar } from '../utils/imageCompress';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -261,6 +263,72 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
     }
   };
 
+  // --- Scan notice / flyer to extract calendar events ---
+  const [isScanningNotice, setIsScanningNotice] = useState(false);
+  const [noticeError, setNoticeError] = useState<string | null>(null);
+  const [noticeResult, setNoticeResult] = useState<{ events: any[]; reply: string } | null>(null);
+  const scanFileRef = useRef<HTMLInputElement>(null);
+
+  const handleScanNotice = async (file: File) => {
+    setIsScanningNotice(true);
+    setNoticeError(null);
+    setNoticeResult(null);
+    try {
+      let dataUrl: string = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result as string);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+      let mimeType = file.type || 'application/octet-stream';
+      if (mimeType.startsWith('image/')) {
+        dataUrl = await compressImageToAvatar(dataUrl, 1600, 0.82);
+        mimeType = 'image/jpeg';
+      }
+      const user = auth.currentUser;
+      if (!user) throw new Error('Please sign in first.');
+      const token = await user.getIdToken();
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          message: 'Read this school notice, event flyer, or newsletter. Extract EVERY event, date, appointment and deadline as calendar_event edits — include date (YYYY-MM-DD), time if visible, a clear title, and category (School for school events). Today\'s date is provided in the system context.',
+          context: { members, calendar: events },
+          history: [],
+          image: { mimeType, data: dataUrl.split(',')[1] },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Could not read the notice.');
+      const calEdits = (data.edits || []).filter((e: any) => e.kind === 'calendar_event');
+      if (calEdits.length === 0) throw new Error(data.reply || 'No events found in this image — try a clearer photo of the notice.');
+      setNoticeResult({ events: calEdits, reply: data.reply || '' });
+    } catch (e: any) {
+      setNoticeError(e?.message || 'Could not read the notice.');
+    } finally {
+      setIsScanningNotice(false);
+    }
+  };
+
+  const handleApplyNoticeEvents = () => {
+    if (!noticeResult) return;
+    const today = new Date().toLocaleDateString('en-CA');
+    const VALID_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'];
+    const newEvents: CalendarEvent[] = noticeResult.events.map((e: any) => ({
+      id: 'scan-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
+      title: e.title || 'Event',
+      date: e.date || today,
+      time: e.time || undefined,
+      description: '',
+      category: (VALID_CATS.includes(e.category) ? e.category : 'School') as CalendarEvent['category'],
+      remindMe: true,
+      memberIds: [],
+    }));
+    onSaveEvents([...events, ...newEvents]);
+    setNoticeResult(null);
+    triggerReminderNotification(`Added ${newEvents.length} event${newEvents.length !== 1 ? 's' : ''} from the notice.`);
+  };
+
   // Form states for Add/Edit
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
@@ -464,14 +532,72 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
           <p className="text-[13px] text-ink-500 mt-1">Shared planning schedule. Coordinate flights, medical appointments, milestones, and school schedules seamlessly.</p>
         </div>
 
-        <button
-          onClick={handleOpenAddForm}
-          className="btn-primary ml-auto sm:ml-0 text-sm"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Schedule new event</span>
-        </button>
+        <div className="flex items-center gap-2 ml-auto sm:ml-0 flex-wrap">
+          <input
+            ref={scanFileRef}
+            type="file"
+            accept="image/*,application/pdf"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleScanNotice(f); }}
+          />
+          <button
+            onClick={() => scanFileRef.current?.click()}
+            disabled={isScanningNotice}
+            className="btn-quiet text-sm disabled:opacity-50"
+            title="Scan a school notice or flyer — AI extracts events automatically"
+          >
+            {isScanningNotice ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
+            <span>{isScanningNotice ? 'Reading…' : 'Scan notice'}</span>
+          </button>
+          <button
+            onClick={handleOpenAddForm}
+            className="btn-primary text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add event</span>
+          </button>
+        </div>
       </section>
+
+      {/* Scan error */}
+      {noticeError && (
+        <div className="p-4 rounded-2xl bg-rosa-50 border border-rosa-100 flex items-start gap-3">
+          <AlertCircle className="w-4 h-4 text-rosa-600 mt-0.5 shrink-0" />
+          <p className="text-[13px] text-rosa-700 flex-1">{noticeError}</p>
+          <button onClick={() => setNoticeError(null)} className="text-rosa-400 hover:text-rosa-600"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+
+      {/* Scan result preview modal */}
+      {noticeResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-ink-900/60 backdrop-blur-sm" onClick={() => setNoticeResult(null)} />
+          <div className="relative bg-white border border-cream-300/70 rounded-3xl p-6 shadow-lift w-full max-w-md space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+              <h3 className="text-lg font-display font-semibold text-ink-900">Events found</h3>
+              <button onClick={() => setNoticeResult(null)} className="p-1 hover:bg-cream-100 rounded-xl text-ink-400"><X className="w-4 h-4" /></button>
+            </div>
+            {noticeResult.reply && (
+              <p className="text-[13px] text-ink-600 leading-relaxed">{noticeResult.reply}</p>
+            )}
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {noticeResult.events.map((e: any, i: number) => (
+                <div key={i} className="p-3 rounded-xl bg-dusk-50 border border-dusk-100 text-[13px]">
+                  <p className="font-semibold text-ink-900">{e.title}</p>
+                  <p className="text-ink-500 font-mono text-[12px] mt-0.5">{e.date}{e.time ? ` · ${e.time}` : ''}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 pt-2 border-t border-cream-200">
+              <button onClick={() => setNoticeResult(null)} className="btn-quiet flex-1">Dismiss</button>
+              <button onClick={handleApplyNoticeEvents} className="btn-primary flex-1">
+                <Check className="w-4 h-4" />
+                Add {noticeResult.events.length} event{noticeResult.events.length !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Google Calendar Sync Panel */}
       <div className="card rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
