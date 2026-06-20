@@ -441,12 +441,15 @@ export async function setFamilyMemberRole(
 }
 
 // --- Chat history (stored on the user doc) ---
+// Keep edits + applied so an already-applied card stays "Applied" after a reload
+// or on a second device. NEVER persist image/sourceImage (base64 — bloats the doc).
+type StoredChatMessage = { role: string; text: string; edits?: unknown[]; applied?: boolean };
 
-export async function loadChatHistory(uid: string): Promise<Array<{ role: string; text: string }>> {
+export async function loadChatHistory(uid: string): Promise<StoredChatMessage[]> {
   try {
     const snap = await getDoc(doc(db, 'users', uid));
     if (snap.exists()) {
-      return (snap.data().chatHistory as Array<{ role: string; text: string }>) || [];
+      return (snap.data().chatHistory as StoredChatMessage[]) || [];
     }
     return [];
   } catch (error) {
@@ -457,13 +460,16 @@ export async function loadChatHistory(uid: string): Promise<Array<{ role: string
 
 export async function saveChatHistory(
   uid: string,
-  messages: Array<{ role: string; text: string }>,
+  messages: StoredChatMessage[],
 ): Promise<void> {
-  await setDoc(
-    doc(db, 'users', uid),
-    { chatHistory: messages.slice(-50) },
-    { merge: true },
-  );
+  // Defensive: strip any heavy/base64 fields before they reach Firestore.
+  const slim = messages.slice(-50).map(({ role, text, edits, applied }) => {
+    const m: StoredChatMessage = { role, text };
+    if (edits) m.edits = edits;
+    if (applied) m.applied = applied;
+    return m;
+  });
+  await setDoc(doc(db, 'users', uid), { chatHistory: slim }, { merge: true });
 }
 
 // ── Assets ──
@@ -473,8 +479,14 @@ export async function loadAssets(): Promise<AssetItem[]> {
   return items.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function saveAsset(asset: AssetItem): Promise<void> {
-  await setDoc(doc(db, 'families', FAMILY_ID, 'assets', asset.id), asset);
+export async function saveAsset(asset: AssetItem): Promise<boolean> {
+  try {
+    await setDoc(doc(db, 'families', FAMILY_ID, 'assets', asset.id), asset);
+    return true;
+  } catch (error) {
+    console.error('Error saving asset:', error);
+    return false;
+  }
 }
 
 export async function deleteAsset(id: string): Promise<void> {

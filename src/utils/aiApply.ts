@@ -179,7 +179,8 @@ export function applyHouseholdEdits(h: HouseholdInfo, edits: AiEdit[]): Househol
   let next = { ...h };
   for (const e of edits) {
     if (e.kind === 'household_set') {
-      next = { ...next, [e.field]: e.value };
+      // Guard: never let an empty value clobber an existing field.
+      if (e.value && e.value.trim()) next = { ...next, [e.field]: e.value.trim() };
     } else if (e.kind === 'list_add') {
       if (e.list === 'vehicles') {
         next = { ...next, vehicles: [...(next.vehicles || []), { id: newId(), ...e.item } as any] };

@@ -64,18 +64,17 @@ service cloud.firestore {
 
       // Family member profiles (name, medical, sizes, education, documents, etc.)
       // Actual collection name in Firestore is 'family_members' (not 'members')
+      // Any adult (admin or member) can contribute family data; children are read-only.
       match /family_members/{memberId} {
         allow read:  if isMemberOf(familyId);
-        allow write: if isAdminOf(familyId);
+        allow write: if canWriteIn(familyId);
       }
 
       // Index docs: metadata/members (member ID list) and metadata/events (event ID list)
       // Written in the same batch as family_members / calendar_events respectively.
       match /metadata/{docId} {
         allow read: if isMemberOf(familyId);
-        allow write: if docId == 'events'
-          ? canWriteIn(familyId)
-          : isAdminOf(familyId);
+        allow write: if canWriteIn(familyId);
       }
 
       // Calendar events
@@ -86,22 +85,23 @@ service cloud.firestore {
       }
 
       // Reference documents — a single subcollection for all shared data docs:
-      //   'info'       → contacts + reference numbers (admin only)
-      //   'household'  → vehicles, pets, utilities   (admin only)
-      //   'finances'   → banks, insurance, benefits  (admin only)
-      //   'timeline'   → family timeline             (admin only)
-      //   'shopping'   → shopping list               (admin + member)
+      //   'info'       → contacts + reference numbers
+      //   'household'  → address, wifi, vehicles, pets, utilities
+      //   'finances'   → banks, insurance, benefits
+      //   'timeline'   → family timeline
+      //   'shopping'   → shopping list
+      // All shared household data is writable by any adult (admin or member);
+      // children are read-only. This is a family hub — members must be able to
+      // contribute the address, assets, contacts, etc. they add via the AI chat.
       match /reference/{docId} {
         allow read: if isMemberOf(familyId);
-        allow write: if docId == 'shopping'
-          ? canWriteIn(familyId)
-          : isAdminOf(familyId);
+        allow write: if canWriteIn(familyId);
       }
 
-      // Asset inventory
+      // Asset inventory — any adult can add/edit; children read-only.
       match /assets/{assetId} {
         allow read:  if isMemberOf(familyId);
-        allow write: if isAdminOf(familyId);
+        allow write: if canWriteIn(familyId);
       }
 
       // Shared family passwords — children have no access at all

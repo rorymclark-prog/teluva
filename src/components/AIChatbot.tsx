@@ -140,10 +140,15 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  // Strip heavy/base64 fields (image, sourceImage) before persisting; keep
+  // edits + applied so cards restore their applied state.
+  const slimForCloud = (msgs: ChatMessage[]) =>
+    msgs.map(({ image, sourceImage, ...m }) => m);
+
   // Persist the conversation (minus heavy image data) on this device.
   useEffect(() => {
     try {
-      const slim = messages.slice(-60).map(({ image, sourceImage, ...m }) => m);
+      const slim = slimForCloud(messages.slice(-60));
       localStorage.setItem(CHAT_KEY, JSON.stringify(slim));
     } catch { /* ignore */ }
   }, [messages]);
@@ -283,7 +288,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
       };
       setMessages(prev => {
         const updatedMessages = [...prev, assistantMsg];
-        if (uid) saveChatHistory(uid, updatedMessages);
+        if (uid) saveChatHistory(uid, slimForCloud(updatedMessages));
         return updatedMessages;
       });
     } catch (e: any) {
@@ -332,7 +337,13 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
       if (dataEdits.length) await onApplyEdits(dataEdits);
       const src = messages[idx]?.sourceImage;
       if (docEdits.length && src) await fileScans(docEdits, src);
-      setMessages(prev => prev.map((m, i) => i === idx ? { ...m, applied: true } : m));
+      setMessages(prev => {
+        const updated = prev.map((m, i) => i === idx ? { ...m, applied: true } : m);
+        // Persist the applied flag to cloud so the card stays "Applied" after a
+        // reload or on another device — otherwise the Apply button reappears.
+        if (uid) saveChatHistory(uid, slimForCloud(updated));
+        return updated;
+      });
     } catch (e: any) {
       setError(e?.message || "Couldn't save those changes.");
     } finally {

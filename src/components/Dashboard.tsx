@@ -197,6 +197,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
 
   const [mainView, setMainView] = useState<ViewId>('profiles');
+  // Bumped after the AI chatbot applies edits so the self-loading views
+  // (household / info / finances / timeline / assets / shopping) remount and
+  // re-fetch — otherwise an applied change wouldn't show until a manual reload.
+  const [aiDataVersion, setAiDataVersion] = useState(0);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
 
   // null = no save attempted yet; true/false = last save reached cloud or not
@@ -481,8 +485,18 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           notes: e.notes || undefined,
           createdAt: new Date().toISOString().slice(0, 10),
         };
-        await saveAsset(asset);
+        const ok = await saveAsset(asset);
+        if (!ok) failures.push('assets');
       }
+    }
+
+    // Remount the self-loading views so an applied change shows immediately
+    // (these views load their data once on mount and take no props).
+    if (
+      hasInfoEdits(edits) || hasHouseholdEdits(edits) || hasFinancesEdits(edits) ||
+      hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits)
+    ) {
+      setAiDataVersion(v => v + 1);
     }
 
     if (failures.length > 0) {
@@ -784,22 +798,22 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           demo ? <DemoUnavailable label="The assistant" /> : <AIChatbot members={members} onApplyEdits={handleApplyAiEdits} />
         )}
 
-        {mainView === 'info' && <ImportantInfo />}
+        {mainView === 'info' && <ImportantInfo key={aiDataVersion} />}
 
         {mainView === 'emergency' && <EmergencyView members={members} />}
 
-        {mainView === 'household' && <HouseholdView />}
+        {mainView === 'household' && <HouseholdView key={aiDataVersion} />}
 
-        {mainView === 'finances' && <FinancesView />}
+        {mainView === 'finances' && <FinancesView key={aiDataVersion} />}
 
-        {mainView === 'timeline' && <TimelineView />}
+        {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
 
         {mainView === 'vault' && (
           demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} />
         )}
 
         {mainView === 'shopping' && (
-          demo ? <DemoUnavailable label="The shopping list" /> : <ShoppingList />
+          demo ? <DemoUnavailable label="The shopping list" /> : <ShoppingList key={aiDataVersion} />
         )}
 
         {mainView === 'chat' && (
@@ -815,7 +829,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         )}
 
         {mainView === 'assets' && (
-          demo ? <DemoUnavailable label="Family assets" /> : <Assets />
+          demo ? <DemoUnavailable label="Family assets" /> : <Assets key={aiDataVersion} />
         )}
 
         {mainView === 'passwords' && (
