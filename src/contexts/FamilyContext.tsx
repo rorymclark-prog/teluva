@@ -27,9 +27,12 @@ export interface FamilyCtxValue {
 
 const BOOTSTRAP_EMAILS: Record<string, FamilyRole> = {
   'rorymclark@gmail.com': 'admin',
-  'partner@example.com': 'member',
+  'partner@example.com': 'admin',
   'child@example.com': 'child',
 };
+
+// Emails that must always be admin — runs as a migration if doc already exists with a lower role.
+const FORCE_ADMIN = new Set(['rorymclark@gmail.com', 'partner@example.com']);
 
 // ---------------------------------------------------------------------------
 // Context setup
@@ -87,7 +90,16 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
 
         if (userSnap.exists()) {
           // User doc already exists — use stored familyId and role
-          const profile = userSnap.data() as UserProfile;
+          let profile = userSnap.data() as UserProfile;
+
+          // Migration: upgrade role if email is in FORCE_ADMIN and not already admin
+          if (FORCE_ADMIN.has(email) && profile.role !== 'admin') {
+            profile = { ...profile, role: 'admin' };
+            await setDoc(userRef, { role: 'admin' }, { merge: true });
+            const rolesRef = doc(db, 'families', profile.familyId, 'roles', uid);
+            await setDoc(rolesRef, { role: 'admin' }, { merge: true });
+          }
+
           setFamilyId(profile.familyId);
           setValue({
             familyId: profile.familyId,
