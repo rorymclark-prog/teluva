@@ -388,29 +388,19 @@ export async function joinFamily(familyId: string): Promise<void> {
 
   const trimmedId = familyId.trim();
   if (!trimmedId) throw new Error('Please enter a join code');
-  // Note: we don't validate via info/info because bootstrap families (household)
-  // may not have that doc. The join code is a UUID — unguessable, so no validation needed.
 
-  const email = user.email ?? '';
-  const displayName = user.displayName ?? email;
-  const uid = user.uid;
+  // Use server-side join so admin SDK bypasses Firestore security rules.
+  // Firestore client-side rules block non-members from writing roles docs.
+  const token = await user.getIdToken();
+  const res = await fetch('/api/join-family', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ familyId: trimmedId }),
+  });
 
-  const batch = writeBatch(db);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not join family. Please try again.');
 
-  batch.set(doc(db, 'families', trimmedId, 'roles', uid), {
-    role: 'member' as FamilyRole,
-    email,
-    displayName,
-  } satisfies FamilyMemberRole);
-
-  batch.set(doc(db, 'users', uid), {
-    familyId: trimmedId,
-    role: 'member' as FamilyRole,
-    email,
-    displayName,
-  } satisfies UserProfile);
-
-  await batch.commit();
   setFamilyId(trimmedId);
 }
 

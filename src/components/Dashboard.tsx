@@ -419,33 +419,47 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   };
 
   // Apply edits proposed by the AI assistant (after the user confirms).
+  // Throws if any cloud save fails so the chatbot doesn't mark the message
+  // as "Applied" when data didn't actually reach Firestore.
   const handleApplyAiEdits = async (edits: AiEdit[]) => {
+    const failures: string[] = [];
+
     if (hasMemberEdits(edits)) {
       const next = applyMemberEdits(members, edits);
-      await persistChanges(next);
+      setMembers(next);
+      const ok = await saveFamilyMembers(next);
+      if (!ok) failures.push('family members');
     }
     if (hasInfoEdits(edits)) {
       const info = (await loadFamilyInfo()) || { numbers: [], contacts: [] };
-      await saveFamilyInfo(applyInfoEdits(info, edits));
+      const ok = await saveFamilyInfo(applyInfoEdits(info, edits));
+      if (!ok) failures.push('contacts & numbers');
     }
     if (hasCalendarEdits(edits)) {
-      await handleSaveEvents(applyCalendarEdits(events, edits, members));
+      const next = applyCalendarEdits(events, edits, members);
+      setEvents(next);
+      const ok = await saveCalendarEvents(next);
+      if (!ok) failures.push('calendar');
     }
     if (hasHouseholdEdits(edits)) {
       const h = (await loadHousehold()) || {};
-      await saveHousehold(applyHouseholdEdits(h, edits));
+      const ok = await saveHousehold(applyHouseholdEdits(h, edits));
+      if (!ok) failures.push('household');
     }
     if (hasFinancesEdits(edits)) {
       const f = (await loadFinances()) || {};
-      await saveFinances(applyFinancesEdits(f, edits));
+      const ok = await saveFinances(applyFinancesEdits(f, edits));
+      if (!ok) failures.push('finances');
     }
     if (hasTimelineEdits(edits)) {
       const t = (await loadTimeline()) || { entries: [] };
-      await saveTimeline(applyTimelineEdits(t, edits));
+      const ok = await saveTimeline(applyTimelineEdits(t, edits));
+      if (!ok) failures.push('timeline');
     }
     if (hasShoppingEdits(edits)) {
       const s = await loadShopping();
-      await saveShopping(applyShoppingEdits(s, edits));
+      const ok = await saveShopping(applyShoppingEdits(s, edits));
+      if (!ok) failures.push('shopping');
     }
     if (hasAssetEdits(edits)) {
       const VALID_CATS: AssetItem['category'][] = ['Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other'];
@@ -469,6 +483,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         };
         await saveAsset(asset);
       }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(`Couldn't save to cloud: ${failures.join(', ')}. Check your connection and try again.`);
     }
   };
 

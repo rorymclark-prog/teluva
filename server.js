@@ -247,6 +247,47 @@ Use empty string "" for any field not visible. category must be one of the enum 
   }
 });
 
+// --- Join family (server-side so admin SDK bypasses Firestore security rules) ---
+app.post('/api/join-family', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    if (!token) return res.status(401).json({ error: 'Please sign in first.' });
+
+    let decoded;
+    try { decoded = await admin.auth().verifyIdToken(token); }
+    catch { return res.status(401).json({ error: 'Session expired — sign in again.' }); }
+
+    const { familyId } = req.body || {};
+    if (!familyId || typeof familyId !== 'string' || !familyId.trim()) {
+      return res.status(400).json({ error: 'Missing join code.' });
+    }
+    const trimmedId = familyId.trim();
+    const uid = decoded.uid;
+    const email = (decoded.email || '').toLowerCase();
+    const displayName = decoded.name || email;
+
+    // Admin SDK bypasses all Firestore security rules
+    const adminDb = admin.firestore();
+
+    // Validate the family exists — roles collection must be non-empty
+    const rolesSnap = await adminDb.collection(`families/${trimmedId}/roles`).limit(1).get();
+    if (rolesSnap.empty) {
+      return res.status(404).json({ error: 'Invite link not found — ask your admin to share a fresh one.' });
+    }
+
+    const batch = adminDb.batch();
+    batch.set(adminDb.doc(`families/${trimmedId}/roles/${uid}`), { role: 'member', email, displayName });
+    batch.set(adminDb.doc(`users/${uid}`), { familyId: trimmedId, role: 'member', email, displayName });
+    await batch.commit();
+
+    res.json({ ok: true, familyId: trimmedId });
+  } catch (err) {
+    console.error('/api/join-family error:', err);
+    res.status(500).json({ error: 'Could not join family. Please try again.' });
+  }
+});
+
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 // --- Static SPA ---
