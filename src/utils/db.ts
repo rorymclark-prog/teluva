@@ -493,11 +493,18 @@ export async function deleteAsset(id: string): Promise<void> {
   await deleteDoc(doc(db, 'families', FAMILY_ID, 'assets', id));
 }
 
-// ── Passwords ──
+// ── Passwords ── (admin-only; rules deny reads to members/children)
 export async function loadPasswords(): Promise<PasswordEntry[]> {
-  const snap = await getDocs(collection(db, 'families', FAMILY_ID, 'passwords'));
-  const entries = snap.docs.map(d => d.data() as PasswordEntry);
-  return entries.sort((a, b) => a.service.localeCompare(b.service));
+  try {
+    const snap = await getDocs(collection(db, 'families', FAMILY_ID, 'passwords'));
+    const entries = snap.docs.map(d => d.data() as PasswordEntry);
+    return entries.sort((a, b) => a.service.localeCompare(b.service));
+  } catch (e) {
+    // A non-admin should never reach this view, but if they do, a permission
+    // denial must not throw — just show an empty vault.
+    console.warn('loadPasswords denied or failed:', e);
+    return [];
+  }
 }
 
 export async function savePassword(entry: PasswordEntry): Promise<void> {

@@ -728,7 +728,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
           {/* Main view switcher */}
           <nav className="flex items-center bg-cream-200 p-1 rounded-2xl mx-auto sm:mx-0 overflow-x-auto">
-            {VIEWS.filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && role === 'child')).map(view => (
+            {VIEWS.filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin)).map(view => (
               <button
                 key={view.id}
                 type="button"

@@ -104,9 +104,12 @@ service cloud.firestore {
         allow write: if canWriteIn(familyId);
       }
 
-      // Shared family passwords — children have no access at all
+      // Family passwords — ADMINS ONLY. Members and children cannot read or write.
+      // All other vital info (member profiles, addresses, emergency contacts,
+      // important numbers, household, calendar, assets) stays readable by every
+      // member via isMemberOf above.
       match /passwords/{pwId} {
-        allow read, write: if canWriteIn(familyId);
+        allow read, write: if isAdminOf(familyId);
       }
     }
   }
