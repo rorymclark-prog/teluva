@@ -1,0 +1,200 @@
+import React, { useEffect, useState } from 'react';
+import { X, Copy, Check, Users, ShieldCheck, Loader2 } from 'lucide-react';
+import { useFamilyCtx } from '../contexts/FamilyContext';
+import { loadFamilyRoles, setFamilyMemberRole } from '../utils/db';
+import { FamilyRole, FamilyMemberRole } from '../types';
+
+interface FamilySettingsProps {
+  onClose: () => void;
+}
+
+const ROLE_OPTIONS: FamilyRole[] = ['admin', 'member', 'child'];
+
+function initials(displayName: string, email: string): string {
+  const name = displayName || email;
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+/**
+ * Admin-only panel: shows the family join code and lets the admin manage member roles.
+ * Rendered as a slide-in modal — parent component gates rendering to isAdmin only.
+ */
+export default function FamilySettings({ onClose }: FamilySettingsProps) {
+  const { familyId, uid: currentUid } = useFamilyCtx();
+
+  // --- Invite code copy ---
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    if (!familyId) return;
+    navigator.clipboard.writeText(familyId).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  // --- Member roles ---
+  const [roles, setRoles] = useState<Record<string, FamilyMemberRole>>({});
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [rolesError, setRolesError] = useState<string | null>(null);
+  const [savingUid, setSavingUid] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!familyId) return;
+    setRolesLoading(true);
+    loadFamilyRoles(familyId)
+      .then((r) => { setRoles(r); setRolesLoading(false); })
+      .catch((err) => {
+        setRolesError(err?.message ?? 'Could not load members');
+        setRolesLoading(false);
+      });
+  }, [familyId]);
+
+  async function handleRoleChange(targetUid: string, newRole: FamilyRole) {
+    if (!familyId) return;
+    // Prevent admin self-demotion
+    if (targetUid === currentUid && newRole !== 'admin') return;
+
+    setSavingUid(targetUid);
+    try {
+      await setFamilyMemberRole(familyId, targetUid, newRole);
+      setRoles((prev) => ({
+        ...prev,
+        [targetUid]: { ...prev[targetUid], role: newRole },
+      }));
+    } catch (err: any) {
+      setRolesError(err?.message ?? 'Could not update role');
+    } finally {
+      setSavingUid(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-ink-900/30 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="relative ml-auto w-full max-w-md h-full bg-cream-50 shadow-2xl flex flex-col overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-cream-200 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-sage-100 flex items-center justify-center">
+              <ShieldCheck className="w-5 h-5 text-sage-600" />
+            </div>
+            <div>
+              <h2 className="font-display text-lg font-semibold text-ink-900 leading-tight">
+                Family Settings
+              </h2>
+              <p className="text-[11px] text-ink-400 font-medium leading-tight">Admin controls</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="btn-quiet p-2" title="Close">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 p-6 space-y-6">
+          {/* Section 1: Invite Code */}
+          <div className="card p-5 space-y-3">
+            <h3 className="text-xs font-semibold text-ink-400 uppercase tracking-wider">
+              Family Invite Code
+            </h3>
+            <p className="text-[13px] text-ink-500">
+              Share this code with family members to join your vault.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 bg-cream-100 border border-cream-300 rounded-xl px-3 py-2 text-xs font-mono text-ink-800 break-all select-all">
+                {familyId ?? '—'}
+              </code>
+              <button
+                onClick={handleCopy}
+                title={copied ? 'Copied!' : 'Copy code'}
+                className="shrink-0 btn-quiet p-2 rounded-xl"
+                disabled={!familyId}
+              >
+                {copied
+                  ? <Check size={16} className="text-sage-500" />
+                  : <Copy size={16} />
+                }
+              </button>
+            </div>
+            {copied && (
+              <p className="text-xs text-sage-600">Copied to clipboard!</p>
+            )}
+          </div>
+
+          {/* Section 2: Family Members */}
+          <div className="card p-5 space-y-4">
+            <h3 className="text-xs font-semibold text-ink-400 uppercase tracking-wider flex items-center gap-2">
+              <Users size={14} />
+              Family Members
+            </h3>
+
+            {rolesLoading && (
+              <div className="flex items-center justify-center py-6 text-ink-400">
+                <Loader2 size={20} className="animate-spin mr-2" />
+                <span className="text-sm">Loading members…</span>
+              </div>
+            )}
+
+            {rolesError && (
+              <p className="text-sm text-rose-600 bg-rose-50 rounded-xl px-3 py-2">{rolesError}</p>
+            )}
+
+            {!rolesLoading && !rolesError && Object.keys(roles).length === 0 && (
+              <p className="text-[13px] text-ink-400">No members found.</p>
+            )}
+
+            {!rolesLoading && (Object.entries(roles) as [string, FamilyMemberRole][]).map(([memberUid, member]) => {
+              const isSelf = memberUid === currentUid;
+              const isSaving = savingUid === memberUid;
+              const avatarText = initials(member.displayName, member.email);
+
+              return (
+                <div key={memberUid} className="flex items-center gap-3">
+                  {/* Avatar */}
+                  <div className="w-9 h-9 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center text-xs font-bold shrink-0">
+                    {avatarText}
+                  </div>
+
+                  {/* Name + email */}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium text-ink-800 truncate">
+                      {member.displayName || member.email}
+                      {isSelf && <span className="ml-1 text-ink-400 font-normal">(you)</span>}
+                    </div>
+                    <div className="text-[11px] text-ink-400 truncate">{member.email}</div>
+                  </div>
+
+                  {/* Role selector */}
+                  <div className="relative shrink-0">
+                    {isSaving
+                      ? <Loader2 size={16} className="animate-spin text-ink-400" />
+                      : (
+                        <select
+                          value={member.role}
+                          onChange={(e) => handleRoleChange(memberUid, e.target.value as FamilyRole)}
+                          disabled={isSelf}
+                          className="field text-xs py-1 px-2 pr-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={isSelf ? 'Cannot change your own role' : undefined}
+                        >
+                          {ROLE_OPTIONS.map((r) => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      )
+                    }
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

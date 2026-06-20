@@ -1,6 +1,6 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
-import { doc, getDoc, setDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 const MEMBERS_KEY = 'family_members';
@@ -11,7 +11,12 @@ const INFO_KEY = 'family_info';
 // (see firestore.rules) reads and writes this same path, so Mama, Papa and the
 // kids all see the same family — instead of each Google account getting its own
 // private island.
-export const FAMILY_ID = 'household';
+export let FAMILY_ID = 'household';
+
+/** Called by FamilyProvider once it resolves the user's familyId. */
+export function setFamilyId(id: string): void {
+  FAMILY_ID = id;
+}
 
 // Returns true when the data reached Firestore, false when it only landed in
 // localStorage — callers surface that so silent sync failures are impossible.
@@ -308,4 +313,168 @@ export const saveShopping = (items: ShoppingItem[]) => saveReferenceDoc('shoppin
 export async function loadShopping(): Promise<ShoppingItem[]> {
   const data = await loadReferenceDoc<{ items: ShoppingItem[] }>('shopping', 'family_shopping');
   return data?.items || [];
+}
+
+// --- User profile (users/{uid}) ---
+
+export async function loadUserProfile(uid: string): Promise<UserProfile | null> {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    if (snap.exists()) {
+      return snap.data() as UserProfile;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error loading user profile:', error);
+    return null;
+  }
+}
+
+export async function saveUserProfile(uid: string, data: Partial<UserProfile>): Promise<void> {
+  await setDoc(doc(db, 'users', uid), data, { merge: true });
+}
+
+// --- Family management ---
+
+/**
+ * Create a brand-new family. Takes a human-readable name.
+ * Uses auth.currentUser for uid/email/displayName.
+ * Writes: families/{id}/info/info, families/{id}/roles/{uid}, users/{uid}.
+ * Returns the new familyId.
+ */
+export async function createFamily(familyName: string): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to create a family');
+
+  const newFamilyId = crypto.randomUUID();
+  const now = new Date().toISOString().slice(0, 10);
+  const email = user.email ?? '';
+  const displayName = user.displayName ?? email;
+  const uid = user.uid;
+
+  const batch = writeBatch(db);
+
+  batch.set(doc(db, 'families', newFamilyId, 'info', 'info'), {
+    name: familyName,
+    createdAt: now,
+    adminUid: uid,
+  } satisfies FamilyInfoDoc);
+
+  batch.set(doc(db, 'families', newFamilyId, 'roles', uid), {
+    role: 'admin' as FamilyRole,
+    email,
+    displayName,
+  } satisfies FamilyMemberRole);
+
+  batch.set(doc(db, 'users', uid), {
+    familyId: newFamilyId,
+    role: 'admin' as FamilyRole,
+    email,
+    displayName,
+  } satisfies UserProfile);
+
+  await batch.commit();
+  setFamilyId(newFamilyId);
+  return newFamilyId;
+}
+
+/**
+ * Join an existing family by its familyId UUID code.
+ * Throws with a human-readable message on failure.
+ */
+export async function joinFamily(familyId: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to join a family');
+
+  const trimmedId = familyId.trim();
+  if (!trimmedId) throw new Error('Please enter a join code');
+
+  const infoSnap = await getDoc(doc(db, 'families', trimmedId, 'info', 'info'));
+  if (!infoSnap.exists()) {
+    throw new Error('Code not found — check with your family admin');
+  }
+
+  const email = user.email ?? '';
+  const displayName = user.displayName ?? email;
+  const uid = user.uid;
+
+  const batch = writeBatch(db);
+
+  batch.set(doc(db, 'families', trimmedId, 'roles', uid), {
+    role: 'member' as FamilyRole,
+    email,
+    displayName,
+  } satisfies FamilyMemberRole);
+
+  batch.set(doc(db, 'users', uid), {
+    familyId: trimmedId,
+    role: 'member' as FamilyRole,
+    email,
+    displayName,
+  } satisfies UserProfile);
+
+  await batch.commit();
+  setFamilyId(trimmedId);
+}
+
+// --- Family roles ---
+
+/**
+ * Load all members from families/{familyId}/roles collection.
+ * Each document ID is the member's uid; document data is FamilyMemberRole.
+ */
+export async function loadFamilyRoles(familyId: string): Promise<Record<string, FamilyMemberRole>> {
+  try {
+    const rolesCol = collection(db, 'families', familyId, 'roles');
+    const snap = await getDocs(rolesCol);
+    const result: Record<string, FamilyMemberRole> = {};
+    snap.forEach((d) => {
+      result[d.id] = d.data() as FamilyMemberRole;
+    });
+    return result;
+  } catch (error) {
+    console.error('Error loading family roles:', error);
+    return {};
+  }
+}
+
+/**
+ * Update a family member's role in Firestore.
+ * Callers must prevent admin self-demotion before calling this.
+ */
+export async function setFamilyMemberRole(
+  familyId: string,
+  targetUid: string,
+  newRole: FamilyRole,
+): Promise<void> {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'families', familyId, 'roles', targetUid), { role: newRole }, { merge: true });
+  batch.set(doc(db, 'users', targetUid), { role: newRole }, { merge: true });
+  await batch.commit();
+}
+
+// --- Chat history (stored on the user doc) ---
+
+export async function loadChatHistory(uid: string): Promise<Array<{ role: string; text: string }>> {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    if (snap.exists()) {
+      return (snap.data().chatHistory as Array<{ role: string; text: string }>) || [];
+    }
+    return [];
+  } catch (error) {
+    console.error('Error loading chat history:', error);
+    return [];
+  }
+}
+
+export async function saveChatHistory(
+  uid: string,
+  messages: Array<{ role: string; text: string }>,
+): Promise<void> {
+  await setDoc(
+    doc(db, 'users', uid),
+    { chatHistory: messages.slice(-50) },
+    { merge: true },
+  );
 }

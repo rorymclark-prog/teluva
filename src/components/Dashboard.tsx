@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FamilyMember, ClothingSizes, PassportInfo, FamilyDocument, CalendarEvent } from '../types';
+import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   loadFamilyMembers, saveFamilyMembers,
   loadCalendarEvents, saveCalendarEvents,
@@ -144,8 +145,14 @@ const DraggableRow: React.FC<DraggableRowProps> = ({ member, className, onSelect
   );
 }
 
-export default function Dashboard() {
+interface DashboardProps {
+  /** Admin-only gear button injected by AppInner; null when not admin or not signed in */
+  familySettingsButton?: React.ReactNode;
+}
+
+export default function Dashboard({ familySettingsButton }: DashboardProps = {}) {
   const demo = isDemoMode();
+  const { isAdmin, canWrite, role } = useFamilyCtx();
 
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(!demo);
@@ -308,7 +315,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {selectedMemberId === member.id && (
+      {selectedMemberId === member.id && isAdmin && (
         <div onClick={(e) => e.stopPropagation()} onPointerDownCapture={(e) => e.stopPropagation()} className="relative flex items-center shrink-0">
           {deleteConfirmMemberId === member.id ? (
             <div className="flex items-center gap-1">
@@ -640,7 +647,7 @@ export default function Dashboard() {
 
           {/* Main view switcher */}
           <nav className="flex items-center bg-cream-200 p-1 rounded-2xl mx-auto sm:mx-0 overflow-x-auto">
-            {VIEWS.map(view => (
+            {VIEWS.filter(view => !(view.id === 'finances' && !canWrite)).map(view => (
               <button
                 key={view.id}
                 type="button"
@@ -654,6 +661,13 @@ export default function Dashboard() {
           </nav>
 
           <div className="flex items-center gap-2 ml-auto sm:ml-0">
+            {role === 'child' && (
+              <span className="text-xs bg-sage-100 text-sage-700 rounded-full px-2 py-0.5 font-semibold">View only</span>
+            )}
+            {role === 'member' && (
+              <span className="text-xs bg-sage-100 text-sage-700 rounded-full px-2 py-0.5 font-semibold">Member</span>
+            )}
+
             <div className="relative hidden lg:block">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
               <input
@@ -665,10 +679,14 @@ export default function Dashboard() {
               />
             </div>
 
-            <button onClick={() => setIsAddModalOpen(true)} className="btn-primary px-4 py-2">
-              <UserPlus className="w-4 h-4" />
-              <span className="hidden sm:inline">Add member</span>
-            </button>
+            {isAdmin && (
+              <button onClick={() => setIsAddModalOpen(true)} className="btn-primary px-4 py-2">
+                <UserPlus className="w-4 h-4" />
+                <span className="hidden sm:inline">Add member</span>
+              </button>
+            )}
+
+            {familySettingsButton}
 
             {!demo && (
               <>
@@ -756,10 +774,12 @@ export default function Dashboard() {
                 <p className="text-sm text-ink-500 max-w-md mx-auto mb-7">
                   Keep everyone&apos;s clothing sizes, documents, growth history and wish lists in one tidy, private place.
                 </p>
-                <button onClick={() => setIsAddModalOpen(true)} className="btn-primary">
-                  <UserPlus className="w-4 h-4" />
-                  <span>Add your first family member</span>
-                </button>
+                {isAdmin && (
+                  <button onClick={() => setIsAddModalOpen(true)} className="btn-primary">
+                    <UserPlus className="w-4 h-4" />
+                    <span>Add your first family member</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -842,13 +862,15 @@ export default function Dashboard() {
                           <div className="min-w-0">
                             <h2 className="font-display text-2xl font-semibold text-ink-900 flex items-center gap-2.5 flex-wrap">
                               <span className="truncate">{memberName(selectedMember)}</span>
-                              <button
-                                type="button"
-                                onClick={() => setIsEditingProfile(true)}
-                                className="text-[12px] font-sans font-semibold bg-cream-200 hover:bg-cream-300 text-ink-600 px-2.5 py-1 rounded-lg transition-colors cursor-pointer select-none"
-                              >
-                                Edit
-                              </button>
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => setIsEditingProfile(true)}
+                                  className="text-[12px] font-sans font-semibold bg-cream-200 hover:bg-cream-300 text-ink-600 px-2.5 py-1 rounded-lg transition-colors cursor-pointer select-none"
+                                >
+                                  Edit
+                                </button>
+                              )}
                             </h2>
                             <p className="text-[12px] text-ink-500 font-medium mt-1 flex flex-wrap items-center gap-1.5">
                               <span className="chip bg-cream-200 text-ink-600">{selectedMember.role}</span>

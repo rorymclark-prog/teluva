@@ -359,3 +359,28 @@ export interface ShoppingItem {
   checked: boolean;
   addedAt?: string;
 }
+
+// --- Family auth / roles (multi-user vault) ---
+export type FamilyRole = 'admin' | 'member' | 'child';
+
+export interface UserProfile {
+  familyId: string;
+  role: FamilyRole;
+  email: string;
+  displayName: string;
+  chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>;
+}
+
+// Firestore doc at families/{familyId}/info
+// Named FamilyInfoDoc to avoid collision with the existing FamilyInfo type above.
+export interface FamilyInfoDoc {
+  name: string;
+  createdAt: string;
+  adminUid: string;
+}
+
+export interface FamilyMemberRole {
+  role: FamilyRole;
+  email: string;
+  displayName: string;
+}

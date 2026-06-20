@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CalendarEvent, FamilyMember } from '../types';
+import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   Calendar, Clock, Plus, Trash2, Edit2,
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X, Info,
@@ -19,6 +20,7 @@ interface FamilyCalendarProps {
 }
 
 export default function FamilyCalendar({ members, events, onSaveEvents }: FamilyCalendarProps) {
+  const { isAdmin, canWrite } = useFamilyCtx();
   // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
@@ -417,8 +419,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
     setIsFormOpen(true);
   };
 
-  // Open Form to Edit
+  // Open Form to Edit — read-only for non-writers
   const handleOpenEditForm = (ev: CalendarEvent) => {
+    if (!canWrite) return;
     setEditingEventId(ev.id);
     setTitle(ev.title);
     setEventDate(ev.date);
@@ -533,29 +536,33 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
         </div>
 
         <div className="flex items-center gap-2 ml-auto sm:ml-0 flex-wrap">
-          <input
-            ref={scanFileRef}
-            type="file"
-            accept="image/*,application/pdf"
-            className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleScanNotice(f); }}
-          />
-          <button
-            onClick={() => scanFileRef.current?.click()}
-            disabled={isScanningNotice}
-            className="btn-quiet text-sm disabled:opacity-50"
-            title="Scan a school notice or flyer — AI extracts events automatically"
-          >
-            {isScanningNotice ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
-            <span>{isScanningNotice ? 'Reading…' : 'Scan notice'}</span>
-          </button>
-          <button
-            onClick={handleOpenAddForm}
-            className="btn-primary text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add event</span>
-          </button>
+          {canWrite && (
+            <>
+              <input
+                ref={scanFileRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleScanNotice(f); }}
+              />
+              <button
+                onClick={() => scanFileRef.current?.click()}
+                disabled={isScanningNotice}
+                className="btn-quiet text-sm disabled:opacity-50"
+                title="Scan a school notice or flyer — AI extracts events automatically"
+              >
+                {isScanningNotice ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
+                <span>{isScanningNotice ? 'Reading…' : 'Scan notice'}</span>
+              </button>
+              <button
+                onClick={handleOpenAddForm}
+                className="btn-primary text-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add event</span>
+              </button>
+            </>
+          )}
         </div>
       </section>
 
@@ -905,7 +912,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                               Alert on
                             </span>
                           )}
-                          {!needsAuth && (
+                          {!needsAuth && canWrite && (
                             <button
                               onClick={() => pushEventToGoogle(ev)}
                               className="p-1 hover:bg-cream-100 rounded-lg text-sage-600 transition-colors"
@@ -914,20 +921,24 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                               <Cloud className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          <button
-                            onClick={() => handleOpenEditForm(ev)}
-                            className="p-1 hover:bg-cream-100 rounded-lg text-ink-500 transition-colors"
-                            title="Edit event"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteEvent(ev.id)}
-                            className="p-1 hover:bg-rosa-50 rounded-lg text-rosa-600 transition-colors"
-                            title="Delete event"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                          {canWrite && (
+                            <button
+                              onClick={() => handleOpenEditForm(ev)}
+                              className="p-1 hover:bg-cream-100 rounded-lg text-ink-500 transition-colors"
+                              title="Edit event"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          )}
+                          {canWrite && (
+                            <button
+                              onClick={() => handleDeleteEvent(ev.id)}
+                              className="p-1 hover:bg-rosa-50 rounded-lg text-rosa-600 transition-colors"
+                              title="Delete event"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>

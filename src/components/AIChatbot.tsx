@@ -4,7 +4,9 @@ import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, loadCalendarEvents,
+  loadChatHistory, saveChatHistory,
 } from '../utils/db';
+import { useFamilyCtx } from '../contexts/FamilyContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
@@ -96,6 +98,7 @@ function buildSuggestions(members: FamilyMember[]): string[] {
 }
 
 export default function AIChatbot({ members, onApplyEdits }: Props) {
+  const { uid } = useFamilyCtx();
   const suggestions = buildSuggestions(members);
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try { const raw = localStorage.getItem(CHAT_KEY); return raw ? JSON.parse(raw) : []; }
@@ -123,6 +126,13 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
   }, []);
 
   useEffect(() => {
+    if (!uid) { setMessages([]); return; }
+    loadChatHistory(uid).then(history => {
+      if (history.length > 0) setMessages(history);
+    });
+  }, [uid]);
+
+  useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
@@ -140,6 +150,7 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     setInput('');
     setAttachment(null);
     try { localStorage.removeItem(CHAT_KEY); } catch { /* ignore */ }
+    if (uid) saveChatHistory(uid, []);
   };
 
   const buildContext = async () => {
@@ -259,12 +270,17 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
       if (!res.ok) throw new Error(data?.error || 'The assistant is unavailable right now.');
 
       const edits: AiEdit[] = Array.isArray(data.edits) ? data.edits : [];
-      setMessages(prev => [...prev, {
+      const assistantMsg: ChatMessage = {
         role: 'assistant',
         text: data.reply || '…',
         edits: edits.length ? edits : undefined,
         sourceImage: att || undefined,
-      }]);
+      };
+      setMessages(prev => {
+        const updatedMessages = [...prev, assistantMsg];
+        if (uid) saveChatHistory(uid, updatedMessages);
+        return updatedMessages;
+      });
     } catch (e: any) {
       const errMsg = e?.message || 'Something went wrong.';
       setError(null);
