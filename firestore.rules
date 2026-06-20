@@ -10,40 +10,33 @@ service cloud.firestore {
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
-    // Is the caller a verified, signed-in user?
     function signedIn() {
       return request.auth != null && request.auth.token.email_verified == true;
     }
 
-    // Does a roles doc exist for the caller in this family?
     function isMemberOf(familyId) {
       return signedIn()
         && exists(/databases/$(database)/documents/families/$(familyId)/roles/$(request.auth.uid));
     }
 
-    // What is the caller's role in this family?
     function roleIn(familyId) {
       return get(/databases/$(database)/documents/families/$(familyId)/roles/$(request.auth.uid)).data.role;
     }
 
-    // Caller is admin of this family.
     function isAdminOf(familyId) {
       return isMemberOf(familyId) && roleIn(familyId) == 'admin';
     }
 
-    // Caller is admin or member (not child) — can write shared lists and calendar.
+    // admin or member (not child) — can write shared lists and calendar
     function canWriteIn(familyId) {
       return isMemberOf(familyId) && roleIn(familyId) != 'child';
     }
 
     // ── User profiles ────────────────────────────────────────────────────────────
-    // Each user owns their own doc (chat history, displayName, familyId).
-    // Admins may update the 'role' field on any profile within the same family
-    // (used by setFamilyMemberRole when role change is saved via Family Settings).
 
     match /users/{uid} {
       allow read, write: if signedIn() && request.auth.uid == uid;
-
+      // Admins can update the 'role' field on another member's profile
       allow update: if signedIn()
         && request.auth.uid != uid
         && isAdminOf(resource.data.familyId)
@@ -54,50 +47,49 @@ service cloud.firestore {
 
     match /families/{familyId} {
 
-      // Family metadata (name, createdAt, adminUid).
+      // Family metadata doc (name, createdAt, adminUid) written by createFamily()
       match /info/{doc} {
         allow read: if isMemberOf(familyId);
         allow write: if isAdminOf(familyId);
       }
 
-      // Role assignments — one doc per user uid.
-      // Any signed-in user can create their OWN role doc (bootstrap on first login).
-      // Only admins can change or remove roles.
+      // Role assignments — one doc per uid.
+      // Self-create allowed for bootstrap on first login; only admins can change roles.
       match /roles/{uid} {
         allow read:   if isMemberOf(familyId);
         allow create: if signedIn() && request.auth.uid == uid;
         allow update, delete: if isAdminOf(familyId);
       }
 
-      // Family member profiles (name, medical, sizes, education, etc.).
-      // All members can read; only admins can add, edit or delete.
-      match /members/{memberId} {
+      // Family member profiles (name, medical, sizes, education, documents, etc.)
+      // Actual collection name in Firestore is 'family_members' (not 'members')
+      match /family_members/{memberId} {
         allow read:  if isMemberOf(familyId);
         allow write: if isAdminOf(familyId);
       }
 
-      // Shared contacts (doctors, schools, friends).
-      match /contacts/{contactId} {
-        allow read:  if isMemberOf(familyId);
-        allow write: if isAdminOf(familyId);
+      // Index docs: metadata/members (member ID list) and metadata/events (event ID list)
+      // Written in the same batch as family_members / calendar_events respectively.
+      match /metadata/{docId} {
+        allow read: if isMemberOf(familyId);
+        allow write: if docId == 'events'
+          ? canWriteIn(familyId)
+          : isAdminOf(familyId);
       }
 
-      // Shared reference numbers (NI, tax, policy numbers).
-      match /numbers/{numberId} {
-        allow read:  if isMemberOf(familyId);
-        allow write: if isAdminOf(familyId);
-      }
-
-      // Family calendar events.
-      // All members can read; admin and member (not child) can add/edit/delete.
-      match /calendar/{eventId} {
+      // Calendar events
+      // Actual collection name is 'calendar_events' (not 'calendar')
+      match /calendar_events/{eventId} {
         allow read:  if isMemberOf(familyId);
         allow write: if canWriteIn(familyId);
       }
 
-      // Reference documents:
-      //   shopping  → anyone who isn't a child can add/check off items
-      //   all others (vehicles, pets, utilities, banks, insurance, benefits) → admin only
+      // Reference documents — a single subcollection for all shared data docs:
+      //   'info'       → contacts + reference numbers (admin only)
+      //   'household'  → vehicles, pets, utilities   (admin only)
+      //   'finances'   → banks, insurance, benefits  (admin only)
+      //   'timeline'   → family timeline             (admin only)
+      //   'shopping'   → shopping list               (admin + member)
       match /reference/{docId} {
         allow read: if isMemberOf(familyId);
         allow write: if docId == 'shopping'
@@ -105,14 +97,13 @@ service cloud.firestore {
           : isAdminOf(familyId);
       }
 
-      // Asset inventory — members read; admin write
+      // Asset inventory
       match /assets/{assetId} {
         allow read:  if isMemberOf(familyId);
         allow write: if isAdminOf(familyId);
       }
 
-      // Shared family passwords — admin and member read/write; child NO ACCESS
-      // (children should not be able to see shared passwords at all)
+      // Shared family passwords — children have no access at all
       match /passwords/{pwId} {
         allow read, write: if canWriteIn(familyId);
       }
