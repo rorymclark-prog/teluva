@@ -34,6 +34,7 @@ export default function Assets() {
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [photoView, setPhotoView] = useState<string | null>(null); // full-size image record
 
   const scanFileRef = useRef<HTMLInputElement>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
@@ -315,12 +316,21 @@ export default function Assets() {
                           key={item.id}
                           className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors"
                         >
-                          {/* Photo or icon */}
-                          <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center">
-                            {item.photoDataUrl
-                              ? <img src={item.photoDataUrl} alt={item.name} className="w-full h-full object-cover" />
-                              : <Package className="w-4 h-4 text-ink-300" />}
-                          </div>
+                          {/* Photo or icon — tap photo to view full-size */}
+                          {item.photoDataUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => setPhotoView(item.photoDataUrl!)}
+                              className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-cream-200 hover:ring-clay-300 transition-all cursor-zoom-in"
+                              title="View photo"
+                            >
+                              <img src={item.photoDataUrl} alt={item.name} className="w-full h-full object-cover" />
+                            </button>
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center">
+                              <Package className="w-4 h-4 text-ink-300" />
+                            </div>
+                          )}
 
                           {/* Info */}
                           <div className="flex-1 min-w-0">
@@ -572,6 +582,28 @@ export default function Assets() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Full-size photo viewer (image record) ── */}
+      {photoView && (
+        <div
+          className="fixed inset-0 z-[60] bg-ink-900/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPhotoView(null)}
+        >
+          <button
+            onClick={() => setPhotoView(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 text-ink-800 flex items-center justify-center hover:bg-white transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <img
+            src={photoView}
+            alt="Asset photo"
+            className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
         </div>
       )}
     </div>
