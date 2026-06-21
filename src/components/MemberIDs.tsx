@@ -415,13 +415,32 @@ function IdentitySection({
 
 /* ─── Main export ────────────────────────────────────────────────── */
 
+// Fold a legacy single passport (member.passport, from the old separate Passport
+// tab) into the plural passports[] list so nothing is lost now the tabs are merged.
+// Deduped by passport number, so it never shows twice.
+function foldPassports(member: FamilyMember): PassportRecord[] {
+  const list = [...(member.passports ?? [])];
+  const lg = member.passport;
+  if (lg?.passportNumber && !list.some(p => p.number === lg.passportNumber)) {
+    list.push({
+      id: 'legacy-' + lg.passportNumber,
+      country: lg.issuingCountry || '',
+      number: lg.passportNumber,
+      expiryDate: lg.expiryDate || undefined,
+      issueDate: lg.issueDate || undefined,
+      notes: [lg.fullName ? `Name: ${lg.fullName}` : '', lg.notes || ''].filter(Boolean).join(' · ') || undefined,
+    });
+  }
+  return list;
+}
+
 export default function MemberIDs({ member, onUpdate }: MemberIDsProps) {
-  const [passports, setPassports] = useState<PassportRecord[]>(member.passports ?? []);
+  const [passports, setPassports] = useState<PassportRecord[]>(() => foldPassports(member));
   const [identity, setIdentity] = useState<IdentityRecord>(member.identity ?? {});
 
   // Reset when switching members
   useEffect(() => {
-    setPassports(member.passports ?? []);
+    setPassports(foldPassports(member));
     setIdentity(member.identity ?? {});
   }, [member.id]);
 

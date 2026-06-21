@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FamilyMember, ClothingSizes, PassportInfo, FamilyDocument, CalendarEvent, AssetItem } from '../types';
+import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem } from '../types';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
 import LanguageSelector from './LanguageSelector';
@@ -33,7 +33,6 @@ import { warmAvatarColor } from '../utils/avatarPalette';
 import AddMemberModal from './AddMemberModal';
 import EditMemberModal from './EditMemberModal';
 import MemberSizing from './MemberSizing';
-import PassportDetails from './PassportDetails';
 import MemberDocuments from './MemberDocuments';
 import DocumentViewer from './DocumentViewer';
 import GrowthTracker from './GrowthTracker';
@@ -57,7 +56,7 @@ import Assets from './Assets';
 import FamilyPasswords from './FamilyPasswords';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
-  Scissors, Trash2, Lock, Key, TrendingUp, Calendar, Heart,
+  Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail
@@ -85,18 +84,17 @@ export function calculateAge(birthdate?: string): string | null {
   return `${age} yrs`;
 }
 
-type TabId = 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'passport' | 'documents' | 'secrets';
+type TabId = 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
 type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'medical', label: 'Medical', icon: HeartPulse },
-  { id: 'ids', label: 'IDs', icon: IdCard },
+  { id: 'ids', label: 'ID & Passports', icon: IdCard },
   { id: 'sizes', label: 'Sizes', icon: Scissors },
   { id: 'favorites', label: 'Wishlist', icon: Heart },
   { id: 'growth', label: 'Growth', icon: TrendingUp },
   { id: 'travel', label: 'Travel', icon: Plane },
   { id: 'preferences', label: 'Likes', icon: Sparkles },
-  { id: 'passport', label: 'Passport', icon: Lock },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'secrets', label: 'Secrets', icon: Key },
 ];
@@ -412,9 +410,6 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     await persistChanges(members.map(m => (m.id === memberId ? { ...m, clothingSizes: sizes } : m)));
   };
 
-  const handleUpdatePassport = async (memberId: string, passport: PassportInfo | undefined) => {
-    await persistChanges(members.map(m => (m.id === memberId ? { ...m, passport } : m)));
-  };
 
   // Generic patch for the selected member — used by the medical/ids/travel/preferences tabs
   const handlePatchSelectedMember = async (patch: Partial<FamilyMember>) => {
@@ -972,34 +967,50 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                 </>
                               )}
                             </p>
-                            {/* Contact & address — visible to every family member */}
-                            {(selectedMember.address || selectedMember.phone || selectedMember.email) && (
-                              <div className="mt-2 flex flex-col gap-1 text-[12.5px] text-ink-600">
-                                {selectedMember.address && (
-                                  <a
-                                    href={`https://maps.google.com/?q=${encodeURIComponent(selectedMember.address)}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-start gap-1.5 hover:text-clay-600 transition-colors"
-                                  >
-                                    <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-clay-500" />
-                                    <span className="font-medium">{selectedMember.address}</span>
-                                  </a>
-                                )}
-                                {selectedMember.phone && (
-                                  <a href={`tel:${selectedMember.phone}`} className="flex items-center gap-1.5 hover:text-clay-600 transition-colors">
-                                    <Phone className="w-3.5 h-3.5 shrink-0 text-sage-600" />
-                                    <span className="font-medium">{selectedMember.phone}</span>
-                                  </a>
-                                )}
-                                {selectedMember.email && (
-                                  <a href={`mailto:${selectedMember.email}`} className="flex items-center gap-1.5 hover:text-clay-600 transition-colors">
-                                    <Mail className="w-3.5 h-3.5 shrink-0 text-dusk-600" />
-                                    <span className="font-medium break-all">{selectedMember.email}</span>
-                                  </a>
-                                )}
-                              </div>
-                            )}
+                            {/* Contact & address — visible to every family member.
+                                Always shown so there's a clear place per member; admins
+                                get an "Add" shortcut when nothing's filled in yet. */}
+                            {(() => {
+                              const hasContact = !!(selectedMember.address || selectedMember.phone || selectedMember.email);
+                              if (!hasContact && !isAdmin) return null;
+                              return (
+                                <div className="mt-2 flex flex-col gap-1 text-[12.5px] text-ink-600">
+                                  {selectedMember.address && (
+                                    <a
+                                      href={`https://maps.google.com/?q=${encodeURIComponent(selectedMember.address)}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-start gap-1.5 hover:text-clay-600 transition-colors"
+                                    >
+                                      <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-clay-500" />
+                                      <span className="font-medium">{selectedMember.address}</span>
+                                    </a>
+                                  )}
+                                  {selectedMember.phone && (
+                                    <a href={`tel:${selectedMember.phone}`} className="flex items-center gap-1.5 hover:text-clay-600 transition-colors">
+                                      <Phone className="w-3.5 h-3.5 shrink-0 text-sage-600" />
+                                      <span className="font-medium">{selectedMember.phone}</span>
+                                    </a>
+                                  )}
+                                  {selectedMember.email && (
+                                    <a href={`mailto:${selectedMember.email}`} className="flex items-center gap-1.5 hover:text-clay-600 transition-colors">
+                                      <Mail className="w-3.5 h-3.5 shrink-0 text-dusk-600" />
+                                      <span className="font-medium break-all">{selectedMember.email}</span>
+                                    </a>
+                                  )}
+                                  {!hasContact && isAdmin && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsEditingProfile(true)}
+                                      className="flex items-center gap-1.5 text-ink-400 hover:text-clay-600 transition-colors w-fit"
+                                    >
+                                      <MapPin className="w-3.5 h-3.5 shrink-0" />
+                                      <span className="font-medium">Add address &amp; contact</span>
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -1047,9 +1058,6 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               )}
                               {activeTab === 'preferences' && (
                                 <MemberPreferences member={selectedMember} onUpdate={handlePatchSelectedMember} />
-                              )}
-                              {activeTab === 'passport' && (
-                                <PassportDetails member={selectedMember} onUpdatePassport={handleUpdatePassport} />
                               )}
                               {activeTab === 'documents' && (
                                 <MemberDocuments
