@@ -287,7 +287,14 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'The assistant is unavailable right now.');
 
-      const edits: AiEdit[] = Array.isArray(data.edits) ? data.edits : [];
+      const rawEdits: AiEdit[] = Array.isArray(data.edits) ? data.edits : [];
+      // Backfill the owner on scanned documents so the preview shows "+ <name>'s
+      // profile" and Apply files onto the person, even when the AI left it blank.
+      const edits: AiEdit[] = rawEdits.map(e => {
+        if (e.kind !== 'document') return e;
+        const owner = inferDocOwner(e, rawEdits);
+        return owner ? { ...e, member: owner.name } : e;
+      });
       const assistantMsg: ChatMessage = {
         role: 'assistant',
         text: data.reply || '…',
@@ -327,6 +334,40 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     if (!q) return undefined;
     return members.find(m => m.name.toLowerCase() === q || (m.nickname || '').toLowerCase() === q)
       || members.find(m => m.name.toLowerCase().split(/\s+/)[0] === q.split(/\s+/)[0]);
+  };
+
+  // Safety net: work out who a scanned document belongs to even when the AI
+  // forgets to tag "member" — so a passport/ID reliably lands on the person's
+  // OWN Documents tab, not just the shared vault. Tries, in order: the AI's own
+  // tag → a member named in the document title → (for personal docs) the single
+  // person referenced elsewhere in the same batch (e.g. a passport edit for Sophie
+  // means this Identity scan is Sophie's).
+  const inferDocOwner = (
+    doc: Extract<AiEdit, { kind: 'document' }>,
+    batch: AiEdit[],
+  ): FamilyMember | undefined => {
+    const explicit = resolveMemberByName(doc.member);
+    if (explicit) return explicit;
+
+    const nameL = (doc.name || '').toLowerCase();
+    const byTitle = members.find(m => {
+      const first = m.name.toLowerCase().split(/\s+/)[0];
+      return (m.name && nameL.includes(m.name.toLowerCase()))
+        || (m.nickname && nameL.includes(m.nickname.toLowerCase()))
+        || (first.length >= 3 && nameL.includes(first));
+    });
+    if (byTitle) return byTitle;
+
+    const PERSONAL: VaultCategory[] = ['Identity', 'Medical', 'Education', 'Travel'];
+    if (PERSONAL.includes(doc.category)) {
+      const names = new Set<string>();
+      for (const e of batch) {
+        if ((e.kind === 'passport' || e.kind === 'member') && e.member) names.add(e.member.toLowerCase());
+        else if (e.kind === 'new_member' && e.name) names.add(e.name.toLowerCase());
+      }
+      if (names.size === 1) return resolveMemberByName([...names][0]);
+    }
+    return undefined;
   };
 
   // File the scanned image for any 'document' edits: always into the shared
