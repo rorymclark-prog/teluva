@@ -54,10 +54,16 @@ interface Props {
 
 function slimMembers(members: FamilyMember[]) {
   return members.map(m => {
-    const { avatarUrl, documents, ...rest } = m as any;
+    const { avatarUrl, documents, digitalAccounts, favorites, growthHistory, ...rest } = m as any;
     return {
       ...rest,
       documents: (documents || []).map((d: any) => ({ name: d.name, category: d.category, uploadedAt: d.uploadedAt })),
+      // NEVER send stored passwords to the AI; keep only what lets it answer "what accounts does X have"
+      digitalAccounts: (digitalAccounts || []).map((a: any) => ({ service: a.service, username: a.username })),
+      // Strip base64 wishlist images (huge + would truncate the whole context)
+      favorites: (favorites || []).map((f: any) => ({ name: f.name, price: f.price, notes: f.notes })),
+      // Keep only the latest growth entry — history is bulky and rarely asked
+      growthHistory: (growthHistory || []).slice(-1),
     };
   });
 }

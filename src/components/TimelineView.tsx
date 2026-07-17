@@ -151,7 +151,7 @@ function TimelineSection({ entries, onAdd, onUpdate, onDelete }: {
                 <div className="flex gap-4">
                   {/* Timeline dot and line */}
                   <div className="flex flex-col items-center pt-1 shrink-0">
-                    <div className={`w-6 h-6 rounded-full border-2 border-white shadow-soft ${TYPE_COLORS[entry.type || 'Other'].dot}`} />
+                    <div className={`w-6 h-6 rounded-full border-2 border-white shadow-soft ${(TYPE_COLORS[entry.type || 'Other'] ?? TYPE_COLORS.Other).dot}`} />
                   </div>
 
                   {/* Content */}
@@ -167,7 +167,7 @@ function TimelineSection({ entries, onAdd, onUpdate, onDelete }: {
                             })}
                           </span>
                           {entry.type && (
-                            <span className={`chip ${TYPE_COLORS[entry.type].bg} ${TYPE_COLORS[entry.type].text}`}>
+                            <span className={`chip ${(TYPE_COLORS[entry.type] ?? TYPE_COLORS.Other).bg} ${(TYPE_COLORS[entry.type] ?? TYPE_COLORS.Other).text}`}>
                               {entry.type}
                             </span>
                           )}

@@ -3,7 +3,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { FamilyRole, UserProfile, FamilyMemberRole } from '../types';
-import { setFamilyId } from '../utils/db';
+import { setFamilyId, ensureFamilyClaim } from '../utils/db';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -101,6 +101,9 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           }
 
           setFamilyId(profile.familyId);
+          // Storage rules need the familyId custom claim — backfill it for
+          // accounts created before claims existed (fire-and-forget).
+          void ensureFamilyClaim();
           setValue({
             familyId: profile.familyId,
             role: profile.role,

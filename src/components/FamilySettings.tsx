@@ -24,9 +24,35 @@ function initials(displayName: string, email: string): string {
 export default function FamilySettings({ onClose }: FamilySettingsProps) {
   const { familyId, uid: currentUid } = useFamilyCtx();
 
-  // --- Invite link ---
-  const joinUrl = familyId ? `${window.location.origin}/join/${familyId}` : null;
+  // --- Invite codes (single-use, 14-day, server-issued) ---
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [inviteRole, setInviteRole] = useState<'member' | 'child'>('member');
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const joinUrl = inviteCode ? `${window.location.origin}/join/${inviteCode}` : null;
+
+  async function handleGenerateInvite() {
+    setInviteLoading(true);
+    setInviteError(null);
+    try {
+      const { auth } = await import('../lib/firebase');
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/create-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ role: inviteRole }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not create an invite.');
+      setInviteCode(data.code);
+    } catch (e: any) {
+      setInviteError(e?.message || 'Could not create an invite.');
+    } finally {
+      setInviteLoading(false);
+    }
+  }
 
   function handleCopy() {
     if (!joinUrl) return;
@@ -41,7 +67,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
     if (navigator.share) {
       navigator.share({
         title: 'Join our Family Vault',
-        text: 'Tap this link to join our private family vault.',
+        text: `Tap this link to join our private family vault (invite code ${inviteCode}).`,
         url: joinUrl,
       }).catch(() => {});
     } else {
@@ -112,37 +138,63 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
 
         {/* Body */}
         <div className="flex-1 p-6 space-y-6">
-          {/* Section 1: Invite Link */}
+          {/* Section 1: Invite codes */}
           <div className="card p-5 space-y-3">
             <h3 className="text-xs font-semibold text-ink-400 uppercase tracking-wider flex items-center gap-2">
               <Link size={13} />
-              Family Invite Link
+              Invite someone
             </h3>
             <p className="text-[13px] text-ink-500">
-              Send this link to anyone you want to add — they tap it, sign in with Google, and join instantly.
+              Create a single-use invite code (valid 14 days). Send the link — they tap it, sign in with Google, and join.
             </p>
+
             <div className="flex items-center gap-2">
-              <code className="flex-1 bg-cream-100 border border-cream-300 rounded-xl px-3 py-2 text-[11px] font-mono text-ink-700 break-all select-all leading-relaxed">
-                {joinUrl ?? '—'}
-              </code>
-              <button
-                onClick={handleCopy}
-                title={copied ? 'Copied!' : 'Copy link'}
-                className="shrink-0 btn-quiet p-2 rounded-xl"
-                disabled={!joinUrl}
+              <select
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as 'member' | 'child')}
+                className="field w-auto text-[13px]"
               >
-                {copied ? <Check size={16} className="text-sage-500" /> : <Copy size={16} />}
+                <option value="member">Invite as member</option>
+                <option value="child">Invite as child (view only)</option>
+              </select>
+              <button
+                onClick={handleGenerateInvite}
+                disabled={inviteLoading}
+                className="btn-primary flex-1 justify-center gap-2 disabled:opacity-40"
+              >
+                {inviteLoading ? <Loader2 size={15} className="animate-spin" /> : <Share2 size={15} />}
+                {inviteCode ? 'New invite code' : 'Create invite code'}
               </button>
             </div>
-            <button
-              onClick={handleShare}
-              disabled={!joinUrl}
-              className="btn-primary w-full justify-center gap-2 disabled:opacity-40"
-            >
-              <Share2 size={15} />
-              {typeof navigator !== 'undefined' && navigator.share ? 'Share invite link' : 'Copy invite link'}
-            </button>
-            {copied && <p className="text-xs text-sage-600 text-center">Link copied to clipboard!</p>}
+
+            {inviteError && (
+              <p className="text-xs text-rose-600 bg-rose-50 rounded-xl px-3 py-2">{inviteError}</p>
+            )}
+
+            {inviteCode && (
+              <>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-cream-100 border border-cream-300 rounded-xl px-3 py-2 text-[13px] font-mono font-bold text-ink-800 break-all select-all leading-relaxed text-center tracking-widest">
+                    {inviteCode}
+                  </code>
+                  <button
+                    onClick={handleCopy}
+                    title={copied ? 'Copied!' : 'Copy link'}
+                    className="shrink-0 btn-quiet p-2 rounded-xl"
+                  >
+                    {copied ? <Check size={16} className="text-sage-500" /> : <Copy size={16} />}
+                  </button>
+                </div>
+                <button
+                  onClick={handleShare}
+                  className="btn-primary w-full justify-center gap-2"
+                >
+                  <Share2 size={15} />
+                  {typeof navigator !== 'undefined' && navigator.share ? 'Share invite link' : 'Copy invite link'}
+                </button>
+                {copied && <p className="text-xs text-sage-600 text-center">Link copied to clipboard!</p>}
+              </>
+            )}
           </div>
 
           {/* Section 2: Family Members */}

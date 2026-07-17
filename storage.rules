@@ -2,9 +2,22 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    // Only the household's Google accounts can read/write family files.
-    function isFamilyMember() {
+    // Membership comes from the familyId CUSTOM CLAIM, set by the server on
+    // create-family / join-family (and lazily backfilled on any AI call /
+    // /api/refresh-claims). This makes vault files per-family for EVERY
+    // family, not just the seeded household.
+    function inFamily(familyId) {
       return request.auth != null &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.familyId == familyId;
+    }
+
+    // Transition fallback: the original household accounts keep access to
+    // THEIR OWN family's files even before their tokens carry the new claim.
+    // Scoped to familyId == 'household' — no longer a master key to all families.
+    function isLegacyHouseholdMember(familyId) {
+      return familyId == 'household' &&
+        request.auth != null &&
         request.auth.token.email_verified == true &&
         request.auth.token.email in [
           'rorymclark@gmail.com',
@@ -14,7 +27,9 @@ service firebase.storage {
     }
 
     match /families/{familyId}/{allPaths=**} {
-      allow read, write: if isFamilyMember();
+      allow read: if inFamily(familyId) || isLegacyHouseholdMember(familyId);
+      allow write: if (inFamily(familyId) || isLegacyHouseholdMember(familyId))
+        && request.resource.size < 20 * 1024 * 1024;
     }
 
     // Everything else: locked.

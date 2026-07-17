@@ -295,7 +295,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           message: 'Read this school notice, event flyer, or newsletter. Extract EVERY event, date, appointment and deadline as calendar_event edits — include date (YYYY-MM-DD), time if visible, a clear title, and category (School for school events). Today\'s date is provided in the system context.',
-          context: { members, calendar: events },
+          // Only what event-tagging needs — never raw members (avatars, docs, accounts)
+          context: { members: members.map(m => ({ id: m.id, name: m.name, nickname: m.nickname, role: m.role })), calendar: events },
           history: [],
           image: { mimeType, data: dataUrl.split(',')[1] },
         }),

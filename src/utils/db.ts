@@ -346,36 +346,38 @@ export async function createFamily(familyName: string): Promise<string> {
   const user = auth.currentUser;
   if (!user) throw new Error('Must be signed in to create a family');
 
-  const newFamilyId = crypto.randomUUID();
-  const now = new Date().toISOString().slice(0, 10);
-  const email = user.email ?? '';
-  const displayName = user.displayName ?? email;
-  const uid = user.uid;
+  // Server-side: Firestore rules block clients from writing users/roles docs
+  // (that's what stops strangers from granting themselves roles).
+  const token = await user.getIdToken();
+  const res = await fetch('/api/create-family', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name: familyName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not create the family. Please try again.');
 
-  const batch = writeBatch(db);
+  await user.getIdToken(true); // pick up the new familyId custom claim for Storage
+  setFamilyId(data.familyId);
+  return data.familyId;
+}
 
-  batch.set(doc(db, 'families', newFamilyId, 'info', 'info'), {
-    name: familyName,
-    createdAt: now,
-    adminUid: uid,
-  } satisfies FamilyInfoDoc);
-
-  batch.set(doc(db, 'families', newFamilyId, 'roles', uid), {
-    role: 'admin' as FamilyRole,
-    email,
-    displayName,
-  } satisfies FamilyMemberRole);
-
-  batch.set(doc(db, 'users', uid), {
-    familyId: newFamilyId,
-    role: 'admin' as FamilyRole,
-    email,
-    displayName,
-  } satisfies UserProfile);
-
-  await batch.commit();
-  setFamilyId(newFamilyId);
-  return newFamilyId;
+// Ask the server to (re)stamp the familyId custom claim, then refresh the
+// local token so Storage rules see it. No-op if it fails — AI calls backfill too.
+export async function ensureFamilyClaim(): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) return;
+  try {
+    const current = await user.getIdTokenResult();
+    if (current.claims.familyId) return;
+    const res = await fetch('/api/refresh-claims', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${current.token}` },
+    });
+    if (res.ok) await user.getIdToken(true);
+  } catch (e) {
+    console.warn('ensureFamilyClaim failed (non-fatal):', e);
+  }
 }
 
 /**
@@ -401,7 +403,8 @@ export async function joinFamily(familyId: string): Promise<void> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Could not join family. Please try again.');
 
-  setFamilyId(trimmedId);
+  await user.getIdToken(true); // pick up the new familyId custom claim for Storage
+  setFamilyId(data.familyId || trimmedId);
 }
 
 // --- Family roles ---

@@ -34,13 +34,21 @@ service cloud.firestore {
 
     // ── User profiles ────────────────────────────────────────────────────────────
 
+    // User profiles are written ONLY by the server (create/join endpoints with
+    // the Admin SDK). A client that could write its own familyId/role could
+    // walk into any family as admin — so it can't.
     match /users/{uid} {
-      allow read, write: if signedIn() && request.auth.uid == uid;
+      allow read: if signedIn() && request.auth.uid == uid;
+      // Self-update of harmless display fields only — never familyId or role
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email']);
       // Admins can update the 'role' field on another member's profile
       allow update: if signedIn()
         && request.auth.uid != uid
         && isAdminOf(resource.data.familyId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']);
+      allow create, delete: if false;
     }
 
     // ── Families ─────────────────────────────────────────────────────────────────
@@ -54,11 +62,12 @@ service cloud.firestore {
         allow write: if isAdminOf(familyId);
       }
 
-      // Role assignments — one doc per uid.
-      // Self-create allowed for bootstrap on first login; only admins can change roles.
+      // Role assignments — one doc per uid. Created ONLY by the server
+      // (create-family / join-family with the Admin SDK). Self-create would let
+      // any signed-in stranger add themselves to any family — so it's closed.
       match /roles/{uid} {
         allow read:   if isMemberOf(familyId);
-        allow create: if signedIn() && request.auth.uid == uid;
+        allow create: if false;
         allow update, delete: if isAdminOf(familyId);
       }
 

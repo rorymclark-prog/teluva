@@ -216,9 +216,16 @@ export function applyFinancesEdits(f: FinancesInfo, edits: AiEdit[]): FinancesIn
 
 // Append an entry to the family timeline.
 export function applyTimelineEdits(t: FamilyTimeline, edits: AiEdit[]): FamilyTimeline {
+  // Clamp type to the values TimelineView can render — an off-list type from
+  // the AI (e.g. "Anniversary") must degrade to Other, not crash the view.
+  const VALID_TYPES = ['Birth', 'Wedding', 'Graduation', 'Milestone', 'Memory', 'Other'];
   const added = edits
     .filter((e): e is Extract<AiEdit, { kind: 'list_add' }> => e.kind === 'list_add' && e.list === 'timeline')
-    .map(e => ({ id: newId(), ...e.item } as any));
+    .map(e => {
+      const item: any = { id: newId(), ...e.item };
+      if (item.type && !VALID_TYPES.includes(item.type)) item.type = 'Other';
+      return item;
+    });
   return { ...t, entries: [...(t.entries || []), ...added] };
 }
 

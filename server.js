@@ -1,6 +1,8 @@
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -10,11 +12,43 @@ const PORT = process.env.PORT || 8080;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'gen-lang-client-0384516171';
 const FIREBASE_AUTH_HOST = `${PROJECT_ID}.firebaseapp.com`;
-const ALLOWED = (process.env.ALLOWED_EMAILS ||
-  'rorymclark@gmail.com,partner@example.com,child@example.com')
-  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+// The app's Firestore is a NAMED database — admin.firestore() would silently
+// target the nonexistent (default) DB (which is why server-side joins failed).
+const DB_ID = process.env.FIRESTORE_DB_ID || 'ai-studio-393d7146-0d1a-431e-bd58-b2a1478b5ff5';
 
 admin.initializeApp({ projectId: PROJECT_ID });
+const adminDb = getFirestore(admin.app(), DB_ID);
+
+// ---------------------------------------------------------------------------
+// Membership auth: verify the Firebase ID token, require a verified email,
+// and resolve the caller's family from users/{uid} (written ONLY by the
+// server-side create/join flows below). Replaces the old 3-email allowlist so
+// AI features work for every real family. Also lazily backfills the familyId
+// custom claim that Storage rules use.
+// ---------------------------------------------------------------------------
+async function requireMember(req) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) return { status: 401, error: 'Please sign in first.' };
+  let decoded;
+  try { decoded = await admin.auth().verifyIdToken(token); }
+  catch { return { status: 401, error: 'Your session expired — sign in again.' }; }
+  if (!decoded.email_verified) return { status: 403, error: 'Please verify your Google account email first.' };
+  const snap = await adminDb.doc(`users/${decoded.uid}`).get();
+  if (!snap.exists) return { status: 403, error: 'This account is not part of a family yet — create or join one first.' };
+  const profile = snap.data();
+  if (decoded.familyId !== profile.familyId) {
+    // Storage rules read this claim; backfill for accounts from before claims existed
+    admin.auth().setCustomUserClaims(decoded.uid, { familyId: profile.familyId }).catch(() => {});
+  }
+  return {
+    uid: decoded.uid,
+    email: (decoded.email || '').toLowerCase(),
+    displayName: decoded.name || (decoded.email || ''),
+    familyId: profile.familyId,
+    role: profile.role,
+  };
+}
 
 // --- Same-origin Firebase Auth helper proxy (keeps iOS Safari sign-in working) ---
 // Mounted at root with a pathFilter so the FULL /__/auth/... path is forwarded
@@ -90,20 +124,8 @@ app.post('/api/chat', async (req, res) => {
   try {
     if (!GEMINI_KEY) return res.status(500).json({ error: 'AI is not configured on the server.' });
 
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (!token) return res.status(401).json({ error: 'Please sign in first.' });
-
-    let decoded;
-    try {
-      decoded = await admin.auth().verifyIdToken(token);
-    } catch (e) {
-      return res.status(401).json({ error: 'Your session expired — sign in again.' });
-    }
-    const email = (decoded.email || '').toLowerCase();
-    if (!ALLOWED.includes(email)) {
-      return res.status(403).json({ error: 'This assistant is limited to the family accounts.' });
-    }
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
 
     const { message, context, history, image, lang } = req.body || {};
     const hasImage = image && image.data && image.mimeType;
@@ -187,22 +209,10 @@ app.post('/api/scan-asset', async (req, res) => {
   try {
     if (!GEMINI_KEY) return res.status(500).json({ error: 'AI is not configured on the server.' });
 
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (!token) return res.status(401).json({ error: 'Please sign in first.' });
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
 
-    let decoded;
-    try {
-      decoded = await admin.auth().verifyIdToken(token);
-    } catch (e) {
-      return res.status(401).json({ error: 'Your session expired — sign in again.' });
-    }
-    const email = (decoded.email || '').toLowerCase();
-    if (!ALLOWED.includes(email)) {
-      return res.status(403).json({ error: 'This assistant is limited to the family accounts.' });
-    }
-
-    console.log('[scan-asset] request from', email);
+    console.log('[scan-asset] request from', caller.email);
 
     const { image } = req.body || {};
     if (!image || !image.data || !image.mimeType) {
@@ -253,44 +263,132 @@ Use empty string "" for any field not visible. category must be one of the enum 
   }
 });
 
-// --- Join family (server-side so admin SDK bypasses Firestore security rules) ---
+// ---------------------------------------------------------------------------
+// Family membership endpoints. All writes to users/{uid} and roles/{uid}
+// happen HERE with the Admin SDK — Firestore rules block them from clients,
+// so nobody can pick their own role or walk into a family uninvited.
+// ---------------------------------------------------------------------------
+
+// Verify token only (caller may not be in a family yet)
+async function requireSignedIn(req) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) return { status: 401, error: 'Please sign in first.' };
+  let decoded;
+  try { decoded = await admin.auth().verifyIdToken(token); }
+  catch { return { status: 401, error: 'Your session expired — sign in again.' }; }
+  if (!decoded.email_verified) return { status: 403, error: 'Please verify your Google account email first.' };
+  return {
+    uid: decoded.uid,
+    email: (decoded.email || '').toLowerCase(),
+    displayName: decoded.name || (decoded.email || ''),
+  };
+}
+
+async function grantMembership(uid, email, displayName, familyId, role) {
+  const batch = adminDb.batch();
+  batch.set(adminDb.doc(`families/${familyId}/roles/${uid}`), { role, email, displayName });
+  batch.set(adminDb.doc(`users/${uid}`), { familyId, role, email, displayName });
+  await batch.commit();
+  // Storage rules gate vault files on this claim
+  await admin.auth().setCustomUserClaims(uid, { familyId }).catch(() => {});
+}
+
+// --- Create a new family (caller becomes its admin) ---
+app.post('/api/create-family', async (req, res) => {
+  try {
+    const caller = await requireSignedIn(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+
+    const name = String((req.body || {}).name || '').trim() || 'Our Family';
+    const familyId = crypto.randomUUID();
+    await adminDb.doc(`families/${familyId}/info/info`).set({
+      name, createdAt: new Date().toISOString().slice(0, 10), adminUid: caller.uid,
+    });
+    await grantMembership(caller.uid, caller.email, caller.displayName, familyId, 'admin');
+    res.json({ ok: true, familyId });
+  } catch (err) {
+    console.error('/api/create-family error:', err);
+    res.status(500).json({ error: 'Could not create the family. Please try again.' });
+  }
+});
+
+// --- Create an invite code (admins only) ---
+app.post('/api/create-invite', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can create invites.' });
+
+    // Short, readable, unguessable enough for a 14-day single-use code
+    const code = crypto.randomBytes(6).toString('base64url').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
+      || crypto.randomBytes(4).toString('hex').toUpperCase();
+    const role = (req.body || {}).role === 'child' ? 'child' : 'member';
+    await adminDb.doc(`invites/${code}`).set({
+      familyId: caller.familyId,
+      role,
+      createdBy: caller.uid,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString(),
+      usedBy: null,
+    });
+    res.json({ ok: true, code, role });
+  } catch (err) {
+    console.error('/api/create-invite error:', err);
+    res.status(500).json({ error: 'Could not create an invite. Please try again.' });
+  }
+});
+
+// --- Join a family with an invite code ---
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 app.post('/api/join-family', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (!token) return res.status(401).json({ error: 'Please sign in first.' });
+    const caller = await requireSignedIn(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
 
-    let decoded;
-    try { decoded = await admin.auth().verifyIdToken(token); }
-    catch { return res.status(401).json({ error: 'Session expired — sign in again.' }); }
+    const raw = String((req.body || {}).code ?? (req.body || {}).familyId ?? '').trim();
+    if (!raw) return res.status(400).json({ error: 'Missing invite code.' });
 
-    const { familyId } = req.body || {};
-    if (!familyId || typeof familyId !== 'string' || !familyId.trim()) {
-      return res.status(400).json({ error: 'Missing join code.' });
-    }
-    const trimmedId = familyId.trim();
-    const uid = decoded.uid;
-    const email = (decoded.email || '').toLowerCase();
-    const displayName = decoded.name || email;
-
-    // Admin SDK bypasses all Firestore security rules
-    const adminDb = admin.firestore();
-
-    // Validate the family exists — roles collection must be non-empty
-    const rolesSnap = await adminDb.collection(`families/${trimmedId}/roles`).limit(1).get();
-    if (rolesSnap.empty) {
-      return res.status(404).json({ error: 'Invite link not found — ask your admin to share a fresh one.' });
+    // Preferred path: an admin-issued invite code
+    const inviteRef = adminDb.doc(`invites/${raw.toUpperCase()}`);
+    const inviteSnap = await inviteRef.get();
+    if (inviteSnap.exists) {
+      const inv = inviteSnap.data();
+      if (inv.usedBy) return res.status(410).json({ error: 'This invite was already used — ask your admin for a new one.' });
+      if (inv.expiresAt && new Date(inv.expiresAt) < new Date()) {
+        return res.status(410).json({ error: 'This invite has expired — ask your admin for a new one.' });
+      }
+      await grantMembership(caller.uid, caller.email, caller.displayName, inv.familyId, inv.role || 'member');
+      await inviteRef.set({ usedBy: caller.uid, usedAt: new Date().toISOString() }, { merge: true });
+      return res.json({ ok: true, familyId: inv.familyId });
     }
 
-    const batch = adminDb.batch();
-    batch.set(adminDb.doc(`families/${trimmedId}/roles/${uid}`), { role: 'member', email, displayName });
-    batch.set(adminDb.doc(`users/${uid}`), { familyId: trimmedId, role: 'member', email, displayName });
-    await batch.commit();
+    // Legacy path: a raw family UUID (unguessable). Short ids like 'household'
+    // are deliberately NOT joinable this way.
+    if (UUID_RE.test(raw)) {
+      const rolesSnap = await adminDb.collection(`families/${raw}/roles`).limit(1).get();
+      if (!rolesSnap.empty) {
+        await grantMembership(caller.uid, caller.email, caller.displayName, raw, 'member');
+        return res.json({ ok: true, familyId: raw });
+      }
+    }
 
-    res.json({ ok: true, familyId: trimmedId });
+    return res.status(404).json({ error: 'Invite code not found — ask your family admin to share a fresh one.' });
   } catch (err) {
     console.error('/api/join-family error:', err);
     res.status(500).json({ error: 'Could not join family. Please try again.' });
+  }
+});
+
+// --- Refresh custom claims (called by the client when its token lacks familyId) ---
+app.post('/api/refresh-claims', async (req, res) => {
+  try {
+    const caller = await requireMember(req); // requireMember backfills the claim
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    res.json({ ok: true, familyId: caller.familyId });
+  } catch (err) {
+    console.error('/api/refresh-claims error:', err);
+    res.status(500).json({ error: 'Could not refresh session.' });
   }
 });
 
