@@ -28,8 +28,11 @@ service firebase.storage {
 
     match /families/{familyId}/{allPaths=**} {
       allow read: if inFamily(familyId) || isLegacyHouseholdMember(familyId);
-      allow write: if (inFamily(familyId) || isLegacyHouseholdMember(familyId))
+      // Size cap applies to uploads only. On delete, request.resource is null, so
+      // gating delete on request.resource.size denied EVERY delete and orphaned files.
+      allow create, update: if (inFamily(familyId) || isLegacyHouseholdMember(familyId))
         && request.resource.size < 20 * 1024 * 1024;
+      allow delete: if inFamily(familyId) || isLegacyHouseholdMember(familyId);
     }
 
     // Everything else: locked.

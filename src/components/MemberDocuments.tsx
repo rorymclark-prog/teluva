@@ -592,7 +592,7 @@ export default function MemberDocuments({
             </h4>
             <span className="chip bg-sage-100 text-sage-700 flex items-center gap-1">
               <ShieldCheck className="w-3 h-3" />
-              Local storage
+              Synced to your family
             </span>
           </div>
 
