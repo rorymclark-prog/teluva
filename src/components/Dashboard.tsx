@@ -22,7 +22,8 @@ import {
   hasCalendarEdits, hasHouseholdEdits, hasFinancesEdits, hasTimelineEdits,
   hasShoppingEdits, applyShoppingEdits, hasAssetEdits,
 } from '../utils/aiApply';
-import AIChatbot, { AiEdit } from './AIChatbot';
+import { AiEdit } from './AIChatbot';
+import AssistantBubble from './AssistantBubble';
 import HubSettingsModal from './HubSettingsModal';
 import ImageLightbox from './ImageLightbox';
 import { HubSettings } from '../types';
@@ -101,7 +102,6 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 
 const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'profiles', icon: Users },
-  { id: 'assistant', icon: Sparkles },
   { id: 'emergency', icon: Siren },
   { id: 'calendar', icon: Calendar },
   { id: 'info', icon: IdCard },
@@ -795,10 +795,6 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           <FamilyCalendar members={members} events={events} onSaveEvents={handleSaveEvents} />
         )}
 
-        {mainView === 'assistant' && (
-          demo ? <DemoUnavailable label="The assistant" /> : <AIChatbot members={members} onApplyEdits={handleApplyAiEdits} onAddMemberDoc={handleAddDocument} />
-        )}
-
         {mainView === 'info' && <ImportantInfo key={aiDataVersion} />}
 
         {mainView === 'emergency' && <EmergencyView members={members} />}
@@ -1161,6 +1157,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       />
 
       <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
+
+      {/* Floating AI assistant — available on every screen (replaces the old tab) */}
+      <AssistantBubble
+        members={members}
+        onApplyEdits={handleApplyAiEdits}
+        onAddMemberDoc={handleAddDocument}
+        demo={demo}
+      />
     </div>
   );
 }

@@ -413,7 +413,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
   };
 
   return (
-    <div className="card overflow-hidden h-[640px] flex flex-col font-sans">
+    <div className="overflow-hidden h-full flex flex-col font-sans bg-white">
       {/* Header */}
       <div className="p-4 sm:p-5 border-b border-cream-200 bg-cream-50 flex items-center gap-3">
         <div className="p-2.5 rounded-2xl bg-clay-500 text-white shrink-0">
