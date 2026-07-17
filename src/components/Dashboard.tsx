@@ -25,6 +25,7 @@ import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
 import AvatarRestyleModal from './AvatarRestyleModal';
 import SectionMenu from './SectionMenu';
+import LegalModal, { LegalTab } from './LegalModal';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import HubSettingsModal from './HubSettingsModal';
 import ImageLightbox from './ImageLightbox';
@@ -197,6 +198,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
   const [mainView, setMainView] = useState<ViewId>('profiles');
   const [restyleMemberId, setRestyleMemberId] = useState<string | null>(null);
+  const [legalTab, setLegalTab] = useState<LegalTab | null>(null);
   // Bumped after the AI chatbot applies edits so the self-loading views
   // (household / info / finances / timeline / assets / shopping) remount and
   // re-fetch — otherwise an applied change wouldn't show until a manual reload.
@@ -718,7 +720,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           <a href="?demo=1" className="inline-block mt-5 text-xs text-ink-400 underline underline-offset-2 hover:text-ink-600">
             or take a peek at the demo
           </a>
+          <div className="mt-6 pt-4 border-t border-cream-200 text-[12px] text-ink-400">
+            By signing in you agree to our{' '}
+            <button onClick={() => setLegalTab('terms')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">Terms</button>
+            {' '}and{' '}
+            <button onClick={() => setLegalTab('privacy')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">Privacy Policy</button>.
+          </div>
         </div>
+        {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
       </div>
     );
   }
@@ -1100,6 +1109,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             </>
           )}
         </div>
+        <div className="mt-3 text-[11px] text-ink-400">
+          <button onClick={() => setLegalTab('privacy')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">Privacy</button>
+          <span className="mx-1.5">·</span>
+          <button onClick={() => setLegalTab('terms')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">Terms</button>
+        </div>
       </footer>
 
       {/* Toast */}
@@ -1155,6 +1169,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         onAddMemberDoc={handleAddDocument}
         demo={demo}
       />
+
+      {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
 
       {restyleMemberId && (() => {
         const m = members.find((x) => x.id === restyleMemberId);
