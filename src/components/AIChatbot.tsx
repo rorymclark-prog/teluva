@@ -416,7 +416,16 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     setApplyingIdx(idx);
     try {
       const dataEdits = edits.filter(e => e.kind !== 'document');
-      const docEdits = edits.filter(e => e.kind === 'document');
+      // Re-resolve the scan's owner at APPLY time too (not just parse time), so
+      // re-applying an older card — whose stored edit predates the fix and has no
+      // member — still files onto the person's Documents, not just the vault.
+      const docEdits = edits
+        .filter((e): e is Extract<AiEdit, { kind: 'document' }> => e.kind === 'document')
+        .map(e => {
+          if (resolveMemberByName(e.member)) return e;
+          const owner = inferDocOwner(e, edits);
+          return owner ? { ...e, member: owner.name } : e;
+        });
       if (dataEdits.length) await onApplyEdits(dataEdits);
       const src = messages[idx]?.sourceImage;
       if (docEdits.length && src) {

@@ -1,10 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { FamilyMember, PassportRecord, IdentityRecord } from '../types';
+import { FamilyMember, PassportRecord, IdentityRecord, FamilyDocument } from '../types';
 import {
-  Plus, Pencil, Trash2, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen,
+  Plus, Pencil, Trash2, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye,
 } from 'lucide-react';
+import ImageLightbox from './ImageLightbox';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
+
+// Link a passport row to its scanned image: an ID-category document that mentions
+// "passport" (and the country when known). Lets us show a "view scan" icon next to
+// the number so the document behind it is one tap away.
+function findPassportScan(p: PassportRecord, docs?: FamilyDocument[]): FamilyDocument | undefined {
+  const idDocs = (docs || []).filter(d => d.category === 'ID' && d.fileData && /passport/i.test(d.name));
+  if (idDocs.length === 0) return undefined;
+  const country = (p.country || '').toLowerCase();
+  return (country && idDocs.find(d => d.name.toLowerCase().includes(country)))
+    || (idDocs.length === 1 ? idDocs[0] : undefined);
+}
 
 /* ─── expiry chip helper ─────────────────────────────────────────── */
 
@@ -130,9 +142,13 @@ function PassportForm({
 function PassportsSection({
   passports,
   onChange,
+  documents,
+  onViewScan,
 }: {
   passports: PassportRecord[];
   onChange: (next: PassportRecord[]) => void;
+  documents?: FamilyDocument[];
+  onViewScan: (src: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -204,6 +220,18 @@ function PassportsSection({
                 {p.notes && <p className="text-[12px] text-ink-500">{p.notes}</p>}
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {(() => {
+                  const scan = findPassportScan(p, documents);
+                  return scan ? (
+                    <button
+                      onClick={() => onViewScan(scan.fileData!)}
+                      className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg"
+                      title="View scanned passport"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null;
+                })()}
                 <button
                   onClick={() => { setEditId(p.id); setAdding(false); }}
                   className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg"
@@ -437,6 +465,7 @@ function foldPassports(member: FamilyMember): PassportRecord[] {
 export default function MemberIDs({ member, onUpdate }: MemberIDsProps) {
   const [passports, setPassports] = useState<PassportRecord[]>(() => foldPassports(member));
   const [identity, setIdentity] = useState<IdentityRecord>(member.identity ?? {});
+  const [viewScanSrc, setViewScanSrc] = useState<string | null>(null);
 
   // Reset when switching members
   useEffect(() => {
@@ -459,7 +488,11 @@ export default function MemberIDs({ member, onUpdate }: MemberIDsProps) {
       <PassportsSection
         passports={passports}
         onChange={handlePassportsChange}
+        documents={member.documents}
+        onViewScan={setViewScanSrc}
       />
+
+      <ImageLightbox src={viewScanSrc} onClose={() => setViewScanSrc(null)} />
       <IdentitySection
         identity={identity}
         onChange={handleIdentityChange}

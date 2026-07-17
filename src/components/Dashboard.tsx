@@ -381,7 +381,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   );
 
   const persistChanges = async (updated: FamilyMember[]) => {
-    setMembers(updated);
+    membersRef.current = updated; // keep the ref fresh NOW so a following write in
+    setMembers(updated);          // the same tick (e.g. scan → passport then document) merges
     if (demo) return;
     const ok = await saveFamilyMembers(updated);
     setCloudSynced(ok);
@@ -451,7 +452,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     const failures: string[] = [];
 
     if (hasMemberEdits(edits)) {
-      const next = applyMemberEdits(members, edits);
+      const next = applyMemberEdits(membersRef.current, edits);
+      membersRef.current = next; // so a following fileScans→handleAddDocument merges onto this
       setMembers(next);
       const ok = await saveFamilyMembers(next);
       if (!ok) failures.push('family members');
@@ -527,7 +529,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   };
 
   const handleAddDocument = async (memberId: string, docToAdd: FamilyDocument) => {
-    await persistChanges(members.map(m => (m.id === memberId ? { ...m, documents: [...m.documents, docToAdd] } : m)));
+    await persistChanges(membersRef.current.map(m => (m.id === memberId ? { ...m, documents: [...(m.documents || []), docToAdd] } : m)));
   };
 
   const handleDeleteDocument = async (memberId: string, docId: string) => {
