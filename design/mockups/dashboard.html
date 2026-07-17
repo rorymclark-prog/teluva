@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Family Vault — Dashboard (Clean Warm mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F6F5F1;
+    --raised: rgba(251,250,248,.85);
+    --card: #FFFFFF;
+    --inset: #EEECE6;
+    --border: #E5E2DB;
+    --ink: #1C1917;
+    --ink2: #44403C;
+    --mut: #78716C;
+    --faint: #A8A29E;
+    --ember: #EA5A3B;
+    --ember-d: #D64A2E;
+    --ember-t: #FDF0EA;
+    --fern: #2E7D5B;
+    --fern-t: #EAF4EF;
+    --rose: #E11D48;
+    --rose-t: #FDEDF1;
+    --blue: #2563EB;
+    --blue-t: #EFF4FE;
+    --amber: #D97706;
+    --amber-t: #FCF4E6;
+    --ring: linear-gradient(45deg, #FFC24B 0%, #EA5A3B 45%, #C13584 100%);
+    --sh-soft: 0 1px 2px rgba(28,25,23,.05);
+    --sh-lift: 0 4px 12px rgba(28,25,23,.07), 0 12px 32px rgba(28,25,23,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0E1013;
+      --raised: rgba(16,18,22,.85);
+      --card: #16181D;
+      --inset: #1E2127;
+      --border: rgba(255,255,255,.09);
+      --ink: #F4F4F2;
+      --ink2: #D6D6D2;
+      --mut: #A0A3AA;
+      --faint: #6E7278;
+      --ember: #F0684B;
+      --ember-d: #FF7A5C;
+      --ember-t: rgba(240,104,75,.14);
+      --fern: #4FBE8E;
+      --fern-t: rgba(79,190,142,.13);
+      --rose: #F4557B;
+      --rose-t: rgba(244,85,123,.13);
+      --blue: #6C9EF8;
+      --blue-t: rgba(108,158,248,.13);
+      --amber: #E9A13B;
+      --amber-t: rgba(233,161,59,.12);
+      --sh-soft: 0 1px 2px rgba(0,0,0,.4);
+      --sh-lift: 0 4px 14px rgba(0,0,0,.5);
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    background: var(--bg); color: var(--ink);
+    font-size: 15px; line-height: 1.5; min-height: 100vh;
+  }
+  svg { display: block; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px 56px; }
+  @media (min-width: 720px) { .wrap { padding: 0 24px 56px; } }
+
+  /* ---- header ---- */
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--raised); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+  }
+  .bar {
+    max-width: 1080px; margin: 0 auto; padding: 10px 16px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  @media (min-width: 720px) { .bar { padding: 10px 24px; } }
+  .hub { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .hub .mono-av {
+    width: 36px; height: 36px; border-radius: 999px; flex: none;
+    background: linear-gradient(135deg, #FFC24B, #EA5A3B);
+    color: #fff; font-weight: 800; font-size: 15px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hub b { font-size: 16px; font-weight: 800; letter-spacing: -0.02em; white-space: nowrap; }
+  nav.views { display: none; align-items: center; gap: 2px; margin: 0 auto; }
+  @media (min-width: 720px) { nav.views { display: flex; } }
+  .view {
+    font-family: inherit; font-size: 13px; font-weight: 700; color: var(--mut);
+    background: none; border: none; border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  }
+  .view:hover { color: var(--ink); background: var(--inset); }
+  .view.active { background: var(--ink); color: var(--bg); }
+  .bar .right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .search {
+    display: none; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+    padding: 8px 14px; color: var(--faint); font-size: 13px; font-weight: 600; width: 190px;
+  }
+  @media (min-width: 980px) { .search { display: flex; } }
+  .btn-add {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: inherit; font-size: 13px; font-weight: 700; color: #fff;
+    background: var(--ember); border: none; border-radius: 999px;
+    padding: 9px 16px; cursor: pointer; box-shadow: var(--sh-soft);
+    transition: background .12s ease, transform .12s ease;
+  }
+  .btn-add:hover { background: var(--ember-d); transform: translateY(-1px); }
+
+  /* ---- page head ---- */
+  .pagehead { padding: 28px 0 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+  .pagehead h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+  @media (min-width: 720px) { .pagehead h1 { font-size: 32px; } }
+  .pagehead p { font-size: 13.5px; color: var(--mut); font-weight: 500; margin-top: 4px; }
+  .count {
+    font-size: 12px; font-weight: 700; color: var(--ink2);
+    background: var(--inset); border-radius: 999px; padding: 5px 12px; white-space: nowrap;
+  }
+
+  /* ---- member grid ---- */
+  .grid {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(2, 1fr);
+  }
+  @media (min-width: 720px)  { .grid { grid-template-columns: repeat(3, 1fr); gap: 16px; } }
+  @media (min-width: 980px)  { .grid { grid-template-columns: repeat(5, 1fr); } }
+  .member {
+    background: var(--card); border: 1px solid var(--border); border-radius: 20px;
+    box-shadow: var(--sh-soft); padding: 22px 14px 18px; text-align: center; cursor: pointer;
+    transition: transform .14s ease, box-shadow .14s ease;
+  }
+  .member:hover { transform: translateY(-3px); box-shadow: var(--sh-lift); }
+  .ring {
+    width: 96px; height: 96px; margin: 0 auto;
+    background: var(--ring); padding: 4px; border-radius: 999px;
+  }
+  .av {
+    width: 100%; height: 100%; border-radius: 999px;
+    border: 3px solid var(--card);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 34px; font-weight: 800;
+  }
+  .av.peach  { background: linear-gradient(135deg, #FFB199, #FF6B4A); }
+  .av.teal   { background: linear-gradient(135deg, #7FD8C4, #2E9E82); }
+  .av.indigo { background: linear-gradient(135deg, #93A8F5, #4F63D2); }
+  .av.rosec  { background: linear-gradient(135deg, #F6A6C1, #E0508F); }
+  .member h3 { margin-top: 12px; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+  .member .role {
+    display: inline-block; margin-top: 6px;
+    font-size: 11px; font-weight: 700; border-radius: 999px; padding: 3px 10px;
+  }
+  .role.admin { background: var(--fern-t); color: var(--fern); }
+  .role.member { background: var(--inset); color: var(--ink2); }
+  .role.child { background: var(--ember-t); color: var(--ember-d); }
+  .member .meta { margin-top: 8px; font-size: 12px; font-weight: 600; color: var(--faint); }
+  .member .meta .warn { color: var(--rose); }
+
+  .add-card {
+    border: 2px dashed var(--border); border-radius: 20px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    color: var(--faint); font-weight: 700; font-size: 13px; cursor: pointer; min-height: 208px;
+    background: none; font-family: inherit;
+    transition: color .12s ease, border-color .12s ease;
+  }
+  .add-card:hover { color: var(--ember); border-color: var(--ember); }
+  .add-card .plus {
+    width: 44px; height: 44px; border-radius: 999px; background: var(--inset);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .add-card:hover .plus { background: var(--ember-t); }
+
+  /* ---- lower panels ---- */
+  .panels { display: grid; gap: 16px; margin-top: 28px; }
+  @media (min-width: 900px) { .panels { grid-template-columns: 1.2fr 1fr; } }
+  .panel {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: var(--sh-soft); padding: 20px;
+  }
+  .panel h2 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; margin-bottom: 14px; }
+  .event { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+  .event + .event { border-top: 1px solid var(--border); }
+  .event .when {
+    flex: none; width: 52px; text-align: center;
+    background: var(--inset); border-radius: 12px; padding: 6px 0;
+  }
+  .event .when b { display: block; font-size: 15px; font-weight: 800; }
+  .event .when span { font-size: 10px; font-weight: 700; color: var(--faint); text-transform: uppercase; }
+  .event h4 { font-size: 14px; font-weight: 700; }
+  .event p { font-size: 12.5px; color: var(--mut); }
+  .event .who {
+    margin-left: auto; width: 28px; height: 28px; border-radius: 999px; flex: none;
+    color: #fff; font-size: 12px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .quick { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .q {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 14px;
+    padding: 13px 14px; cursor: pointer; font-family: inherit; font-size: 13.5px; font-weight: 700; color: var(--ink);
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .q:hover { transform: translateY(-2px); box-shadow: var(--sh-lift); }
+  .q .qi {
+    width: 34px; height: 34px; border-radius: 10px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .qi.rose  { background: var(--rose-t); color: var(--rose); }
+  .qi.blue  { background: var(--blue-t); color: var(--blue); }
+  .qi.fern  { background: var(--fern-t); color: var(--fern); }
+  .qi.amber { background: var(--amber-t); color: var(--amber); }
+
+  .foot { margin-top: 36px; text-align: center; font-size: 11.5px; font-weight: 600; color: var(--faint); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <div class="hub">
+      <span class="mono-av">C</span>
+      <b>The Clark Family</b>
+    </div>
+    <nav class="views">
+      <button class="view active">People</button>
+      <button class="view">Assistant</button>
+      <button class="view">Calendar</button>
+      <button class="view">Emergency</button>
+      <button class="view">Vault</button>
+      <button class="view">Chat</button>
+    </nav>
+    <div class="right">
+      <span class="search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Search the family…
+      </span>
+      <button class="btn-add">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="pagehead">
+    <div>
+      <h1>Your family</h1>
+      <p>Everything for the family, in one place.</p>
+    </div>
+    <span class="count">4 members</span>
+  </div>
+
+  <div class="grid">
+    <div class="member">
+      <div class="ring"><div class="av indigo">R</div></div>
+      <h3>Rory</h3>
+      <span class="role admin">Admin</span>
+      <p class="meta">O− · 12 docs</p>
+    </div>
+    <div class="member">
+      <div class="ring"><div class="av rosec">B</div></div>
+      <h3>Barbara</h3>
+      <span class="role member">Member</span>
+      <p class="meta">A+ · 8 docs</p>
+    </div>
+    <div class="member">
+      <div class="ring"><div class="av peach">S</div></div>
+      <h3>Sophie <span style="color:var(--faint); font-weight:600;">“Soso”</span></h3>
+      <span class="role child">Child · 9</span>
+      <p class="meta"><span class="warn">⚠ Peanuts</span> · O+</p>
+    </div>
+    <div class="member">
+      <div class="ring"><div class="av teal">N</div></div>
+      <h3>Shyam</h3>
+      <span class="role child">Child · 6</span>
+      <p class="meta">B+ · 3 docs</p>
+    </div>
+    <button class="add-card">
+      <span class="plus">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </span>
+      Add member
+    </button>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <h2>Today</h2>
+      <div class="event">
+        <div class="when"><b>16:00</b><span>Thu</span></div>
+        <div>
+          <h4>Ballet class</h4>
+          <p>Tanzstudio, Lerchenfelder Str. · bring the pink bag</p>
+        </div>
+        <span class="who" style="background: linear-gradient(135deg,#FFB199,#FF6B4A)">S</span>
+      </div>
+      <div class="event">
+        <div class="when"><b>18:30</b><span>Thu</span></div>
+        <div>
+          <h4>Football training</h4>
+          <p>ASKÖ Platz 3 · pickup by Barbara</p>
+        </div>
+        <span class="who" style="background: linear-gradient(135deg,#7FD8C4,#2E9E82)">N</span>
+      </div>
+      <div class="event">
+        <div class="when"><b>Fri</b><span>All day</span></div>
+        <div>
+          <h4>Passport renewal — Sophie</h4>
+          <p>MA 62 appointment confirmed · documents in the Vault</p>
+        </div>
+        <span class="who" style="background: linear-gradient(135deg,#FFB199,#FF6B4A)">S</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Quick access</h2>
+      <div class="quick">
+        <button class="q">
+          <span class="qi rose"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+          Emergency
+        </button>
+        <button class="q">
+          <span class="qi blue"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+          Document Vault
+        </button>
+        <button class="q">
+          <span class="qi amber"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+          Passwords
+        </button>
+        <button class="q">
+          <span class="qi fern"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+          Calendar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">Mockup · “Clean Warm” direction · Family Vault redesign 2026-07 · respects light/dark</p>
+</div>
+</body>
+</html>

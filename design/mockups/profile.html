@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Family Vault — Member Profile (Clean Warm mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F6F5F1;
+    --card: #FFFFFF;
+    --inset: #EEECE6;
+    --border: #E5E2DB;
+    --ink: #1C1917;
+    --ink2: #44403C;
+    --mut: #78716C;
+    --faint: #A8A29E;
+    --ember: #EA5A3B;
+    --ember-d: #D64A2E;
+    --ember-t: #FDF0EA;
+    --fern: #2E7D5B;
+    --fern-t: #EAF4EF;
+    --rose: #E11D48;
+    --rose-t: #FDEDF1;
+    --blue: #2563EB;
+    --blue-t: #EFF4FE;
+    --ring: linear-gradient(45deg, #FFC24B 0%, #EA5A3B 45%, #C13584 100%);
+    --sh-soft: 0 1px 2px rgba(28,25,23,.05);
+    --sh-lift: 0 4px 12px rgba(28,25,23,.07), 0 12px 32px rgba(28,25,23,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0E1013;
+      --card: #16181D;
+      --inset: #1E2127;
+      --border: rgba(255,255,255,.09);
+      --ink: #F4F4F2;
+      --ink2: #D6D6D2;
+      --mut: #A0A3AA;
+      --faint: #6E7278;
+      --ember: #F0684B;
+      --ember-d: #FF7A5C;
+      --ember-t: rgba(240,104,75,.14);
+      --fern: #4FBE8E;
+      --fern-t: rgba(79,190,142,.13);
+      --rose: #F4557B;
+      --rose-t: rgba(244,85,123,.13);
+      --blue: #6C9EF8;
+      --blue-t: rgba(108,158,248,.13);
+      --sh-soft: 0 1px 2px rgba(0,0,0,.4);
+      --sh-lift: 0 4px 14px rgba(0,0,0,.5);
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .page { max-width: 560px; margin: 0 auto; padding: 12px 16px 48px; }
+  @media (min-width: 900px) { .page { max-width: 680px; padding-top: 24px; } }
+
+  svg { display: block; }
+
+  /* ---- top bar ---- */
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 14px; }
+  .back {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-weight: 700; font-size: 14px; color: var(--mut);
+    text-decoration: none; border: none; background: none; cursor: pointer; font-family: inherit;
+  }
+  .back:hover { color: var(--ink); }
+  .btn-edit {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: inherit; font-size: 13px; font-weight: 700;
+    color: var(--ink); background: var(--card);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 8px 16px; cursor: pointer; box-shadow: var(--sh-soft);
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .btn-edit:hover { transform: translateY(-1px); box-shadow: var(--sh-lift); }
+
+  /* ---- profile hero card ---- */
+  .profile-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 20px; box-shadow: var(--sh-soft); overflow: hidden;
+  }
+  .cover {
+    height: 128px;
+    background:
+      radial-gradient(120% 160% at 85% -20%, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 55%),
+      linear-gradient(135deg, #FFB199 0%, #FF6B4A 55%, #E0508F 100%);
+  }
+  .hero { padding: 0 24px 24px; text-align: center; }
+  .ring {
+    width: 120px; height: 120px; margin: -60px auto 0;
+    background: var(--ring); padding: 4px; border-radius: 999px;
+    position: relative; box-shadow: 0 6px 20px rgba(28,25,23,.18);
+  }
+  .avatar {
+    width: 100%; height: 100%; border-radius: 999px;
+    border: 3px solid var(--card);
+    background: linear-gradient(135deg, #FFB199, #FF6B4A);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 46px; font-weight: 800; letter-spacing: -0.02em;
+  }
+  .restyle {
+    position: absolute; right: -2px; bottom: 2px;
+    width: 34px; height: 34px; border-radius: 999px;
+    background: var(--card); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ember); cursor: pointer; box-shadow: var(--sh-lift);
+  }
+  .name { margin-top: 14px; font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+  .name .nick { color: var(--mut); font-weight: 600; }
+  .pills { display: flex; justify-content: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 700; border-radius: 999px; padding: 4px 12px;
+  }
+  .pill.role  { background: var(--ember-t); color: var(--ember-d); }
+  .pill.plain { background: var(--inset); color: var(--ink2); }
+  .born { margin-top: 8px; font-size: 13px; font-weight: 500; color: var(--mut); }
+
+  .actions { display: flex; justify-content: center; gap: 26px; margin-top: 20px; }
+  .action { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; background: none; border: none; font-family: inherit; }
+  .action .disc {
+    width: 48px; height: 48px; border-radius: 999px;
+    background: var(--inset); color: var(--ink2);
+    display: flex; align-items: center; justify-content: center;
+    transition: background .12s ease, color .12s ease, transform .12s ease;
+  }
+  .action:hover .disc { background: var(--ember); color: #fff; transform: translateY(-2px); }
+  .action span { font-size: 11px; font-weight: 700; color: var(--mut); }
+
+  .glance {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    margin-top: 22px;
+  }
+  .tile {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 14px; padding: 12px 8px;
+  }
+  .tile b { display: block; font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+  .tile em { font-style: normal; font-size: 11px; font-weight: 700; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+
+  @media (min-width: 900px) {
+    .hero { display: grid; grid-template-columns: auto 1fr; column-gap: 28px; text-align: left; padding: 0 28px 28px; }
+    .ring { margin: -48px 0 0; grid-row: 1 / span 3; }
+    .pills, .actions { justify-content: flex-start; }
+    .actions { margin-top: 16px; }
+    .glance { grid-column: 1 / -1; }
+  }
+
+  /* ---- section tabs ---- */
+  .tabs {
+    display: flex; gap: 6px; overflow-x: auto; margin: 20px 0 14px;
+    padding-bottom: 4px; scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex: none; font-family: inherit; font-size: 13px; font-weight: 700;
+    color: var(--mut); background: none; border: none; cursor: pointer;
+    border-radius: 999px; padding: 9px 15px; transition: color .12s ease, background .12s ease;
+  }
+  .tab:hover { color: var(--ink); background: var(--inset); }
+  .tab.active { background: var(--ink); color: var(--bg); }
+
+  /* ---- content cards ---- */
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; box-shadow: var(--sh-soft); padding: 16px 18px;
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .card .ico {
+    width: 38px; height: 38px; border-radius: 12px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card h3 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .card p { font-size: 13.5px; color: var(--mut); margin-top: 2px; }
+  .card .mono { font-family: "JetBrains Mono", monospace; font-size: 13px; color: var(--ink2); }
+  .card.alert { background: var(--rose-t); border-color: transparent; }
+  .card.alert h3 { color: var(--rose); }
+  .card.alert p { color: var(--ink2); }
+  .ico.rose  { background: var(--rose); color: #fff; }
+  .ico.blue  { background: var(--blue-t); color: var(--blue); }
+  .ico.fern  { background: var(--fern-t); color: var(--fern); }
+  .ico.ember { background: var(--ember-t); color: var(--ember); }
+  .card .go {
+    margin-left: auto; flex: none; align-self: center;
+    width: 36px; height: 36px; border-radius: 999px;
+    background: var(--inset); color: var(--ink2); border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card .go:hover { background: var(--ember); color: #fff; }
+
+  .foot { margin-top: 32px; text-align: center; font-size: 11.5px; font-weight: 600; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="topbar">
+    <button class="back">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      The Clark Family
+    </button>
+    <button class="btn-edit">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+      Edit
+    </button>
+  </div>
+
+  <section class="profile-card">
+    <div class="cover"></div>
+    <div class="hero">
+      <div class="ring">
+        <div class="avatar">S</div>
+        <button class="restyle" title="✨ Restyle with AI">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z"/></svg>
+        </button>
+      </div>
+      <h1 class="name">Sophie <span class="nick">“Soso”</span></h1>
+      <div class="pills">
+        <span class="pill role">Child</span>
+        <span class="pill plain">9 years</span>
+      </div>
+      <p class="born">Born 2 Nov 2016 · Volksschule Josefstadt, Vienna</p>
+
+      <div class="actions">
+        <button class="action">
+          <span class="disc"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+          <span>Call</span>
+        </button>
+        <button class="action">
+          <span class="disc"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span>
+          <span>Message</span>
+        </button>
+        <button class="action">
+          <span class="disc"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+          <span>Map</span>
+        </button>
+      </div>
+
+      <div class="glance">
+        <div class="tile"><b>O+</b><em>Blood</em></div>
+        <div class="tile"><b>134 cm</b><em>Height</em></div>
+        <div class="tile"><b>EU 34</b><em>Shoe</em></div>
+      </div>
+    </div>
+  </section>
+
+  <nav class="tabs">
+    <button class="tab active">Medical</button>
+    <button class="tab">ID &amp; Passports</button>
+    <button class="tab">Sizes</button>
+    <button class="tab">Wishlist</button>
+    <button class="tab">Growth</button>
+    <button class="tab">Travel</button>
+    <button class="tab">Likes</button>
+    <button class="tab">Documents</button>
+    <button class="tab">Secrets</button>
+  </nav>
+
+  <div class="stack">
+    <div class="card alert">
+      <span class="ico rose"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+      <div>
+        <h3>Allergy — peanuts (severe)</h3>
+        <p>EpiPen in the school bag and the kitchen drawer. School &amp; Hort informed.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="ico blue"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+      <div>
+        <h3>Dr. Elena Weiss</h3>
+        <p>Paediatrician · Josefstädter Str. 22, 1080 Wien · +43 1 234 5678</p>
+      </div>
+      <button class="go" title="Call"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+    </div>
+
+    <div class="card">
+      <span class="ico ember"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+      <div>
+        <h3>Insurance — ÖGK</h3>
+        <p class="mono">e-card 1234&nbsp;021116</p>
+      </div>
+      <button class="go" title="Open"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+    </div>
+
+    <div class="card">
+      <span class="ico fern"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+      <div>
+        <h3>Vaccinations up to date</h3>
+        <p>Last: MMR booster, March 2026 · next check-up Feb 2027</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="ico blue" style="background: var(--inset); color: var(--mut);"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+      <div>
+        <h3>Medication</h3>
+        <p>No daily medication · Vitamin D drops October–March</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">Mockup · “Clean Warm” direction · Family Vault redesign 2026-07 · respects light/dark</p>
+</div>
+</body>
+</html>
