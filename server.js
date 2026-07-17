@@ -263,6 +263,79 @@ Use empty string "" for any field not visible. category must be one of the enum 
   }
 });
 
+// Fun AI avatar restyler ("Nano Banana"). Each preset is a fixed image-to-image
+// prompt applied to the member's own photo.
+const AVATAR_STYLES = {
+  pixar: 'Transform this person into a friendly 3D Pixar / Disney-style animated character. Keep their recognisable face, hairstyle, hair colour and skin tone. Warm cinematic lighting, soft rounded shapes, big expressive eyes. Clean simple background.',
+  watercolor: 'Repaint this person as a soft watercolour portrait — loose expressive brush strokes, gentle washes of colour, textured-paper feel. Keep their recognisable features, hairstyle and colouring. Light, simple background.',
+  renaissance: 'Repaint this person as a classical Renaissance oil portrait in the style of the old masters — dramatic chiaroscuro lighting, rich dark background, period painterly feel — but keep their recognisable modern face and hairstyle.',
+  superhero: 'Reimagine this person as a heroic comic-book superhero — bold cel-shaded comic art, dynamic lighting, confident expression. Keep their recognisable face and hairstyle. Simple background.',
+  lego: 'Transform this person into a LEGO minifigure of themselves — glossy plastic toy look, characteristic LEGO minifigure head and a hairpiece matching their hairstyle and colour, studio lighting, simple background.',
+  clay: 'Transform this person into a cute claymation / stop-motion clay character — handmade plasticine texture, soft studio lighting. Keep their recognisable features. Simple background.',
+};
+
+app.post('/api/restyle-avatar', async (req, res) => {
+  try {
+    if (!GEMINI_KEY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+
+    const { image, style } = req.body || {};
+    if (!image || !image.data || !image.mimeType) {
+      return res.status(400).json({ error: 'No photo provided.' });
+    }
+    const stylePrompt = AVATAR_STYLES[style];
+    if (!stylePrompt) return res.status(400).json({ error: 'Unknown style.' });
+
+    console.log('[restyle-avatar]', style, 'from', caller.email);
+
+    const prompt = `${stylePrompt}\n\nProduce ONE square, head-and-shoulders portrait suitable as a profile picture. It must clearly still be the same person. Keep it family-friendly and flattering.`;
+
+    const gRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: image.mimeType, data: image.data } },
+            ],
+          }],
+          generationConfig: { responseModalities: ['image', 'text'] },
+        }),
+      }
+    );
+
+    if (!gRes.ok) {
+      const detail = await gRes.text().catch(() => '');
+      console.error('[restyle-avatar] gemini error', gRes.status, detail.slice(0, 300));
+      return res.status(502).json({ error: `Could not generate the avatar (AI error ${gRes.status}) — please try again.` });
+    }
+
+    const gData = await gRes.json();
+    let outData = null;
+    for (const c of gData?.candidates || []) {
+      for (const p of c?.content?.parts || []) {
+        const inl = p.inlineData || p.inline_data;
+        if (inl?.data) outData = inl.data;
+      }
+    }
+    if (!outData) {
+      console.error('[restyle-avatar] no image:', JSON.stringify(gData).slice(0, 300));
+      return res.status(502).json({ error: 'The AI didn\'t return an image — please try again or pick another style.' });
+    }
+
+    res.json({ image: `data:image/png;base64,${outData}` });
+  } catch (e) {
+    console.error('[restyle-avatar] error', e);
+    res.status(502).json({ error: 'Something went wrong creating the avatar — please try again.' });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Family membership endpoints. All writes to users/{uid} and roles/{uid}
 // happen HERE with the Admin SDK — Firestore rules block them from clients,

@@ -24,6 +24,8 @@ import {
 } from '../utils/aiApply';
 import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
+import AvatarRestyleModal from './AvatarRestyleModal';
+import { compressImageToAvatar } from '../utils/imageCompress';
 import HubSettingsModal from './HubSettingsModal';
 import ImageLightbox from './ImageLightbox';
 import { HubSettings } from '../types';
@@ -195,6 +197,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
 
   const [mainView, setMainView] = useState<ViewId>('profiles');
+  const [restyleMemberId, setRestyleMemberId] = useState<string | null>(null);
   // Bumped after the AI chatbot applies edits so the self-loading views
   // (household / info / finances / timeline / assets / shopping) remount and
   // re-fetch — otherwise an applied change wouldn't show until a manual reload.
@@ -384,6 +387,27 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     const ok = await saveFamilyMembers(updated);
     setCloudSynced(ok);
     if (!ok) showToast("Saved on this device — cloud sync didn't go through.");
+  };
+
+  // Apply an AI-restyled avatar. The real photo is stashed once in
+  // avatarOriginalUrl so "reset to photo" always works and styles never stack.
+  const handleRestyleApply = async (memberId: string, dataUrl: string, style: string) => {
+    const compressed = await compressImageToAvatar(dataUrl);
+    const updated = members.map((m) =>
+      m.id === memberId
+        ? { ...m, avatarOriginalUrl: m.avatarOriginalUrl || m.avatarUrl, avatarUrl: compressed, avatarStyle: style }
+        : m,
+    );
+    await persistChanges(updated);
+  };
+
+  const handleRestyleReset = async (memberId: string) => {
+    const updated = members.map((m) =>
+      m.id === memberId && m.avatarOriginalUrl
+        ? { ...m, avatarUrl: m.avatarOriginalUrl, avatarOriginalUrl: undefined, avatarStyle: undefined }
+        : m,
+    );
+    await persistChanges(updated);
   };
 
   const handleSaveEvents = async (updatedEvents: CalendarEvent[]) => {
@@ -937,24 +961,37 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                     <div className="card overflow-hidden min-h-[500px] flex flex-col">
                       <div className="p-5 sm:p-6 border-b border-cream-200 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                         <div className="flex items-center gap-4 min-w-0">
-                          {selectedMember.avatarUrl ? (
-                            <div className="avatar-ring shrink-0">
+                          <div className="relative shrink-0">
+                            {selectedMember.avatarUrl ? (
+                              <div className="avatar-ring">
+                                <button
+                                  type="button"
+                                  onClick={() => setLightboxImage(selectedMember.avatarUrl!)}
+                                  className="block w-24 h-24 lg:w-28 lg:h-28 rounded-full overflow-hidden bg-white cursor-zoom-in"
+                                  title="View photo"
+                                >
+                                  <img src={selectedMember.avatarUrl} alt={selectedMember.name} className="w-full h-full object-cover" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="avatar-ring">
+                                <div className={`w-24 h-24 lg:w-28 lg:h-28 rounded-full ${warmAvatarColor(selectedMember.avatarColor)} text-white font-bold text-3xl flex items-center justify-center uppercase`}>
+                                  {selectedMember.name.charAt(0).toUpperCase()}
+                                </div>
+                              </div>
+                            )}
+                            {selectedMember.avatarUrl && isAdmin && (
                               <button
                                 type="button"
-                                onClick={() => setLightboxImage(selectedMember.avatarUrl!)}
-                                className="block w-24 h-24 lg:w-28 lg:h-28 rounded-full overflow-hidden bg-white cursor-zoom-in"
-                                title="View photo"
+                                onClick={() => setRestyleMemberId(selectedMember.id)}
+                                className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-clay-500 hover:bg-clay-600 text-white flex items-center justify-center shadow-lift border-2 border-white transition-colors cursor-pointer"
+                                title="Make a fun avatar"
+                                aria-label="Make a fun avatar"
                               >
-                                <img src={selectedMember.avatarUrl} alt={selectedMember.name} className="w-full h-full object-cover" />
+                                <Sparkles className="w-4 h-4" />
                               </button>
-                            </div>
-                          ) : (
-                            <div className="avatar-ring shrink-0">
-                              <div className={`w-24 h-24 lg:w-28 lg:h-28 rounded-full ${warmAvatarColor(selectedMember.avatarColor)} text-white font-bold text-3xl flex items-center justify-center uppercase`}>
-                                {selectedMember.name.charAt(0).toUpperCase()}
-                              </div>
-                            </div>
-                          )}
+                            )}
+                          </div>
                           <div className="min-w-0">
                             <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink-900 flex items-center gap-2.5 flex-wrap">
                               <span className="truncate">{memberName(selectedMember)}</span>
@@ -1173,6 +1210,18 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         onAddMemberDoc={handleAddDocument}
         demo={demo}
       />
+
+      {restyleMemberId && (() => {
+        const m = members.find((x) => x.id === restyleMemberId);
+        return m ? (
+          <AvatarRestyleModal
+            member={m}
+            onClose={() => setRestyleMemberId(null)}
+            onApply={handleRestyleApply}
+            onReset={handleRestyleReset}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }

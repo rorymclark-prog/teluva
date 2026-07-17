@@ -112,6 +112,8 @@ export interface FamilyMember {
   email?: string;
   avatarColor: string; // e.g., 'bg-blue-500'
   avatarUrl?: string;  // Base64 representation of uploaded / captured photo
+  avatarOriginalUrl?: string; // Real photo kept when an AI-restyled avatar is applied, so "reset to photo" works
+  avatarStyle?: string;       // Which fun-avatar preset is currently applied (undefined = real photo)
   isOnline?: boolean;  // System status online indicator flag
   clothingSizes: ClothingSizes;
   passport?: PassportInfo;
