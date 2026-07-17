@@ -381,17 +381,6 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     const by = auth.currentUser?.displayName || auth.currentUser?.email || 'Family';
     const added: VaultDocument[] = [];
 
-    // Inline copy for the member profile: compress images so the member's
-    // Firestore doc stays well under the 1 MiB limit; small non-images pass raw.
-    let inlineData: string | undefined;
-    let inlineType = src.mimeType;
-    if (src.mimeType.startsWith('image/')) {
-      inlineData = await compressImageToAvatar(src.dataUrl, 1600, 0.8);
-      inlineType = 'image/jpeg';
-    } else if (blob.size < 700_000) {
-      inlineData = src.dataUrl;
-    }
-
     for (const e of docEdits) {
       if (e.kind !== 'document') continue;
       const id = newId();
@@ -402,18 +391,21 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
         storagePath, downloadUrl, uploadedAt: today, uploadedBy: by,
       });
 
-      // Also file on the member's profile when the doc names its owner
+      // Also file on the member's profile when the doc names its owner. Store the
+      // Storage download URL (not the base64 image) so the member's Firestore doc
+      // stays tiny and can never blow the 1 MiB limit — it renders the same, since
+      // MemberDocuments/DocumentViewer use fileData directly as an <img src>.
       const owner = resolveMemberByName(e.member);
-      if (owner && inlineData) {
+      if (owner) {
         await onAddMemberDoc(owner.id, {
           id: 'doc-' + id,
           name: e.name,
           category: MEMBER_DOC_CAT[e.category] || 'Other',
-          fileType: inlineType,
+          fileType: src.mimeType,
           fileName: src.name,
           fileSize: blob.size,
           uploadedAt: today,
-          fileData: inlineData,
+          fileData: downloadUrl,
         });
       }
     }

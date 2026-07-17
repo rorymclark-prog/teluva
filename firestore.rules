@@ -39,10 +39,11 @@ service cloud.firestore {
     // walk into any family as admin — so it can't.
     match /users/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
-      // Self-update of harmless display fields only — never familyId or role
+      // Self-update of harmless self-owned fields only — never familyId or role.
+      // chatHistory is the user's own AI-assistant transcript (their data alone).
       allow update: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email', 'chatHistory']);
       // Admins can update the 'role' field on another member's profile
       allow update: if signedIn()
         && request.auth.uid != uid
