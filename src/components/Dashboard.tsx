@@ -308,17 +308,21 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       <div className="flex items-center gap-2 min-w-0">
         {grip}
         {member.avatarUrl ? (
-          <div
-            onClick={(e) => { e.stopPropagation(); setLightboxImage(member.avatarUrl!); }}
-            onPointerDownCapture={(e) => e.stopPropagation()}
-            className="w-12 h-12 rounded-full overflow-hidden shrink-0 border border-cream-300 cursor-zoom-in"
-            title="View photo"
-          >
-            <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
+          <div className="avatar-ring shrink-0">
+            <div
+              onClick={(e) => { e.stopPropagation(); setLightboxImage(member.avatarUrl!); }}
+              onPointerDownCapture={(e) => e.stopPropagation()}
+              className="w-14 h-14 rounded-full overflow-hidden cursor-zoom-in"
+              title="View photo"
+            >
+              <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
+            </div>
           </div>
         ) : (
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-base text-white shrink-0 uppercase ${warmAvatarColor(member.avatarColor)}`}>
-            {member.name.charAt(0).toUpperCase()}
+          <div className="avatar-ring shrink-0">
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-lg text-white uppercase ${warmAvatarColor(member.avatarColor)}`}>
+              {member.name.charAt(0).toUpperCase()}
+            </div>
           </div>
         )}
         <div className="min-w-0">
@@ -934,21 +938,25 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                       <div className="p-5 sm:p-6 border-b border-cream-200 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                         <div className="flex items-center gap-4 min-w-0">
                           {selectedMember.avatarUrl ? (
-                            <button
-                              type="button"
-                              onClick={() => setLightboxImage(selectedMember.avatarUrl!)}
-                              className="w-14 h-14 rounded-2xl overflow-hidden border border-cream-300 shadow-soft shrink-0 bg-white cursor-zoom-in"
-                              title="View photo"
-                            >
-                              <img src={selectedMember.avatarUrl} alt={selectedMember.name} className="w-full h-full object-cover" />
-                            </button>
+                            <div className="avatar-ring shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setLightboxImage(selectedMember.avatarUrl!)}
+                                className="block w-24 h-24 lg:w-28 lg:h-28 rounded-full overflow-hidden bg-white cursor-zoom-in"
+                                title="View photo"
+                              >
+                                <img src={selectedMember.avatarUrl} alt={selectedMember.name} className="w-full h-full object-cover" />
+                              </button>
+                            </div>
                           ) : (
-                            <div className={`w-14 h-14 rounded-2xl ${warmAvatarColor(selectedMember.avatarColor)} text-white font-semibold text-xl flex items-center justify-center shadow-soft uppercase shrink-0`}>
-                              {selectedMember.name.charAt(0).toUpperCase()}
+                            <div className="avatar-ring shrink-0">
+                              <div className={`w-24 h-24 lg:w-28 lg:h-28 rounded-full ${warmAvatarColor(selectedMember.avatarColor)} text-white font-bold text-3xl flex items-center justify-center uppercase`}>
+                                {selectedMember.name.charAt(0).toUpperCase()}
+                              </div>
                             </div>
                           )}
                           <div className="min-w-0">
-                            <h2 className="font-display text-2xl font-semibold text-ink-900 flex items-center gap-2.5 flex-wrap">
+                            <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink-900 flex items-center gap-2.5 flex-wrap">
                               <span className="truncate">{memberName(selectedMember)}</span>
                               {isAdmin && (
                                 <button
