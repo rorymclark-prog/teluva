@@ -3,6 +3,7 @@ import { X, Settings, Users, Trash2, Upload, Save } from 'lucide-react';
 import { HubSettings } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { compressImageToAvatar } from '../utils/imageCompress';
+import LanguageSelector from './LanguageSelector';
 
 interface HubSettingsModalProps {
   isOpen: boolean;
@@ -104,6 +105,13 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
 
             {/* Form */}
             <div className="mt-4 space-y-5">
+              {/* App language — a per-device preference, so it lives here (out of the
+                  header) and is reachable by every family member. */}
+              <div>
+                <label className="field-label">App language</label>
+                <LanguageSelector />
+              </div>
+
               {/* Hub name field */}
               <div>
                 <label className="field-label">Hub name</label>

@@ -3,6 +3,7 @@ import { Home, Key, Loader2 } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { createFamily, joinFamily } from '../utils/db';
 import { auth, logout } from '../lib/firebase';
+import LanguageSelector from './LanguageSelector';
 
 type Mode = 'idle' | 'create' | 'join';
 
@@ -84,6 +85,11 @@ export default function FamilyOnboarding() {
   return (
     <div className="min-h-screen bg-cream-50 flex items-center justify-center p-4">
       <div className="card max-w-md w-full p-5 sm:p-8 space-y-6">
+        {/* Pick app language up front (also lives in Settings later) */}
+        <div className="flex justify-center">
+          <LanguageSelector />
+        </div>
+
         {/* Header */}
         <div className="text-center space-y-1">
           <h1 className="font-display text-3xl text-ink-900">Welcome, {firstName}</h1>

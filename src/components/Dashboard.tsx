@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem } from '../types';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
-import LanguageSelector from './LanguageSelector';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   loadFamilyMembers, saveFamilyMembers,
@@ -194,7 +193,6 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<FamilyDocument | null>(null);
   const [selectedDocumentMemberName, setSelectedDocumentMemberName] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState('');
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
 
   const [mainView, setMainView] = useState<ViewId>('profiles');
@@ -683,22 +681,6 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     return items;
   })();
 
-  const filteredMembers = searchQuery.trim() === ''
-    ? members
-    : members.filter(m => {
-        const query = searchQuery.toLowerCase();
-        const sizesText = JSON.stringify(m.clothingSizes).toLowerCase();
-        const schoolText = m.education?.schoolName?.toLowerCase() || '';
-        const digitalAccountsText = JSON.stringify(m.digitalAccounts || []).toLowerCase();
-        const passportNo = m.passport?.passportNumber.toLowerCase() || '';
-        return m.name.toLowerCase().includes(query) ||
-               m.role.toLowerCase().includes(query) ||
-               sizesText.includes(query) ||
-               schoolText.includes(query) ||
-               digitalAccountsText.includes(query) ||
-               passportNo.includes(query);
-      });
-
   if (isAuthLoading) {
     return (
       <div className="min-h-screen bg-cream-100 flex items-center justify-center font-sans">
@@ -773,19 +755,6 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             {role === 'member' && (
               <span className="text-xs bg-sage-100 text-sage-700 rounded-full px-2 py-0.5 font-semibold">Member</span>
             )}
-
-            <div className="relative hidden lg:block">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
-              <input
-                type="text"
-                placeholder="Search the family…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 w-56 border border-cream-300 rounded-xl text-[13px] bg-white text-ink-800 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-clay-300 focus:border-clay-400 transition-all"
-              />
-            </div>
-
-            <LanguageSelector />
 
             {isAdmin && (
               <button onClick={() => setIsAddModalOpen(true)} className="btn-primary px-4 py-2">
@@ -897,19 +866,6 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 {/* Family directory */}
                 <section className="lg:col-span-4 space-y-5">
-                  <div className="block lg:hidden">
-                    <div className="relative">
-                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
-                      <input
-                        type="text"
-                        placeholder="Search the family…"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="field pl-10"
-                      />
-                    </div>
-                  </div>
-
                   <div className="card p-5 space-y-4">
                     <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
                       <h4 className="section-label">Your family</h4>
@@ -918,24 +874,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                       </span>
                     </div>
 
-                    {filteredMembers.length === 0 ? (
-                      <div className="text-center py-10">
-                        <p className="text-[13px] font-medium text-ink-400">No one matches &ldquo;{searchQuery}&rdquo;.</p>
-                      </div>
-                    ) : searchQuery.trim() !== '' ? (
-                      <div className="space-y-2.5">
-                        {filteredMembers.map((member) => (
-                          <div
-                            key={member.id}
-                            onClick={() => { setSelectedMemberId(member.id); setDeleteConfirmMemberId(null); }}
-                            className={`${cardClass(member)} cursor-pointer`}
-                          >
-                            {memberCardInner(member)}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <Reorder.Group axis="y" values={members} onReorder={handleReorder} className="space-y-2.5">
+                    <Reorder.Group axis="y" values={members} onReorder={handleReorder} className="space-y-2.5">
                         {members.map((member) => (
                           <DraggableRow
                             key={member.id}
@@ -947,7 +886,6 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                           />
                         ))}
                       </Reorder.Group>
-                    )}
                   </div>
                 </section>
 
