@@ -577,6 +577,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Import OVERWRITES the whole family — never do it silently.
+    const ok = window.confirm(
+      'Restore from this backup? It will REPLACE all current family data — members, calendar, household, finances and more — with the contents of the file. This cannot be undone.'
+    );
+    if (!ok) { event.target.value = ''; return; }
+
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {

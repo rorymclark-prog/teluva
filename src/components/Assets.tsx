@@ -358,7 +358,7 @@ export default function Assets() {
                             {isAdmin && (
                               <button
                                 onClick={() => openEditForm(item)}
-                                className="btn-quiet p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="btn-quiet p-1.5 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>

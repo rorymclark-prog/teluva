@@ -663,7 +663,11 @@ export default function MemberDocuments({
                     </button>
                     <button
                       type="button"
-                      onClick={() => onDeleteDocument(member.id, doc.id)}
+                      onClick={() => {
+                        if (window.confirm(`Delete "${doc.name}"? This permanently removes the document. This can't be undone.`)) {
+                          onDeleteDocument(member.id, doc.id);
+                        }
+                      }}
                       className="p-1.5 text-ink-400 hover:text-rosa-700 hover:bg-rosa-50 rounded-xl transition-colors cursor-pointer"
                       title="Delete"
                     >

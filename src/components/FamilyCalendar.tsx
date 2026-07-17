@@ -483,6 +483,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
 
   // Delete Event
   const handleDeleteEvent = (eventId: string) => {
+    const ev = events.find(e => e.id === eventId);
+    const ok = window.confirm(`Delete "${ev?.title || 'this event'}" from the family calendar? This can't be undone.`);
+    if (!ok) return;
     const updated = events.filter(e => e.id !== eventId);
     onSaveEvents(updated);
     triggerReminderNotification('Shared calendar entry deleted.');

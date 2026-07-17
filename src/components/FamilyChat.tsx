@@ -9,6 +9,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../utils/firebase';
 import { FAMILY_ID } from '../utils/db';
+import { useFamilyCtx } from '../contexts/FamilyContext';
 import { FamilyMember } from '../types';
 import {
   Send,
@@ -46,13 +47,23 @@ const CHANNELS = [
 ];
 
 export default function FamilyChat({ members, selectedMemberId }: FamilyChatProps) {
+  const { isAdmin, canWrite } = useFamilyCtx();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeChannel, setActiveChannel] = useState('general');
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [chatUser, setChatUser] = useState<FamilyMember | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Who this account posts as. Non-admins always post as their own signed-in
+  // identity (no impersonation); admins may post on behalf of a member (e.g. a
+  // young child with no login of their own). The Firestore rule pins senderId
+  // to the caller's uid regardless, so the label is the only thing the picker
+  // changes.
+  const ownName = auth.currentUser?.displayName || auth.currentUser?.email || 'Me';
 
   // Sync default user selection with the parent's selected family member
   useEffect(() => {
@@ -95,6 +106,7 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
       });
       setMessages(msgs);
       setIsLoading(false);
+      setLoadError(null);
 
       // Scroll to bottom on load/new message
       setTimeout(() => {
@@ -102,6 +114,9 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
       }, 100);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'messages');
+      // Clear the spinner and show a real message instead of spinning forever
+      setIsLoading(false);
+      setLoadError("Couldn't load the family chat. Check your connection and refresh.");
     });
 
     return () => unsubscribe();
@@ -115,26 +130,36 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !chatUser) return;
+    if (!inputText.trim()) return;
 
     const uid = auth.currentUser?.uid;
     if (!uid) return;
+    if (!canWrite) { setSendError('Your account is view-only, so you can’t post here.'); return; }
+
+    // Admins may post as a chosen member; everyone else posts as themselves.
+    const asMember = isAdmin ? chatUser : null;
+    const senderName = asMember?.name || ownName;
+    const senderAvatarColor = asMember?.avatarColor || 'bg-clay-500';
 
     const messageText = inputText.trim();
     setInputText('');
+    setSendError(null);
 
     try {
-      // Write to the shared household messages sub-collection
+      // Write to the shared household messages sub-collection.
+      // senderId MUST be our own uid — the Firestore rule enforces it.
       await addDoc(collection(db, 'families', FAMILY_ID, 'messages'), {
         text: messageText,
         senderId: uid,
-        senderName: chatUser.name,
-        senderAvatarColor: chatUser.avatarColor,
+        senderName,
+        senderAvatarColor,
         channelId: activeChannel,
         createdAt: serverTimestamp()
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'messages');
+      setInputText(messageText); // don't lose what they typed
+      setSendError("Message didn't send — check your connection and try again.");
     }
   };
 
@@ -165,25 +190,31 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
           </div>
         </div>
 
-        {/* Selected sender simulator switch */}
+        {/* Sender identity. Admins can post on behalf of a member (e.g. a young
+            child); everyone else posts as themselves — no impersonation. */}
         <div className="flex items-center space-x-2">
-          <label className="field-label mb-0">
-            Posting as:
-          </label>
-          <select
-            value={chatUser?.id || ''}
-            onChange={(e) => {
-              const u = members.find(m => m.id === e.target.value);
-              if (u) setChatUser(u);
-            }}
-            className="text-xs font-semibold px-2.5 py-1.5 bg-cream-100 border border-cream-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-clay-300 cursor-pointer text-ink-800"
-          >
-            {members.map(m => (
-              <option key={m.id} value={m.id}>
-                {m.name} ({m.role})
-              </option>
-            ))}
-          </select>
+          <label className="field-label mb-0">Posting as:</label>
+          {isAdmin ? (
+            <select
+              value={chatUser?.id || ''}
+              onChange={(e) => {
+                const u = members.find(m => m.id === e.target.value);
+                setChatUser(u || null);
+              }}
+              className="text-xs font-semibold px-2.5 py-1.5 bg-cream-100 border border-cream-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-clay-300 cursor-pointer text-ink-800"
+            >
+              <option value="">{ownName} (you)</option>
+              {members.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.role})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-xs font-semibold px-2.5 py-1.5 bg-cream-100 border border-cream-300 rounded-xl text-ink-800">
+              {ownName}
+            </span>
+          )}
         </div>
       </div>
 
@@ -216,16 +247,33 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
           <div className="p-3 bg-white border border-cream-300 rounded-xl space-y-1.5">
             <div className="flex items-center space-x-1.5 section-label">
               <Lock className="w-3 h-3 text-sage-500" />
-              <span>Vault Managed</span>
+              <span>Private</span>
             </div>
             <p className="text-[13px] text-ink-400 font-light">
-              This feed is synced atomically across shared databases securely.
+              Only signed-in members of your family can read or post here.
             </p>
           </div>
         </div>
 
         {/* Message board body */}
-        <div className="flex-1 flex flex-col bg-white">
+        <div className="flex-1 flex flex-col bg-white min-w-0">
+          {/* Mobile channel selector — the sidebar is hidden below md */}
+          <div className="md:hidden flex gap-1.5 overflow-x-auto px-4 py-2 border-b border-cream-200 bg-cream-50">
+            {CHANNELS.map(ch => (
+              <button
+                key={ch.id}
+                onClick={() => setActiveChannel(ch.id)}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-semibold whitespace-nowrap transition-all ${
+                  activeChannel === ch.id
+                    ? 'bg-ink-800 text-white'
+                    : 'bg-white border border-cream-300 text-ink-600'
+                }`}
+              >
+                <Hash className="w-3 h-3 shrink-0" />
+                {ch.name}
+              </button>
+            ))}
+          </div>
           {/* Active channel summary banner */}
           <div className="px-5 py-2.5 bg-cream-50 border-b border-cream-200 flex items-center justify-between">
             <div className="flex items-center space-x-2">
@@ -248,7 +296,14 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
             {isLoading ? (
               <div className="h-full flex items-center justify-center flex-col space-y-2">
                 <div className="w-6 h-6 border-2 border-ink-800 border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-[13px] font-semibold text-ink-400">Synchronising messages…</p>
+                <p className="text-[13px] font-semibold text-ink-400">Loading messages…</p>
+              </div>
+            ) : loadError ? (
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-rosa-50 text-rosa-500 flex items-center justify-center border border-rosa-100">
+                  <Info className="w-5 h-5" />
+                </div>
+                <p className="text-[13px] text-rosa-600 max-w-xs font-medium">{loadError}</p>
               </div>
             ) : channelMessages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-3">
@@ -318,18 +373,25 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
 
           {/* Form Entry Field */}
           <div className="p-4 bg-white border-t border-cream-200">
+            {sendError && (
+              <p className="text-[12px] text-rosa-600 font-medium mb-2">{sendError}</p>
+            )}
             <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
               <input
                 type="text"
-                placeholder={chatUser ? `Post message as ${chatUser.name}…` : "Select posting profile to type…"}
-                disabled={!chatUser || !auth.currentUser}
+                placeholder={
+                  !canWrite ? 'Your account is view-only'
+                  : isAdmin && chatUser ? `Post as ${chatUser.name}…`
+                  : 'Write a message…'
+                }
+                disabled={!canWrite || !auth.currentUser}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                className="field flex-1"
+                className="field flex-1 disabled:opacity-60"
               />
               <button
                 type="submit"
-                disabled={!inputText.trim() || !auth.currentUser}
+                disabled={!inputText.trim() || !canWrite || !auth.currentUser}
                 className="btn-primary px-3 py-2.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Send className="w-4 h-4" />

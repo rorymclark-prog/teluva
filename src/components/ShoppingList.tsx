@@ -123,7 +123,7 @@ export default function ShoppingList() {
                   <span className="flex-1 text-[14px] text-ink-800 font-medium leading-tight">{item.name}</span>
                   <button
                     onClick={() => deleteItem(item.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-ink-300 hover:text-rosa-500 transition-all cursor-pointer"
+                    className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 p-1 rounded-lg text-ink-300 hover:text-rosa-500 transition-all cursor-pointer"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -146,7 +146,7 @@ export default function ShoppingList() {
                       <span className="flex-1 text-[14px] text-ink-400 font-medium line-through leading-tight">{item.name}</span>
                       <button
                         onClick={() => deleteItem(item.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-ink-300 hover:text-rosa-500 transition-all cursor-pointer"
+                        className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 p-1 rounded-lg text-ink-300 hover:text-rosa-500 transition-all cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>

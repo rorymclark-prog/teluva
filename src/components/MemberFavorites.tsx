@@ -647,8 +647,8 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
                   </div>
                 )}
 
-                {/* Hover action overlay */}
-                <div className="absolute inset-0 bg-ink-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                {/* Action overlay — hover-reveal on desktop, always tappable on touch */}
+                <div className="absolute inset-0 bg-ink-900/40 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                   <button
                     onClick={() => setViewingItem(item)}
                     className="p-2 bg-white text-ink-900 rounded-xl font-semibold text-[12px] hover:bg-cream-100 active:scale-95 transition-all flex items-center gap-1 cursor-pointer"

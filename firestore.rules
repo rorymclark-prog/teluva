@@ -120,6 +120,24 @@ service cloud.firestore {
       match /passwords/{pwId} {
         allow read, write: if isAdminOf(familyId);
       }
+
+      // Family chat messages. Any member reads; only writers (admin/member,
+      // not child) post, and the sender is pinned to the caller's own uid so
+      // nobody can post under another member's name. Messages are immutable;
+      // only admins can delete.
+      match /messages/{msgId} {
+        allow read:   if isMemberOf(familyId);
+        allow create: if canWriteIn(familyId)
+          && request.resource.data.senderId == request.auth.uid;
+        allow update: if false;
+        allow delete: if isAdminOf(familyId);
+      }
+
+      // Shared Google-Drive document index (metadata only, no file bytes).
+      match /sharedDriveDocs/{docId} {
+        allow read:  if isMemberOf(familyId);
+        allow write: if canWriteIn(familyId);
+      }
     }
   }
 }

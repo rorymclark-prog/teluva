@@ -247,7 +247,7 @@ export default function FamilyPasswords() {
                       </button>
                       <button
                         onClick={() => handleDelete(entry.id)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-ink-300 hover:text-rosa-500 hover:bg-cream-100 transition-all cursor-pointer"
+                        className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-ink-300 hover:text-rosa-500 hover:bg-cream-100 transition-all cursor-pointer"
                         title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

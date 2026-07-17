@@ -126,7 +126,7 @@ export default function HouseholdView() {
         entries={info.utilities ?? []}
         onAdd={(u) => persist({ ...info, utilities: [...(info.utilities ?? []), u] })}
         onUpdate={(u) => persist({ ...info, utilities: (info.utilities ?? []).map(x => x.id === u.id ? u : x) })}
-        onDelete={(id) => persist({ ...info, utilities: (info.utilities ?? []).filter(x => x.id !== id) })}
+        onDelete={(id) => { if (window.confirm('Remove this utility? This can’t be undone.')) persist({ ...info, utilities: (info.utilities ?? []).filter(x => x.id !== id) }); }}
       />
 
       {/* Vehicles */}
@@ -134,7 +134,7 @@ export default function HouseholdView() {
         entries={info.vehicles ?? []}
         onAdd={(v) => persist({ ...info, vehicles: [...(info.vehicles ?? []), v] })}
         onUpdate={(v) => persist({ ...info, vehicles: (info.vehicles ?? []).map(x => x.id === v.id ? v : x) })}
-        onDelete={(id) => persist({ ...info, vehicles: (info.vehicles ?? []).filter(x => x.id !== id) })}
+        onDelete={(id) => { if (window.confirm('Remove this vehicle? This can’t be undone.')) persist({ ...info, vehicles: (info.vehicles ?? []).filter(x => x.id !== id) }); }}
       />
 
       {/* Pets */}
@@ -142,7 +142,7 @@ export default function HouseholdView() {
         entries={info.pets ?? []}
         onAdd={(p) => persist({ ...info, pets: [...(info.pets ?? []), p] })}
         onUpdate={(p) => persist({ ...info, pets: (info.pets ?? []).map(x => x.id === p.id ? p : x) })}
-        onDelete={(id) => persist({ ...info, pets: (info.pets ?? []).filter(x => x.id !== id) })}
+        onDelete={(id) => { if (window.confirm('Remove this pet? This can’t be undone.')) persist({ ...info, pets: (info.pets ?? []).filter(x => x.id !== id) }); }}
       />
 
       {/* Footer sync status */}
