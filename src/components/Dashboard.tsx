@@ -658,6 +658,15 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
   const selectedMember = members.find(m => m.id === selectedMemberId);
 
+  // Growth logs are pediatric — if a non-child is selected while Growth is the
+  // active tab, fall back to Medical so the pane isn't blank (Growth is hidden
+  // for adults in the tab bar).
+  useEffect(() => {
+    if (activeTab === 'growth' && selectedMember && selectedMember.role !== 'Child') {
+      setActiveTab('medical');
+    }
+  }, [selectedMember, activeTab]);
+
   // Renewal notices across passports, permits, licenses and visas (real date)
   const expiryWarnings = (() => {
     const today = new Date();
@@ -996,7 +1005,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                         </div>
 
                         <div className="flex flex-wrap gap-1 bg-cream-200 p-1 rounded-2xl w-fit self-start md:self-auto select-none">
-                          {TABS.map(tab => (
+                          {TABS.filter(tab => tab.id !== 'growth' || selectedMember.role === 'Child').map(tab => (
                             <button
                               key={tab.id}
                               type="button"
