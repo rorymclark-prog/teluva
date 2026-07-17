@@ -25,6 +25,7 @@ import {
 import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
 import AvatarRestyleModal from './AvatarRestyleModal';
+import SectionMenu from './SectionMenu';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import HubSettingsModal from './HubSettingsModal';
 import ImageLightbox from './ImageLightbox';
@@ -755,20 +756,15 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             </div>
           </button>
 
-          {/* Main view switcher */}
-          <nav className="flex items-center bg-cream-200 p-1 rounded-2xl mx-auto sm:mx-0 overflow-x-auto">
-            {VIEWS.filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin)).map(view => (
-              <button
-                key={view.id}
-                type="button"
-                onClick={() => setMainView(view.id)}
-                className={`tab-pill ${mainView === view.id ? 'tab-pill-active' : ''}`}
-              >
-                <view.icon className="w-4 h-4" />
-                <span className="hidden md:inline">{viewLabel(view.id, t)}</span>
-              </button>
-            ))}
-          </nav>
+          {/* Main view switcher — a burger dropdown so all sections are reachable
+              in one tap, no horizontal sliding. */}
+          <SectionMenu
+            views={VIEWS
+              .filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin))
+              .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t) }))}
+            current={mainView}
+            onSelect={(id) => setMainView(id as ViewId)}
+          />
 
           <div className="flex items-center gap-2 ml-auto sm:ml-0">
             {role === 'child' && (
