@@ -790,7 +790,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         )}
 
         {mainView === 'assistant' && (
-          demo ? <DemoUnavailable label="The assistant" /> : <AIChatbot members={members} onApplyEdits={handleApplyAiEdits} />
+          demo ? <DemoUnavailable label="The assistant" /> : <AIChatbot members={members} onApplyEdits={handleApplyAiEdits} onAddMemberDoc={handleAddDocument} />
         )}
 
         {mainView === 'info' && <ImportantInfo key={aiDataVersion} />}

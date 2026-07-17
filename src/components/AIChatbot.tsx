@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FamilyMember, VaultCategory, VaultDocument } from '../types';
+import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument } from '../types';
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
@@ -28,7 +28,7 @@ export type AiEdit =
   | { kind: 'passport'; member: string; country: string; number: string; expiry?: string }
   | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string }
   | { kind: 'number'; label: string; value: string }
-  | { kind: 'document'; name: string; category: VaultCategory }
+  | { kind: 'document'; name: string; category: VaultCategory; member?: string }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
   | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string }
@@ -48,6 +48,8 @@ interface ChatMessage {
 interface Props {
   members: FamilyMember[];
   onApplyEdits: (edits: AiEdit[]) => Promise<void>;
+  // File a scanned document into a member's own Documents tab (in addition to the vault)
+  onAddMemberDoc: (memberId: string, doc: FamilyDocument) => Promise<void>;
 }
 
 function slimMembers(members: FamilyMember[]) {
@@ -100,7 +102,7 @@ function buildSuggestions(members: FamilyMember[]): string[] {
   ]));
 }
 
-export default function AIChatbot({ members, onApplyEdits }: Props) {
+export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Props) {
   const { uid } = useFamilyCtx();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members);
@@ -308,7 +310,22 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     }
   };
 
-  // Upload the scanned file to the Document Vault for any 'document' edits.
+  // Vault categories → member-document categories (two historic enums)
+  const MEMBER_DOC_CAT: Record<VaultCategory, FamilyDocument['category']> = {
+    Identity: 'ID', Medical: 'Health', Education: 'Education', Travel: 'Travel',
+    Financial: 'Other', Other: 'Other',
+  };
+
+  const resolveMemberByName = (name?: string): FamilyMember | undefined => {
+    const q = (name || '').trim().toLowerCase();
+    if (!q) return undefined;
+    return members.find(m => m.name.toLowerCase() === q || (m.nickname || '').toLowerCase() === q)
+      || members.find(m => m.name.toLowerCase().split(/\s+/)[0] === q.split(/\s+/)[0]);
+  };
+
+  // File the scanned image for any 'document' edits: always into the shared
+  // Document Vault, AND into the named member's own Documents tab when the AI
+  // says who the document belongs to (e.g. Sophie's passport).
   const fileScans = async (docEdits: AiEdit[], src: Attachment) => {
     const blob = dataUrlToBlob(src.dataUrl);
     const file = new File([blob], src.name, { type: src.mimeType });
@@ -316,6 +333,18 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
     const today = new Date().toISOString().slice(0, 10);
     const by = auth.currentUser?.displayName || auth.currentUser?.email || 'Family';
     const added: VaultDocument[] = [];
+
+    // Inline copy for the member profile: compress images so the member's
+    // Firestore doc stays well under the 1 MiB limit; small non-images pass raw.
+    let inlineData: string | undefined;
+    let inlineType = src.mimeType;
+    if (src.mimeType.startsWith('image/')) {
+      inlineData = await compressImageToAvatar(src.dataUrl, 1600, 0.8);
+      inlineType = 'image/jpeg';
+    } else if (blob.size < 700_000) {
+      inlineData = src.dataUrl;
+    }
+
     for (const e of docEdits) {
       if (e.kind !== 'document') continue;
       const id = newId();
@@ -325,6 +354,21 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
         fileName: src.name, fileType: src.mimeType, fileSize: blob.size,
         storagePath, downloadUrl, uploadedAt: today, uploadedBy: by,
       });
+
+      // Also file on the member's profile when the doc names its owner
+      const owner = resolveMemberByName(e.member);
+      if (owner && inlineData) {
+        await onAddMemberDoc(owner.id, {
+          id: 'doc-' + id,
+          name: e.name,
+          category: MEMBER_DOC_CAT[e.category] || 'Other',
+          fileType: inlineType,
+          fileName: src.name,
+          fileSize: blob.size,
+          uploadedAt: today,
+          fileData: inlineData,
+        });
+      }
     }
     if (added.length) await saveDocuments([...added, ...existing]);
   };
@@ -336,7 +380,14 @@ export default function AIChatbot({ members, onApplyEdits }: Props) {
       const docEdits = edits.filter(e => e.kind === 'document');
       if (dataEdits.length) await onApplyEdits(dataEdits);
       const src = messages[idx]?.sourceImage;
-      if (docEdits.length && src) await fileScans(docEdits, src);
+      if (docEdits.length && src) {
+        await fileScans(docEdits, src);
+      } else if (docEdits.length && !src) {
+        // Image is stripped from persisted history — after a reload we can't
+        // file the scan. Don't fail silently: the data edits applied, but the
+        // user must re-attach the photo to store the document itself.
+        setError('Your other changes were saved, but the photo itself is no longer in this chat (it was cleared when the app reloaded). Please re-attach the photo and send it again to file the document.');
+      }
       setMessages(prev => {
         const updated = prev.map((m, i) => i === idx ? { ...m, applied: true } : m);
         // Persist the applied flag to cloud so the card stays "Applied" after a
@@ -564,7 +615,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'passport') return `${e.member}: add ${e.country} passport ${e.number}${e.expiry ? ` (exp ${e.expiry})` : ''}`;
   if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}`;
   if (e.kind === 'number') return `Add number “${e.label}” → ${e.value}`;
-  if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})`;
+  if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}`;
   if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;
   if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
   if (e.kind === 'household_set') return `Set household ${e.field.replace(/([A-Z])/g, ' $1').toLowerCase()}: "${e.value}"`;
