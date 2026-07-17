@@ -165,7 +165,7 @@ app.post('/api/chat', async (req, res) => {
     );
 
     // Gemini occasionally returns a transient 503/429 under load — retry a couple times.
-    console.log(`[chat] ${hasImage ? 'image+' : ''}text request from ${email}`);
+    console.log(`[chat] ${hasImage ? 'image+' : ''}text request from ${caller.email}`);
     let gData;
     let text;
     for (let attempt = 0; attempt < 3; attempt++) {
