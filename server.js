@@ -395,7 +395,21 @@ app.post('/api/refresh-claims', async (req, res) => {
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 // --- Static SPA ---
+// Build stamp for the in-app "update available" check. Never cached, so a tab
+// that has been open across a deploy always sees the freshly deployed build id.
+app.get('/version.json', (_req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.sendFile(path.join(__dirname, 'dist', 'version.json'), (err) => {
+    if (err && !res.headersSent) res.status(404).json({ version: null });
+  });
+});
 app.use(express.static(path.join(__dirname, 'dist')));
-app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
+// The HTML entry must revalidate every load so a refresh always picks up the
+// newest hashed asset bundle (the assets themselves are content-hashed and
+// safely long-cached by express.static).
+app.get('*', (_req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 
 app.listen(PORT, () => console.log(`Family Vault server listening on ${PORT}`));

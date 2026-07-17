@@ -97,6 +97,10 @@ export interface Strings {
   status_sync_fail: string;
   status_copied: string;
   status_error: string;
+
+  // App update (new-version banner)
+  update_available: string;
+  update_refresh: string;
 }
 
 export type LangCode = 'en' | 'de' | 'es' | 'fr' | 'pt' | 'it' | 'nl' | 'pl' | 'af';
@@ -114,6 +118,8 @@ export const LANGUAGE_NAMES: Record<LangCode, string> = {
 };
 
 const en: Strings = {
+  update_available: 'New version available',
+  update_refresh: 'Refresh',
   nav_family: 'Family',
   nav_calendar: 'Calendar',
   nav_documents: 'Documents',
@@ -202,6 +208,8 @@ const en: Strings = {
 };
 
 const de: Strings = {
+  update_available: 'Neue Version verfügbar',
+  update_refresh: 'Aktualisieren',
   nav_family: 'Familie',
   nav_calendar: 'Kalender',
   nav_documents: 'Dokumente',
@@ -290,6 +298,8 @@ const de: Strings = {
 };
 
 const es: Strings = {
+  update_available: 'Nueva versión disponible',
+  update_refresh: 'Actualizar',
   nav_family: 'Familia',
   nav_calendar: 'Calendario',
   nav_documents: 'Documentos',
@@ -378,6 +388,8 @@ const es: Strings = {
 };
 
 const fr: Strings = {
+  update_available: 'Nouvelle version disponible',
+  update_refresh: 'Actualiser',
   nav_family: 'Famille',
   nav_calendar: 'Calendrier',
   nav_documents: 'Documents',
@@ -466,6 +478,8 @@ const fr: Strings = {
 };
 
 const pt: Strings = {
+  update_available: 'Nova versão disponível',
+  update_refresh: 'Atualizar',
   nav_family: 'Família',
   nav_calendar: 'Calendário',
   nav_documents: 'Documentos',
@@ -554,6 +568,8 @@ const pt: Strings = {
 };
 
 const it: Strings = {
+  update_available: 'Nuova versione disponibile',
+  update_refresh: 'Aggiorna',
   nav_family: 'Famiglia',
   nav_calendar: 'Calendario',
   nav_documents: 'Documenti',
@@ -642,6 +658,8 @@ const it: Strings = {
 };
 
 const nl: Strings = {
+  update_available: 'Nieuwe versie beschikbaar',
+  update_refresh: 'Vernieuwen',
   nav_family: 'Familie',
   nav_calendar: 'Kalender',
   nav_documents: 'Documenten',
@@ -730,6 +748,8 @@ const nl: Strings = {
 };
 
 const pl: Strings = {
+  update_available: 'Dostępna nowa wersja',
+  update_refresh: 'Odśwież',
   nav_family: 'Rodzina',
   nav_calendar: 'Kalendarz',
   nav_documents: 'Dokumenty',
@@ -818,6 +838,8 @@ const pl: Strings = {
 };
 
 const af: Strings = {
+  update_available: 'Nuwe weergawe beskikbaar',
+  update_refresh: 'Herlaai',
   nav_family: 'Familie',
   nav_calendar: 'Kalender',
   nav_documents: 'Dokumente',
