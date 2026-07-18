@@ -473,8 +473,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
       onSaveEvents([...events, newEvent]);
       triggerReminderNotification(
         remindMe
-          ? `Event listed. Digital reminders dispatched to all tagged family members!`
-          : `Event listed on shared calendar!`
+          ? `Event added — tagged family members will see it on the shared calendar.`
+          : `Event added to the shared calendar.`
       );
     }
 

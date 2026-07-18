@@ -295,7 +295,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     if (demo) return;
     const ok = await saveFamilyMembers(membersRef.current);
     setCloudSynced(ok);
-    if (!ok) showToast("Saved on this device — cloud sync didn't go through.");
+    if (!ok) showToast("Saved on this device — couldn't back up to the cloud. Check your connection and re-save.");
   };
 
   const cardClass = (member: FamilyMember) =>
@@ -388,7 +388,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     if (demo) return;
     const ok = await saveFamilyMembers(updated);
     setCloudSynced(ok);
-    if (!ok) showToast("Saved on this device — cloud sync didn't go through.");
+    if (!ok) showToast("Saved on this device — couldn't back up to the cloud. Check your connection and re-save.");
   };
 
   // Apply an AI-restyled avatar. The real photo is stashed once in
@@ -417,7 +417,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     if (demo) return;
     const ok = await saveCalendarEvents(updatedEvents);
     setCloudSynced(ok);
-    if (!ok) showToast("Saved on this device — cloud sync didn't go through.");
+    if (!ok) showToast("Saved on this device — couldn't back up to the cloud. Check your connection and re-save.");
   };
 
   const handleAddMember = async (newMember: Omit<FamilyMember, 'documents'>) => {
@@ -1100,7 +1100,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           ) : cloudSynced === false ? (
             <>
               <CloudOff className="w-3.5 h-3.5 text-honey-700" />
-              <span>Saved on this device — cloud sync unavailable</span>
+              <span>Saved on this device — not backed up to the cloud</span>
             </>
           ) : (
             <>

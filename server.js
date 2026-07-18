@@ -120,12 +120,30 @@ RULES:
 - IF AN IMAGE/DOCUMENT IS ATTACHED: read it (OCR). Extract every useful field — match the right kind: address/wifi → household_set; person's ID/passport → member+passport; contacts → contact; loose reference numbers → number. If it's a Meldezettel or registration certificate, read the person it names and set THEIR address with {"kind":"member","member":"<name>","field":"address","value":"<address>"} (each family member can live at a different address) AND save a scan with {"kind":"document","name":"Meldezettel <name>","category":"Identity"}. Only use household_set for the address if no specific family member is named. If it's a keepable document (passport, ID, residence card, birth/marriage cert, school report, insurance card, medical letter, tax doc), ALSO add ONE {"kind":"document"} edit with a short descriptive name, the best-fit category, AND "member" set to the family member it belongs to (match the name on the document to the family data; e.g. Sophie's passport → "member":"Sophie") so the scan lands on their profile too. In the reply, briefly say what you read and what you'll save.
 - NEVER invent data. If something needed is missing, ask for it in reply. Keep reply warm and brief.`;
 
+// In-memory per-user rate limit for the AI endpoints — Gemini calls cost money and
+// are the abuse surface. Per Cloud Run instance (a fine first layer); the cap is
+// generous enough that normal family use never hits it.
+const aiHits = new Map(); // uid -> timestamps (ms)
+const AI_WINDOW_MS = 60 * 1000;
+const AI_MAX_PER_WINDOW = 20;
+function aiRateLimited(uid) {
+  const now = Date.now();
+  const arr = (aiHits.get(uid) || []).filter((t) => now - t < AI_WINDOW_MS);
+  arr.push(now);
+  aiHits.set(uid, arr);
+  if (aiHits.size > 5000) { // bound memory
+    for (const [k, v] of aiHits) if (!v.some((t) => now - t < AI_WINDOW_MS)) aiHits.delete(k);
+  }
+  return arr.length > AI_MAX_PER_WINDOW;
+}
+
 app.post('/api/chat', async (req, res) => {
   try {
     if (!GEMINI_KEY) return res.status(500).json({ error: 'AI is not configured on the server.' });
 
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
 
     const { message, context, history, image, lang } = req.body || {};
     const hasImage = image && image.data && image.mimeType;
@@ -211,6 +229,7 @@ app.post('/api/scan-asset', async (req, res) => {
 
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
 
     console.log('[scan-asset] request from', caller.email);
 
@@ -280,6 +299,7 @@ app.post('/api/restyle-avatar', async (req, res) => {
 
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
 
     const { image, style } = req.body || {};
     if (!image || !image.data || !image.mimeType) {
