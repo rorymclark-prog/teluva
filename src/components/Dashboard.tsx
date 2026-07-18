@@ -49,6 +49,7 @@ import ImportantInfo from './ImportantInfo';
 import MemberFavorites from './MemberFavorites';
 import MemberMedical from './MemberMedical';
 import MemberOverview from './MemberOverview';
+import NeedsAttention from './NeedsAttention';
 import MemberIDs from './MemberIDs';
 import MemberTravel from './MemberTravel';
 import MemberPreferences from './MemberPreferences';
@@ -665,11 +666,23 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const selectedMember = members.find(m => m.id === selectedMemberId);
 
   // Open every member on their Overview summary (like iOS Contacts) — resets when
-  // you switch members, so you no longer always land on the Medical form. Also
-  // covers the pediatric-only Growth tab (never the landing; hidden for adults).
+  // you switch members, so you no longer always land on the Medical form. A
+  // pending-tab ref lets a "Needs attention" nudge deep-link to a specific tab.
+  const pendingTabRef = useRef<TabId | null>(null);
   useEffect(() => {
-    setActiveTab('overview');
+    setActiveTab(pendingTabRef.current ?? 'overview');
+    pendingTabRef.current = null;
   }, [selectedMemberId]);
+
+  const goToMemberTab = (memberId: string, tab: string) => {
+    if (memberId === selectedMemberId) {
+      setActiveTab(tab as TabId);
+    } else {
+      pendingTabRef.current = tab as TabId;
+      setSelectedMemberId(memberId);
+    }
+    setDeleteConfirmMemberId(null);
+  };
 
   // Renewal notices across passports, permits, licenses and visas (real date)
   const expiryWarnings = (() => {
@@ -848,23 +861,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'profiles' && (
           <>
-            {expiryWarnings.length > 0 && (
-              <div className="p-4 rounded-3xl bg-honey-50 border border-honey-100 flex items-start gap-3 shadow-soft">
-                <div className="p-2 rounded-2xl bg-honey-100 text-honey-700 mt-0.5 shrink-0">
-                  <Bell className="w-4 h-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-[13px] font-bold text-honey-900">Renewals due</h3>
-                  <div className="mt-1 space-y-1 text-[13px] text-honey-900/90">
-                    {expiryWarnings.map((warning, i) => (
-                      <p key={i}>
-                        <strong>{warning.memberName}</strong>&apos;s {warning.label} {warning.status === 'expired' ? 'has expired' : `expires in about ${warning.monthsLeft} months`} — worth sorting the renewal.
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
+            <NeedsAttention members={members} onGo={goToMemberTab} />
 
             {members.length === 0 ? (
               <div className="card text-center py-20 px-6">
@@ -1040,7 +1037,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                           >
                             <>
                               {activeTab === 'overview' && (
-                                <MemberOverview member={selectedMember} />
+                                <MemberOverview member={selectedMember} onViewDocument={setLightboxImage} />
                               )}
                               {activeTab === 'medical' && (
                                 <MemberMedical member={selectedMember} onUpdate={handlePatchSelectedMember} />

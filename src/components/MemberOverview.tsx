@@ -1,8 +1,16 @@
 import {
-  AlertTriangle, HeartPulse, Pill, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard,
+  AlertTriangle, HeartPulse, Pill, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye,
 } from 'lucide-react';
 import type { ElementType } from 'react';
-import { FamilyMember } from '../types';
+import { FamilyMember, FamilyDocument } from '../types';
+
+// Proof of address: an ID-category scan named like a Meldezettel / registration
+// certificate. Lets us show a "view" icon next to the address.
+function findAddressScan(member: FamilyMember): FamilyDocument | undefined {
+  return (member.documents || []).find(
+    (d) => d.category === 'ID' && d.fileData && /meldezettel|proof of address|registration|anmeldung|residence certificate/i.test(d.name),
+  );
+}
 
 function calcAge(birthdate?: string): string | null {
   if (!birthdate) return null;
@@ -32,7 +40,7 @@ function nearestExpiry(member: FamilyMember): { label: string; date: string; sta
   return { ...soonest, status: months < 0 ? 'expired' : months <= 9 ? 'soon' : 'ok' };
 }
 
-export default function MemberOverview({ member }: { member: FamilyMember }) {
+export default function MemberOverview({ member, onViewDocument }: { member: FamilyMember; onViewDocument?: (src: string) => void }) {
   const first = member.name.split(/\s+/)[0] || member.name;
   const med = member.medical || {};
   const docCount = member.documents?.length || 0;
@@ -45,14 +53,14 @@ export default function MemberOverview({ member }: { member: FamilyMember }) {
   if (member.nationality) tiles.push({ label: 'Nationality', value: member.nationality });
   if (docCount) tiles.push({ label: 'Documents', value: `${docCount}` });
 
-  const rows: { icon: ElementType; label: string; value: string; warn?: boolean }[] = [];
+  const rows: { icon: ElementType; label: string; value: string; warn?: boolean; viewSrc?: string }[] = [];
   if (med.allergies) rows.push({ icon: AlertTriangle, label: 'Allergies', value: med.allergies, warn: true });
   if (med.conditions) rows.push({ icon: HeartPulse, label: 'Chronic conditions', value: med.conditions });
   if (med.emergencyMedication) rows.push({ icon: Pill, label: 'Emergency medication', value: med.emergencyMedication });
   if (member.role === 'Child' && member.education?.schoolName) rows.push({ icon: GraduationCap, label: 'School', value: member.education.schoolName });
   if (member.phone) rows.push({ icon: Phone, label: 'Phone', value: member.phone });
   if (member.email) rows.push({ icon: Mail, label: 'Email', value: member.email });
-  if (member.address) rows.push({ icon: MapPin, label: 'Address', value: member.address });
+  if (member.address) rows.push({ icon: MapPin, label: 'Address', value: member.address, viewSrc: findAddressScan(member)?.fileData });
 
   const isEmpty = tiles.length === 0 && rows.length === 0 && !expiry;
 
@@ -102,10 +110,19 @@ export default function MemberOverview({ member }: { member: FamilyMember }) {
                 <div className={`p-2 rounded-xl shrink-0 ${r.warn ? 'bg-honey-100 text-honey-700' : 'bg-cream-100 text-ink-500'}`}>
                   <Icon className="w-4 h-4" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wide">{r.label}</p>
                   <p className="text-[14px] text-ink-800 break-words">{r.value}</p>
                 </div>
+                {r.viewSrc && onViewDocument && (
+                  <button
+                    onClick={() => onViewDocument(r.viewSrc!)}
+                    className="shrink-0 flex items-center gap-1 text-[12px] font-semibold text-clay-600 hover:text-clay-700 hover:bg-clay-50 rounded-lg px-2 py-1 transition-colors cursor-pointer"
+                    title="View proof of address"
+                  >
+                    <Eye className="w-3.5 h-3.5" /> Proof
+                  </button>
+                )}
               </div>
             );
           })}
