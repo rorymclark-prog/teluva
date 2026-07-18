@@ -53,7 +53,7 @@ export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: (
         {/* Body */}
         <div className="overflow-y-auto p-5 sm:p-7 text-[14px] leading-relaxed text-ink-700 space-y-4">
           <div className="text-[12px] rounded-xl bg-honey-50 border border-honey-100 text-honey-900 px-3 py-2">
-            ⚠️ <b>Draft — not yet legal advice.</b> Complete the <code>{'{{…}}'}</code> fields and have this
+            ⚠️ <b>Draft — not yet legal advice.</b> Confirm the data-controller entity and have this
             reviewed by a lawyer before publishing (it covers children&apos;s and health data under the GDPR).
           </div>
           {active === 'privacy' ? <Privacy /> : <Terms />}
@@ -82,8 +82,8 @@ function Privacy() {
 
       <H>Who is responsible for your data</H>
       <p>
-        The data controller is <b>{'{{legal name / business}}'}</b>, contactable at{' '}
-        <b>{'{{contact email}}'}</b>. We decide how and why your data is processed.
+        The data controller is <b>Rory Michael Clark</b> (Vienna, Austria), contactable at{' '}
+        <b>rorymclark@gmail.com</b>. We decide how and why your data is processed.
       </p>
 
       <H>What we collect</H>
@@ -129,7 +129,7 @@ function Privacy() {
       <p>Until you delete it or close your account. You can export or delete your family&apos;s data from within the app at any time.</p>
 
       <H>Your rights</H>
-      <p>Under the GDPR you may request: access, correction, erasure, restriction, portability, and to object to processing. To exercise these, use the in-app export/delete tools or contact <b>{'{{contact email}}'}</b>. You may also complain to your local data-protection authority (in Austria, the <i>Datenschutzbehörde</i>).</p>
+      <p>Under the GDPR you may request: access, correction, erasure, restriction, portability, and to object to processing. To exercise these, use the in-app export/delete tools or contact <b>rorymclark@gmail.com</b>. You may also complain to your local data-protection authority (in Austria, the <i>Datenschutzbehörde</i>).</p>
 
       <H>Security</H>
       <p>Data is encrypted in transit (HTTPS), isolated per family by server-side security rules, and access requires a verified Google sign-in. No system is perfectly secure; keep your Google account protected.</p>
@@ -165,7 +165,7 @@ function Terms() {
       <p>You can stop using the app and delete your data at any time. We may suspend accounts that misuse the service.</p>
 
       <H>6. Contact</H>
-      <p>Questions about these terms: <b>{'{{contact email}}'}</b>. Governed by the laws of <b>{'{{jurisdiction, e.g. Austria}}'}</b>.</p>
+      <p>Questions about these terms: <b>rorymclark@gmail.com</b>. Governed by the laws of <b>Austria</b>.</p>
     </>
   );
 }
