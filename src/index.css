@@ -67,6 +67,15 @@
 
   --shadow-soft: 0 1px 2px rgba(28, 25, 23, 0.05);
   --shadow-lift: 0 4px 12px rgba(28, 25, 23, 0.07), 0 12px 32px rgba(28, 25, 23, 0.07);
+
+  /* 2026 surface shadow: top-highlight + short contact + long soft throw (warm ink tint) */
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 2px rgba(28, 25, 23, 0.04), 0 12px 32px -16px rgba(28, 25, 23, 0.14);
+  --shadow-glow: 0 0 0 6px rgba(234, 90, 59, 0.12), 0 8px 24px rgba(234, 90, 59, 0.35);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
 }
 
 @layer base {
@@ -74,18 +83,35 @@
   .font-display {
     letter-spacing: -0.02em;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @layer components {
-  /* Card — 16px radius, hairline border, near-invisible resting shadow */
+  /* Card — depth from tone: hairline + layered warm shadow + top-highlight */
   .card {
-    @apply bg-white border border-cream-300/70 rounded-2xl shadow-soft;
+    @apply bg-white border border-cream-300/50 rounded-2xl;
+    box-shadow: var(--shadow-card);
   }
 
-  /* Primary action button — full pill */
+  /* Primary action button — clay gradient pill w/ glow + press */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 bg-clay-500 hover:bg-clay-600 text-white font-semibold text-sm rounded-full px-5 py-2.5 transition-colors cursor-pointer shadow-soft;
+    @apply inline-flex items-center justify-center gap-2 text-white font-semibold text-sm rounded-full px-5 py-2.5 cursor-pointer;
+    background-image: linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600));
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px -4px var(--color-clay-500);
+    transition: all 150ms var(--ease-out);
   }
+  .btn-primary:hover {
+    box-shadow: 0 4px 16px -2px var(--color-clay-500);
+    filter: brightness(1.05);
+  }
+  .btn-primary:active { transform: scale(0.97); }
 
   /* Quiet secondary button */
   .btn-quiet {
@@ -135,4 +161,49 @@
     border: 3px solid white;
     border-radius: 9999px;
   }
+
+  /* The one sanctioned glass surface: AI panel (and a floating tab bar, if ever) */
+  .glass {
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  /* Display type steps — tracking tightens as size grows */
+  .text-display-sm {
+    font-size: 2.25rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: 800;
+  }
+  .text-display-md {
+    font-size: 3rem; line-height: 1.05; letter-spacing: -0.025em; font-weight: 800;
+  }
+}
+
+/* ── Motion vocabulary ────────────────────────────────────────────────── */
+@keyframes fv-fade { from { opacity: 0; } to { opacity: 1; } }
+.anim-fade { animation: fv-fade 160ms ease-out; }
+
+/* Sheet-rise — safe for any positioning (translateY only) */
+@keyframes fv-sheet { from { transform: translateY(24px); opacity: 0.6; } to { transform: translateY(0); opacity: 1; } }
+.anim-sheet { animation: fv-sheet 260ms var(--ease-spring); }
+
+/* Pop — scale-settle for flex/grid-centered dialogs (no translate: safe there) */
+@keyframes fv-pop { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.anim-pop { animation: fv-pop 180ms var(--ease-spring); }
+
+/* Soft attention pulse (never use animate-pulse) */
+@keyframes fv-pulse-soft {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234, 90, 59, 0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(234, 90, 59, 0); }
+}
+.anim-pulse-soft { animation: fv-pulse-soft 1.8s var(--ease-out) infinite; }
+
+/* AI streaming shimmer (text sweep) */
+@keyframes fv-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.anim-shimmer {
+  background: linear-gradient(90deg, var(--color-ink-400) 40%, var(--color-ink-900) 50%, var(--color-ink-400) 60%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: fv-shimmer 1.6s linear infinite;
 }
