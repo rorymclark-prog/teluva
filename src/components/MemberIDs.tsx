@@ -1,9 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyMember, PassportRecord, IdentityRecord, FamilyDocument } from '../types';
 import {
-  Plus, Pencil, Trash2, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye,
+  Plus, Pencil, Trash2, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye, Maximize2,
 } from 'lucide-react';
 import ImageLightbox from './ImageLightbox';
+import ShowCardModal from './ShowCardModal';
+
+// Data needed to pop open the full-screen "show this to someone" card — a border
+// officer, receptionist, ticket inspector. Shared by the passport rows and the
+// key identity-number fields (e-card, residence permit) below.
+interface ShowCardData {
+  title: string;
+  subtitle?: string;
+  fields: { label: string; value: string; mono?: boolean; big?: boolean }[];
+  scanSrc?: string;
+}
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
@@ -144,11 +155,15 @@ function PassportsSection({
   onChange,
   documents,
   onViewScan,
+  memberName,
+  onShowCard,
 }: {
   passports: PassportRecord[];
   onChange: (next: PassportRecord[]) => void;
   documents?: FamilyDocument[];
   onViewScan: (src: string) => void;
+  memberName: string;
+  onShowCard: (data: ShowCardData) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -233,6 +248,21 @@ function PassportsSection({
                   ) : null;
                 })()}
                 <button
+                  onClick={() => onShowCard({
+                    title: p.country ? `${p.country} passport` : 'Passport',
+                    subtitle: memberName,
+                    fields: [
+                      { label: 'Passport no.', value: p.number || '—', mono: true, big: true },
+                      { label: 'Expiry', value: p.expiryDate || '—' },
+                    ],
+                    scanSrc: findPassportScan(p, documents)?.fileData,
+                  })}
+                  className="flex items-center gap-1 px-2 py-1.5 text-[11px] font-semibold text-clay-600 hover:text-clay-800 hover:bg-clay-50 rounded-lg"
+                  title="Show this passport"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" /> Show
+                </button>
+                <button
                   onClick={() => { setEditId(p.id); setAdding(false); }}
                   className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg"
                   title="Edit"
@@ -260,9 +290,13 @@ function PassportsSection({
 function IdentitySection({
   identity,
   onChange,
+  memberName,
+  onShowCard,
 }: {
   identity: IdentityRecord;
   onChange: (next: IdentityRecord) => void;
+  memberName: string;
+  onShowCard: (data: ShowCardData) => void;
 }) {
   const set = (k: keyof IdentityRecord) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -285,7 +319,24 @@ function IdentitySection({
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="field-label">e-Card number</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[13px] font-semibold text-ink-600">e-Card number</label>
+              {identity.eCardNumber && (
+                <button
+                  onClick={() => onShowCard({
+                    title: 'e-card',
+                    subtitle: memberName,
+                    fields: [
+                      { label: 'e-Card number', value: identity.eCardNumber || '—', mono: true, big: true },
+                    ],
+                  })}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
+                  title="Show this e-card"
+                >
+                  <Maximize2 className="w-3 h-3" /> Show
+                </button>
+              )}
+            </div>
             <input
               className="field font-mono"
               placeholder="e.g. 1234 010090 AT"
@@ -344,7 +395,27 @@ function IdentitySection({
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="field-label">Residence permit number</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[13px] font-semibold text-ink-600">Residence permit number</label>
+              {identity.residencePermitNumber && (
+                <button
+                  onClick={() => onShowCard({
+                    title: 'Residence permit',
+                    subtitle: memberName,
+                    fields: [
+                      { label: 'Residence permit number', value: identity.residencePermitNumber || '—', mono: true, big: true },
+                      ...(identity.residencePermitExpiry
+                        ? [{ label: 'Expiry', value: identity.residencePermitExpiry }]
+                        : []),
+                    ],
+                  })}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
+                  title="Show this residence permit"
+                >
+                  <Maximize2 className="w-3 h-3" /> Show
+                </button>
+              )}
+            </div>
             <input
               className="field font-mono"
               placeholder="Aufenthaltstitel-Nr"
@@ -466,6 +537,7 @@ export default function MemberIDs({ member, onUpdate }: MemberIDsProps) {
   const [passports, setPassports] = useState<PassportRecord[]>(() => foldPassports(member));
   const [identity, setIdentity] = useState<IdentityRecord>(member.identity ?? {});
   const [viewScanSrc, setViewScanSrc] = useState<string | null>(null);
+  const [showCard, setShowCard] = useState<ShowCardData | null>(null);
 
   // Reset when switching members
   useEffect(() => {
@@ -490,12 +562,25 @@ export default function MemberIDs({ member, onUpdate }: MemberIDsProps) {
         onChange={handlePassportsChange}
         documents={member.documents}
         onViewScan={setViewScanSrc}
+        memberName={member.name}
+        onShowCard={setShowCard}
       />
 
       <ImageLightbox src={viewScanSrc} onClose={() => setViewScanSrc(null)} />
       <IdentitySection
         identity={identity}
         onChange={handleIdentityChange}
+        memberName={member.name}
+        onShowCard={setShowCard}
+      />
+
+      <ShowCardModal
+        open={!!showCard}
+        onClose={() => setShowCard(null)}
+        title={showCard?.title || ''}
+        subtitle={showCard?.subtitle}
+        fields={showCard?.fields}
+        scanSrc={showCard?.scanSrc}
       />
     </div>
   );

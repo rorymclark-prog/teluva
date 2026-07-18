@@ -1,6 +1,7 @@
 import type { ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles } from 'lucide-react';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard } from 'lucide-react';
 import { FamilyMember } from '../types';
+import { careNextDue } from '../utils/care';
 
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
@@ -69,6 +70,47 @@ function computeNudges(members: FamilyMember[]): Nudge[] {
     // Missing medical basics
     const med = m.medical || {};
     if (!med.bloodGroup && !med.allergies && !med.conditions) out.push({ key: `med-${m.id}`, memberId: m.id, icon: HeartPulse, tone: 'info', text: `No medical info for ${first} yet`, tab: 'medical' });
+
+    // Care schedule (dentist, check-ups, vaccinations …) due or overdue
+    for (const item of m.careSchedule || []) {
+      const due = careNextDue(item, now);
+      if (due.status === 'overdue') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'urgent', text: `${first}'s ${item.kind} is overdue`, tab: 'care' });
+      else if (due.status === 'due-soon') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'warn', text: `${first}'s ${item.kind} is due soon`, tab: 'care' });
+    }
+
+    // Transit pass expiry (Jahreskarte, Klimaticket, rail passes …)
+    for (const pass of m.travel?.transitPasses || []) {
+      if (!pass.validUntil) continue;
+      const t = new Date(pass.validUntil).getTime();
+      if (isNaN(t)) continue;
+      const months = (t - now) / MONTH;
+      if (months < 0) out.push({ key: `pass-${m.id}-${pass.id}`, memberId: m.id, icon: TrainFront, tone: 'urgent', text: `${first}'s ${pass.name} has expired`, tab: 'travel' });
+      else if (months <= 1.5) out.push({ key: `pass-${m.id}-${pass.id}`, memberId: m.id, icon: TrainFront, tone: 'warn', text: `${first}'s ${pass.name} expires soon`, tab: 'travel' });
+    }
+
+    // Residence permit & driver's licence expiry
+    const idExpiries: Array<{ key: string; expiry?: string; label: string }> = [
+      { key: 'permit', expiry: m.identity?.residencePermitExpiry, label: 'residence permit' },
+      { key: 'license', expiry: m.identity?.driversLicenseExpiry, label: "driver's licence" },
+    ];
+    for (const { key, expiry, label } of idExpiries) {
+      if (!expiry) continue;
+      const t = new Date(expiry).getTime();
+      if (isNaN(t)) continue;
+      const months = (t - now) / MONTH;
+      if (months < 0) out.push({ key: `id-${m.id}-${key}`, memberId: m.id, icon: IdCard, tone: 'urgent', text: `${first}'s ${label} has expired`, tab: 'ids' });
+      else if (months <= 2) out.push({ key: `id-${m.id}-${key}`, memberId: m.id, icon: IdCard, tone: 'warn', text: `${first}'s ${label} expires soon`, tab: 'ids' });
+    }
+
+    // Visa expiry
+    for (const visa of m.travel?.visas || []) {
+      if (!visa.expiryDate) continue;
+      const t = new Date(visa.expiryDate).getTime();
+      if (isNaN(t)) continue;
+      const months = (t - now) / MONTH;
+      if (months < 0) out.push({ key: `visa-${m.id}-${visa.id}`, memberId: m.id, icon: Bell, tone: 'urgent', text: `${first}'s ${visa.country} visa has expired`, tab: 'travel' });
+      else if (months <= 2) out.push({ key: `visa-${m.id}-${visa.id}`, memberId: m.id, icon: Bell, tone: 'warn', text: `${first}'s ${visa.country} visa expires soon`, tab: 'travel' });
+    }
   }
 
   const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };

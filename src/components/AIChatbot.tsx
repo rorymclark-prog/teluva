@@ -32,7 +32,9 @@ export type AiEdit =
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
   | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string }
-  | { kind: 'household_set'; field: 'address' | 'doorCode' | 'wifiName' | 'wifiPassword' | 'garageCode'; value: string };
+  | { kind: 'household_set'; field: 'address' | 'doorCode' | 'wifiName' | 'wifiPassword' | 'garageCode'; value: string }
+  | { kind: 'transit_pass'; member: string; name: string; operator?: string; cardNumber?: string; zone?: string; validFrom?: string; validUntil?: string; notes?: string }
+  | { kind: 'care_schedule'; member: string; careKind: string; provider?: string; lastVisit?: string; intervalMonths?: number; nextDue?: string; notes?: string };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
@@ -181,7 +183,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
   const onPasteImage = async (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
-    for (const item of Array.from(items)) {
+    for (const item of Array.from(items) as DataTransferItem[]) {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
         if (!file) continue;
@@ -668,5 +670,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
   if (e.kind === 'household_set') return `Set household ${e.field.replace(/([A-Z])/g, ' $1').toLowerCase()}: "${e.value}"`;
   if (e.kind === 'asset') return `Add asset: ${e.name}${e.category ? ` (${e.category})` : ''}`;
+  if (e.kind === 'transit_pass') return `${e.member}: add travel pass “${e.name}”${e.validUntil ? ` (valid to ${e.validUntil})` : ''}`;
+  if (e.kind === 'care_schedule') return `${e.member}: add ${e.careKind}${e.intervalMonths ? ` every ${e.intervalMonths} mo` : ''}${e.lastVisit ? ` (last ${e.lastVisit})` : ''}`;
   return JSON.stringify(e);
 }

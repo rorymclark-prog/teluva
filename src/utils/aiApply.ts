@@ -128,9 +128,39 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[]): Fami
       if (!target) continue;
       const rec = { id: newId(), country: e.country, number: e.number, expiryDate: e.expiry || undefined };
       next = next.map(m => (m.id === target.id ? { ...m, passports: [...(m.passports || []), rec] } : m));
+    } else if (e.kind === 'transit_pass') {
+      const target = resolveMember(next, e.member);
+      if (!target || !e.name) continue;
+      const rec = {
+        id: newId(), name: e.name,
+        operator: e.operator || undefined, cardNumber: e.cardNumber || undefined,
+        zone: e.zone || undefined, validFrom: e.validFrom || undefined,
+        validUntil: e.validUntil || undefined, notes: e.notes || undefined,
+      };
+      next = next.map(m => (m.id === target.id
+        ? { ...m, travel: { ...(m.travel || {}), transitPasses: [...(m.travel?.transitPasses || []), rec] } }
+        : m));
+    } else if (e.kind === 'care_schedule') {
+      const target = resolveMember(next, e.member);
+      if (!target || !e.careKind) continue;
+      const rec = {
+        id: newId(), kind: e.careKind, provider: e.provider || undefined,
+        lastVisit: e.lastVisit || undefined,
+        intervalMonths: e.intervalMonths && e.intervalMonths > 0 ? e.intervalMonths : defaultCareInterval(e.careKind),
+        nextDue: e.nextDue || undefined, notes: e.notes || undefined,
+      };
+      next = next.map(m => (m.id === target.id ? { ...m, careSchedule: [...(m.careSchedule || []), rec] } : m));
     }
   }
   return next;
+}
+
+// Sensible recurrence when the AI didn't state an interval.
+function defaultCareInterval(kind: string): number {
+  const k = kind.toLowerCase();
+  if (k.includes('dent')) return 6;
+  if (k.includes('eye') || k.includes('optic')) return 24;
+  return 12;
 }
 
 // Apply contact + number edits onto the shared family info doc.
@@ -147,7 +177,7 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   return { numbers, contacts };
 }
 
-export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member');
+export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number');
 
 const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;

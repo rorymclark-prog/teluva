@@ -22,6 +22,10 @@ export const DEMO_MEMBERS: FamilyMember[] = [
     favorites: [
       { id: 'demo-fav-1', title: 'Garden herbs', category: 'Hobbies & Sports', imageUrl: '', notes: 'Basil over everything', addedAt: iso(-40) },
     ],
+    // Overdue yearly check-up → shows an "overdue" care nudge + Overview banner.
+    careSchedule: [
+      { id: 'demo-care-mama-1', kind: 'Medical check-up', provider: 'Dr. Wagner', lastVisit: iso(-400), intervalMonths: 12 },
+    ],
   },
   {
     id: 'demo-papa',
@@ -37,6 +41,12 @@ export const DEMO_MEMBERS: FamilyMember[] = [
       dateOfBirth: '1987-09-03',
       issueDate: '2019-06-15',
       expiryDate: iso(160), // expiring within ~5 months → shows the renewal notice
+    },
+    // Annual transit pass expiring soon → transit section + Show-card + expiry nudge.
+    travel: {
+      transitPasses: [
+        { id: 'demo-pass-papa-1', name: 'Wiener Linien Jahreskarte', operator: 'Wiener Linien', cardNumber: 'WL-8842-1077-3390', zone: 'Wien Kernzone', validFrom: iso(-345), validUntil: iso(20) },
+      ],
     },
     documents: [],
     growthHistory: [],
@@ -58,6 +68,11 @@ export const DEMO_MEMBERS: FamilyMember[] = [
       { id: 'demo-fav-2', title: 'Drawing set', category: 'Toy', imageUrl: '', addedAt: iso(-20), isWishlist: true, targetPrice: '€19.90' },
     ],
     education: { schoolName: 'Volksschule am Park', grade: '1a', teacherName: 'Fr. Berger' },
+    // Dental check-up due in ~3 weeks → "due-soon" care nudge + Overview banner.
+    careSchedule: [
+      { id: 'demo-care-mia-1', kind: 'Dental check-up', provider: 'Dr. Müller (Zahnarzt)', lastVisit: iso(-160), intervalMonths: 6 },
+      { id: 'demo-care-mia-2', kind: 'Eye test', lastVisit: iso(-30), intervalMonths: 24 },
+    ],
   },
   {
     id: 'demo-ben',

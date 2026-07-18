@@ -131,6 +131,29 @@ export interface FamilyMember {
   emergencyContactName?: string;
   emergencyContactPhone?: string;
   favorites?: FavoriteItem[];
+  careSchedule?: CareSchedule[];    // recurring health/admin appointments (dentist, yearly check-up …)
+}
+
+// --- Care schedule (recurring health / admin appointments per member) ---
+// The point: store "last visit + how often" and DERIVE the next-due date, so the
+// app can nudge "Mia's dental check-up is due" without anyone hand-entering a date.
+export type CareKind =
+  | 'Dental check-up'
+  | 'Medical check-up'
+  | 'Eye test'
+  | 'Vaccination / booster'
+  | 'Specialist review'
+  | 'Skin check'
+  | 'Other';
+
+export interface CareSchedule {
+  id: string;
+  kind: CareKind | string;   // one of CareKind, or free text
+  provider?: string;         // e.g. "Dr. Müller (Zahnarzt)"
+  lastVisit?: string;        // YYYY-MM-DD
+  intervalMonths: number;    // recur every N months (6 = twice a year, 12 = yearly)
+  nextDue?: string;          // optional explicit override; else derived from lastVisit + interval
+  notes?: string;
 }
 
 // --- Medical ---
@@ -190,11 +213,26 @@ export interface IdentityRecord {
 }
 
 // --- Travel ---
+// A season ticket / travel card — Wiener Linien Jahreskarte, ÖBB Klimaticket,
+// a rail pass, etc. validUntil drives renewal nudges; teens can "show" it.
+export interface TransitPass {
+  id: string;
+  name: string;            // e.g. "Wiener Linien Jahreskarte", "ÖBB Klimaticket"
+  operator?: string;       // e.g. "Wiener Linien", "ÖBB"
+  cardNumber?: string;
+  zone?: string;           // e.g. "Wien Kernzone", "Österreich"
+  validFrom?: string;      // YYYY-MM-DD
+  validUntil?: string;     // YYYY-MM-DD — expiry → nudge
+  scanDocId?: string;      // optional link to a saved document scan
+  notes?: string;
+}
+
 export interface TravelInfo {
   frequentFlyer?: string;
   travelInsuranceNumber?: string;
   etiasStatus?: string;         // ESTA / ETIAS status
   visas?: VisaRecord[];
+  transitPasses?: TransitPass[];  // Jahreskarte, Klimaticket, rail passes …
   preferences?: string;
   emergencyTravelContact?: string;
 }

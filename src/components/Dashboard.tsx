@@ -52,6 +52,7 @@ import MemberOverview from './MemberOverview';
 import NeedsAttention from './NeedsAttention';
 import MemberIDs from './MemberIDs';
 import MemberTravel from './MemberTravel';
+import CareSchedule from './CareSchedule';
 import MemberPreferences from './MemberPreferences';
 import EmergencyView from './EmergencyView';
 import HouseholdView from './HouseholdView';
@@ -65,7 +66,7 @@ import {
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
-  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard
+  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -90,12 +91,13 @@ export function calculateAge(birthdate?: string): string | null {
   return `${age} yrs`;
 }
 
-type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
+type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
 type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'medical', label: 'Medical', icon: HeartPulse },
+  { id: 'care', label: 'Care', icon: Stethoscope },
   { id: 'ids', label: 'ID & Passports', icon: IdCard },
   { id: 'sizes', label: 'Sizes', icon: Scissors },
   { id: 'favorites', label: 'Wishlist', icon: Heart },
@@ -1041,6 +1043,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               )}
                               {activeTab === 'medical' && (
                                 <MemberMedical member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                              )}
+                              {activeTab === 'care' && (
+                                <CareSchedule member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
                               {activeTab === 'ids' && (
                                 <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} />

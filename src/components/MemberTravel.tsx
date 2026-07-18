@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { FamilyMember, TravelInfo, VisaRecord } from '../types';
+import { FamilyMember, TravelInfo, VisaRecord, TransitPass } from '../types';
 import {
-  Plane, Plus, Trash2, Pencil, Check, X, ShieldCheck,
+  Plane, Plus, Trash2, Pencil, Check, X, ShieldCheck, TrainFront, Maximize2,
 } from 'lucide-react';
+import ShowCardModal from './ShowCardModal';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
@@ -18,6 +19,7 @@ const initTravel = (member: FamilyMember): TravelInfo => ({
   emergencyTravelContact: member.travel?.emergencyTravelContact || '',
   preferences: member.travel?.preferences || '',
   visas: member.travel?.visas || [],
+  transitPasses: member.travel?.transitPasses || [],
 });
 
 /* ---- Expiry chip ---- */
@@ -110,17 +112,125 @@ function VisaForm({
   );
 }
 
+/* ---- Transit pass form (add / edit) ---- */
+function TransitPassForm({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial?: TransitPass;
+  onSave: (p: TransitPass) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial?.name || '');
+  const [operator, setOperator] = useState(initial?.operator || '');
+  const [cardNumber, setCardNumber] = useState(initial?.cardNumber || '');
+  const [zone, setZone] = useState(initial?.zone || '');
+  const [validFrom, setValidFrom] = useState(initial?.validFrom || '');
+  const [validUntil, setValidUntil] = useState(initial?.validUntil || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+
+  const save = () => {
+    if (!name.trim()) { onCancel(); return; }
+    onSave({
+      id: initial?.id || newId(),
+      name: name.trim(),
+      operator: operator.trim() || undefined,
+      cardNumber: cardNumber.trim() || undefined,
+      zone: zone.trim() || undefined,
+      validFrom: validFrom || undefined,
+      validUntil: validUntil || undefined,
+      scanDocId: initial?.scanDocId,
+      notes: notes.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
+      <input
+        autoFocus
+        className="field"
+        placeholder="Pass name (e.g. Wiener Linien Jahreskarte)"
+        value={name}
+        onChange={e => setName(e.target.value)}
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input
+          className="field"
+          placeholder="Operator (e.g. Wiener Linien)"
+          value={operator}
+          onChange={e => setOperator(e.target.value)}
+        />
+        <input
+          className="field font-mono"
+          placeholder="Card number (optional)"
+          value={cardNumber}
+          onChange={e => setCardNumber(e.target.value)}
+        />
+      </div>
+      <input
+        className="field"
+        placeholder="Zone (e.g. Wien Kernzone)"
+        value={zone}
+        onChange={e => setZone(e.target.value)}
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div>
+          <label className="field-label">Valid from</label>
+          <input
+            type="date"
+            className="field"
+            title="Valid from"
+            value={validFrom}
+            onChange={e => setValidFrom(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="field-label">Valid until</label>
+          <input
+            type="date"
+            className="field"
+            title="Valid until"
+            value={validUntil}
+            onChange={e => setValidUntil(e.target.value)}
+          />
+        </div>
+      </div>
+      <input
+        className="field"
+        placeholder="Notes (optional)"
+        value={notes}
+        onChange={e => setNotes(e.target.value)}
+      />
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5">
+          <X className="w-3.5 h-3.5" /> Cancel
+        </button>
+        <button onClick={save} className="btn-primary text-xs px-3 py-1.5">
+          <Check className="w-3.5 h-3.5" /> Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ---- Main component ---- */
 export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
   const [travel, setTravel] = useState<TravelInfo>(() => initTravel(member));
   const [addingVisa, setAddingVisa] = useState(false);
   const [editVisaId, setEditVisaId] = useState<string | null>(null);
+  const [addingPass, setAddingPass] = useState(false);
+  const [editPassId, setEditPassId] = useState<string | null>(null);
+  const [showPass, setShowPass] = useState<TransitPass | null>(null);
 
   // Reset when selected member changes
   useEffect(() => {
     setTravel(initTravel(member));
     setAddingVisa(false);
     setEditVisaId(null);
+    setAddingPass(false);
+    setEditPassId(null);
+    setShowPass(null);
   }, [member.id]);
 
   /* Free-text field helpers */
@@ -154,6 +264,27 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
   };
 
   const visas = travel.visas || [];
+
+  /* Transit pass list helpers */
+  const savePass = (p: TransitPass) => {
+    const passes = travel.transitPasses || [];
+    const exists = passes.find(x => x.id === p.id);
+    const nextPasses = exists ? passes.map(x => x.id === p.id ? p : x) : [...passes, p];
+    const next = { ...travel, transitPasses: nextPasses };
+    setTravel(next);
+    onUpdate({ travel: next });
+    setAddingPass(false);
+    setEditPassId(null);
+  };
+
+  const deletePass = (id: string) => {
+    const nextPasses = (travel.transitPasses || []).filter(p => p.id !== id);
+    const next = { ...travel, transitPasses: nextPasses };
+    setTravel(next);
+    onUpdate({ travel: next });
+  };
+
+  const transitPasses = travel.transitPasses || [];
 
   return (
     <div className="space-y-6">
@@ -317,6 +448,119 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
           </div>
         )}
       </section>
+
+      {/* Season tickets & travel passes section */}
+      <section className="card p-5 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+          <h4 className="section-label flex items-center gap-1.5">
+            <TrainFront className="w-3.5 h-3.5" /> Season tickets & travel passes
+          </h4>
+          <button
+            onClick={() => { setAddingPass(true); setEditPassId(null); }}
+            className="btn-primary text-xs px-3 py-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add
+          </button>
+        </div>
+
+        {addingPass && (
+          <TransitPassForm
+            onSave={savePass}
+            onCancel={() => setAddingPass(false)}
+          />
+        )}
+
+        {transitPasses.length === 0 && !addingPass ? (
+          <p className="text-[13px] text-ink-400 py-6 text-center">
+            No season tickets added yet — track a Wiener Linien Jahreskarte, ÖBB Klimaticket, or other travel pass here.
+          </p>
+        ) : (
+          <div className="space-y-2.5">
+            {transitPasses.map(p =>
+              editPassId === p.id ? (
+                <div key={p.id}>
+                  <TransitPassForm
+                    initial={p}
+                    onSave={savePass}
+                    onCancel={() => setEditPassId(null)}
+                  />
+                </div>
+              ) : (
+                <div
+                  key={p.id}
+                  className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-[14px] font-semibold text-ink-900">{p.name}</p>
+                      <ExpiryChip expiryDate={p.validUntil} />
+                    </div>
+                    {p.operator && (
+                      <p className="text-[13px] text-ink-600">{p.operator}</p>
+                    )}
+                    {p.cardNumber && (
+                      <p className="font-mono text-[13px] text-ink-600 break-all">{p.cardNumber}</p>
+                    )}
+                    {p.zone && (
+                      <p className="text-[12px] text-ink-500">{p.zone}</p>
+                    )}
+                    {p.validUntil && (
+                      <p className="text-[12px] text-ink-500">
+                        Valid until {new Date(p.validUntil).toLocaleDateString('en-GB', {
+                          day: 'numeric', month: 'short', year: 'numeric',
+                        })}
+                      </p>
+                    )}
+                    {p.notes && (
+                      <p className="text-[12px] text-ink-400">{p.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => setShowPass(p)}
+                      className="p-1.5 text-ink-400 hover:text-dusk-600 hover:bg-cream-100 rounded-lg flex items-center gap-1 text-[12px] font-medium"
+                      title="Show"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" /> Show
+                    </button>
+                    <button
+                      onClick={() => { setEditPassId(p.id); setAddingPass(false); }}
+                      className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg"
+                      title="Edit"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deletePass(p.id)}
+                      className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </section>
+
+      <ShowCardModal
+        open={!!showPass}
+        onClose={() => setShowPass(null)}
+        title={showPass?.name || ''}
+        subtitle={member.name}
+        fields={showPass ? [
+          { label: 'Card number', value: showPass.cardNumber || '—', mono: true, big: true },
+          { label: 'Zone', value: showPass.zone || '—' },
+          {
+            label: 'Valid until',
+            value: showPass.validUntil
+              ? new Date(showPass.validUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+              : '—',
+          },
+        ] : []}
+      />
     </div>
   );
 }

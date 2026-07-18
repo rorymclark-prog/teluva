@@ -1,8 +1,9 @@
 import {
-  AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye, Lock,
+  AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye, Lock, Stethoscope,
 } from 'lucide-react';
 import type { ElementType } from 'react';
 import { FamilyMember, FamilyDocument } from '../types';
+import { soonestCare, careDueLabel } from '../utils/care';
 
 // Proof of address: an ID-category scan named like a Meldezettel / registration
 // certificate. Lets us show a "view" icon next to the address.
@@ -47,6 +48,9 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
   const age = calcAge(member.birthdate);
   const expiry = nearestExpiry(member);
 
+  const care = soonestCare(member.careSchedule);
+  const showCare = care && (care.due.status === 'overdue' || care.due.status === 'due-soon');
+
   const tiles: { label: string; value: string }[] = [];
   if (age) tiles.push({ label: 'Age', value: age });
   if (med.bloodGroup) tiles.push({ label: 'Blood', value: med.bloodGroup });
@@ -64,7 +68,7 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
   if (member.email) rows.push({ icon: Mail, label: 'Email', value: member.email });
   if (member.address) rows.push({ icon: MapPin, label: 'Address', value: member.address, viewSrc: findAddressScan(member)?.fileData });
 
-  const isEmpty = tiles.length === 0 && rows.length === 0 && !expiry && !hasPrivateMedical;
+  const isEmpty = tiles.length === 0 && rows.length === 0 && !expiry && !hasPrivateMedical && !showCare;
 
   if (isEmpty) {
     return (
@@ -88,6 +92,15 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
           <Bell className={`w-4 h-4 mt-0.5 shrink-0 ${expiry.status === 'expired' ? 'text-rosa-600' : 'text-honey-700'}`} />
           <p className={`text-[13px] font-medium ${expiry.status === 'expired' ? 'text-rosa-800' : 'text-honey-900'}`}>
             {first}&apos;s {expiry.label} {expiry.status === 'expired' ? 'has expired' : `expires ${expiry.date}`} — worth sorting the renewal.
+          </p>
+        </div>
+      )}
+
+      {showCare && (
+        <div className={`p-4 rounded-2xl border flex items-start gap-3 ${care!.due.status === 'overdue' ? 'bg-rosa-50 border-rosa-100' : 'bg-honey-50 border-honey-100'}`}>
+          <Stethoscope className={`w-4 h-4 mt-0.5 shrink-0 ${care!.due.status === 'overdue' ? 'text-rosa-600' : 'text-honey-700'}`} />
+          <p className={`text-[13px] font-medium ${care!.due.status === 'overdue' ? 'text-rosa-800' : 'text-honey-900'}`}>
+            {first}&apos;s {care!.item.kind} — {careDueLabel(care!.due)}
           </p>
         </div>
       )}
