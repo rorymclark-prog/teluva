@@ -58,6 +58,7 @@ import MemberPreferences from './MemberPreferences';
 import EmergencyView from './EmergencyView';
 import HouseholdView from './HouseholdView';
 import FinancesView from './FinancesView';
+import InsuranceView from './InsuranceView';
 import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
@@ -100,7 +101,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -123,6 +124,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'info', icon: IdCard },
   { id: 'household', icon: Home },
   { id: 'finances', icon: Landmark },
+  { id: 'insurance', icon: ShieldCheck },
   { id: 'timeline', icon: CalendarHeart },
   { id: 'vault', icon: FolderArchive },
   { id: 'assets', icon: Package },
@@ -865,6 +867,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         {mainView === 'household' && <HouseholdView key={aiDataVersion} />}
 
         {mainView === 'finances' && <FinancesView key={aiDataVersion} />}
+        {mainView === 'insurance' && <InsuranceView members={members} />}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
 

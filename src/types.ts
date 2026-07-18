@@ -301,13 +301,37 @@ export interface BankAccount {
   notes?: string;
 }
 
+// A peril / component within a policy (Fire, Water, Theft, Away-from-home …).
+export interface InsuranceCoverage {
+  id: string;
+  name: string;
+  limit?: string;
+  notes?: string;
+}
+
 export interface InsurancePolicy {
   id: string;
-  provider: string;
-  type?: string;                // e.g. "Home", "Health", "Car"
+  provider: string;              // insurer name (field kept as 'provider' for back-compat)
+  type?: string;                 // Home contents / Health / Car / Travel / Life / Liability / Valuables / Other
   policyNumber?: string;
-  renewalDate?: string;
+  renewalDate?: string;          // Hauptfälligkeit / main due date
   notes?: string;
+  // --- Phase 2: richer policy record ---
+  claimsPhone?: string;          // dedicated claims line
+  claimsNotes?: string;          // how to report a claim / portal URL
+  broker?: string;
+  sumInsured?: string;
+  currency?: string;             // ISO 4217, default EUR
+  excess?: string;               // deductible / Selbstbehalt
+  premium?: string;
+  premiumFrequency?: string;     // Monthly / Quarterly / Semi-annual / Annual
+  startDate?: string;
+  geographicScope?: string;      // e.g. Austria / Schengen / Worldwide
+  cancellationNoticeDays?: number; // notice period; AT is generally 1–3 months (read the policy)
+  status?: 'active' | 'lapsed' | 'cancelled';
+  coverage?: InsuranceCoverage[];
+  coveredMemberIds?: string[];   // family member ids this policy covers
+  coveredAssetIds?: string[];    // asset ids this policy covers
 }
 
 export interface BenefitInfo {
