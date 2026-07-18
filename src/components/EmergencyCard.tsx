@@ -1,11 +1,35 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { motion } from 'motion/react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
-  Siren, X, AlertTriangle, Droplet, Pill, Activity, Phone, CreditCard, Printer, Leaf,
+  Siren, X, AlertTriangle, Droplet, Pill, Activity, Phone, CreditCard, Printer, Leaf, ScanLine,
 } from 'lucide-react';
 import type { FamilyMember, CalendarEvent } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
+
+// A compact, self-contained plain-text ICE summary encoded into the QR so a
+// first responder can scan it with any phone camera — no app, no network. Kept
+// short (only fields on file) so the QR stays low-density and easy to scan.
+function buildIceText(m: FamilyMember, age: string | null, fallbacks: FallbackContact[]): string {
+  const med = m.medical;
+  const lines: string[] = [];
+  lines.push(`ICE - ${m.name}${age ? ` (${age})` : ''}`);
+  if (m.birthdate) lines.push(`DOB: ${m.birthdate}`);
+  lines.push(`Blood: ${med?.bloodGroup || 'unknown'}`);
+  lines.push(`Allergies: ${med?.allergies || 'none on file'}`);
+  if (med?.medications) lines.push(`Meds: ${med.medications}`);
+  if (med?.emergencyMedication) lines.push(`Emergency med: ${med.emergencyMedication}`);
+  if (med?.conditions) lines.push(`Conditions: ${med.conditions}`);
+  if (med?.organDonor === true) lines.push('Organ donor: yes');
+  if (m.identity?.eCardNumber) lines.push(`e-card: ${m.identity.eCardNumber}`);
+  if (m.emergencyContactName || m.emergencyContactPhone) {
+    lines.push(`Emergency contact: ${[m.emergencyContactName, m.emergencyContactPhone].filter(Boolean).join(' ')}`);
+  }
+  fallbacks.forEach((c) => lines.push(`Also: ${c.name} ${c.phone}`));
+  // Cap length so the QR stays scannable even if free-text fields are verbose.
+  return lines.join('\n').slice(0, 600);
+}
 
 // Age at a glance — months for infants/toddlers (<2y), years otherwise. Kept
 // local (not imported from Dashboard/MemberOverview) so this file has zero
@@ -87,6 +111,10 @@ export default function EmergencyCard({
   const first = selected ? selected.name.split(/\s+/)[0] || selected.name : '';
   const hasMedicationInfo = !!(med?.medications || med?.emergencyMedication || med?.conditions);
   const hasContactInfo = !!(selected?.emergencyContactName || selected?.emergencyContactPhone || fallbackContacts.length > 0);
+  const iceText = useMemo(
+    () => (selected ? buildIceText(selected, age, fallbackContacts) : ''),
+    [selected, age, fallbackContacts],
+  );
 
   return (
     <motion.div
@@ -197,6 +225,21 @@ export default function EmergencyCard({
                       <span className="text-[12px] text-ink-400 font-medium tabular-nums">b. {selected.birthdate}</span>
                     )}
                   </div>
+                </div>
+              </div>
+
+              {/* Scannable ICE QR — any phone camera reads it, offline, no app needed */}
+              <div className="rounded-3xl border border-cream-300 bg-white p-4 sm:p-5 flex items-center gap-4 sm:gap-5 break-inside-avoid">
+                <div className="shrink-0 rounded-2xl bg-white p-2 border border-cream-200">
+                  <QRCodeSVG value={iceText} size={112} level="M" marginSize={0} />
+                </div>
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-ink-500">
+                    <ScanLine className="w-3.5 h-3.5" /> Scan in an emergency
+                  </p>
+                  <p className="text-[14px] font-semibold text-ink-800 mt-1 leading-snug">
+                    Point any phone camera here to read {first}&apos;s critical details — works offline, no app needed.
+                  </p>
                 </div>
               </div>
 
