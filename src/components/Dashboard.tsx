@@ -48,6 +48,7 @@ import ShoppingList from './ShoppingList';
 import ImportantInfo from './ImportantInfo';
 import MemberFavorites from './MemberFavorites';
 import MemberMedical from './MemberMedical';
+import MemberOverview from './MemberOverview';
 import MemberIDs from './MemberIDs';
 import MemberTravel from './MemberTravel';
 import MemberPreferences from './MemberPreferences';
@@ -63,7 +64,7 @@ import {
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
-  Package, KeyRound, MapPin, Phone, Mail
+  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -88,10 +89,11 @@ export function calculateAge(birthdate?: string): string | null {
   return `${age} yrs`;
 }
 
-type TabId = 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
+type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
 type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'medical', label: 'Medical', icon: HeartPulse },
   { id: 'ids', label: 'ID & Passports', icon: IdCard },
   { id: 'sizes', label: 'Sizes', icon: Scissors },
@@ -186,7 +188,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<TabId>('medical');
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [settings, setSettings] = useState<HubSettings>({});
@@ -662,14 +664,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
   const selectedMember = members.find(m => m.id === selectedMemberId);
 
-  // Growth logs are pediatric — if a non-child is selected while Growth is the
-  // active tab, fall back to Medical so the pane isn't blank (Growth is hidden
-  // for adults in the tab bar).
+  // Open every member on their Overview summary (like iOS Contacts) — resets when
+  // you switch members, so you no longer always land on the Medical form. Also
+  // covers the pediatric-only Growth tab (never the landing; hidden for adults).
   useEffect(() => {
-    if (activeTab === 'growth' && selectedMember && selectedMember.role !== 'Child') {
-      setActiveTab('medical');
-    }
-  }, [selectedMember, activeTab]);
+    setActiveTab('overview');
+  }, [selectedMemberId]);
 
   // Renewal notices across passports, permits, licenses and visas (real date)
   const expiryWarnings = (() => {
@@ -1039,6 +1039,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                             transition={{ duration: 0.12 }}
                           >
                             <>
+                              {activeTab === 'overview' && (
+                                <MemberOverview member={selectedMember} />
+                              )}
                               {activeTab === 'medical' && (
                                 <MemberMedical member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
