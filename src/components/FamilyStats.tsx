@@ -28,6 +28,10 @@ function ageLabel(birthdate?: string): string | null {
   if (yrs === null) return null;
   if (yrs < 2) {
     const months = Math.max(0, Math.round(yrs * 12));
+    // yrs < 2 caps months at 24 (round(<24) never exceeds 24), so hitting the
+    // cap always means "2 yrs" — never derive this from Math.floor(yrs), which
+    // would wrongly read back as "1 yrs" for yrs just under 2.
+    if (months >= 24) return '2 yrs';
     return `${months} mo`;
   }
   return `${Math.floor(yrs)} yrs`;
@@ -35,12 +39,15 @@ function ageLabel(birthdate?: string): string | null {
 
 function daysUntilNextBirthday(birthdate?: string): { days: number; dateLabel: string } | null {
   if (!birthdate) return null;
-  const b = new Date(birthdate);
-  if (isNaN(b.getTime())) return null;
+  // Parse the date-only YYYY-MM-DD string by its calendar components rather than
+  // letting `new Date(string)` interpret it as a UTC instant — that would then get
+  // read back with local getMonth()/getDate(), shifting the day in western timezones.
+  const [by, bm, bd] = birthdate.split('-').map(Number);
+  if (!by || !bm || !bd) return null;
   const now = new Date();
   const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let next = new Date(now.getFullYear(), b.getMonth(), b.getDate());
-  if (next < todayMid) next = new Date(now.getFullYear() + 1, b.getMonth(), b.getDate());
+  let next = new Date(now.getFullYear(), bm - 1, bd);
+  if (next < todayMid) next = new Date(now.getFullYear() + 1, bm - 1, bd);
   const days = Math.round((next.getTime() - todayMid.getTime()) / (1000 * 60 * 60 * 24));
   const dateLabel = next.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return { days, dateLabel };
@@ -103,6 +110,20 @@ function flagFor(country: string): string {
   return COUNTRY_FLAGS[country.trim().toLowerCase()] ?? '🏳️';
 }
 
+// Shoe sizes are freeform strings and sizing systems (EU/UK/US) aren't directly
+// comparable as raw numbers. Detect a system tag when present; default to EU
+// (the common convention for this Austria-based family) when the string is a
+// bare, unqualified number so ambiguous entries don't silently corrupt the
+// biggest/smallest comparison below.
+type ShoeSystem = 'EU' | 'UK' | 'US';
+
+function detectShoeSystem(raw: string): ShoeSystem {
+  const s = raw.toLowerCase();
+  if (/\buk\b/.test(s)) return 'UK';
+  if (/\bus\b/.test(s)) return 'US';
+  return 'EU';
+}
+
 // ── Presentational bits ─────────────────────────────────────────────────────
 
 type Tone = 'clay' | 'sage' | 'honey' | 'dusk' | 'rosa' | 'ink';
@@ -156,6 +177,14 @@ export default function FamilyStats({ members, events, onClose }: {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // If the selected member disappears from the family list (removed elsewhere),
+  // fall back to "Everyone" instead of silently rendering a blank pane.
+  useEffect(() => {
+    if (selectedId !== 'all' && !members.some((m) => m.id === selectedId)) {
+      setSelectedId('all');
+    }
+  }, [members, selectedId]);
+
   const stats = useMemo(() => {
     const withAge = members.filter((m) => ageYearsFloat(m.birthdate) !== null);
     const ages = withAge.map((m) => ageYearsFloat(m.birthdate)!);
@@ -187,12 +216,20 @@ export default function FamilyStats({ members, events, onClose }: {
       if (h !== null && (!tallest || h > tallest.cm)) tallest = { member: m, cm: h };
     });
 
+    // Only compare shoe sizes within a single detected sizing system (EU/UK/US) —
+    // raw numbers across systems aren't on the same scale, so a member whose
+    // string tags a different system than the one already established is
+    // skipped from this comparison rather than silently mixed in.
+    let shoeSystem: ShoeSystem | null = null;
     let biggestShoe: { member: FamilyMember; raw: string; n: number } | null = null;
     let smallestShoe: { member: FamilyMember; raw: string; n: number } | null = null;
     members.forEach((m) => {
       const raw = m.clothingSizes?.shoes;
       const n = parseLeadingNumber(raw);
       if (n === null || !raw) return;
+      const sys = detectShoeSystem(raw);
+      if (shoeSystem === null) shoeSystem = sys;
+      if (sys !== shoeSystem) return;
       if (!biggestShoe || n > biggestShoe.n) biggestShoe = { member: m, raw, n };
       if (!smallestShoe || n < smallestShoe.n) smallestShoe = { member: m, raw, n };
     });
@@ -292,7 +329,7 @@ export default function FamilyStats({ members, events, onClose }: {
         tone: 'rosa',
       });
     }
-    if (stats.onRecordYears !== null) {
+    if (stats.onRecordYears !== null && stats.onRecordYears >= 0.1) {
       t.push({
         icon: Sparkles,
         label: 'On record since',
@@ -521,7 +558,11 @@ export default function FamilyStats({ members, events, onClose }: {
                     </div>
                   )}
                 </div>
-              ) : null}
+              ) : (
+                <p className="text-[13px] text-ink-400 text-center py-10">
+                  This person is no longer in your family list.
+                </p>
+              )}
             </>
           )}
         </div>

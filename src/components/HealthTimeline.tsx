@@ -34,9 +34,12 @@ function firstName(name: string): string {
 }
 
 function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const parts = iso.split('-').map(Number);
+  const [y, m, d] = parts;
+  const date =
+    parts.length === 3 && !parts.some((n) => isNaN(n)) ? new Date(y, m - 1, d) : new Date(iso);
+  if (isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function signed(n: number, unit: string): string {
@@ -83,9 +86,10 @@ export default function HealthTimeline({ members, events, onClose }: Props) {
     const growthAsc = [...(child.growthHistory || [])].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
+    let lastWeighed: (typeof growthAsc)[number] | null = null;
     const growthItems: TimelineItem[] = growthAsc.map((g, i) => {
       const prev = i > 0 ? growthAsc[i - 1] : null;
-      return {
+      const item: TimelineItem = {
         id: `growth-${g.id}`,
         date: g.date,
         kind: 'growth',
@@ -93,8 +97,10 @@ export default function HealthTimeline({ members, events, onClose }: Props) {
         weightKg: g.weightKg,
         notes: g.notes,
         deltaHeightCm: prev ? g.heightCm - prev.heightCm : null,
-        deltaWeightKg: prev && g.weightKg && prev.weightKg ? g.weightKg - prev.weightKg : null,
+        deltaWeightKg: g.weightKg && lastWeighed ? g.weightKg - lastWeighed.weightKg : null,
       };
+      if (g.weightKg) lastWeighed = g;
+      return item;
     });
 
     const careItems: TimelineItem[] = (child.careSchedule || [])
@@ -262,14 +268,18 @@ export default function HealthTimeline({ members, events, onClose }: Props) {
 
                     <div className="rounded-2xl border border-sage-100 bg-sage-50 p-3.5 flex items-center justify-between col-span-2 sm:col-span-1">
                       <div>
-                        <p className="text-lg font-bold text-sage-700 tabular-nums">
+                        <p
+                          className={`text-lg font-bold tabular-nums ${heightGrowth != null && heightGrowth < 0 ? 'text-honey-700' : 'text-sage-700'}`}
+                        >
                           {heightGrowth != null ? signed(heightGrowth, ' cm') : 'New'}
                         </p>
                         <p className="text-[11px] font-bold text-sage-600 uppercase tracking-wide">
                           {firstDate ? `Since ${fmtDate(firstDate)}` : 'Growth so far'}
                         </p>
                         {weightGrowth != null && (
-                          <p className="text-[11px] text-sage-600 mt-0.5 tabular-nums">
+                          <p
+                            className={`text-[11px] mt-0.5 tabular-nums ${weightGrowth < 0 ? 'text-honey-700' : 'text-sage-600'}`}
+                          >
                             {signed(weightGrowth, ' kg')} weight
                           </p>
                         )}
@@ -327,7 +337,9 @@ export default function HealthTimeline({ members, events, onClose }: Props) {
                                     <span className="text-[15px] font-semibold text-ink-900 tabular-nums">
                                       {item.heightCm} cm
                                       {item.deltaHeightCm != null && (
-                                        <span className="ml-1.5 text-[12px] font-semibold text-sage-600">
+                                        <span
+                                          className={`ml-1.5 text-[12px] font-semibold ${item.deltaHeightCm >= 0 ? 'text-sage-600' : 'text-honey-700'}`}
+                                        >
                                           ({signed(item.deltaHeightCm, ' cm')})
                                         </span>
                                       )}

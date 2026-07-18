@@ -77,7 +77,7 @@ export default function BabysitterMode({ members, events, onClose }: Props) {
     const ids = new Set(shownChildren.map((c) => c.id));
     return events
       .filter((e) => e.date === today)
-      .filter((e) => selectedId === 'all' || !e.memberIds?.length || e.memberIds.some((id) => ids.has(id)))
+      .filter((e) => !e.memberIds?.length || e.memberIds.some((id) => ids.has(id)))
       .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   }, [events, today, selectedId, shownChildren]);
 
@@ -360,7 +360,9 @@ function InfoBlock({
       <p className={`section-label flex items-center gap-1.5 mb-1 ${isHoney ? 'text-honey-700' : ''}`}>
         <Icon className="w-3.5 h-3.5" /> {label}
       </p>
-      <p className={`text-[14px] leading-snug ${isHoney ? 'text-honey-900 font-semibold' : 'text-ink-800 font-medium'}`}>{value}</p>
+      {value && (
+        <p className={`text-[14px] leading-snug ${isHoney ? 'text-honey-900 font-semibold' : 'text-ink-800 font-medium'}`}>{value}</p>
+      )}
       {extra && <p className="text-[12px] text-ink-500 mt-0.5">{extra}</p>}
     </div>
   );

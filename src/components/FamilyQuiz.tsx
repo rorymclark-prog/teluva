@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ElementType } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  X, Sparkles, Trophy, Cake, Footprints, Ruler, Plane, Globe2, Baby, FileText, Stethoscope,
+  X, Sparkles, Trophy, Cake, Footprints, Ruler, Plane, Globe2, Baby, FileText,
   Check, ChevronRight, RotateCcw, PartyPopper, Users,
 } from 'lucide-react';
 import { FamilyMember, CalendarEvent } from '../types';
@@ -49,24 +49,32 @@ function firstName(m: FamilyMember): string {
 }
 
 // Disambiguate two family members who share a first name within one question.
+// A single last-initial isn't always enough (e.g. "Anna Schmidt" and "Anna
+// Sommer" both reduce to "Anna S."), so fall through to the full remaining
+// name segment, and finally to a stable per-member suffix for genuine
+// full-name duplicates (twins, etc.) rather than ever rendering two
+// identical-looking options.
 function labelFor(m: FamilyMember, group: FamilyMember[]): string {
   const fn = firstName(m);
-  const dupe = group.some((o) => o.id !== m.id && firstName(o) === fn);
-  if (!dupe) return fn;
+  const others = group.filter((o) => o.id !== m.id);
+  const sameFirstName = others.filter((o) => firstName(o) === fn);
+  if (sameFirstName.length === 0) return fn;
+
   const rest = m.name.split(/\s+/).slice(1).join(' ');
-  return rest ? `${fn} ${rest.charAt(0)}.` : fn;
+  const withRest = rest ? `${fn} ${rest}` : fn;
+
+  // Does the full name still collide with another member who shares this
+  // first name (not just their initial)?
+  const stillCollides = sameFirstName.some((o) => o.name.split(/\s+/).slice(1).join(' ') === rest);
+  if (!stillCollides) return withRest;
+
+  return `${withRest} (${m.id.slice(-4)})`;
 }
 
 function parseDate(s?: string): Date | null {
   if (!s) return null;
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
-}
-
-function addMonths(date: Date, months: number): Date {
-  const d = new Date(date.getTime());
-  d.setMonth(d.getMonth() + months);
-  return d;
 }
 
 function rotateArray<T>(arr: T[], by: number): T[] {
@@ -114,10 +122,20 @@ function birthdateMs(m: FamilyMember): number | null {
 }
 
 function shoeSizeValue(m: FamilyMember): number | null {
-  const match = m.clothingSizes?.shoes?.match(/\d+(\.\d+)?/);
-  if (!match) return null;
-  const v = parseFloat(match[0]);
-  return isNaN(v) ? null : v;
+  const s = m.clothingSizes?.shoes;
+  if (!s) return null;
+  // Explicit UK/US sizing (without an EU marker) uses a different numeric
+  // scale than EU sizing (e.g. UK 7 vs EU 40) — not safely comparable to
+  // other members' EU-style entries, so skip rather than risk a wrong winner.
+  if (/\b(UK|US)\b/i.test(s) && !/\bEU\b/i.test(s)) return null;
+  const matches = s.match(/\d+(\.\d+)?/g);
+  if (!matches || matches.length === 0) return null;
+  const nums = matches.map(parseFloat).filter((n) => !isNaN(n));
+  if (nums.length === 0) return null;
+  // Freeform ranges like "EU 30-31" or "EU 38 - 45" should compare on their
+  // midpoint, not just the first (lower-bound) number the regex happens to
+  // find first.
+  return nums.length > 1 ? (Math.min(...nums) + Math.max(...nums)) / 2 : nums[0];
 }
 
 function heightValue(m: FamilyMember): number | null {
@@ -147,19 +165,11 @@ function documentCount(m: FamilyMember): number | null {
   return n > 0 ? n : null;
 }
 
-function nextCareDueMs(m: FamilyMember): number | null {
-  const dates: number[] = [];
-  (m.careSchedule || []).forEach((item) => {
-    let due: Date | null = null;
-    if (item.nextDue) due = parseDate(item.nextDue);
-    else if (item.lastVisit) {
-      const lv = parseDate(item.lastVisit);
-      if (lv) due = addMonths(lv, item.intervalMonths || 12);
-    }
-    if (due) dates.push(due.getTime());
-  });
-  return dates.length ? Math.min(...dates) : null;
-}
+// Note: we deliberately don't derive a quiz question from careSchedule
+// (dental/medical/vaccination due dates). Unlike birthdays or shoe sizes,
+// health-appointment timing is sensitive, and this quiz is reachable by any
+// logged-in user with no role gating or opt-in — so it's excluded outright
+// rather than surfaced in a shared, gamified context.
 
 // ---------------------------------------------------------------------------
 // Question generators — one metric, one comparator, one deterministic winner
@@ -246,13 +256,6 @@ function generateQuestions(members: FamilyMember[]): QuizQuestion[] {
       correctReaction: 'The most well-documented family member!',
       wrongReaction: (label) => `${label} has the fattest file.`,
       formatDetail: (v) => `${v} document${v === 1 ? '' : 's'} on file.`,
-    }),
-    makeComparisonQuestion({
-      members, metric: nextCareDueMs, mode: 'min', seed: 7,
-      id: 'care-soonest', prompt: "Whose next check-up is coming up soonest?", icon: Stethoscope,
-      correctReaction: 'On top of the health admin!',
-      wrongReaction: (label) => `${label}'s appointment is the closest one.`,
-      formatDetail: (v) => `Due ${new Date(v).toLocaleDateString()}.`,
     }),
   ];
   return candidates.filter((q): q is QuizQuestion => q !== null).slice(0, 6);
@@ -427,7 +430,7 @@ export default function FamilyQuiz({ members, events, onClose }: { members: Fami
                               active ? 'bg-clay-500 text-white' : 'bg-cream-100 text-ink-500 border border-cream-300 hover:bg-cream-200'
                             }`}
                           >
-                            {firstName(m)}
+                            {labelFor(m, members)}
                           </button>
                         );
                       })}

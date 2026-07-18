@@ -10,10 +10,20 @@ import { warmAvatarColor } from '../utils/avatarPalette';
 // Age at a glance — months for infants/toddlers (<2y), years otherwise. Kept
 // local (not imported from Dashboard/MemberOverview) so this file has zero
 // cross-component coupling — a break-glass card must render standalone.
+function parseDateOnly(dateStr: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (match) {
+    const [, y, mo, d] = match;
+    return new Date(Number(y), Number(mo) - 1, Number(d));
+  }
+  const fallback = new Date(dateStr);
+  return isNaN(fallback.getTime()) ? null : fallback;
+}
+
 function calcAge(birthdate?: string): string | null {
   if (!birthdate) return null;
-  const b = new Date(birthdate);
-  if (isNaN(b.getTime())) return null;
+  const b = parseDateOnly(birthdate);
+  if (!b) return null;
   const now = new Date();
   let age = now.getFullYear() - b.getFullYear();
   const m = now.getMonth() - b.getMonth();
@@ -265,11 +275,11 @@ export default function EmergencyCard({
               )}
 
               {/* Emergency contacts */}
-              {hasContactInfo && (
-                <div className="rounded-2xl bg-cream-100 border border-cream-200 p-4 sm:p-5 break-inside-avoid">
-                  <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-ink-500">
-                    <Phone className="w-3.5 h-3.5" /> Emergency contacts
-                  </p>
+              <div className="rounded-2xl bg-cream-100 border border-cream-200 p-4 sm:p-5 break-inside-avoid">
+                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-ink-500">
+                  <Phone className="w-3.5 h-3.5" /> Emergency contacts
+                </p>
+                {hasContactInfo ? (
                   <div className="mt-2 space-y-3">
                     {(selected.emergencyContactName || selected.emergencyContactPhone) && (
                       <div>
@@ -303,8 +313,10 @@ export default function EmergencyCard({
                       </div>
                     )}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="text-[13px] font-semibold text-ink-400 italic mt-2">No emergency contact on file.</p>
+                )}
+              </div>
             </div>
 
             <p className="pb-5 sm:pb-7 px-5 sm:px-7 text-center text-[12px] text-ink-400">

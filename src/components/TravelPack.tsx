@@ -47,9 +47,18 @@ function formatDate(d?: string): string {
 function buildDocRows(member: FamilyMember): DocRow[] {
   const rows: DocRow[] = [];
 
+  // MemberIDs.tsx's foldPassports() migrates the legacy single `member.passport`
+  // into `member.passports[]` (as id `legacy-<number>`) on first load, but never
+  // clears the original field — so once folded, both live on side by side.
+  // Mirror foldPassports()'s own dedupe check (match by passport number) so we
+  // don't double-render/double-count the same passport.
+  const modernPassports = member.passports || [];
+  const legacyAlreadyFolded = !!member.passport?.passportNumber
+    && modernPassports.some((p) => p.number === member.passport?.passportNumber);
+
   const passports: { id: string; country?: string; number?: string; expiryDate?: string }[] = [
-    ...(member.passports || []).map((p) => ({ id: p.id, country: p.country, number: p.number, expiryDate: p.expiryDate })),
-    ...(member.passport?.passportNumber
+    ...modernPassports.map((p) => ({ id: p.id, country: p.country, number: p.number, expiryDate: p.expiryDate })),
+    ...(member.passport?.passportNumber && !legacyAlreadyFolded
       ? [{ id: 'legacy', country: member.passport.issuingCountry, number: member.passport.passportNumber, expiryDate: member.passport.expiryDate }]
       : []),
   ];
@@ -347,7 +356,9 @@ export default function TravelPack({ members, onClose }: { members: FamilyMember
                                 ? 'bg-rosa-100 text-rosa-600'
                                 : r.status === 'soon'
                                   ? 'bg-honey-100 text-honey-700'
-                                  : 'bg-sage-100 text-sage-700';
+                                  : r.status === 'ok'
+                                    ? 'bg-sage-100 text-sage-700'
+                                    : 'bg-cream-200 text-ink-600';
                               return (
                                 <div key={r.key} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
                                   <div className={`p-1.5 rounded-lg shrink-0 ${iconStyle}`}>

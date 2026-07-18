@@ -50,6 +50,21 @@ function dayOfYear(d: Date): number {
   return Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(d.getFullYear(), 0, 0)) / DAY);
 }
 
+function isLeapYear(y: number): boolean {
+  return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+}
+
+// Builds a same-year occurrence of (month, day). Feb 29 has no representation
+// in non-leap years, and the plain Date constructor silently rolls it over to
+// Mar 1 — that quietly shifts birthday/anniversary math by a day, so we pin
+// the convention explicitly: collapse to Feb 28 in non-leap years.
+function occurrenceInYear(year: number, month: number, day: number): Date {
+  if (month === 1 && day === 29 && !isLeapYear(year)) {
+    return new Date(year, 1, 28);
+  }
+  return new Date(year, month, day);
+}
+
 const SEASONS = ['winter', 'winter', 'spring', 'spring', 'spring', 'summer', 'summer', 'summer', 'autumn', 'autumn', 'autumn', 'winter'];
 
 function seasonLabel(then: Date, today: Date): string {
@@ -67,8 +82,8 @@ function birthdayInsight(m: FamilyMember, today: Date): Insight | null {
   if (isNaN(bd.getTime())) return null;
 
   const t0 = startOfDay(today);
-  const next = new Date(t0.getFullYear(), bd.getMonth(), bd.getDate());
-  if (next.getTime() < t0.getTime()) next.setFullYear(t0.getFullYear() + 1);
+  let next = occurrenceInYear(t0.getFullYear(), bd.getMonth(), bd.getDate());
+  if (next.getTime() < t0.getTime()) next = occurrenceInYear(t0.getFullYear() + 1, bd.getMonth(), bd.getDate());
   const days = Math.round((next.getTime() - t0.getTime()) / DAY);
   if (days > 10) return null;
 
@@ -96,11 +111,10 @@ function growthInsight(m: FamilyMember, today: Date): Insight | null {
 
   const newest = hist[hist.length - 1];
   const minGap = DAY * 120;
-  let older = hist[0];
-  for (const g of hist) {
-    if (newest.t - g.t >= minGap) { older = g; break; }
-  }
-  if (older.t === newest.t) return null;
+  // hist is sorted ascending, so hist[0] is the only candidate that can ever
+  // maximize the gap to `newest` — if even that doesn't clear minGap, nothing will.
+  const older = hist[0];
+  if (older.t === newest.t || newest.t - older.t < minGap) return null;
 
   const delta = Math.round((newest.heightCm - older.heightCm) * 10) / 10;
   if (delta <= 0) return null;
@@ -123,13 +137,17 @@ function anniversaryInsight(ev: CalendarEvent, memberById: Map<string, FamilyMem
   if (isNaN(d.getTime())) return null;
 
   const t0 = startOfDay(today);
-  const occurrence = new Date(t0.getFullYear(), d.getMonth(), d.getDate());
+  const occurrence = occurrenceInYear(t0.getFullYear(), d.getMonth(), d.getDate());
   let diff = Math.round((occurrence.getTime() - t0.getTime()) / DAY);
-  if (diff > 182) diff -= 365;
-  if (diff < -182) diff += 365;
+  // occYear tracks which calendar year the *actual* nearest occurrence fell in —
+  // keep it in lockstep with diff's own wraparound so yearsAgo stays consistent
+  // (e.g. viewing a Dec 30 event on Jan 2 must count from last year, not this one).
+  let occYear = t0.getFullYear();
+  if (diff > 182) { diff -= 365; occYear -= 1; }
+  if (diff < -182) { diff += 365; occYear += 1; }
   if (diff > 0 || diff < -3) return null; // only "today" through "a few days ago"
 
-  const yearsAgo = t0.getFullYear() - d.getFullYear();
+  const yearsAgo = occYear - d.getFullYear();
   if (yearsAgo < 1) return null;
 
   const meta = EVENT_META[ev.category] || EVENT_META.Other;
