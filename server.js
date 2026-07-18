@@ -594,6 +594,200 @@ app.post('/api/refresh-claims', async (req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
+// ---------------------------------------------------------------------------
+// Babysitter / carer share links. An admin/member generates a time-limited,
+// revocable link showing ONLY carer-safe info (allergies, meds, conditions,
+// doctor, school, emergency contacts) for the children — NEVER passwords,
+// passports, ID/e-card numbers or finances. The snapshot is frozen at creation
+// and whitelisted server-side, so nothing sensitive can be smuggled in; the
+// public page is server-rendered (no auth, no SPA, no client Firestore access).
+// ---------------------------------------------------------------------------
+const CARER_MAX_HOURS = 24 * 7;       // 7 days
+const CARER_DEFAULT_HOURS = 48;
+
+const clip = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+// Keep ONLY the whitelisted carer-safe fields — silently drop anything else.
+function sanitizeCarerSnapshot(raw) {
+  const o = raw && typeof raw === 'object' ? raw : {};
+  const children = (Array.isArray(o.children) ? o.children : []).slice(0, 12).map((c) => ({
+    name: clip(c?.name, 80),
+    age: clip(c?.age, 24),
+    allergies: clip(c?.allergies, 500),
+    medications: clip(c?.medications, 500),
+    conditions: clip(c?.conditions, 500),
+    doctor: clip(c?.doctor, 240),
+    school: clip(c?.school, 240),
+    notes: clip(c?.notes, 500),
+  }));
+  const contacts = (Array.isArray(o.contacts) ? o.contacts : []).slice(0, 8).map((c) => ({
+    name: clip(c?.name, 80),
+    phone: clip(c?.phone, 40),
+    relation: clip(c?.relation, 60),
+  }));
+  return { children, contacts, householdNote: clip(o.householdNote, 500) };
+}
+
+app.post('/api/carer-share/create', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (caller.role === 'child') return res.status(403).json({ error: 'Only parents can create a carer link.' });
+    const body = req.body || {};
+    const snapshot = sanitizeCarerSnapshot(body.snapshot);
+    if (!snapshot.children.length && !snapshot.contacts.length) {
+      return res.status(400).json({ error: 'Nothing to share yet — add some carer info first.' });
+    }
+    let hours = Number(body.hours);
+    if (!Number.isFinite(hours) || hours <= 0) hours = CARER_DEFAULT_HOURS;
+    hours = Math.min(hours, CARER_MAX_HOURS);
+    const token = crypto.randomBytes(24).toString('base64url');
+    const now = Date.now();
+    const expiresAt = new Date(now + hours * 3600 * 1000).toISOString();
+    await adminDb.doc(`carerShares/${token}`).set({
+      familyId: caller.familyId,
+      createdBy: caller.uid,
+      createdByName: caller.displayName || '',
+      createdAt: new Date(now).toISOString(),
+      expiresAt,
+      revoked: false,
+      snapshot,
+    });
+    res.json({ ok: true, token, path: `/carer/${token}`, expiresAt });
+  } catch (err) {
+    console.error('/api/carer-share/create error:', err);
+    res.status(500).json({ error: 'Could not create the link. Please try again.' });
+  }
+});
+
+app.post('/api/carer-share/revoke', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const token = clip((req.body || {}).token, 200);
+    if (!token) return res.status(400).json({ error: 'Missing link id.' });
+    const ref = adminDb.doc(`carerShares/${token}`);
+    const snap = await ref.get();
+    if (!snap.exists) return res.json({ ok: true });
+    if (snap.data().familyId !== caller.familyId) return res.status(403).json({ error: 'That link is not yours.' });
+    await ref.set({ revoked: true }, { merge: true });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/api/carer-share/revoke error:', err);
+    res.status(500).json({ error: 'Could not revoke the link.' });
+  }
+});
+
+app.get('/api/carer-share/list', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const q = await adminDb.collection('carerShares').where('familyId', '==', caller.familyId).get();
+    const now = Date.now();
+    const shares = [];
+    q.forEach((d) => {
+      const v = d.data();
+      if (v.revoked || (v.expiresAt && new Date(v.expiresAt).getTime() < now)) return;
+      shares.push({ token: d.id, createdAt: v.createdAt, expiresAt: v.expiresAt, childCount: (v.snapshot?.children || []).length });
+    });
+    shares.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    res.json({ shares });
+  } catch (err) {
+    console.error('/api/carer-share/list error:', err);
+    res.status(500).json({ error: 'Could not load links.' });
+  }
+});
+
+// HTML-escape everything rendered into the public carer page (prevents any
+// stored family text from becoming markup/script).
+function esc(str) {
+  return String(str == null ? '' : str).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function carerShell(inner) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Carer sheet</title>
+<style>
+  :root{--ink:#2b2a28;--muted:#8a857d;--line:#eceae5;--bg:#f6f5f1;--rosa:#b23b47;--sage:#2e7d5b;}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;line-height:1.5;padding:16px}
+  .wrap{max-width:520px;margin:0 auto}
+  .banner{background:#eaf5ef;color:var(--sage);border:1px solid #cfe9dd;border-radius:14px;
+    padding:10px 14px;font-size:13px;font-weight:600;margin-bottom:14px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:18px 18px;margin-bottom:14px}
+  h1{font-size:22px;font-weight:800;margin:2px 0 2px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 16px}
+  .name{font-size:19px;font-weight:800;margin:0}
+  .age{color:var(--muted);font-size:13px;font-weight:600;margin-left:6px}
+  .lbl{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:12px 0 2px}
+  .val{font-size:15px;margin:0}
+  .alrg{background:#fbe9ea;border:1px solid #f3cdd1;border-radius:12px;padding:10px 12px;margin-top:10px}
+  .alrg .lbl{color:var(--rosa)}.alrg .val{color:var(--rosa);font-weight:700;font-size:16px}
+  .none{color:var(--muted);font-style:italic;font-size:13px}
+  a.tel{color:var(--sage);font-weight:700;text-decoration:none}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin:18px 4px 8px}
+  .exp{background:#fff;border:1px solid var(--line);border-radius:20px;padding:28px 20px;text-align:center}
+</style></head><body><div class="wrap">${inner}</div></body></html>`;
+}
+
+function carerPage(v) {
+  const snap = v.snapshot || {};
+  const exp = v.expiresAt ? new Date(v.expiresAt) : null;
+  const children = (snap.children || []).map((c) => {
+    const rows = [];
+    rows.push(`<p class="name">${esc(c.name || 'Child')}${c.age ? `<span class="age">${esc(c.age)}</span>` : ''}</p>`);
+    rows.push(c.allergies
+      ? `<div class="alrg"><p class="lbl">Allergies</p><p class="val">${esc(c.allergies)}</p></div>`
+      : `<p class="lbl">Allergies</p><p class="none">None on file.</p>`);
+    if (c.medications) rows.push(`<p class="lbl">Medications</p><p class="val">${esc(c.medications)}</p>`);
+    if (c.conditions) rows.push(`<p class="lbl">Conditions</p><p class="val">${esc(c.conditions)}</p>`);
+    if (c.doctor) rows.push(`<p class="lbl">Doctor</p><p class="val">${esc(c.doctor)}</p>`);
+    if (c.school) rows.push(`<p class="lbl">School</p><p class="val">${esc(c.school)}</p>`);
+    if (c.notes) rows.push(`<p class="lbl">Notes</p><p class="val">${esc(c.notes)}</p>`);
+    return `<div class="card">${rows.join('')}</div>`;
+  }).join('');
+  const contacts = (snap.contacts || []).length
+    ? `<div class="card"><p class="lbl" style="margin-top:0">Emergency contacts</p>${
+        snap.contacts.map((ct) => `<p class="val" style="margin-top:6px">${esc(ct.name || '')}${
+          ct.relation ? ` <span class="age">${esc(ct.relation)}</span>` : ''}${
+          ct.phone ? ` — <a class="tel" href="tel:${esc(ct.phone.replace(/\s+/g, ''))}">${esc(ct.phone)}</a>` : ''}</p>`).join('')
+      }</div>`
+    : '';
+  const household = snap.householdNote ? `<div class="card"><p class="lbl" style="margin-top:0">Good to know</p><p class="val" style="margin-top:6px">${esc(snap.householdNote)}</p></div>` : '';
+  const inner = `
+    <div class="banner">Temporary carer sheet — safe to view. No passwords, passports or ID numbers are shared here.</div>
+    <div class="card"><h1>Carer info</h1><p class="sub">Everything a sitter needs for the kids.</p></div>
+    ${children}${contacts}${household}
+    <p class="foot">Shared privately${v.createdByName ? ` by ${esc(v.createdByName)}` : ''}${exp ? ` · expires ${esc(exp.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : ''}.</p>`;
+  return carerShell(inner);
+}
+
+function carerErrorPage() {
+  return carerShell(`<div class="exp"><h1>Link expired</h1><p class="sub" style="margin-top:8px">This carer link has expired or been turned off. Ask the family to share a new one.</p></div>`);
+}
+
+// Public, unauthenticated carer page — MUST be registered before the SPA catch-all.
+app.get('/carer/:token', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('X-Robots-Tag', 'noindex, nofollow');
+  try {
+    const token = String(req.params.token || '').slice(0, 200);
+    const snap = await adminDb.doc(`carerShares/${token}`).get();
+    const v = snap.exists ? snap.data() : null;
+    const expired = !!(v && v.expiresAt && new Date(v.expiresAt).getTime() < Date.now());
+    if (!v || v.revoked || expired) return res.status(410).send(carerErrorPage());
+    return res.send(carerPage(v));
+  } catch (err) {
+    console.error('/carer render error:', err);
+    return res.status(500).send(carerErrorPage());
+  }
+});
+
 // --- Static SPA ---
 // Build stamp for the in-app "update available" check. Never cached, so a tab
 // that has been open across a deploy always sees the freshly deployed build id.

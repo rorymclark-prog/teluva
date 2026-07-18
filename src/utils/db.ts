@@ -362,6 +362,42 @@ export async function createFamily(familyName: string): Promise<string> {
   return data.familyId;
 }
 
+// --- Babysitter / carer share links ---
+export interface CarerShareSnapshot {
+  children: { name: string; age?: string; allergies?: string; medications?: string; conditions?: string; doctor?: string; school?: string; notes?: string }[];
+  contacts: { name: string; phone?: string; relation?: string }[];
+  householdNote?: string;
+}
+
+export async function createCarerShare(snapshot: CarerShareSnapshot, hours: number): Promise<{ token: string; url: string; expiresAt: string }> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Please sign in first.');
+  const token = await user.getIdToken();
+  const res = await fetch('/api/carer-share/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ snapshot, hours }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not create the link. Please try again.');
+  return { token: data.token, url: `${window.location.origin}${data.path}`, expiresAt: data.expiresAt };
+}
+
+export async function revokeCarerShare(shareToken: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Please sign in first.');
+  const token = await user.getIdToken();
+  const res = await fetch('/api/carer-share/revoke', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ token: shareToken }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Could not turn off the link.');
+  }
+}
+
 // Ask the server to (re)stamp the familyId custom claim, then refresh the
 // local token so Storage rules see it. No-op if it fails — AI calls backfill too.
 export async function ensureFamilyClaim(): Promise<void> {

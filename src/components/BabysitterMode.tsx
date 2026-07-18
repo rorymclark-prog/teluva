@@ -3,10 +3,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   X, ShieldCheck, AlertTriangle, Pill, Stethoscope, Phone, GraduationCap,
   Printer, Baby, Home, CalendarClock, NotebookPen, CheckCircle2,
+  Link2, Copy, Check, Loader2, Clock,
 } from 'lucide-react';
 import type { ElementType } from 'react';
 import { FamilyMember, CalendarEvent } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
+import { auth } from '../lib/firebase';
+import { createCarerShare, revokeCarerShare, type CarerShareSnapshot } from '../utils/db';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Babysitter / Carer mode — a safe, READ-ONLY handover screen.
@@ -80,6 +83,52 @@ export default function BabysitterMode({ members, events, onClose }: Props) {
       .filter((e) => !e.memberIds?.length || e.memberIds.some((id) => ids.has(id)))
       .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
   }, [events, today, selectedId, shownChildren]);
+
+  // --- Share link (carer-safe snapshot of ALL children, server-issued) ---
+  const canShare = !!auth.currentUser && children.length > 0;
+  const [shareHours, setShareHours] = useState(48);
+  const [share, setShare] = useState<{ url: string; expiresAt: string; token: string } | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareErr, setShareErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const buildSnapshot = (): CarerShareSnapshot => ({
+    children: children.map((c) => {
+      const med = c.medical || {};
+      const meds = [med.emergencyMedication && `Emergency: ${med.emergencyMedication}`, med.medications].filter(Boolean).join(' · ');
+      return {
+        name: firstName(c.name),
+        age: calcAge(c.birthdate) || undefined,
+        allergies: med.allergies || undefined,
+        medications: meds || undefined,
+        conditions: med.conditions || undefined,
+        doctor: [c.emergencyContactName, c.emergencyContactPhone].filter(Boolean).join(' ') || undefined,
+        school: [c.education?.schoolName, c.education?.grade && `Grade ${c.education.grade}`, c.education?.teacherName && `Teacher: ${c.education.teacherName}`].filter(Boolean).join(' · ') || undefined,
+        notes: med.notes || undefined,
+      };
+    }),
+    contacts: householdAdults.map((a) => ({ name: a.name, phone: a.phone || undefined, relation: a.role })),
+  });
+
+  const handleCreateShare = async () => {
+    setShareBusy(true); setShareErr(null);
+    try {
+      setShare(await createCarerShare(buildSnapshot(), shareHours));
+    } catch (e) {
+      setShareErr(e instanceof Error ? e.message : 'Could not create the link.');
+    } finally { setShareBusy(false); }
+  };
+  const handleCopyShare = async () => {
+    if (!share) return;
+    try { await navigator.clipboard.writeText(share.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* clipboard blocked */ }
+  };
+  const handleRevokeShare = async () => {
+    if (!share) return;
+    setShareBusy(true); setShareErr(null);
+    try { await revokeCarerShare(share.token); setShare(null); } catch (e) {
+      setShareErr(e instanceof Error ? e.message : 'Could not turn off the link.');
+    } finally { setShareBusy(false); }
+  };
 
   return (
     <AnimatePresence>
@@ -219,6 +268,59 @@ export default function BabysitterMode({ members, events, onClose }: Props) {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Share with a sitter — a private, time-limited link */}
+            {canShare && (
+              <div className="card p-4 sm:p-5 print:hidden">
+                <p className="section-label flex items-center gap-1.5 mb-1">
+                  <Link2 className="w-3.5 h-3.5" /> Share with a sitter
+                </p>
+                <p className="text-[12px] text-ink-500 mb-3">
+                  Send a private, time-limited link with this same safe info — they don&apos;t need the app or a sign-in.
+                </p>
+                {!share ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex rounded-xl bg-cream-100 p-0.5">
+                      {[{ h: 48, l: '48 hours' }, { h: 168, l: '1 week' }].map((o) => (
+                        <button
+                          key={o.h}
+                          onClick={() => setShareHours(o.h)}
+                          className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors cursor-pointer ${shareHours === o.h ? 'bg-white text-ink-900 shadow-soft' : 'text-ink-500 hover:text-ink-700'}`}
+                        >
+                          {o.l}
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={handleCreateShare} disabled={shareBusy} className="btn-primary text-sm disabled:opacity-60">
+                      {shareBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} Create link
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2 rounded-xl border border-cream-300 bg-white p-2">
+                      <input
+                        readOnly
+                        value={share.url}
+                        onFocus={(e) => e.currentTarget.select()}
+                        className="flex-1 min-w-0 bg-transparent text-[12px] text-ink-700 font-mono truncate outline-none px-1"
+                      />
+                      <button onClick={handleCopyShare} className="btn-quiet text-xs shrink-0">
+                        {copied ? <Check className="w-4 h-4 text-sage-600" /> : <Copy className="w-4 h-4" />} {copied ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[12px] text-ink-500 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5" /> Expires {new Date(share.expiresAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      <button onClick={handleRevokeShare} disabled={shareBusy} className="text-[12px] font-semibold text-rosa-600 hover:underline disabled:opacity-50 cursor-pointer">
+                        Turn off link
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {shareErr && <p className="text-[12px] text-rosa-600 mt-2">{shareErr}</p>}
               </div>
             )}
 
