@@ -87,4 +87,12 @@ export const loginWithGoogle = async () => {
 
 export const logout = async () => {
   await signOut(auth);
+  // Clear this device's cached family data so a different account signing in on
+  // the same browser never sees the previous family's cache. Keeps 'fv_lang'
+  // (device language) and Firebase's own auth keys untouched.
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('family_'))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch { /* non-fatal */ }
 };
