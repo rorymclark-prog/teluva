@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Package, Plus, Pencil, Trash2, Camera, Loader2, X, FileDown, ShieldAlert, Receipt } from 'lucide-react';
+import { Package, Plus, Pencil, Trash2, Camera, Loader2, X, FileDown, ShieldAlert, Receipt, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
 import { AssetItem } from '../types';
 import { loadAssets, saveAsset, deleteAsset } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -60,6 +60,15 @@ function itemValue(item: AssetItem): number {
   return parseAmount(item.replacementValue || item.purchasePrice);
 }
 
+// All of an item's pictures, labelled, for the gallery viewer.
+function itemImages(item: AssetItem): { src: string; label: string }[] {
+  const out: { src: string; label: string }[] = [];
+  if (item.photoDataUrl) out.push({ src: item.photoDataUrl, label: 'Photo' });
+  (item.photos || []).forEach((s, i) => out.push({ src: s, label: `Photo ${i + 2}` }));
+  if (item.receiptDataUrl) out.push({ src: item.receiptDataUrl, label: 'Receipt' });
+  return out;
+}
+
 export default function Assets() {
   const { isAdmin, aiEligible, aiConsent } = useFamilyCtx();
   const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
@@ -71,7 +80,9 @@ export default function Assets() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [photoView, setPhotoView] = useState<string | null>(null);
+  const [gallery, setGallery] = useState<{ src: string; label: string }[] | null>(null);
+  const [galleryIdx, setGalleryIdx] = useState(0);
+  const openGallery = (imgs: { src: string; label: string }[], idx = 0) => { if (imgs.length) { setGallery(imgs); setGalleryIdx(idx); } };
   const [showExport, setShowExport] = useState(false);
   const photoKindRef = useRef<'primary' | 'extra' | 'receipt'>('primary');
 
@@ -291,8 +302,8 @@ export default function Assets() {
                       return (
                         <div key={item.id} className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors">
                           {item.photoDataUrl ? (
-                            <button type="button" onClick={() => setPhotoView(item.photoDataUrl!)}
-                              className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-cream-200 hover:ring-clay-300 transition-all cursor-zoom-in" title="View photo">
+                            <button type="button" onClick={() => openGallery(itemImages(item))}
+                              className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-cream-200 hover:ring-clay-300 transition-all cursor-zoom-in" title="View photos">
                               <img src={item.photoDataUrl} alt={item.name} className="w-full h-full object-cover" />
                             </button>
                           ) : (
@@ -310,6 +321,9 @@ export default function Assets() {
                             {item.receiptDataUrl && <Receipt className="w-3.5 h-3.5 text-sage-600" aria-label="Receipt on file" />}
                             {item.assignedMember && <span className="bg-sage-100 text-sage-700 text-[11px] px-2 py-0.5 rounded-full font-medium">{item.assignedMember}</span>}
                             {(item.replacementValue || item.purchasePrice) && <span className="text-[12px] text-ink-500 tabular-nums">{item.replacementValue || item.purchasePrice}</span>}
+                            {itemImages(item).length > 0 && (
+                              <button onClick={() => openGallery(itemImages(item))} className="btn-quiet p-1.5" title="View photos & receipt"><Eye className="w-3.5 h-3.5" /></button>
+                            )}
                             {isAdmin && (
                               <button onClick={() => openEditForm(item)} className="btn-quiet p-1.5 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity"><Pencil className="w-3.5 h-3.5" /></button>
                             )}
@@ -367,7 +381,7 @@ export default function Assets() {
                 <div className="flex flex-wrap gap-2">
                   {(editing.photos || []).map((src, i) => (
                     <div key={i} className="relative">
-                      <button type="button" onClick={() => setPhotoView(src)} className="w-14 h-14 rounded-lg overflow-hidden bg-cream-100 ring-1 ring-cream-200 cursor-zoom-in"><img src={src} alt="" className="w-full h-full object-cover" /></button>
+                      <button type="button" onClick={() => openGallery([{ src, label: 'Photo' }])} className="w-14 h-14 rounded-lg overflow-hidden bg-cream-100 ring-1 ring-cream-200 cursor-zoom-in"><img src={src} alt="" className="w-full h-full object-cover" /></button>
                       <button onClick={() => removeExtraPhoto(i)} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink-800 text-white flex items-center justify-center hover:bg-rosa-500"><X className="w-2.5 h-2.5" /></button>
                     </div>
                   ))}
@@ -383,7 +397,7 @@ export default function Assets() {
                 <div className="flex items-center gap-3">
                   {editing.receiptDataUrl ? (
                     <div className="relative shrink-0">
-                      <button type="button" onClick={() => setPhotoView(editing.receiptDataUrl!)} className="w-16 h-16 rounded-lg overflow-hidden bg-cream-100 ring-1 ring-sage-200 cursor-zoom-in"><img src={editing.receiptDataUrl} alt="Receipt" className="w-full h-full object-cover" /></button>
+                      <button type="button" onClick={() => openGallery([{ src: editing.receiptDataUrl!, label: 'Receipt' }])} className="w-16 h-16 rounded-lg overflow-hidden bg-cream-100 ring-1 ring-sage-200 cursor-zoom-in"><img src={editing.receiptDataUrl} alt="Receipt" className="w-full h-full object-cover" /></button>
                       <button onClick={() => patch({ receiptDataUrl: '' })} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink-800 text-white flex items-center justify-center hover:bg-rosa-500"><X className="w-2.5 h-2.5" /></button>
                     </div>
                   ) : (
@@ -549,11 +563,23 @@ export default function Assets() {
         </div>
       )}
 
-      {/* Full-size photo viewer */}
-      {photoView && (
-        <div className="fixed inset-0 z-[60] bg-ink-900/80 backdrop-blur-sm flex items-center justify-center p-4 anim-fade" onClick={() => setPhotoView(null)}>
-          <button onClick={() => setPhotoView(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 text-ink-800 flex items-center justify-center hover:bg-white transition-colors" aria-label="Close"><X className="w-5 h-5" /></button>
-          <img src={photoView} alt="Asset photo" className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()} />
+      {/* Full-size photo & receipt gallery */}
+      {gallery && gallery.length > 0 && (
+        <div className="fixed inset-0 z-[60] bg-ink-900/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 anim-fade" onClick={() => setGallery(null)}>
+          <button onClick={() => setGallery(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 text-ink-800 flex items-center justify-center hover:bg-white transition-colors z-10" aria-label="Close"><X className="w-5 h-5" /></button>
+          <div className="flex items-center gap-2 sm:gap-4" onClick={e => e.stopPropagation()}>
+            {gallery.length > 1 && (
+              <button onClick={() => setGalleryIdx(i => (i - 1 + gallery.length) % gallery.length)} className="w-10 h-10 rounded-full bg-white/90 text-ink-800 flex items-center justify-center hover:bg-white shrink-0" aria-label="Previous"><ChevronLeft className="w-5 h-5" /></button>
+            )}
+            <img src={gallery[galleryIdx].src} alt={gallery[galleryIdx].label} className="max-w-[78vw] max-h-[78vh] object-contain rounded-2xl shadow-2xl bg-white" />
+            {gallery.length > 1 && (
+              <button onClick={() => setGalleryIdx(i => (i + 1) % gallery.length)} className="w-10 h-10 rounded-full bg-white/90 text-ink-800 flex items-center justify-center hover:bg-white shrink-0" aria-label="Next"><ChevronRight className="w-5 h-5" /></button>
+            )}
+          </div>
+          <div className="mt-3 flex items-center gap-2.5" onClick={e => e.stopPropagation()}>
+            <span className="chip bg-white/90 text-ink-700">{gallery[galleryIdx].label}</span>
+            {gallery.length > 1 && <span className="text-white/70 text-[12px] tabular-nums">{galleryIdx + 1} / {gallery.length}</span>}
+          </div>
         </div>
       )}
 
