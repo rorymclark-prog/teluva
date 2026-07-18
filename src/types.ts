@@ -439,6 +439,16 @@ export interface FamilyMemberRole {
   displayName: string;
 }
 
+export type AssetStatus = 'owned' | 'stolen' | 'lost' | 'sold' | 'disposed';
+
+// Theft/loss details captured for an insurance claim (drives the claim export).
+export interface AssetIncident {
+  type?: 'stolen' | 'lost' | 'damaged';
+  date?: string;             // date of loss / discovery, YYYY-MM-DD
+  policeReference?: string;  // crime reference number / Aktenzeichen
+  notes?: string;
+}
+
 export interface AssetItem {
   id: string;
   name: string;
@@ -447,10 +457,21 @@ export interface AssetItem {
   make?: string;
   model?: string;
   serialNumber?: string;
+  identifierType?: string;    // labels serialNumber: Serial | IMEI | VIN | Frame no. | ISBN | Certificate no.
   purchaseDate?: string;
-  purchasePrice?: string;
+  purchasePrice?: string;     // free text, kept for back-compat + display
+  currency?: string;          // ISO 4217, default EUR
+  replacementValue?: string;  // today's cost to replace new (Neuwert)
+  purchaseLocation?: string;
+  warrantyUntil?: string;     // YYYY-MM-DD
+  condition?: string;         // New | Excellent | Good | Fair | Poor
+  storageSecurity?: string;   // e.g. In the home | Locked away | In a safe
   notes?: string;
-  photoDataUrl?: string;
+  photoDataUrl?: string;      // primary item photo
+  photos?: string[];          // additional photos (serial plate, angles)
+  receiptDataUrl?: string;    // receipt / proof of purchase image
+  status?: AssetStatus;       // default 'owned'
+  incident?: AssetIncident;   // theft/loss details for a claim
   createdAt: string;
 }
 

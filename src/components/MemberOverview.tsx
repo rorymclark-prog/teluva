@@ -4,6 +4,7 @@ import {
 import type { ElementType } from 'react';
 import { FamilyMember, FamilyDocument } from '../types';
 import { soonestCare, careDueLabel } from '../utils/care';
+import MemberBelongings from './MemberBelongings';
 
 // Proof of address: an ID-category scan named like a Meldezettel / registration
 // certificate. Lets us show a "view" icon next to the address.
@@ -149,6 +150,8 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
           <Lock className="w-3.5 h-3.5" /> Medical details on file — open the <b className="text-ink-500 font-semibold">Medical</b> tab to view.
         </p>
       )}
+
+      <MemberBelongings memberName={member.name} onViewPhoto={onViewDocument} />
 
       <p className="text-center text-[12px] text-ink-400">Tap a tab above to view or edit the full details.</p>
     </div>

@@ -1,29 +1,64 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Package, Plus, Pencil, Trash2, Camera, Loader2, X } from 'lucide-react';
+import { Package, Plus, Pencil, Trash2, Camera, Loader2, X, FileDown, ShieldAlert, Receipt } from 'lucide-react';
 import { AssetItem } from '../types';
 import { loadAssets, saveAsset, deleteAsset } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
+import { parseAmount } from '../utils/money';
+import AssetClaimExport from './AssetClaimExport';
 
 const CATEGORIES: AssetItem['category'][] = [
   'Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other',
 ];
 
+const IDENTIFIER_TYPES = ['Serial', 'IMEI', 'VIN', 'Frame no.', 'ISBN', 'Certificate no.', 'Other'];
+const CONDITIONS = ['New', 'Excellent', 'Good', 'Fair', 'Poor'];
+const STORAGE_OPTIONS = ['In the home', 'Locked away', 'In a safe', 'With the person', 'Other'];
+const CURRENCIES = ['EUR', 'GBP', 'USD', 'ZAR', 'CHF'];
+const STATUSES: { value: NonNullable<AssetItem['status']>; label: string }[] = [
+  { value: 'owned', label: 'Owned' },
+  { value: 'stolen', label: 'Stolen' },
+  { value: 'lost', label: 'Lost' },
+  { value: 'sold', label: 'Sold' },
+  { value: 'disposed', label: 'Disposed' },
+];
+const CURRENCY_SYMBOL: Record<string, string> = { EUR: '€', GBP: '£', USD: '$', ZAR: 'R', CHF: 'CHF ' };
+
+// Sensible default identifier per category (user can override).
+function suggestIdentifier(cat: AssetItem['category']): string {
+  switch (cat) {
+    case 'Bike': return 'Frame no.';
+    case 'Vehicle': return 'VIN';
+    case 'Jewellery': return 'Certificate no.';
+    case 'Electronics':
+    case 'Sporting': return 'Serial';
+    default: return 'Serial';
+  }
+}
+
 const BLANK: AssetItem = {
-  id: '',
-  name: '',
-  category: 'Electronics',
-  assignedMember: '',
-  make: '',
-  model: '',
-  serialNumber: '',
-  purchaseDate: '',
-  purchasePrice: '',
-  notes: '',
-  photoDataUrl: '',
-  createdAt: '',
+  id: '', name: '', category: 'Electronics', assignedMember: '',
+  make: '', model: '', serialNumber: '', identifierType: 'Serial',
+  purchaseDate: '', purchasePrice: '', currency: 'EUR', replacementValue: '',
+  purchaseLocation: '', warrantyUntil: '', condition: '', storageSecurity: '',
+  notes: '', photoDataUrl: '', photos: [], receiptDataUrl: '',
+  status: 'owned', createdAt: '',
 };
+
+function readFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target?.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Prefer replacement value, fall back to purchase price (handles EU/EN formats).
+function itemValue(item: AssetItem): number {
+  return parseAmount(item.replacementValue || item.purchasePrice);
+}
 
 export default function Assets() {
   const { isAdmin, aiEligible, aiConsent } = useFamilyCtx();
@@ -35,89 +70,66 @@ export default function Assets() {
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [photoView, setPhotoView] = useState<string | null>(null); // full-size image record
+  const [saving, setSaving] = useState(false);
+  const [photoView, setPhotoView] = useState<string | null>(null);
+  const [showExport, setShowExport] = useState(false);
+  const photoKindRef = useRef<'primary' | 'extra' | 'receipt'>('primary');
 
   const scanFileRef = useRef<HTMLInputElement>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadAssets().then(data => {
-      setItems(data);
-      setLoading(false);
-    });
+    loadAssets().then(data => { setItems(data); setLoading(false); });
   }, []);
 
-  const reload = async () => {
-    const data = await loadAssets();
-    setItems(data);
-  };
-
-  // ── Open/close form ──
+  const reload = async () => setItems(await loadAssets());
 
   const openNewForm = () => {
     setEditingItem({ ...BLANK });
-    setScanError(null);
-    setFormError(null);
-    setIsFormOpen(true);
+    setScanError(null); setFormError(null); setIsFormOpen(true);
   };
-
   const openEditForm = (item: AssetItem) => {
-    setEditingItem({ ...item });
-    setScanError(null);
-    setFormError(null);
-    setIsFormOpen(true);
+    setEditingItem({ ...BLANK, ...item });
+    setScanError(null); setFormError(null); setIsFormOpen(true);
   };
+  const closeForm = () => { setIsFormOpen(false); setEditingItem(null); };
 
-  const closeForm = () => {
-    setIsFormOpen(false);
-    setEditingItem(null);
-  };
+  const patch = (p: Partial<AssetItem>) => setEditingItem(prev => (prev ? { ...prev, ...p } : prev));
+  const patchIncident = (p: Partial<NonNullable<AssetItem['incident']>>) =>
+    setEditingItem(prev => (prev ? { ...prev, incident: { ...prev.incident, ...p } } : prev));
 
   // ── Scan asset via /api/scan-asset ──
-
   const processImageForScan = async (file: File) => {
     if (!aiOn) { setScanError('Turn on the AI assistant in Settings first.'); return; }
-    setScanLoading(true);
-    setScanError(null);
+    setScanLoading(true); setScanError(null);
     try {
-      const reader = new FileReader();
-      const dataUrl: string = await new Promise((resolve, reject) => {
-        reader.onload = e => resolve(e.target?.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
+      const dataUrl = await readFile(file);
       const compressed = await compressImageToAvatar(dataUrl, 1600, 0.85);
       const base64Data = compressed.split(',')[1];
       const mimeType = file.type || 'image/jpeg';
-
       const token = await auth.currentUser?.getIdToken();
       const resp = await fetch('/api/scan-asset', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ image: { mimeType, data: base64Data } }),
       });
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(text || `Scan failed (${resp.status})`);
-      }
-
+      if (!resp.ok) { const text = await resp.text(); throw new Error(text || `Scan failed (${resp.status})`); }
       const scanned = await resp.json();
-
-      // Open / update the form with scanned data
       setEditingItem(prev => {
         const base = prev ?? { ...BLANK };
+        // Validate against our enum — the model may return e.g. "Jewelry"/"Sports"
+        // which would save fine but never render (grouping is enum-keyed).
+        const category = (CATEGORIES as string[]).includes(scanned.category)
+          ? (scanned.category as AssetItem['category'])
+          : (base.category || 'Electronics');
         return {
           ...base,
           name: scanned.name || base.name || '',
           make: scanned.make || base.make || '',
           model: scanned.model || base.model || '',
           serialNumber: scanned.serialNumber || base.serialNumber || '',
-          category: (scanned.category as AssetItem['category']) || base.category || 'Electronics',
+          identifierType: base.identifierType || suggestIdentifier(category),
+          category,
           notes: scanned.notes || base.notes || '',
           photoDataUrl: compressed,
         };
@@ -125,67 +137,53 @@ export default function Assets() {
       setIsFormOpen(true);
     } catch (err: unknown) {
       setScanError(err instanceof Error ? err.message : 'Scan failed');
-    } finally {
-      setScanLoading(false);
-    }
+    } finally { setScanLoading(false); }
   };
 
-  const handleScanAsset = () => {
-    scanFileRef.current?.click();
-  };
-
+  const handleScanAsset = () => scanFileRef.current?.click();
   const handleScanFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
+    const file = e.target.files?.[0]; if (!file) return; e.target.value = '';
     await processImageForScan(file);
   };
 
-  // ── Photo attachment (manual, no OCR) ──
-
-  const handleAddPhoto = () => {
+  // ── Photos (primary / extra / receipt) ──
+  const triggerPhoto = (kind: 'primary' | 'extra' | 'receipt') => {
+    photoKindRef.current = kind;
     photoFileRef.current?.click();
   };
-
   const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = '';
-    const reader = new FileReader();
-    const dataUrl: string = await new Promise((resolve, reject) => {
-      reader.onload = ev => resolve(ev.target?.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-    const compressed = await compressImageToAvatar(dataUrl, 1600, 0.85);
-    setEditingItem(prev => prev ? { ...prev, photoDataUrl: compressed } : prev);
+    const file = e.target.files?.[0]; if (!file) return; e.target.value = '';
+    const kind = photoKindRef.current;
+    const dataUrl = await readFile(file);
+    // Kept compact so several images fit inside one Firestore doc (~1 MiB).
+    if (kind === 'primary') patch({ photoDataUrl: await compressImageToAvatar(dataUrl, 1500, 0.82) });
+    else if (kind === 'receipt') patch({ receiptDataUrl: await compressImageToAvatar(dataUrl, 1500, 0.78) });
+    else {
+      const c = await compressImageToAvatar(dataUrl, 1100, 0.72);
+      setEditingItem(prev => (prev ? { ...prev, photos: [...(prev.photos || []), c].slice(0, 4) } : prev));
+    }
   };
+  const removeExtraPhoto = (idx: number) =>
+    setEditingItem(prev => (prev ? { ...prev, photos: (prev.photos || []).filter((_, i) => i !== idx) } : prev));
 
   // ── Save ──
-
   const handleSave = async () => {
     if (!editingItem) return;
-    if (!editingItem.name.trim()) {
-      setFormError('Name is required');
-      return;
-    }
-    setFormError(null);
-
+    if (!editingItem.name.trim()) { setFormError('Name is required'); return; }
+    setFormError(null); setSaving(true);
     const isNew = !editingItem.id;
-    const id = isNew
-      ? Date.now().toString() + Math.random().toString(36).slice(2, 8)
-      : editingItem.id;
-    const createdAt = isNew
-      ? new Date().toISOString().slice(0, 10)
-      : editingItem.createdAt;
-
-    const toSave: AssetItem = { ...editingItem, id, createdAt };
-    await saveAsset(toSave);
+    const id = isNew ? Date.now().toString() + Math.random().toString(36).slice(2, 8) : editingItem.id;
+    const createdAt = isNew ? new Date().toISOString().slice(0, 10) : editingItem.createdAt;
+    // Drop an empty incident so we don't persist a hollow object.
+    const inc = editingItem.incident;
+    const incident = inc && (inc.date || inc.policeReference || inc.notes || inc.type) ? inc : undefined;
+    const toSave: AssetItem = { ...editingItem, id, createdAt, incident };
+    const ok = await saveAsset(toSave);
+    setSaving(false);
+    if (!ok) { setFormError('Could not save — the photos may be too large. Try fewer or smaller photos.'); return; }
     await reload();
     closeForm();
   };
-
-  // ── Delete ──
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this asset? This cannot be undone.')) return;
@@ -194,22 +192,23 @@ export default function Assets() {
     if (editingItem?.id === id) closeForm();
   };
 
-  // ── Group by category ──
-
+  // ── Grouping + totals ──
   const grouped = new Map<AssetItem['category'], AssetItem[]>();
   for (const item of items) {
     if (!grouped.has(item.category)) grouped.set(item.category, []);
     grouped.get(item.category)!.push(item);
   }
-
-  // ── Total value ──
-
-  const totalValue = items.reduce((acc, item) => {
-    const n = parseFloat((item.purchasePrice || '').replace(/[^0-9.]/g, ''));
-    return acc + (isNaN(n) ? 0 : n);
-  }, 0);
-
-  // ── Loading ──
+  const totalValue = items.reduce((acc, item) => acc + itemValue(item), 0);
+  // Only show a single total when every valued item shares one currency —
+  // summing across currencies would be meaningless.
+  const valueCurrencies: string[] = Array.from(new Set(items.filter(i => i.replacementValue || i.purchasePrice).map(i => i.currency || 'EUR')));
+  const totalCurrency: string | null = valueCurrencies.length === 1 ? valueCurrencies[0] : null;
+  const flaggedCount = items.filter(i => i.status === 'stolen' || i.status === 'lost').length;
+  // Render every category present, unknown ones (e.g. from old data) last, so no item is orphaned.
+  const orderedCats = [
+    ...CATEGORIES.filter(c => grouped.has(c)),
+    ...[...grouped.keys()].filter(c => !(CATEGORIES as string[]).includes(c)),
+  ];
 
   if (loading) {
     return (
@@ -219,372 +218,330 @@ export default function Assets() {
     );
   }
 
+  const editing = editingItem; // narrow for the form block
+
   return (
     <div className="max-w-lg">
-      {/* Hidden file inputs */}
-      <input
-        ref={scanFileRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handleScanFileChange}
-      />
-      <input
-        ref={photoFileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handlePhotoFileChange}
-      />
+      <input ref={scanFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleScanFileChange} />
+      <input ref={photoFileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoFileChange} />
 
-      {/* Header card */}
       <div className="card overflow-hidden">
         <div className="p-5 sm:p-6 border-b border-cream-200 flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-sage-100 text-sage-700 shrink-0">
-              <Package className="w-5 h-5" />
-            </div>
+            <div className="p-2 rounded-xl bg-sage-100 text-sage-700 shrink-0"><Package className="w-5 h-5" /></div>
             <div>
               <h2 className="font-display text-xl font-semibold text-ink-900">Assets</h2>
               <p className="text-[13px] text-ink-400 font-medium">
                 {items.length === 0
                   ? 'No assets yet'
-                  : `${items.length} item${items.length !== 1 ? 's' : ''}${totalValue > 0 ? ` · €${totalValue.toLocaleString('de-AT', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} total` : ''}`}
+                  : `${items.length} item${items.length !== 1 ? 's' : ''}${totalValue > 0 && totalCurrency ? ` · ${CURRENCY_SYMBOL[totalCurrency] || `${totalCurrency} `}${totalValue.toLocaleString('de-AT', { maximumFractionDigits: 0 })} total` : ''}`}
               </p>
             </div>
           </div>
-          {isAdmin && (
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={openNewForm}
-                className="btn-quiet text-xs px-3 py-2"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add
+          <div className="flex items-center gap-2 shrink-0">
+            {items.length > 0 && (
+              <button onClick={() => setShowExport(true)} className="btn-quiet text-xs px-3 py-2" title="Export a claim list for police & insurer">
+                <FileDown className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Claim list</span>
               </button>
-              <button
-                onClick={handleScanAsset}
-                disabled={scanLoading || !aiOn}
-                className="btn-primary text-xs px-3 py-2 disabled:opacity-60"
-              >
-                {scanLoading
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <Camera className="w-3.5 h-3.5" />}
-                Scan
-              </button>
-            </div>
-          )}
+            )}
+            {isAdmin && (
+              <>
+                <button onClick={openNewForm} className="btn-quiet text-xs px-3 py-2"><Plus className="w-3.5 h-3.5" /> Add</button>
+                <button onClick={handleScanAsset} disabled={scanLoading || !aiOn} className="btn-primary text-xs px-3 py-2 disabled:opacity-60">
+                  {scanLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />} Scan
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
-        {/* Scan error banner */}
+        {flaggedCount > 0 && (
+          <button onClick={() => setShowExport(true)} className="w-full px-5 py-2.5 bg-rosa-50 border-b border-rosa-100 flex items-center gap-2 text-left hover:bg-rosa-100/60 transition-colors">
+            <ShieldAlert className="w-4 h-4 text-rosa-600 shrink-0" />
+            <p className="text-[12.5px] font-semibold text-rosa-700">{flaggedCount} item{flaggedCount !== 1 ? 's' : ''} reported stolen/lost — export the claim list</p>
+          </button>
+        )}
+
         {scanError && !isFormOpen && (
           <div className="px-5 py-3 bg-rosa-500/10 border-b border-rosa-500/20 flex items-center justify-between gap-2">
             <p className="text-[12px] text-rosa-600">{scanError}</p>
-            <button onClick={() => setScanError(null)} className="text-rosa-600 hover:text-rosa-700">
-              <X className="w-3.5 h-3.5" />
-            </button>
+            <button onClick={() => setScanError(null)} className="text-rosa-600 hover:text-rosa-700"><X className="w-3.5 h-3.5" /></button>
           </div>
         )}
 
-        {/* List */}
         <div className="p-4 sm:p-5">
           {items.length === 0 ? (
             <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
-                <Package className="w-8 h-8" />
-              </div>
+              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center"><Package className="w-8 h-8" /></div>
               <p className="text-[14px] font-medium text-ink-700">No assets yet</p>
-              <p className="text-[12px] text-ink-500 mt-1">Add bikes, laptops, phones and more</p>
-              {isAdmin && (
-                <button onClick={openNewForm} className="btn-primary mt-5 text-xs px-4 py-2">
-                  <Plus className="w-3.5 h-3.5" />
-                  Add asset
-                </button>
-              )}
+              <p className="text-[12px] text-ink-500 mt-1">Add bikes, laptops, phones and more — with photos &amp; receipts for insurance</p>
+              {isAdmin && <button onClick={openNewForm} className="btn-primary mt-5 text-xs px-4 py-2"><Plus className="w-3.5 h-3.5" /> Add asset</button>}
             </div>
           ) : (
             <div className="space-y-5">
-              {CATEGORIES.filter(cat => grouped.has(cat)).map(cat => {
-                const catItems = grouped.get(cat)!;
-                return (
-                  <div key={cat}>
-                    {/* Category header */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">{cat}</p>
-                      <span className="text-[11px] text-ink-300">{catItems.length}</span>
-                    </div>
-                    <div className="space-y-1">
-                      {catItems.map(item => (
-                        <div
-                          key={item.id}
-                          className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors"
-                        >
-                          {/* Photo or icon — tap photo to view full-size */}
+              {orderedCats.map(cat => (
+                <div key={cat}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">{cat}</p>
+                    <span className="text-[11px] text-ink-300">{grouped.get(cat)!.length}</span>
+                  </div>
+                  <div className="space-y-1">
+                    {grouped.get(cat)!.map(item => {
+                      const flagged = item.status === 'stolen' || item.status === 'lost';
+                      return (
+                        <div key={item.id} className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors">
                           {item.photoDataUrl ? (
-                            <button
-                              type="button"
-                              onClick={() => setPhotoView(item.photoDataUrl!)}
-                              className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-cream-200 hover:ring-clay-300 transition-all cursor-zoom-in"
-                              title="View photo"
-                            >
+                            <button type="button" onClick={() => setPhotoView(item.photoDataUrl!)}
+                              className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-cream-200 hover:ring-clay-300 transition-all cursor-zoom-in" title="View photo">
                               <img src={item.photoDataUrl} alt={item.name} className="w-full h-full object-cover" />
                             </button>
                           ) : (
-                            <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center">
-                              <Package className="w-4 h-4 text-ink-300" />
-                            </div>
+                            <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center"><Package className="w-4 h-4 text-ink-300" /></div>
                           )}
-
-                          {/* Info */}
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium text-ink-800 text-[14px] leading-tight truncate">{item.name}</p>
-                            {(item.make || item.model) && (
-                              <p className="text-[12px] text-ink-400 truncate">
-                                {[item.make, item.model].filter(Boolean).join(' ')}
-                              </p>
-                            )}
-                            {item.serialNumber && (
-                              <p className="text-[11px] text-ink-500 font-mono truncate">{item.serialNumber}</p>
-                            )}
+                            <p className="font-medium text-ink-800 text-[14px] leading-tight truncate flex items-center gap-1.5">
+                              {item.name}
+                              {flagged && <span className="chip bg-rosa-100 text-rosa-700 text-[10px] px-1.5 py-0">{item.status === 'lost' ? 'Lost' : 'Stolen'}</span>}
+                            </p>
+                            {(item.make || item.model) && <p className="text-[12px] text-ink-400 truncate">{[item.make, item.model].filter(Boolean).join(' ')}</p>}
+                            {item.serialNumber && <p className="text-[11px] text-ink-500 font-mono truncate">{item.identifierType && item.identifierType !== 'Serial' ? `${item.identifierType} ` : ''}{item.serialNumber}</p>}
                           </div>
-
-                          {/* Right side meta */}
                           <div className="flex items-center gap-2 shrink-0">
-                            {item.assignedMember && (
-                              <span className="bg-sage-100 text-sage-700 text-[11px] px-2 py-0.5 rounded-full font-medium">
-                                {item.assignedMember}
-                              </span>
-                            )}
-                            {item.purchasePrice && (
-                              <span className="text-[12px] text-ink-500 tabular-nums">{item.purchasePrice}</span>
-                            )}
+                            {item.receiptDataUrl && <Receipt className="w-3.5 h-3.5 text-sage-600" aria-label="Receipt on file" />}
+                            {item.assignedMember && <span className="bg-sage-100 text-sage-700 text-[11px] px-2 py-0.5 rounded-full font-medium">{item.assignedMember}</span>}
+                            {(item.replacementValue || item.purchasePrice) && <span className="text-[12px] text-ink-500 tabular-nums">{item.replacementValue || item.purchasePrice}</span>}
                             {isAdmin && (
-                              <button
-                                onClick={() => openEditForm(item)}
-                                className="btn-quiet p-1.5 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
+                              <button onClick={() => openEditForm(item)} className="btn-quiet p-1.5 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity"><Pencil className="w-3.5 h-3.5" /></button>
                             )}
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           )}
         </div>
       </div>
 
       {/* ── Modal form ── */}
-      {isFormOpen && editingItem && (
+      {isFormOpen && editing && (
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
-            {/* Mobile grabber */}
             <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
-
-            {/* Modal header */}
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
-              <h3 className="font-display text-lg font-semibold text-ink-900">
-                {editingItem.id ? 'Edit asset' : 'New asset'}
-              </h3>
-              <button onClick={closeForm} className="btn-quiet p-2">
-                <X className="w-4 h-4" />
-              </button>
+              <h3 className="font-display text-lg font-semibold text-ink-900">{editing.id ? 'Edit asset' : 'New asset'}</h3>
+              <button onClick={closeForm} className="btn-quiet p-2"><X className="w-4 h-4" /></button>
             </div>
 
             <div className="p-6 space-y-4">
-              {/* Scan error inside modal */}
               {scanError && (
                 <div className="flex items-center justify-between gap-2 bg-rosa-500/10 rounded-xl px-4 py-3">
                   <p className="text-[12px] text-rosa-600">{scanError}</p>
-                  <button onClick={() => setScanError(null)}>
-                    <X className="w-3.5 h-3.5 text-rosa-600" />
-                  </button>
+                  <button onClick={() => setScanError(null)}><X className="w-3.5 h-3.5 text-rosa-600" /></button>
                 </div>
               )}
 
-              {/* Photo row */}
+              {/* Primary photo + scan/add */}
               <div className="flex items-center gap-4">
-                {editingItem.photoDataUrl ? (
+                {editing.photoDataUrl ? (
                   <div className="relative shrink-0">
-                    <img
-                      src={editingItem.photoDataUrl}
-                      alt="Asset photo"
-                      className="w-24 h-24 object-cover rounded-xl border border-cream-200"
-                    />
-                    <button
-                      onClick={() => setEditingItem(prev => prev ? { ...prev, photoDataUrl: '' } : prev)}
-                      className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-ink-800 text-white flex items-center justify-center hover:bg-rosa-500 transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                    <img src={editing.photoDataUrl} alt="Asset photo" className="w-24 h-24 object-cover rounded-xl border border-cream-200" />
+                    <button onClick={() => patch({ photoDataUrl: '' })} className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-ink-800 text-white flex items-center justify-center hover:bg-rosa-500 transition-colors"><X className="w-3 h-3" /></button>
                   </div>
                 ) : (
-                  <div className="w-24 h-24 rounded-xl border-2 border-dashed border-cream-300 flex items-center justify-center shrink-0">
-                    <Package className="w-6 h-6 text-ink-200" />
-                  </div>
+                  <div className="w-24 h-24 rounded-xl border-2 border-dashed border-cream-300 flex items-center justify-center shrink-0"><Package className="w-6 h-6 text-ink-200" /></div>
                 )}
-                <div className="space-y-2">
-                  <button
-                    onClick={handleScanAsset}
-                    disabled={scanLoading || !aiOn}
-                    className="btn-quiet text-xs px-3 py-2 w-full disabled:opacity-60"
-                  >
-                    {scanLoading
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Camera className="w-3.5 h-3.5" />}
-                    {scanLoading ? 'Scanning…' : 'Scan label'}
+                <div className="space-y-2 flex-1">
+                  <button onClick={handleScanAsset} disabled={scanLoading || !aiOn} className="btn-quiet text-xs px-3 py-2 w-full disabled:opacity-60">
+                    {scanLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />} {scanLoading ? 'Scanning…' : 'Scan label'}
                   </button>
-                  <button
-                    onClick={handleAddPhoto}
-                    className="btn-quiet text-xs px-3 py-2 w-full"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add photo
-                  </button>
+                  <button onClick={() => triggerPhoto('primary')} className="btn-quiet text-xs px-3 py-2 w-full"><Plus className="w-3.5 h-3.5" /> Item photo</button>
                 </div>
               </div>
 
-              {/* Name (full width) */}
+              {/* Extra photos (serial plate, angles) + receipt */}
               <div>
-                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">
-                  Name <span className="text-rosa-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. MacBook Air"
-                  value={editingItem.name}
-                  onChange={e => setEditingItem(prev => prev ? { ...prev, name: e.target.value } : prev)}
-                  className="field w-full"
-                />
-                {formError && (
-                  <p className="text-[11px] text-rosa-600 mt-1">{formError}</p>
-                )}
+                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">More photos <span className="normal-case text-ink-300 font-normal">· serial plate, angles</span></label>
+                <div className="flex flex-wrap gap-2">
+                  {(editing.photos || []).map((src, i) => (
+                    <div key={i} className="relative">
+                      <button type="button" onClick={() => setPhotoView(src)} className="w-14 h-14 rounded-lg overflow-hidden bg-cream-100 ring-1 ring-cream-200 cursor-zoom-in"><img src={src} alt="" className="w-full h-full object-cover" /></button>
+                      <button onClick={() => removeExtraPhoto(i)} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink-800 text-white flex items-center justify-center hover:bg-rosa-500"><X className="w-2.5 h-2.5" /></button>
+                    </div>
+                  ))}
+                  {(editing.photos || []).length < 4 && (
+                    <button onClick={() => triggerPhoto('extra')} className="w-14 h-14 rounded-lg border-2 border-dashed border-cream-300 flex items-center justify-center text-ink-300 hover:border-clay-300 hover:text-clay-500 transition-colors"><Plus className="w-4 h-4" /></button>
+                  )}
+                </div>
               </div>
 
-              {/* Category + Assigned member (2-col) */}
+              {/* Receipt / proof of purchase */}
+              <div>
+                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Receipt / proof of purchase <span className="normal-case text-ink-300 font-normal">· strongest claim proof</span></label>
+                <div className="flex items-center gap-3">
+                  {editing.receiptDataUrl ? (
+                    <div className="relative shrink-0">
+                      <button type="button" onClick={() => setPhotoView(editing.receiptDataUrl!)} className="w-16 h-16 rounded-lg overflow-hidden bg-cream-100 ring-1 ring-sage-200 cursor-zoom-in"><img src={editing.receiptDataUrl} alt="Receipt" className="w-full h-full object-cover" /></button>
+                      <button onClick={() => patch({ receiptDataUrl: '' })} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink-800 text-white flex items-center justify-center hover:bg-rosa-500"><X className="w-2.5 h-2.5" /></button>
+                    </div>
+                  ) : (
+                    <button onClick={() => triggerPhoto('receipt')} className="btn-quiet text-xs px-3 py-2"><Receipt className="w-3.5 h-3.5" /> Add receipt</button>
+                  )}
+                </div>
+              </div>
+
+              {/* Name */}
+              <div>
+                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Name <span className="text-rosa-600">*</span></label>
+                <input type="text" placeholder="e.g. MacBook Air" value={editing.name} onChange={e => patch({ name: e.target.value })} className="field w-full" />
+                {formError && <p className="text-[11px] text-rosa-600 mt-1">{formError}</p>}
+              </div>
+
+              {/* Category + Assigned */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Category</label>
-                  <select
-                    value={editingItem.category}
-                    onChange={e => setEditingItem(prev => prev ? { ...prev, category: e.target.value as AssetItem['category'] } : prev)}
-                    className="field w-full"
-                  >
-                    {CATEGORIES.map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
+                  <select value={editing.category} onChange={e => {
+                    const category = e.target.value as AssetItem['category'];
+                    patch({ category, identifierType: !editing.serialNumber ? suggestIdentifier(category) : editing.identifierType });
+                  }} className="field w-full">
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Assigned to</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Mia"
-                    value={editingItem.assignedMember || ''}
-                    onChange={e => setEditingItem(prev => prev ? { ...prev, assignedMember: e.target.value } : prev)}
-                    className="field w-full"
-                  />
+                  <input type="text" placeholder="e.g. Mia" value={editing.assignedMember || ''} onChange={e => patch({ assignedMember: e.target.value })} className="field w-full" />
                 </div>
               </div>
 
-              {/* Make + Model (2-col) */}
+              {/* Make + Model */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Make</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Apple"
-                    value={editingItem.make || ''}
-                    onChange={e => setEditingItem(prev => prev ? { ...prev, make: e.target.value } : prev)}
-                    className="field w-full"
-                  />
+                  <input type="text" placeholder="e.g. Apple" value={editing.make || ''} onChange={e => patch({ make: e.target.value })} className="field w-full" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Model</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. M2 13-inch"
-                    value={editingItem.model || ''}
-                    onChange={e => setEditingItem(prev => prev ? { ...prev, model: e.target.value } : prev)}
-                    className="field w-full"
-                  />
+                  <input type="text" placeholder="e.g. M2 13-inch" value={editing.model || ''} onChange={e => patch({ model: e.target.value })} className="field w-full" />
                 </div>
               </div>
 
-              {/* Serial + Purchase date (2-col) */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Identifier type + number */}
+              <div className="grid grid-cols-[7.5rem_1fr] gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Serial number</label>
-                  <input
-                    type="text"
-                    placeholder="SN / IMEI"
-                    value={editingItem.serialNumber || ''}
-                    onChange={e => setEditingItem(prev => prev ? { ...prev, serialNumber: e.target.value } : prev)}
-                    className="field w-full font-mono"
-                  />
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">ID type</label>
+                  <select value={editing.identifierType || 'Serial'} onChange={e => patch({ identifierType: e.target.value })} className="field w-full">
+                    {IDENTIFIER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">{editing.identifierType || 'Serial'} number</label>
+                  <input type="text" placeholder="SN / IMEI / frame no." value={editing.serialNumber || ''} onChange={e => patch({ serialNumber: e.target.value })} className="field w-full font-mono" />
+                </div>
+              </div>
+
+              {/* Purchase date + condition */}
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Purchase date</label>
-                  <input
-                    type="date"
-                    value={editingItem.purchaseDate || ''}
-                    onChange={e => setEditingItem(prev => prev ? { ...prev, purchaseDate: e.target.value } : prev)}
-                    className="field w-full"
-                  />
+                  <input type="date" value={editing.purchaseDate || ''} onChange={e => patch({ purchaseDate: e.target.value })} className="field w-full" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Condition</label>
+                  <select value={editing.condition || ''} onChange={e => patch({ condition: e.target.value })} className="field w-full">
+                    <option value="">—</option>
+                    {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
                 </div>
               </div>
 
-              {/* Purchase price (half-width) */}
+              {/* Currency + purchase price + replacement value */}
+              <div className="grid grid-cols-[5rem_1fr_1fr] gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Cur.</label>
+                  <select value={editing.currency || 'EUR'} onChange={e => patch({ currency: e.target.value })} className="field w-full">
+                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Paid</label>
+                  <input type="text" inputMode="decimal" placeholder="450" value={editing.purchasePrice || ''} onChange={e => patch({ purchasePrice: e.target.value })} className="field w-full tabular-nums" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Replace now</label>
+                  <input type="text" inputMode="decimal" placeholder="today's cost" value={editing.replacementValue || ''} onChange={e => patch({ replacementValue: e.target.value })} className="field w-full tabular-nums" />
+                </div>
+              </div>
+
+              {/* Purchase location + warranty */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Purchase price</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. €450"
-                    value={editingItem.purchasePrice || ''}
-                    onChange={e => setEditingItem(prev => prev ? { ...prev, purchasePrice: e.target.value } : prev)}
-                    className="field w-full tabular-nums"
-                  />
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Bought at</label>
+                  <input type="text" placeholder="retailer" value={editing.purchaseLocation || ''} onChange={e => patch({ purchaseLocation: e.target.value })} className="field w-full" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Warranty until</label>
+                  <input type="date" value={editing.warrantyUntil || ''} onChange={e => patch({ warrantyUntil: e.target.value })} className="field w-full" />
                 </div>
               </div>
 
-              {/* Notes (full width) */}
+              {/* Storage security */}
+              <div>
+                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Where it's kept <span className="normal-case text-ink-300 font-normal">· affects valuables cover</span></label>
+                <select value={editing.storageSecurity || ''} onChange={e => patch({ storageSecurity: e.target.value })} className="field w-full">
+                  <option value="">—</option>
+                  {STORAGE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              {/* Status + incident (theft/loss) */}
+              <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Status</label>
+                  <select value={editing.status || 'owned'} onChange={e => {
+                    const status = e.target.value as AssetItem['status'];
+                    // Recovered/resolved → clear the incident so it leaves the claim list.
+                    patch(status === 'stolen' || status === 'lost' ? { status } : { status, incident: undefined });
+                  }} className="field w-full">
+                    {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </select>
+                </div>
+                {(editing.status === 'stolen' || editing.status === 'lost') && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Date of loss</label>
+                        <input type="date" value={editing.incident?.date || ''} onChange={e => patchIncident({ date: e.target.value, type: editing.status === 'lost' ? 'lost' : 'stolen' })} className="field w-full" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Police ref.</label>
+                        <input type="text" placeholder="crime ref / Aktenzeichen" value={editing.incident?.policeReference || ''} onChange={e => patchIncident({ policeReference: e.target.value, type: editing.status === 'lost' ? 'lost' : 'stolen' })} className="field w-full font-mono" />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-ink-400">Report theft to the police and keep the crime reference — most theft claims require it.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
               <div>
                 <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Notes</label>
-                <textarea
-                  rows={3}
-                  placeholder="Warranty info, condition, storage location…"
-                  value={editingItem.notes || ''}
-                  onChange={e => setEditingItem(prev => prev ? { ...prev, notes: e.target.value } : prev)}
-                  className="field w-full resize-none"
-                />
+                <textarea rows={3} placeholder="Anything else worth recording…" value={editing.notes || ''} onChange={e => patch({ notes: e.target.value })} className="field w-full resize-none" />
               </div>
             </div>
 
-            {/* Footer */}
             <div className="flex items-center justify-between gap-3 p-6 pt-0">
               <div>
-                {editingItem.id && (
-                  <button
-                    onClick={() => handleDelete(editingItem.id)}
-                    className="btn-quiet text-rosa-600 hover:text-rosa-700 text-xs px-3 py-2"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Delete
-                  </button>
+                {editing.id && (
+                  <button onClick={() => handleDelete(editing.id)} className="btn-quiet text-rosa-600 hover:text-rosa-700 text-xs px-3 py-2"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
                 )}
               </div>
               <div className="flex items-center gap-3">
-                <button onClick={closeForm} className="btn-quiet text-xs px-4 py-2">
-                  Cancel
-                </button>
-                <button onClick={handleSave} className="btn-primary text-xs px-5 py-2">
-                  Save
+                <button onClick={closeForm} className="btn-quiet text-xs px-4 py-2">Cancel</button>
+                <button onClick={handleSave} disabled={saving} className="btn-primary text-xs px-5 py-2 disabled:opacity-60">
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Save
                 </button>
               </div>
             </div>
@@ -592,27 +549,15 @@ export default function Assets() {
         </div>
       )}
 
-      {/* ── Full-size photo viewer (image record) ── */}
+      {/* Full-size photo viewer */}
       {photoView && (
-        <div
-          className="fixed inset-0 z-[60] bg-ink-900/80 backdrop-blur-sm flex items-center justify-center p-4 anim-fade"
-          onClick={() => setPhotoView(null)}
-        >
-          <button
-            onClick={() => setPhotoView(null)}
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 text-ink-800 flex items-center justify-center hover:bg-white transition-colors"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-          <img
-            src={photoView}
-            alt="Asset photo"
-            className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          />
+        <div className="fixed inset-0 z-[60] bg-ink-900/80 backdrop-blur-sm flex items-center justify-center p-4 anim-fade" onClick={() => setPhotoView(null)}>
+          <button onClick={() => setPhotoView(null)} className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/90 text-ink-800 flex items-center justify-center hover:bg-white transition-colors" aria-label="Close"><X className="w-5 h-5" /></button>
+          <img src={photoView} alt="Asset photo" className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()} />
         </div>
       )}
+
+      {showExport && <AssetClaimExport items={items} onClose={() => setShowExport(false)} />}
     </div>
   );
 }
