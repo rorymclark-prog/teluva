@@ -4,7 +4,7 @@ import { X, Shield, FileText } from 'lucide-react';
 /**
  * Privacy Policy + Terms, shown in a modal from the sign-in footer (pre-auth) and
  * from Settings. This is a DRAFT scaffold covering the GDPR essentials for a family
- * vault (personal + children's + health data, Google/Firebase/Gemini processors).
+ * vault (personal + children's + health data; Google Firebase + Vertex AI EU processors).
  * It is NOT legal advice — the {{PLACEHOLDERS}} and the whole document must be
  * reviewed and completed by a qualified lawyer before publishing.
  */
@@ -54,7 +54,7 @@ export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: (
         <div className="overflow-y-auto p-5 sm:p-7 text-[14px] leading-relaxed text-ink-700 space-y-4">
           <div className="text-[12px] rounded-xl bg-honey-50 border border-honey-100 text-honey-900 px-3 py-2">
             ⚠️ <b>Draft — not yet legal advice.</b> Complete the <code>{'{{…}}'}</code> fields and have this
-            reviewed by a lawyer before publishing (it covers children&apos;s and health data in the EU).
+            reviewed by a lawyer before publishing (it covers children&apos;s and health data under the GDPR).
           </div>
           {active === 'privacy' ? <Privacy /> : <Terms />}
         </div>
@@ -115,14 +115,15 @@ function Privacy() {
       <H>Who processes your data (sub-processors)</H>
       <p>We use Google Cloud services to run the app. Your data is processed by:</p>
       <ul className="list-disc pl-5 space-y-1">
-        <li><b>Google Firebase</b> (Authentication, Firestore database, Cloud Storage) — stores your data, hosted in the EU (europe-west2).</li>
-        <li><b>Google Cloud Run</b> — runs the application server (EU, europe-west2).</li>
-        <li><b>Google Gemini API</b> — when you use the AI assistant or scan a document, the text and image you send are processed by Google&apos;s AI to extract information. Do not send anything you are not comfortable processing this way.</li>
+        <li><b>Google Firebase / Firestore &amp; Cloud Storage</b> — stores your family&apos;s records, hosted in the United Kingdom (London, europe-west2). The UK has an EU adequacy decision, so transfers are permitted.</li>
+        <li><b>Google Cloud Run</b> — runs the application server (United Kingdom, London, europe-west2).</li>
+        <li><b>Firebase Authentication</b> — manages sign-in with your Google account; this may involve processing on Google infrastructure outside the UK/EU (including the United States) under Google&apos;s Standard Contractual Clauses.</li>
+        <li><b>Google Vertex AI</b> (in the EU — Belgium, europe-west1) — when you use the AI assistant or scan a document, the text and image you send are processed by Google&apos;s AI in the EU to extract information, under Google Cloud&apos;s enterprise terms (your content is not used to train Google&apos;s models). Do not send anything you are not comfortable processing this way.</li>
       </ul>
       <p>Google acts as our processor under its data-processing terms. We do not sell your data or use it for advertising.</p>
 
       <H>Where your data is stored</H>
-      <p>Primarily in the EU (Google europe-west2). Some processing (e.g. AI) may occur on Google infrastructure per their terms.</p>
+      <p>Your family&apos;s records are stored in the United Kingdom (London, europe-west2), which the EU recognises as providing adequate protection. AI processing runs in the EU (Belgium, europe-west1). Sign-in (Firebase Authentication) may involve processing in the United States under Standard Contractual Clauses.</p>
 
       <H>How long we keep it</H>
       <p>Until you delete it or close your account. You can export or delete your family&apos;s data from within the app at any time.</p>
