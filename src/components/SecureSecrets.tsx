@@ -4,6 +4,7 @@ import {
   Lock, Eye, EyeOff, Plus, Trash2, Key, Check,
   School, ShieldAlert, CreditCard, Landmark
 } from 'lucide-react';
+import { protectSecrets, revealSecrets } from '../utils/db';
 
 interface SecureSecretsProps {
   member: FamilyMember;
@@ -37,6 +38,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
   const [showAddDigital, setShowAddDigital] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [visiblePasswordIds, setVisiblePasswordIds] = useState<string[]>([]);
+  const [revealedPw, setRevealedPw] = useState<Record<string, string>>({}); // acc.id -> decrypted password (on demand)
 
   // Bank Account Adder States
   const [bankName, setBankName] = useState('');
@@ -106,15 +108,25 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
   };
 
   // Login Add Handler
-  const handleAddDigitalAccount = (e: React.FormEvent) => {
+  const handleAddDigitalAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!digitalService.trim() || !digitalUser.trim() || !digitalPass.trim()) return;
+
+    // Encrypt the password before it's stored. Fails closed — if the server can't
+    // be reached we abort rather than silently save plaintext.
+    let encPass: string;
+    try {
+      [encPass] = await protectSecrets([digitalPass.trim()]);
+    } catch {
+      triggerSuccess("Couldn't secure the password — check your connection and try again.");
+      return;
+    }
 
     const newAccount: DigitalAccount = {
       id: 'acc-' + Date.now(),
       serviceName: digitalService.trim(),
       username: digitalUser.trim(),
-      passwordPlain: digitalPass.trim(),
+      passwordPlain: encPass,
       url: digitalUrl.trim() || undefined,
       notes: digitalNotes.trim() || undefined
     };
@@ -182,11 +194,19 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
     triggerSuccess('Financial log removed.');
   };
 
-  const togglePasswordVisibility = (id: string) => {
+  const togglePasswordVisibility = async (id: string) => {
     if (visiblePasswordIds.includes(id)) {
       setVisiblePasswordIds(visiblePasswordIds.filter(pid => pid !== id));
-    } else {
-      setVisiblePasswordIds([...visiblePasswordIds, id]);
+      return;
+    }
+    setVisiblePasswordIds([...visiblePasswordIds, id]);
+    // Decrypt this one on demand (only what the user actually reveals).
+    if (revealedPw[id] === undefined) {
+      const acc = (member.digitalAccounts || []).find(a => a.id === id);
+      if (acc) {
+        const [plain] = await revealSecrets([acc.passwordPlain || '']);
+        setRevealedPw(prev => ({ ...prev, [id]: plain }));
+      }
     }
   };
 
@@ -516,7 +536,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                         <span className="section-label">Password:</span>
                         {visiblePasswordIds.includes(acc.id) ? (
                           <span className="font-mono text-ink-800 text-xs bg-cream-200 px-1.5 py-0.5 rounded select-all">
-                            {acc.passwordPlain}
+                            {revealedPw[acc.id] ?? '…'}
                           </span>
                         ) : (
                           <span className="font-mono text-ink-500 text-xs tracking-widest">••••••••</span>

@@ -496,12 +496,57 @@ export async function deleteAsset(id: string): Promise<void> {
   await deleteDoc(doc(db, 'families', FAMILY_ID, 'assets', id));
 }
 
+// ── Secrets-vault encryption ──
+// Round-trip secret values through the server, which holds the encryption key
+// (Secret Manager). protectSecrets FAILS CLOSED (throws) so we never silently
+// store plaintext; revealSecrets fails safe (returns input) so a blip never
+// blocks reading. Legacy plaintext passes through untouched, then encrypts on
+// its next save.
+export async function protectSecrets(values: string[]): Promise<string[]> {
+  const clean = values.map(v => v ?? '');
+  if (clean.every(v => v === '')) return clean;
+  const user = auth.currentUser;
+  if (!user) throw new Error('Please sign in again.');
+  const token = await user.getIdToken();
+  const res = await fetch('/api/vault/protect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ values: clean }),
+  });
+  if (!res.ok) throw new Error("Couldn't secure the password — check your connection and try again.");
+  const data = await res.json();
+  if (!Array.isArray(data.values) || data.values.length !== clean.length) throw new Error("Couldn't secure the password.");
+  return data.values;
+}
+
+export async function revealSecrets(values: string[]): Promise<string[]> {
+  if (!values.length) return values;
+  const user = auth.currentUser;
+  if (!user) return values;
+  try {
+    const token = await user.getIdToken();
+    const res = await fetch('/api/vault/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ values }),
+    });
+    if (!res.ok) return values;
+    const data = await res.json();
+    return Array.isArray(data.values) && data.values.length === values.length ? data.values : values;
+  } catch {
+    return values;
+  }
+}
+
 // ── Passwords ── (admin-only; rules deny reads to members/children)
 export async function loadPasswords(): Promise<PasswordEntry[]> {
   try {
     const snap = await getDocs(collection(db, 'families', FAMILY_ID, 'passwords'));
     const entries = snap.docs.map(d => d.data() as PasswordEntry);
-    return entries.sort((a, b) => a.service.localeCompare(b.service));
+    const revealed = await revealSecrets(entries.map(e => e.password || ''));
+    return entries
+      .map((e, i) => ({ ...e, password: revealed[i] }))
+      .sort((a, b) => a.service.localeCompare(b.service));
   } catch (e) {
     // A non-admin should never reach this view, but if they do, a permission
     // denial must not throw — just show an empty vault.
@@ -511,7 +556,8 @@ export async function loadPasswords(): Promise<PasswordEntry[]> {
 }
 
 export async function savePassword(entry: PasswordEntry): Promise<void> {
-  await setDoc(doc(db, 'families', FAMILY_ID, 'passwords', entry.id), entry);
+  const [enc] = await protectSecrets([entry.password || '']);
+  await setDoc(doc(db, 'families', FAMILY_ID, 'passwords', entry.id), { ...entry, password: enc });
 }
 
 export async function deletePassword(id: string): Promise<void> {

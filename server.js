@@ -358,6 +358,65 @@ app.post('/api/restyle-avatar', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Secrets-vault encryption (passwords / wifi / door codes). The key lives in
+// Secret Manager and only the server holds it, so the ciphertext stored in
+// Firestore is useless to anyone who reads the database. Values are tagged
+// 'enc:1:' — any legacy plaintext passes through untouched and gets encrypted
+// on its next save (graceful migration, no data loss).
+const VAULT_KEY = (() => {
+  const raw = process.env.VAULT_ENC_KEY || '';
+  if (!raw) return null;
+  const buf = Buffer.from(raw, 'base64');
+  return buf.length === 32 ? buf : crypto.createHash('sha256').update(raw).digest();
+})();
+
+function encryptSecret(plain) {
+  if (!VAULT_KEY || typeof plain !== 'string' || plain === '' || plain.startsWith('enc:1:')) return plain;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', VAULT_KEY, iv);
+  const ct = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `enc:1:${iv.toString('base64')}:${tag.toString('base64')}:${ct.toString('base64')}`;
+}
+
+function decryptSecret(v) {
+  if (typeof v !== 'string' || !v.startsWith('enc:1:') || !VAULT_KEY) return v; // legacy plaintext / empty
+  try {
+    const [, , ivB, tagB, ctB] = v.split(':');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', VAULT_KEY, Buffer.from(ivB, 'base64'));
+    decipher.setAuthTag(Buffer.from(tagB, 'base64'));
+    return Buffer.concat([decipher.update(Buffer.from(ctB, 'base64')), decipher.final()]).toString('utf8');
+  } catch {
+    return ''; // corrupt/undecryptable — return empty rather than leak ciphertext
+  }
+}
+
+app.post('/api/vault/protect', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (!VAULT_KEY) return res.status(500).json({ error: 'Secret encryption is not configured on the server.' });
+    const values = Array.isArray(req.body?.values) ? req.body.values : [];
+    res.json({ values: values.map(encryptSecret) });
+  } catch (e) {
+    console.error('[vault/protect]', e);
+    res.status(500).json({ error: 'Could not secure those values.' });
+  }
+});
+
+app.post('/api/vault/reveal', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const values = Array.isArray(req.body?.values) ? req.body.values : [];
+    res.json({ values: values.map(decryptSecret) });
+  } catch (e) {
+    console.error('[vault/reveal]', e);
+    res.status(500).json({ error: 'Could not read those values.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Family membership endpoints. All writes to users/{uid} and roles/{uid}
 // happen HERE with the Admin SDK — Firestore rules block them from clients,
 // so nobody can pick their own role or walk into a family uninvited.

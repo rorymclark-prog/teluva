@@ -17,7 +17,7 @@ spec:
     spec:
       containerConcurrency: 80
       containers:
-      - image: europe-west2-docker.pkg.dev/gen-lang-client-0384516171/cloud-run-source-deploy/family-info-organizer:v52
+      - image: europe-west2-docker.pkg.dev/gen-lang-client-0384516171/cloud-run-source-deploy/family-info-organizer:v57
         name: app-container
         ports:
         - containerPort: 8080
@@ -28,6 +28,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: gemini-api-key
+              key: latest
+        # Symmetric key for encrypting the passwords/secrets vault at the app layer.
+        - name: VAULT_ENC_KEY
+          valueFrom:
+            secretKeyRef:
+              name: vault-encryption-key
               key: latest
         - name: FIREBASE_PROJECT_ID
           value: gen-lang-client-0384516171
