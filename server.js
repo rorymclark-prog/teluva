@@ -2,6 +2,7 @@ import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
+import { GoogleAuth } from 'google-auth-library';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -11,6 +12,52 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'gen-lang-client-0384516171';
+
+// ---------------------------------------------------------------------------
+// AI backend. We call Gemini through Vertex AI in an EU region (default) so that
+// (a) usage falls under Google Cloud's enterprise terms — the consumer Gemini
+// Developer API forbids under-18 use, which a family app cannot honour — and
+// (b) inference data stays in the EU. Auth is the Cloud Run runtime service
+// account via ADC (no API key). Set USE_VERTEX=0 to fall back to the dev API
+// (emergency rollback only — reintroduces the under-18 ToS problem).
+// ---------------------------------------------------------------------------
+const USE_VERTEX = process.env.USE_VERTEX !== '0';
+const VERTEX_PROJECT = process.env.VERTEX_PROJECT || PROJECT_ID;
+const VERTEX_LOCATION = process.env.VERTEX_LOCATION || 'europe-west1';
+// The image model differs by backend: Vertex publishes gemini-2.5-flash-image
+// ("Nano Banana"); the dev API used gemini-3.1-flash-image.
+const MODEL_TEXT = 'gemini-2.5-flash';
+const MODEL_IMAGE = USE_VERTEX ? 'gemini-2.5-flash-image' : 'gemini-3.1-flash-image';
+
+const gAuth = USE_VERTEX
+  ? new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' })
+  : null;
+let _gClient = null;
+async function vertexToken() {
+  if (!_gClient) _gClient = await gAuth.getClient();
+  const t = await _gClient.getAccessToken();
+  return typeof t === 'string' ? t : t?.token;
+}
+
+// Unified generateContent call — Vertex EU by default, dev API as fallback.
+// Request/response shapes are identical across both backends, so callers are
+// unchanged. Returns the raw fetch Response.
+async function generateContent(model, body) {
+  if (USE_VERTEX) {
+    const token = await vertexToken();
+    const url = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${model}:generateContent`;
+    return fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+  return fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+  );
+}
+const AI_READY = USE_VERTEX || !!GEMINI_KEY;
 const FIREBASE_AUTH_HOST = `${PROJECT_ID}.firebaseapp.com`;
 // The app's Firestore is a NAMED database — admin.firestore() would silently
 // target the nonexistent (default) DB (which is why server-side joins failed).
@@ -144,7 +191,7 @@ function aiRateLimited(uid) {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    if (!GEMINI_KEY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+    if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
 
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
@@ -174,18 +221,11 @@ app.post('/api/chat', async (req, res) => {
       { role: 'user', parts: userParts },
     ];
 
-    const callGemini = () => fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-          contents,
-          generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
-        }),
-      }
-    );
+    const callGemini = () => generateContent(MODEL_TEXT, {
+      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+      contents,
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+    });
 
     // Gemini occasionally returns a transient 503/429 under load — retry a couple times.
     console.log(`[chat] ${hasImage ? 'image+' : ''}text request from ${caller.email}`);
@@ -230,7 +270,7 @@ app.post('/api/chat', async (req, res) => {
 
 app.post('/api/scan-asset', async (req, res) => {
   try {
-    if (!GEMINI_KEY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+    if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
 
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
@@ -248,24 +288,17 @@ Extract ALL identifying information visible. Return ONLY valid JSON (no markdown
 { "name": string, "make": string, "model": string, "serialNumber": string, "category": "Electronics"|"Bike"|"Sporting"|"Vehicle"|"Jewellery"|"Furniture"|"Other", "size": string, "color": string, "notes": string }
 Use empty string "" for any field not visible. category must be one of the enum values — guess from context.`;
 
-    const gRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: SCAN_SYSTEM }] },
-          contents: [{
-            role: 'user',
-            parts: [
-              { text: 'Please scan this item and extract all visible identifying information.' },
-              { inlineData: { mimeType: image.mimeType, data: image.data } },
-            ],
-          }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
-        }),
-      }
-    );
+    const gRes = await generateContent(MODEL_TEXT, {
+      systemInstruction: { parts: [{ text: SCAN_SYSTEM }] },
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: 'Please scan this item and extract all visible identifying information.' },
+          { inlineData: { mimeType: image.mimeType, data: image.data } },
+        ],
+      }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
+    });
 
     const gData = await gRes.json();
     const parts = gData?.candidates?.[0]?.content?.parts || [];
@@ -300,7 +333,7 @@ const AVATAR_STYLES = {
 
 app.post('/api/restyle-avatar', async (req, res) => {
   try {
-    if (!GEMINI_KEY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+    if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
 
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
@@ -317,23 +350,16 @@ app.post('/api/restyle-avatar', async (req, res) => {
 
     const prompt = `${stylePrompt}\n\nProduce ONE square, head-and-shoulders portrait suitable as a profile picture. It must clearly still be the same person. Keep it family-friendly and flattering.`;
 
-    const gRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType: image.mimeType, data: image.data } },
-            ],
-          }],
-          generationConfig: { responseModalities: ['image', 'text'] },
-        }),
-      }
-    );
+    const gRes = await generateContent(MODEL_IMAGE, {
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: image.mimeType, data: image.data } },
+        ],
+      }],
+      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+    });
 
     if (!gRes.ok) {
       const detail = await gRes.text().catch(() => '');
