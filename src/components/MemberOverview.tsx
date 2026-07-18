@@ -73,8 +73,8 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
   if (isEmpty) {
     return (
       <div className="card p-8 sm:p-10 text-center">
-        <div className="w-14 h-14 rounded-full bg-cream-100 flex items-center justify-center mx-auto mb-4">
-          <IdCard className="w-6 h-6 text-ink-300" />
+        <div className="w-14 h-14 rounded-2xl bg-clay-50 flex items-center justify-center mx-auto mb-4">
+          <IdCard className="w-6 h-6 text-clay-600" />
         </div>
         <p className="text-sm font-semibold text-ink-800">Nothing added for {first} yet</p>
         <p className="text-[13px] text-ink-400 mt-1.5 max-w-sm mx-auto leading-relaxed">
@@ -108,8 +108,8 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
       {tiles.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           {tiles.map((t) => (
-            <div key={t.label} className="rounded-2xl border border-cream-200 bg-white p-3.5">
-              <p className="text-lg font-bold text-ink-900 truncate">{t.value}</p>
+            <div key={t.label} className="rounded-2xl border border-cream-200 bg-white p-3.5 hover:bg-cream-50 hover:border-cream-300 transition-colors">
+              <p className="text-lg font-bold text-ink-900 truncate tabular-nums">{t.value}</p>
               <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wide">{t.label}</p>
             </div>
           ))}
@@ -121,13 +121,13 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
           {rows.map((r, i) => {
             const Icon = r.icon;
             return (
-              <div key={i} className="flex items-start gap-3 p-3.5">
+              <div key={i} className="flex items-start gap-3 p-3.5 hover:bg-cream-50 transition-colors">
                 <div className={`p-2 rounded-xl shrink-0 ${r.warn ? 'bg-honey-100 text-honey-700' : 'bg-cream-100 text-ink-500'}`}>
                   <Icon className="w-4 h-4" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wide">{r.label}</p>
-                  <p className="text-[14px] text-ink-800 break-words">{r.value}</p>
+                  <p className="text-[14px] text-ink-800 break-words tabular-nums">{r.value}</p>
                 </div>
                 {r.viewSrc && onViewDocument && (
                   <button

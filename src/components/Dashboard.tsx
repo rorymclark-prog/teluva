@@ -339,7 +339,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             <span>{memberName(member)}</span>
             <span className="chip bg-cream-200 text-ink-600">{member.role}</span>
             {member.birthdate && (
-              <span className="chip bg-dusk-100 text-dusk-700">{calculateAge(member.birthdate)}</span>
+              <span className="chip bg-dusk-100 text-dusk-700 tabular-nums">{calculateAge(member.birthdate)}</span>
             )}
           </h4>
           {(() => {
@@ -350,7 +350,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             const docCount = member.documents?.length || 0;
             if (docCount > 0 && parts.length < 2) parts.push(`${docCount} doc${docCount !== 1 ? 's' : ''}`);
             return parts.length > 0 ? (
-              <p className="text-[11px] text-ink-400 font-medium truncate mt-0.5">{parts.join(' · ')}</p>
+              <p className="text-[11px] text-ink-400 font-medium truncate mt-0.5 tabular-nums">{parts.join(' · ')}</p>
             ) : null;
           })()}
         </div>
@@ -719,12 +719,18 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-cream-100 flex items-center justify-center font-sans px-4">
+      <div
+        className="min-h-screen bg-cream-100 flex items-center justify-center font-sans px-4"
+        style={{
+          backgroundImage:
+            'radial-gradient(ellipse 60% 50% at 12% -10%, rgba(253, 240, 234, 0.9), transparent 65%), radial-gradient(ellipse 60% 50% at 88% -10%, rgba(252, 244, 230, 0.9), transparent 65%)',
+        }}
+      >
         <div className="card p-10 text-center max-w-md w-full">
           <div className="w-16 h-16 rounded-full bg-sage-100 flex items-center justify-center mx-auto mb-5">
             <ShieldCheck className="w-8 h-8 text-sage-600" />
           </div>
-          <h1 className="font-display text-3xl font-semibold text-ink-900 mb-3">{hubName}</h1>
+          <h1 className="text-display-md text-ink-900 mb-3">{hubName}</h1>
           <p className="text-sm text-ink-500 leading-relaxed mb-8">
             Sizes, documents, growth and plans for the whole family — together in one private place.
           </p>
@@ -750,8 +756,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   return (
     <div className="min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans">
       {/* Header */}
-      <header className="bg-cream-50/90 backdrop-blur border-b border-cream-300/60 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
+      <header className="bg-cream-50/90 backdrop-blur border-b border-cream-200 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
           <button
             type="button"
             onClick={() => !demo && setIsSettingsOpen(true)}
@@ -867,10 +873,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
             {members.length === 0 ? (
               <div className="card text-center py-20 px-6">
-                <div className="w-16 h-16 rounded-full bg-clay-50 flex items-center justify-center mx-auto mb-5">
-                  <Users className="w-8 h-8 text-clay-400" />
+                <div className="w-16 h-16 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-5">
+                  <Users className="w-8 h-8" />
                 </div>
-                <h2 className="font-display text-2xl font-semibold text-ink-900 mb-2">Welcome to your {hubName}</h2>
+                <h2 className="text-display-sm text-ink-900 mb-2">Welcome to your {hubName}</h2>
                 <p className="text-sm text-ink-500 max-w-md mx-auto mb-7">
                   Keep everyone&apos;s clothing sizes, documents, growth history and wish lists in one tidy, private place.
                 </p>
@@ -888,7 +894,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                   <div className="card p-5 space-y-4">
                     <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
                       <h4 className="section-label">Your family</h4>
-                      <span className="chip bg-cream-200 text-ink-600">
+                      <span className="chip bg-cream-200 text-ink-600 tabular-nums">
                         {members.length} member{members.length !== 1 ? 's' : ''}
                       </span>
                     </div>
@@ -937,7 +943,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               <button
                                 type="button"
                                 onClick={() => setRestyleMemberId(selectedMember.id)}
-                                className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-clay-500 hover:bg-clay-600 text-white flex items-center justify-center shadow-lift border-2 border-white transition-colors cursor-pointer"
+                                className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-clay-500 hover:bg-clay-600 text-white flex items-center justify-center shadow-lift border-2 border-white transition-all hover:scale-105 active:scale-95 cursor-pointer"
                                 title="Make a fun avatar"
                                 aria-label="Make a fun avatar"
                               >
@@ -946,7 +952,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                             )}
                           </div>
                           <div className="min-w-0">
-                            <h2 className="font-display text-2xl sm:text-3xl font-bold text-ink-900 flex items-center gap-2.5 flex-wrap">
+                            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink-900 flex items-center gap-2.5 flex-wrap">
                               <span className="truncate">{memberName(selectedMember)}</span>
                               {isAdmin && (
                                 <button
@@ -962,8 +968,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               <span className="chip bg-cream-200 text-ink-600">{selectedMember.role}</span>
                               {selectedMember.birthdate && (
                                 <>
-                                  <span className="chip bg-dusk-100 text-dusk-700">{calculateAge(selectedMember.birthdate)}</span>
-                                  <span className="text-ink-400">born {selectedMember.birthdate}</span>
+                                  <span className="chip bg-dusk-100 text-dusk-700 tabular-nums">{calculateAge(selectedMember.birthdate)}</span>
+                                  <span className="text-ink-400 tabular-nums">born {selectedMember.birthdate}</span>
                                 </>
                               )}
                             </p>
@@ -989,7 +995,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                   {selectedMember.phone && (
                                     <a href={`tel:${selectedMember.phone}`} className="flex items-center gap-1.5 hover:text-clay-600 transition-colors">
                                       <Phone className="w-3.5 h-3.5 shrink-0 text-sage-600" />
-                                      <span className="font-medium">{selectedMember.phone}</span>
+                                      <span className="font-medium tabular-nums">{selectedMember.phone}</span>
                                     </a>
                                   )}
                                   {selectedMember.email && (
@@ -1082,7 +1088,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                     </div>
                   ) : (
                     <div className="card text-center py-24 px-4">
-                      <User className="w-10 h-10 text-ink-400/50 mx-auto mb-3" />
+                      <div className="w-14 h-14 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-3">
+                        <User className="w-7 h-7" />
+                      </div>
                       <h3 className="text-sm font-semibold text-ink-800">No one selected</h3>
                       <p className="text-[13px] text-ink-400 mt-1">Pick a family member from the list to see their things.</p>
                     </div>

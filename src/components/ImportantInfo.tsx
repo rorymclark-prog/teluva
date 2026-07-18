@@ -136,9 +136,14 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <p className="text-[13px] text-ink-400 py-6 text-center">
-          No numbers yet — passports, social security, insurance, policy numbers…
-        </p>
+        <div className="text-center py-6">
+          <div className="w-10 h-10 rounded-2xl bg-sage-50 text-sage-600 flex items-center justify-center mx-auto mb-2">
+            <Hash className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">
+            No numbers yet — passports, social security, insurance, policy numbers…
+          </p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {entries.map(e => editId === e.id ? (
@@ -153,7 +158,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete }: {
             <div key={e.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">{e.label || 'Untitled'}</p>
-                <p className="font-mono text-[15px] text-ink-900 break-all">{e.value || '—'}</p>
+                <p className="font-mono tabular-nums text-[15px] text-ink-900 break-all">{e.value || '—'}</p>
                 {e.note && <p className="text-[12px] text-ink-500 mt-0.5">{e.note}</p>}
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -227,9 +232,14 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <p className="text-[13px] text-ink-400 py-6 text-center">
-          No contacts yet — school office, teachers, doctor, friends, emergency…
-        </p>
+        <div className="text-center py-6">
+          <div className="w-10 h-10 rounded-2xl bg-dusk-50 text-dusk-600 flex items-center justify-center mx-auto mb-2">
+            <Users className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">
+            No contacts yet — school office, teachers, doctor, friends, emergency…
+          </p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {entries.map(c => editId === c.id ? (
@@ -249,7 +259,7 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete }: {
                 </p>
                 <div className="mt-1 space-y-0.5">
                   {c.phone && (
-                    <a href={`tel:${c.phone.replace(/\s+/g, '')}`} className="flex items-center gap-1.5 text-[13px] text-sage-700 hover:underline">
+                    <a href={`tel:${c.phone.replace(/\s+/g, '')}`} className="flex items-center gap-1.5 text-[13px] font-mono tabular-nums text-sage-700 hover:underline">
                       <Phone className="w-3 h-3 shrink-0" /> {c.phone}
                     </a>
                   )}

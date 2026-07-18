@@ -237,7 +237,7 @@ export default function CareSchedule({ member, onUpdate }: CareScheduleProps) {
               ) : (
                 <div
                   key={item.id}
-                  className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3"
+                  className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3 hover:bg-cream-50 hover:border-cream-300 transition-colors"
                 >
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -249,13 +249,13 @@ export default function CareSchedule({ member, onUpdate }: CareScheduleProps) {
                     )}
                     {item.lastVisit && (
                       <p className="text-[12px] text-ink-500">
-                        Last visit: {new Date(item.lastVisit).toLocaleDateString('en-GB', {
+                        Last visit: <span className="tabular-nums">{new Date(item.lastVisit).toLocaleDateString('en-GB', {
                           day: 'numeric', month: 'short', year: 'numeric',
-                        })}
+                        })}</span>
                       </p>
                     )}
                     <p className="text-[12px] text-ink-500">
-                      Every {item.intervalMonths} month{item.intervalMonths !== 1 ? 's' : ''}
+                      Every <span className="tabular-nums">{item.intervalMonths}</span> month{item.intervalMonths !== 1 ? 's' : ''}
                     </p>
                     {item.notes && (
                       <p className="text-[12px] text-ink-400">{item.notes}</p>

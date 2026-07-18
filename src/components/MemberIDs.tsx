@@ -204,9 +204,14 @@ function PassportsSection({
       )}
 
       {passports.length === 0 && !adding ? (
-        <p className="text-[13px] text-ink-400 py-6 text-center">
-          No passports yet — add one for each nationality.
-        </p>
+        <div className="py-8 text-center">
+          <div className="mx-auto mb-2 w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
+            <Globe className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">
+            No passports yet — add one for each nationality.
+          </p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {passports.map(p => editId === p.id ? (
@@ -224,9 +229,9 @@ function PassportsSection({
                   <p className="text-[14px] font-semibold text-ink-900">{p.country || 'Unknown country'}</p>
                   {expiryChip(p.expiryDate)}
                 </div>
-                <p className="font-mono text-[13px] text-ink-600 break-all">{p.number || '—'}</p>
+                <p className="font-mono tabular-nums text-[13px] text-ink-600 break-all">{p.number || '—'}</p>
                 {(p.issueDate || p.expiryDate) && (
-                  <p className="text-[12px] text-ink-400">
+                  <p className="tabular-nums text-[12px] text-ink-400">
                     {p.issueDate ? `Issued ${p.issueDate}` : ''}
                     {p.issueDate && p.expiryDate ? ' · ' : ''}
                     {p.expiryDate ? `Expires ${p.expiryDate}` : ''}
@@ -338,7 +343,7 @@ function IdentitySection({
               )}
             </div>
             <input
-              className="field font-mono"
+              className="field font-mono tabular-nums"
               placeholder="e.g. 1234 010090 AT"
               value={val('eCardNumber')}
               onChange={set('eCardNumber')}
@@ -348,7 +353,7 @@ function IdentitySection({
           <div>
             <label className="field-label">Sozialversicherungsnummer (SV)</label>
             <input
-              className="field font-mono"
+              className="field font-mono tabular-nums"
               placeholder="e.g. 1234 010190"
               value={val('svNumber')}
               onChange={set('svNumber')}
@@ -358,7 +363,7 @@ function IdentitySection({
           <div>
             <label className="field-label">Tax number</label>
             <input
-              className="field font-mono"
+              className="field font-mono tabular-nums"
               placeholder="Steuernummer"
               value={val('taxNumber')}
               onChange={set('taxNumber')}
@@ -368,7 +373,7 @@ function IdentitySection({
           <div>
             <label className="field-label">Student number</label>
             <input
-              className="field font-mono"
+              className="field font-mono tabular-nums"
               placeholder="Matrikelnummer"
               value={val('studentNumber')}
               onChange={set('studentNumber')}
@@ -378,7 +383,7 @@ function IdentitySection({
           <div>
             <label className="field-label">School registration number</label>
             <input
-              className="field font-mono"
+              className="field font-mono tabular-nums"
               placeholder="Schülerausweis-Nr"
               value={val('schoolRegNumber')}
               onChange={set('schoolRegNumber')}
@@ -417,7 +422,7 @@ function IdentitySection({
               )}
             </div>
             <input
-              className="field font-mono"
+              className="field font-mono tabular-nums"
               placeholder="Aufenthaltstitel-Nr"
               value={val('residencePermitNumber')}
               onChange={set('residencePermitNumber')}
@@ -433,7 +438,7 @@ function IdentitySection({
             </label>
             <input
               type="date"
-              className="field"
+              className="field tabular-nums"
               value={val('residencePermitExpiry')}
               onChange={set('residencePermitExpiry')}
               onBlur={() => onChange({ ...identity })}
@@ -442,7 +447,7 @@ function IdentitySection({
           <div>
             <label className="field-label">National ID number</label>
             <input
-              className="field font-mono"
+              className="field font-mono tabular-nums"
               placeholder="e.g. SA ID number"
               value={val('nationalIdNumber')}
               onChange={set('nationalIdNumber')}
@@ -452,7 +457,7 @@ function IdentitySection({
           <div>
             <label className="field-label">Citizenship certificate number</label>
             <input
-              className="field font-mono"
+              className="field font-mono tabular-nums"
               placeholder="Staatsbürgerschaftsnachweis"
               value={val('citizenshipCertNumber')}
               onChange={set('citizenshipCertNumber')}
@@ -471,7 +476,7 @@ function IdentitySection({
           <div>
             <label className="field-label">Driver's licence number</label>
             <input
-              className="field font-mono"
+              className="field font-mono tabular-nums"
               placeholder="Führerschein-Nr"
               value={val('driversLicenseNumber')}
               onChange={set('driversLicenseNumber')}
@@ -487,7 +492,7 @@ function IdentitySection({
             </label>
             <input
               type="date"
-              className="field"
+              className="field tabular-nums"
               value={val('driversLicenseExpiry')}
               onChange={set('driversLicenseExpiry')}
               onBlur={() => onChange({ ...identity })}

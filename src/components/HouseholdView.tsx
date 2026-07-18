@@ -187,9 +187,12 @@ function UtilitiesSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <p className="text-[13px] text-ink-400 py-6 text-center">
-          No utilities yet — electricity, gas, internet, water…
-        </p>
+        <div className="py-6 text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
+            <Plug className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">No utilities yet — electricity, gas, internet, water…</p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {entries.map(u => editId === u.id ? (
@@ -289,9 +292,12 @@ function VehiclesSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <p className="text-[13px] text-ink-400 py-6 text-center">
-          No vehicles yet — car, motorbike, bicycle…
-        </p>
+        <div className="py-6 text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
+            <Car className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">No vehicles yet — car, motorbike, bicycle…</p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {entries.map(v => editId === v.id ? (
@@ -303,15 +309,15 @@ function VehiclesSection({ entries, onAdd, onUpdate, onDelete }: {
               />
             </div>
           ) : (
-            <div key={v.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+            <div key={v.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3 hover:bg-cream-50 hover:border-cream-300 transition-colors">
               <div className="min-w-0 space-y-0.5">
                 <p className="text-[14px] font-semibold text-ink-900 truncate">{v.name || 'Unnamed vehicle'}</p>
                 <div className="flex flex-wrap gap-1.5 mt-1">
-                  {v.registration && <span className="chip bg-dusk-100 text-dusk-700">{v.registration}</span>}
-                  {v.serviceDate && <span className="chip bg-honey-100 text-honey-700">Service: {v.serviceDate}</span>}
+                  {v.registration && <span className="chip bg-dusk-100 text-dusk-700 font-mono tabular-nums">{v.registration}</span>}
+                  {v.serviceDate && <span className="chip bg-honey-100 text-honey-700 font-mono tabular-nums">Service: {v.serviceDate}</span>}
                 </div>
-                {v.vin && <p className="font-mono text-[11px] text-ink-400 mt-0.5">VIN: {v.vin}</p>}
-                {v.insuranceNumber && <p className="text-[12px] text-ink-500">Insurance: {v.insuranceNumber}</p>}
+                {v.vin && <p className="font-mono tabular-nums text-[11px] text-ink-400 mt-0.5">VIN: {v.vin}</p>}
+                {v.insuranceNumber && <p className="font-mono tabular-nums text-[12px] text-ink-500">Insurance: {v.insuranceNumber}</p>}
                 {v.notes && <p className="text-[12px] text-ink-500">{v.notes}</p>}
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -406,9 +412,12 @@ function PetsSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <p className="text-[13px] text-ink-400 py-6 text-center">
-          No pets yet — dogs, cats, birds, fish…
-        </p>
+        <div className="py-6 text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
+            <PawPrint className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">No pets yet — dogs, cats, birds, fish…</p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {entries.map(p => editId === p.id ? (
@@ -420,14 +429,14 @@ function PetsSection({ entries, onAdd, onUpdate, onDelete }: {
               />
             </div>
           ) : (
-            <div key={p.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+            <div key={p.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3 hover:bg-cream-50 hover:border-cream-300 transition-colors">
               <div className="min-w-0 space-y-0.5">
                 <p className="text-[14px] font-semibold text-ink-900 truncate">
                   {p.name || 'Unnamed pet'}
                   {p.species && <span className="chip bg-sage-100 text-sage-700 ml-2">{p.species}</span>}
                 </p>
                 {p.vet && <p className="text-[12px] text-ink-500">Vet: {p.vet}</p>}
-                {p.microchip && <p className="font-mono text-[11px] text-ink-400">Microchip: {p.microchip}</p>}
+                {p.microchip && <p className="font-mono tabular-nums text-[11px] text-ink-400">Microchip: {p.microchip}</p>}
                 {p.vaccinations && <p className="text-[12px] text-ink-500">Vaccinations: {p.vaccinations}</p>}
                 {p.notes && <p className="text-[12px] text-ink-500">{p.notes}</p>}
               </div>

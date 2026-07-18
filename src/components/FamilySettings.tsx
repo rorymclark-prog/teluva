@@ -114,10 +114,13 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
   return (
     <div className="fixed inset-0 z-50 flex">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-ink-900/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-ink-900/30 backdrop-blur-sm anim-fade" onClick={onClose} />
 
       {/* Panel */}
-      <div className="relative ml-auto w-full max-w-md h-full bg-cream-50 shadow-2xl flex flex-col overflow-y-auto">
+      <div className="relative ml-auto w-full max-w-md h-full bg-cream-50 shadow-2xl flex flex-col overflow-y-auto anim-sheet">
+        {/* Mobile grabber bar */}
+        <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 shrink-0 sm:hidden" />
+
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-cream-200 shrink-0">
           <div className="flex items-center gap-3">
@@ -140,7 +143,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
         <div className="flex-1 p-6 space-y-6">
           {/* Section 1: Invite codes */}
           <div className="card p-5 space-y-3">
-            <h3 className="text-xs font-semibold text-ink-400 uppercase tracking-wider flex items-center gap-2">
+            <h3 className="section-label flex items-center gap-2">
               <Link size={13} />
               Invite someone
             </h3>
@@ -160,7 +163,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
               <button
                 onClick={handleGenerateInvite}
                 disabled={inviteLoading}
-                className="btn-primary flex-1 justify-center gap-2 disabled:opacity-40"
+                className={`flex-1 justify-center gap-2 disabled:opacity-40 ${inviteCode ? 'btn-quiet' : 'btn-primary'}`}
               >
                 {inviteLoading ? <Loader2 size={15} className="animate-spin" /> : <Share2 size={15} />}
                 {inviteCode ? 'New invite code' : 'Create invite code'}
@@ -168,7 +171,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
             </div>
 
             {inviteError && (
-              <p className="text-xs text-rose-600 bg-rose-50 rounded-xl px-3 py-2">{inviteError}</p>
+              <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{inviteError}</p>
             )}
 
             {inviteCode && (
@@ -199,7 +202,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
 
           {/* Section 2: Family Members */}
           <div className="card p-5 space-y-4">
-            <h3 className="text-xs font-semibold text-ink-400 uppercase tracking-wider flex items-center gap-2">
+            <h3 className="section-label flex items-center gap-2">
               <Users size={14} />
               Family Members
             </h3>
@@ -212,7 +215,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
             )}
 
             {rolesError && (
-              <p className="text-sm text-rose-600 bg-rose-50 rounded-xl px-3 py-2">{rolesError}</p>
+              <p className="text-sm text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{rolesError}</p>
             )}
 
             {!rolesLoading && !rolesError && Object.keys(roles).length === 0 && (

@@ -125,17 +125,44 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
   const [error, setError] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  // Progressive word-by-word reveal of the latest assistant reply — null means
+  // "not streaming" (either no reply yet, or the reveal has finished).
+  const [streamWordCount, setStreamWordCount] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+  const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Clean up speech recognition on unmount
+  const stopStreaming = () => {
+    if (streamTimerRef.current) { clearInterval(streamTimerRef.current); streamTimerRef.current = null; }
+    setStreamWordCount(null);
+  };
+
+  // Word-by-word reveal at ~30ms/word for the reply that just arrived.
+  const startStreaming = (fullText: string) => {
+    if (streamTimerRef.current) clearInterval(streamTimerRef.current);
+    const words = fullText.trim().split(/\s+/).filter(Boolean);
+    if (words.length <= 1) { setStreamWordCount(null); return; }
+    let count = 1;
+    setStreamWordCount(count);
+    streamTimerRef.current = setInterval(() => {
+      count++;
+      setStreamWordCount(count);
+      if (count >= words.length) {
+        if (streamTimerRef.current) { clearInterval(streamTimerRef.current); streamTimerRef.current = null; }
+        setStreamWordCount(null);
+      }
+    }, 30);
+  };
+
+  // Clean up speech recognition + any in-flight streaming reveal on unmount
   useEffect(() => {
     return () => {
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch { /* ignore */ }
         recognitionRef.current = null;
       }
+      if (streamTimerRef.current) { clearInterval(streamTimerRef.current); streamTimerRef.current = null; }
     };
   }, []);
 
@@ -148,7 +175,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, loading, streamWordCount]);
 
   // Strip heavy/base64 fields (image, sourceImage) before persisting; keep
   // edits + applied so cards restore their applied state.
@@ -164,6 +191,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
   }, [messages]);
 
   const startNewChat = () => {
+    stopStreaming();
     setMessages([]);
     setError(null);
     setInput('');
@@ -263,6 +291,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     const msg = text.trim();
     const att = retryAtt !== undefined ? retryAtt : attachment;
     if ((!msg && !att) || loading) return;
+    stopStreaming(); // cancel any reveal still playing from a prior reply
     setError(null);
     setInput('');
     setAttachment(null);
@@ -308,6 +337,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
         if (uid) saveChatHistory(uid, slimForCloud(updatedMessages));
         return updatedMessages;
       });
+      startStreaming(assistantMsg.text);
     } catch (e: any) {
       const raw = e?.message || 'Something went wrong.';
       // "Load failed" is Safari/iOS's fetch abort error — surface a clearer message
@@ -457,10 +487,13 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
   };
 
   return (
-    <div className="overflow-hidden h-full flex flex-col font-sans bg-white">
-      {/* Header */}
-      <div className="p-4 sm:p-5 border-b border-cream-200 bg-cream-50 flex items-center gap-3">
-        <div className="p-2.5 rounded-2xl bg-clay-500 text-white shrink-0">
+    <div className="overflow-hidden h-full flex flex-col font-sans">
+      {/* Header — sits on the panel's .glass background, so it's tinted, not opaque */}
+      <div className="p-4 sm:p-5 border-b border-cream-200 bg-cream-50/70 flex items-center gap-3">
+        <div
+          className="p-2.5 rounded-2xl text-white shrink-0"
+          style={{ backgroundImage: 'linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600))' }}
+        >
           <Sparkles className="w-5 h-5" />
         </div>
         <div className="min-w-0 hidden sm:block">
@@ -480,10 +513,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-white">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center px-6 space-y-5">
-            <div className="w-14 h-14 rounded-3xl bg-clay-50 text-clay-500 flex items-center justify-center">
+            <div className="w-14 h-14 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
               <Wand2 className="w-7 h-7" />
             </div>
             <div className="space-y-1">
@@ -529,17 +562,28 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
           </div>
         )}
 
-        {messages.map((m, i) => (
+        {messages.map((m, i) => {
+          const isStreamingThis = m.role === 'assistant' && streamWordCount !== null && i === messages.length - 1;
+          const shownText = isStreamingThis
+            ? m.text.trim().split(/\s+/).filter(Boolean).slice(0, streamWordCount!).join(' ')
+            : m.text;
+          return (
           <div key={i} className={`flex items-start gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-soft ${m.role === 'user' ? 'bg-dusk-500 text-white' : 'bg-clay-500 text-white'}`}>
+            <div
+              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-soft text-white ${m.role === 'user' ? 'bg-dusk-500' : ''}`}
+              style={m.role === 'assistant' ? { backgroundImage: 'linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600))' } : undefined}
+            >
               {m.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
             </div>
             <div className={`max-w-[80%] space-y-2 ${m.role === 'user' ? 'items-end' : ''}`}>
               {m.image && (
                 <img src={m.image} alt="attachment" className="max-w-[180px] rounded-2xl border border-cream-300 shadow-soft" />
               )}
-              <div className={`p-3 rounded-2xl text-[14px] leading-relaxed ${m.role === 'user' ? 'bg-dusk-500 text-white rounded-tr-md' : 'bg-cream-100 text-ink-800 rounded-tl-md'}`}>
-                {m.text}
+              <div
+                className={`p-3 rounded-2xl text-[14px] leading-relaxed ${m.role === 'user' ? 'text-white rounded-tr-sm' : 'bg-white/80 border border-cream-200 text-ink-800 rounded-tl-sm'}`}
+                style={m.role === 'user' ? { backgroundImage: 'linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600))' } : undefined}
+              >
+                {shownText}
               </div>
 
               {m.edits && m.edits.length > 0 && (
@@ -577,15 +621,18 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
               )}
             </div>
           </div>
-        ))}
+        )})}
 
         {loading && (
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-clay-500 text-white flex items-center justify-center shrink-0">
+            <div
+              className="w-8 h-8 rounded-xl text-white flex items-center justify-center shrink-0"
+              style={{ backgroundImage: 'linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600))' }}
+            >
               <Bot className="w-4 h-4" />
             </div>
-            <div className="p-3 rounded-2xl bg-cream-100 text-ink-400 flex items-center gap-2 text-[13px]">
-              <Loader2 className="w-4 h-4 animate-spin" /> {isScanning ? 'Reading the document…' : 'Thinking…'}
+            <div className="p-3 rounded-2xl bg-white/80 border border-cream-200 rounded-tl-sm text-[13px] font-medium">
+              <span className="anim-shimmer">{isScanning ? 'Reading the document…' : 'Thinking…'}</span>
             </div>
           </div>
         )}
@@ -593,7 +640,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-cream-200 bg-white">
+      <div className="p-4 border-t border-cream-200 bg-white/70">
         {error && <p className="text-[12px] text-rosa-700 mb-2">{error}</p>}
 
         {attachment && (
@@ -616,9 +663,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
               onClick={toggleVoice}
               disabled={loading}
               title={listening ? 'Stop recording' : 'Speak your message'}
-              className={`px-3 py-2.5 shrink-0 rounded-2xl border font-semibold text-sm transition-colors disabled:opacity-40 ${
+              className={`h-11 w-11 shrink-0 rounded-2xl border font-semibold text-sm transition-colors disabled:opacity-40 flex items-center justify-center ${
                 listening
-                  ? 'bg-rosa-500 text-white border-rosa-500 animate-pulse'
+                  ? 'bg-rosa-500 text-white border-rosa-500 anim-pulse-soft'
                   : 'bg-white hover:bg-cream-100 text-ink-700 border-cream-300'
               }`}
             >
@@ -630,7 +677,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
             onClick={() => fileRef.current?.click()}
             disabled={loading}
             title="Attach a photo, PDF or file — or paste a screenshot with Ctrl+V / Cmd+V. For Google Drive files, open the file in Drive and use File → Download first."
-            className="btn-quiet px-3 py-2.5 shrink-0 disabled:opacity-40"
+            className="btn-quiet h-11 px-3 shrink-0 disabled:opacity-40"
           >
             <Paperclip className="w-4 h-4" />
             <span className="hidden sm:inline">Attach</span>
@@ -642,9 +689,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
             onChange={(e) => setInput(e.target.value)}
             onPaste={onPasteImage}
             disabled={loading}
-            className="field flex-1"
+            className="field flex-1 h-11"
           />
-          <button type="submit" disabled={(!input.trim() && !attachment) || loading} className="btn-primary px-3 py-2.5 shrink-0 disabled:opacity-40">
+          <button type="submit" disabled={(!input.trim() && !attachment) || loading} className="btn-primary h-11 w-11 !p-0 shrink-0 disabled:opacity-40">
             <Send className="w-4 h-4" />
           </button>
         </form>

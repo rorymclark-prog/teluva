@@ -146,7 +146,7 @@ export default function AddMemberModal({ isOpen, onClose, onAdd }: AddMemberModa
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={handleModalClose}
-            className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm"
+            className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm anim-fade"
           />
 
           {/* Modal Container */}
@@ -154,8 +154,11 @@ export default function AddMemberModal({ isOpen, onClose, onAdd }: AddMemberModa
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            className="card relative w-full max-w-md overflow-hidden rounded-3xl p-6"
+            className="card relative w-full max-w-md overflow-hidden rounded-3xl p-6 anim-pop"
           >
+            {/* Mobile grabber bar */}
+            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+
             {/* Header */}
             <div className="flex items-center justify-between pb-4 border-b border-cream-200">
               <div className="flex items-center space-x-2">
@@ -169,7 +172,7 @@ export default function AddMemberModal({ isOpen, onClose, onAdd }: AddMemberModa
               </div>
               <button
                 onClick={handleModalClose}
-                className="p-1 text-ink-400 hover:text-ink-700 rounded-lg hover:bg-cream-100 transition-colors"
+                className="p-1 text-ink-400 hover:text-ink-700 rounded-lg hover:bg-cream-100 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -305,7 +308,7 @@ export default function AddMemberModal({ isOpen, onClose, onAdd }: AddMemberModa
                         >
                           {selectedColor === colorClass && (
                             <span className="absolute inset-0 flex items-center justify-center">
-                              <Sparkles className="w-4 h-4 text-white drop-shadow-sm animate-pulse" />
+                              <Sparkles className="w-4 h-4 text-white drop-shadow-sm" />
                             </span>
                           )}
                         </button>

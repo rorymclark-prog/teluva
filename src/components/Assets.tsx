@@ -289,9 +289,11 @@ export default function Assets() {
         <div className="p-4 sm:p-5">
           {items.length === 0 ? (
             <div className="text-center py-12">
-              <Package className="w-10 h-10 text-ink-200 mx-auto mb-3" />
-              <p className="text-[14px] font-medium text-ink-400">No assets yet</p>
-              <p className="text-[12px] text-ink-300 mt-1">Add bikes, laptops, phones and more</p>
+              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
+                <Package className="w-8 h-8" />
+              </div>
+              <p className="text-[14px] font-medium text-ink-700">No assets yet</p>
+              <p className="text-[12px] text-ink-500 mt-1">Add bikes, laptops, phones and more</p>
               {isAdmin && (
                 <button onClick={openNewForm} className="btn-primary mt-5 text-xs px-4 py-2">
                   <Plus className="w-3.5 h-3.5" />
@@ -353,7 +355,7 @@ export default function Assets() {
                               </span>
                             )}
                             {item.purchasePrice && (
-                              <span className="text-[12px] text-ink-500">{item.purchasePrice}</span>
+                              <span className="text-[12px] text-ink-500 tabular-nums">{item.purchasePrice}</span>
                             )}
                             {isAdmin && (
                               <button
@@ -377,8 +379,11 @@ export default function Assets() {
 
       {/* ── Modal form ── */}
       {isFormOpen && editingItem && (
-        <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
-          <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl">
+        <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
+          <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
+            {/* Mobile grabber */}
+            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+
             {/* Modal header */}
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
               <h3 className="font-display text-lg font-semibold text-ink-900">
@@ -541,7 +546,7 @@ export default function Assets() {
                     placeholder="e.g. €450"
                     value={editingItem.purchasePrice || ''}
                     onChange={e => setEditingItem(prev => prev ? { ...prev, purchasePrice: e.target.value } : prev)}
-                    className="field w-full"
+                    className="field w-full tabular-nums"
                   />
                 </div>
               </div>
@@ -588,7 +593,7 @@ export default function Assets() {
       {/* ── Full-size photo viewer (image record) ── */}
       {photoView && (
         <div
-          className="fixed inset-0 z-[60] bg-ink-900/80 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-[60] bg-ink-900/80 backdrop-blur-sm flex items-center justify-center p-4 anim-fade"
           onClick={() => setPhotoView(null)}
         >
           <button

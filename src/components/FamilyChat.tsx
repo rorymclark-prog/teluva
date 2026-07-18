@@ -300,14 +300,14 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
               </div>
             ) : loadError ? (
               <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-2">
-                <div className="w-10 h-10 rounded-xl bg-rosa-50 text-rosa-500 flex items-center justify-center border border-rosa-100">
+                <div className="w-10 h-10 rounded-2xl bg-rosa-50 text-rosa-600 flex items-center justify-center">
                   <Info className="w-5 h-5" />
                 </div>
                 <p className="text-[13px] text-rosa-600 max-w-xs font-medium">{loadError}</p>
               </div>
             ) : channelMessages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-3">
-                <div className="w-10 h-10 rounded-xl bg-cream-100 text-ink-400 flex items-center justify-center border border-cream-300">
+                <div className="w-10 h-10 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
                   <Hash className="w-5 h-5" />
                 </div>
                 <div className="space-y-1">
@@ -350,15 +350,15 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
                       <div className="space-y-1">
                         <div className={`flex items-center gap-2 ${isOwn ? 'justify-end' : ''}`}>
                           <span className="text-[12px] font-semibold text-ink-600">{msg.senderName}</span>
-                          <span className="text-[11px] text-ink-400 flex items-center gap-1">
+                          <span className="text-[11px] font-mono tabular-nums text-ink-400 flex items-center gap-1">
                             <Clock className="w-2.5 h-2.5" />
                             {formattedTime}
                           </span>
                         </div>
                         <div className={`p-3 rounded-2xl text-[13px] leading-relaxed ${
                           isOwn
-                            ? 'bg-clay-500 text-white rounded-br-md'
-                            : 'bg-cream-200 text-ink-800 rounded-bl-md'
+                            ? 'bg-gradient-to-br from-clay-500 to-clay-600 text-white rounded-tr-sm'
+                            : 'bg-white text-ink-800 border border-cream-300 rounded-tl-sm'
                         }`}>
                           <p>{msg.text}</p>
                         </div>

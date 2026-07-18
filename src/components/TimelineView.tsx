@@ -128,7 +128,10 @@ function TimelineSection({ entries, onAdd, onUpdate, onDelete }: {
 
       {sorted.length === 0 && !adding ? (
         <div className="text-center py-12">
-          <p className="text-[13px] text-ink-400 mb-4">
+          <div className="w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-3">
+            <CalendarHeart className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">
             No moments yet — add births, anniversaries, graduations, and memories to build your family story.
           </p>
         </div>
@@ -159,7 +162,7 @@ function TimelineSection({ entries, onAdd, onUpdate, onDelete }: {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className="text-[12px] font-semibold text-ink-500">
+                          <span className="font-mono tabular-nums text-[12px] font-semibold text-ink-500">
                             {new Date(entry.date).toLocaleDateString('en-US', {
                               year: 'numeric',
                               month: 'short',

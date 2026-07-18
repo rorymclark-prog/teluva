@@ -48,23 +48,27 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
         <>
           {/* Mobile backdrop — dims the page + tap to dismiss */}
           <div
-            className="fixed inset-0 z-40 bg-ink-900/25 sm:hidden"
+            className="fixed inset-0 z-40 bg-ink-900/25 sm:hidden anim-fade"
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />
           {/* Chat panel — bottom sheet on mobile, anchored popover on desktop.
-              Sits above the launcher (bottom-24) so the launcher's X stays tappable. */}
+              Sits above the launcher (bottom-24) so the launcher's X stays tappable.
+              Frosted glass — the one sanctioned .glass surface in the app. */}
           <div
             ref={panelRef}
             role="dialog"
             aria-label={t.nav_assistant}
-            className="fixed z-40 flex flex-col bg-white rounded-2xl overflow-hidden border border-cream-300 shadow-lift
+            className="fixed z-40 flex flex-col glass rounded-2xl overflow-hidden border border-cream-300 shadow-lift anim-sheet
                        inset-x-3 top-16 bottom-24
                        sm:inset-auto sm:right-4 sm:bottom-24 sm:top-auto
                        sm:w-[400px] sm:h-[min(620px,calc(100vh-9rem))]"
           >
+            {/* Mobile grabber bar */}
+            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+
             {demo ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 gap-3 bg-white">
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 gap-3">
                 <div className="w-12 h-12 rounded-full bg-clay-50 text-clay-500 flex items-center justify-center">
                   <Sparkles className="w-6 h-6" />
                 </div>
@@ -86,7 +90,11 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? t.btn_close : t.nav_assistant}
         aria-expanded={open}
-        className="fixed z-50 bottom-4 right-4 w-14 h-14 rounded-full bg-clay-500 hover:bg-clay-600 text-white shadow-lift flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+        className="fixed z-50 bottom-4 right-4 w-14 h-14 rounded-full text-white flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+        style={{
+          backgroundImage: 'linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600))',
+          boxShadow: 'var(--shadow-glow)',
+        }}
       >
         {open ? <X className="w-6 h-6" /> : <Sparkles className="w-6 h-6" />}
       </button>

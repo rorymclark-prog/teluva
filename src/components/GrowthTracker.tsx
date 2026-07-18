@@ -201,7 +201,7 @@ export default function GrowthTracker({ member, onUpdateMember }: GrowthTrackerP
           <div className="card p-5 flex items-center justify-between">
             <div>
               <p className="section-label mb-1">Current height</p>
-              <p className="text-xl font-light text-ink-900">
+              <p className="text-xl font-light text-ink-900 tabular-nums">
                 {latestLog ? `${latestLog.heightCm} cm` : '—'}
               </p>
             </div>
@@ -213,7 +213,7 @@ export default function GrowthTracker({ member, onUpdateMember }: GrowthTrackerP
           <div className="card p-5 flex items-center justify-between">
             <div>
               <p className="section-label mb-1">Current weight</p>
-              <p className="text-xl font-light text-ink-900">
+              <p className="text-xl font-light text-ink-900 tabular-nums">
                 {latestLog && latestLog.weightKg ? `${latestLog.weightKg} kg` : '—'}
               </p>
             </div>
@@ -225,11 +225,11 @@ export default function GrowthTracker({ member, onUpdateMember }: GrowthTrackerP
           <div className="card p-5 flex items-center justify-between">
             <div>
               <p className="section-label mb-1">Growth index</p>
-              <p className="text-md font-semibold text-sage-600">
+              <p className="text-md font-semibold text-sage-600 tabular-nums">
                 {heightDiff ? `${heightDiff} cm cumulative` : 'First raw log'}
               </p>
               {weightDiff && weightDiffNum !== 0 && (
-                <span className="text-[11px] text-ink-400 block mt-0.5">
+                <span className="text-[11px] text-ink-400 block mt-0.5 tabular-nums">
                   Weight change: {weightDiff} kg
                 </span>
               )}
@@ -245,7 +245,9 @@ export default function GrowthTracker({ member, onUpdateMember }: GrowthTrackerP
       <div className="card overflow-hidden">
         {logs.length === 0 ? (
           <div className="text-center py-12 px-4">
-            <Calendar className="w-8 h-8 text-cream-400 mx-auto mb-2" />
+            <div className="w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-2">
+              <Calendar className="w-6 h-6" />
+            </div>
             <p className="text-[13px] font-semibold text-ink-800">No growth logs yet</p>
             <p className="text-[13px] text-ink-400 mt-0.5">Click &ldquo;Log new metrics&rdquo; above to record height and weight checkpoints.</p>
           </div>
@@ -280,8 +282,8 @@ export default function GrowthTracker({ member, onUpdateMember }: GrowthTrackerP
 
                   return (
                     <tr key={log.id} className="hover:bg-cream-50/50 transition-colors">
-                      <td className="p-4 font-mono text-ink-600 font-semibold">{log.date}</td>
-                      <td className="p-4 text-ink-900 font-medium">
+                      <td className="p-4 font-mono text-ink-600 font-semibold tabular-nums">{log.date}</td>
+                      <td className="p-4 text-ink-900 font-medium tabular-nums">
                         {log.heightCm} cm
                         {rowHeightDiff !== null && (
                           <span className="text-[10px] text-sage-600 ml-2 font-semibold">
@@ -289,7 +291,7 @@ export default function GrowthTracker({ member, onUpdateMember }: GrowthTrackerP
                           </span>
                         )}
                       </td>
-                      <td className="p-4 text-ink-700">
+                      <td className="p-4 text-ink-700 tabular-nums">
                         {log.weightKg ? `${log.weightKg} kg` : '—'}
                         {rowWeightDiff !== null && rowWeightDiffNum !== 0 ? (
                           <span className={`text-[10px] ml-1.5 ${

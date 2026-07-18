@@ -213,14 +213,14 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
   return (
     <div className="space-y-6">
       {/* Banner */}
-      <div className="bg-ink-900 p-4 border border-ink-800 rounded-2xl text-white flex items-center justify-between shadow-soft">
+      <div className="card bg-gradient-to-r from-ink-900 to-ink-800 p-4 text-white flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <div className="p-2 rounded-xl bg-white/5 border border-white/10 text-sage-400">
             <Lock className="w-4 h-4" />
           </div>
           <div>
             <h4 className="text-[13px] font-semibold text-white">Credentials &amp; logins</h4>
-            <p className="text-xs text-ink-400 font-light mt-0.5">Manage digital accounts, identifiers, and financial records.</p>
+            <p className="text-xs text-ink-300 font-light mt-0.5">Manage digital accounts, identifiers, and financial records.</p>
           </div>
         </div>
         <span className="hidden sm:inline-flex items-center chip bg-sage-100/10 border border-sage-500/20 text-sage-400">
@@ -242,7 +242,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
         <div className="xl:col-span-5 space-y-6">
 
           {/* NATIONAL IDENTIFIERS & SSN FORM */}
-          <section className="bg-white p-5 rounded-2xl border border-cream-200 shadow-soft space-y-4">
+          <section className="card p-5 space-y-4">
             <h4 className="text-[13px] font-semibold text-ink-900 flex items-center gap-1.5 pb-2 border-b border-cream-200">
               <ShieldAlert className="w-4 h-4 text-ink-500" />
               National ID &amp; SSN credentials
@@ -257,7 +257,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                     placeholder="e.g. XXX-XX-4920"
                     value={ssn}
                     onChange={(e) => setSsn(e.target.value)}
-                    className="field font-mono"
+                    className="field font-mono tabular-nums"
                   />
                 </div>
                 <div>
@@ -267,7 +267,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                     placeholder="e.g. DL-EM98334"
                     value={dl}
                     onChange={(e) => setDl(e.target.value)}
-                    className="field font-mono"
+                    className="field font-mono tabular-nums"
                   />
                 </div>
               </div>
@@ -280,7 +280,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                     placeholder="e.g. TX-EMILY-44"
                     value={taxId}
                     onChange={(e) => setTaxId(e.target.value)}
-                    className="field font-mono"
+                    className="field font-mono tabular-nums"
                   />
                 </div>
                 <div>
@@ -290,7 +290,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                     placeholder="e.g. BCBS-84221A"
                     value={insNo}
                     onChange={(e) => setInsNo(e.target.value)}
-                    className="field"
+                    className="field font-mono tabular-nums"
                   />
                 </div>
               </div>
@@ -316,7 +316,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
           </section>
 
           {/* EDUCATION & SCHOOL DIRECTORY FORM */}
-          <section className="bg-white p-5 rounded-2xl border border-cream-200 shadow-soft space-y-4">
+          <section className="card p-5 space-y-4">
             <h4 className="text-[13px] font-semibold text-ink-900 flex items-center gap-1.5 pb-2 border-b border-cream-200">
               <School className="w-4 h-4 text-ink-500" />
               School &amp; academic directory
@@ -364,7 +364,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                     placeholder="e.g. A-104"
                     value={room}
                     onChange={(e) => setRoom(e.target.value)}
-                    className="field font-mono"
+                    className="field font-mono tabular-nums"
                   />
                 </div>
               </div>
@@ -406,7 +406,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
         <div className="xl:col-span-7 space-y-6">
 
           {/* SECURE ONLINE LOGINS PANEL */}
-          <section className="bg-white p-5 rounded-2xl border border-cream-200 shadow-soft space-y-4">
+          <section className="card p-5 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-cream-200">
               <h4 className="text-[13px] font-semibold text-ink-900 flex items-center gap-1.5">
                 <Key className="w-4 h-4 text-ink-500" />
@@ -414,7 +414,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
               </h4>
               <button
                 onClick={() => setShowAddDigital(!showAddDigital)}
-                className="text-[13px] font-semibold text-clay-600 hover:text-clay-700 cursor-pointer"
+                className="text-[13px] font-semibold text-clay-600 hover:text-clay-700 cursor-pointer active:scale-[0.97] transition-transform"
               >
                 {showAddDigital ? 'Close form' : '+ Add portal'}
               </button>
@@ -441,7 +441,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                       placeholder="e.g. disneyplus.com"
                       value={digitalUrl}
                       onChange={(e) => setDigitalUrl(e.target.value)}
-                      className="field font-mono"
+                      className="field font-mono tabular-nums"
                     />
                   </div>
                 </div>
@@ -468,13 +468,14 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                         placeholder="SecretPass123"
                         value={digitalPass}
                         onChange={(e) => setDigitalPass(e.target.value)}
-                        className="field font-mono pr-10"
+                        className="field font-mono tabular-nums pr-12"
                       />
                       <button
                         type="button"
                         onClick={() => setShowNewPassword((v) => !v)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700 p-1 rounded"
+                        className="absolute right-0 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center text-ink-400 hover:text-ink-700 active:scale-[0.97] transition-all rounded"
                         tabIndex={-1}
+                        title={showNewPassword ? 'Hide password' : 'Show password'}
                       >
                         {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
@@ -514,28 +515,29 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
             {/* List Logins */}
             <div className="space-y-3">
               {(!member.digitalAccounts || member.digitalAccounts.length === 0) ? (
-                <div className="text-center py-6 text-ink-400 text-[13px] italic">
-                  No login accounts added yet.
+                <div className="text-center py-8 bg-clay-50 rounded-2xl">
+                  <Key className="w-8 h-8 text-clay-600 mx-auto mb-2" />
+                  <p className="text-[13px] font-medium text-clay-700">No login accounts added yet</p>
                 </div>
               ) : (
                 member.digitalAccounts.map(acc => (
-                  <div key={acc.id} className="p-3.5 bg-cream-100 border border-cream-200 rounded-xl flex items-start justify-between gap-3 text-sm leading-normal">
+                  <div key={acc.id} className="card p-4 flex items-start justify-between gap-3 text-sm leading-normal group">
                     <div className="space-y-1 min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-semibold text-ink-900">{acc.serviceName}</span>
                         {acc.url && (
-                          <span className="text-xs font-mono text-ink-400">({acc.url})</span>
+                          <span className="text-xs font-mono tabular-nums text-ink-400">({acc.url})</span>
                         )}
                       </div>
                       <p className="text-ink-600 text-xs">
-                        User: <span className="font-mono text-ink-800 bg-cream-200 px-1 py-0.5 rounded font-semibold">{acc.username}</span>
+                        User: <span className="font-mono tabular-nums text-ink-800 bg-cream-100 px-1.5 py-0.5 rounded font-semibold">{acc.username}</span>
                       </p>
 
                       {/* Bug fix #6: masked password with per-item reveal toggle */}
-                      <div className="flex items-center space-x-2 mt-1.5">
-                        <span className="section-label">Password:</span>
+                      <div className="flex items-center gap-1.5 mt-2">
+                        <span className="text-xs text-ink-500">Password:</span>
                         {visiblePasswordIds.includes(acc.id) ? (
-                          <span className="font-mono text-ink-800 text-xs bg-cream-200 px-1.5 py-0.5 rounded select-all">
+                          <span className="font-mono tabular-nums text-ink-800 text-xs bg-cream-100 px-1.5 py-0.5 rounded select-all">
                             {revealedPw[acc.id] ?? '…'}
                           </span>
                         ) : (
@@ -543,15 +545,15 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                         )}
                         <button
                           onClick={() => togglePasswordVisibility(acc.id)}
-                          className="p-1 hover:bg-cream-200 rounded text-ink-400 hover:text-ink-700 transition-colors"
+                          className="w-10 h-10 flex items-center justify-center text-ink-400 hover:text-ink-700 active:scale-[0.97] transition-all rounded"
                           title={visiblePasswordIds.includes(acc.id) ? 'Hide password' : 'Reveal password'}
                         >
-                          {visiblePasswordIds.includes(acc.id) ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          {visiblePasswordIds.includes(acc.id) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
                       </div>
 
                       {acc.notes && (
-                        <p className="text-xs text-ink-400 italic mt-1 bg-white p-1.5 rounded border border-cream-200">
+                        <p className="text-xs text-ink-400 italic mt-2 bg-cream-50 p-2 rounded border border-cream-200">
                           &ldquo;{acc.notes}&rdquo;
                         </p>
                       )}
@@ -559,10 +561,10 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
 
                     <button
                       onClick={() => handleDeleteDigitalAccount(acc.id)}
-                      className="p-1 px-1.5 text-ink-400 hover:text-rosa-700 hover:bg-rosa-50 rounded-lg transition-colors cursor-pointer"
+                      className="w-10 h-10 flex items-center justify-center opacity-0 group-hover:opacity-100 text-ink-400 hover:text-rosa-600 hover:bg-rosa-50 active:scale-[0.97] transition-all rounded cursor-pointer"
                       title="Remove login"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 ))
@@ -571,7 +573,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
           </section>
 
           {/* SECURE BLOCK FOR BANK / FINANCIAL ACCOUNTS */}
-          <section className="bg-white p-5 rounded-2xl border border-cream-200 shadow-soft space-y-4">
+          <section className="card p-5 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-cream-200">
               <h4 className="text-[13px] font-semibold text-ink-900 flex items-center gap-1.5">
                 <Landmark className="w-4 h-4 text-ink-500" />
@@ -579,7 +581,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
               </h4>
               <button
                 onClick={() => setShowAddBank(!showAddBank)}
-                className="text-[13px] font-semibold text-clay-600 hover:text-clay-700 cursor-pointer"
+                className="text-[13px] font-semibold text-clay-600 hover:text-clay-700 cursor-pointer active:scale-[0.97] transition-transform"
               >
                 {showAddBank ? 'Close form' : '+ Add asset'}
               </button>
@@ -624,7 +626,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                       placeholder="e.g. 982245104"
                       value={bankNumber}
                       onChange={(e) => setBankNumber(e.target.value)}
-                      className="field font-mono"
+                      className="field font-mono tabular-nums"
                     />
                   </div>
                   <div>
@@ -634,7 +636,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                       placeholder="e.g. RT-021000021"
                       value={bankRouting}
                       onChange={(e) => setBankRouting(e.target.value)}
-                      className="field font-mono"
+                      className="field font-mono tabular-nums"
                     />
                   </div>
                 </div>
@@ -671,30 +673,31 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
             {/* List Bank Reference Logs */}
             <div className="space-y-3">
               {(!member.financialAccounts || member.financialAccounts.length === 0) ? (
-                <div className="text-center py-6 text-ink-400 text-[13px] italic">
-                  No reference bank accounts cataloged.
+                <div className="text-center py-8 bg-clay-50 rounded-2xl">
+                  <Landmark className="w-8 h-8 text-clay-600 mx-auto mb-2" />
+                  <p className="text-[13px] font-medium text-clay-700">No reference bank accounts cataloged</p>
                 </div>
               ) : (
                 member.financialAccounts.map(b => (
-                  <div key={b.id} className="p-3.5 bg-cream-100 border border-cream-200 rounded-xl flex items-start justify-between gap-3 text-sm leading-normal">
+                  <div key={b.id} className="card p-4 flex items-start justify-between gap-3 text-sm leading-normal group">
                     <div className="space-y-1 min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <CreditCard className="w-3.5 h-3.5 text-ink-400" />
+                        <CreditCard className="w-4 h-4 text-ink-400" />
                         <span className="font-semibold text-ink-900">{b.bankName}</span>
-                        <span className="chip bg-cream-200 text-ink-600">
+                        <span className="chip bg-cream-100 text-ink-600 text-xs">
                           {b.accountType}
                         </span>
                       </div>
-                      <p className="text-ink-600 font-mono text-xs">
-                        Account: <span className="font-bold text-ink-800 bg-white border border-cream-200 px-1.5 py-0.5 rounded select-all">{b.accountNumber}</span>
+                      <p className="text-ink-600 font-mono tabular-nums text-xs">
+                        Account: <span className="font-bold text-ink-800 bg-cream-100 px-1.5 py-0.5 rounded select-all">{b.accountNumber}</span>
                         {b.routingNumber && (
                           <span className="ml-3 font-normal text-ink-400">
-                            Routing: <span className="font-semibold text-ink-700 bg-white border border-cream-200 px-1.5 py-0.5 rounded select-all">{b.routingNumber}</span>
+                            Routing: <span className="font-semibold text-ink-700 bg-cream-100 px-1.5 py-0.5 rounded select-all">{b.routingNumber}</span>
                           </span>
                         )}
                       </p>
                       {b.notes && (
-                        <p className="text-xs text-ink-400 italic mt-1 font-light">
+                        <p className="text-xs text-ink-400 italic mt-2 font-light">
                           &ldquo;{b.notes}&rdquo;
                         </p>
                       )}
@@ -702,10 +705,10 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
 
                     <button
                       onClick={() => handleDeleteBankAccount(b.id)}
-                      className="p-1 px-1.5 text-ink-400 hover:text-rosa-700 hover:bg-rosa-50 rounded-lg transition-colors cursor-pointer"
+                      className="w-10 h-10 flex items-center justify-center opacity-0 group-hover:opacity-100 text-ink-400 hover:text-rosa-600 hover:bg-rosa-50 active:scale-[0.97] transition-all rounded cursor-pointer"
                       title="Remove financial record"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 ))

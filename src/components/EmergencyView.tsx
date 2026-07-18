@@ -15,8 +15,8 @@ export default function EmergencyView({ members }: EmergencyViewProps) {
   if (members.length === 0) {
     return (
       <div className="card p-10 text-center max-w-lg mx-auto mt-8">
-        <div className="w-14 h-14 rounded-full bg-rosa-100 flex items-center justify-center mx-auto mb-4">
-          <Users className="w-7 h-7 text-rosa-500" />
+        <div className="w-14 h-14 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-4">
+          <Users className="w-6 h-6" />
         </div>
         <h2 className="font-display text-2xl font-semibold text-ink-900 mb-2">No members yet</h2>
         <p className="text-sm text-ink-500 leading-relaxed">
@@ -172,7 +172,7 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
           {hasPhone && (
             <a
               href={`tel:${member.emergencyContactPhone!.replace(/\s+/g, '')}`}
-              className="inline-flex items-center gap-2 mt-1 text-[15px] font-semibold text-sage-700 hover:underline"
+              className="inline-flex items-center gap-2 mt-1 text-[15px] font-mono tabular-nums font-semibold text-sage-700 hover:underline"
             >
               <Phone className="w-4 h-4 shrink-0" />
               {member.emergencyContactPhone}
@@ -193,7 +193,7 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
                 <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wide w-24 shrink-0">
                   SV number
                 </span>
-                <span className="font-mono text-[14px] text-ink-900">{identity!.svNumber}</span>
+                <span className="font-mono tabular-nums text-[14px] font-semibold text-ink-900">{identity!.svNumber}</span>
               </div>
             )}
             {hasEcard && (
@@ -201,7 +201,7 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
                 <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wide w-24 shrink-0">
                   e-card
                 </span>
-                <span className="font-mono text-[14px] text-ink-900">{identity!.eCardNumber}</span>
+                <span className="font-mono tabular-nums text-[14px] font-semibold text-ink-900">{identity!.eCardNumber}</span>
               </div>
             )}
           </div>
@@ -217,7 +217,7 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
         med?.organDonor !== true &&
         !hasContact &&
         !hasIdentity && (
-          <div className="flex items-center gap-2 text-[13px] text-ink-400 py-2">
+          <div className="flex flex-col items-center gap-2 text-[13px] text-ink-400 py-3 px-3 rounded-2xl bg-cream-50">
             <UserCheck className="w-4 h-4 shrink-0" />
             <span>No medical or emergency data on file yet — edit this profile to add it.</span>
           </div>

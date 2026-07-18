@@ -104,7 +104,7 @@ export default function FamilyPasswords() {
   if (loading) {
     return (
       <div className="card p-8 text-center max-w-lg">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-clay-500 mx-auto" />
+        <div className="w-8 h-8 rounded-full bg-clay-200 mx-auto anim-pulse-soft" />
       </div>
     );
   }
@@ -142,7 +142,9 @@ export default function FamilyPasswords() {
       {/* Empty state */}
       {entries.length === 0 ? (
         <div className="card p-10 text-center">
-          <KeyRound className="w-10 h-10 text-ink-200 mx-auto mb-3" />
+          <div className="w-14 h-14 bg-clay-50 text-clay-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+            <KeyRound className="w-7 h-7" />
+          </div>
           <p className="text-[14px] font-medium text-ink-700 mb-1">No shared passwords yet</p>
           <p className="text-[13px] text-ink-400 max-w-xs mx-auto">
             Think Netflix, Disney+, WiFi password, school portals, the router admin login…
@@ -190,42 +192,42 @@ export default function FamilyPasswords() {
 
                     {/* Username / email */}
                     {usernameOrEmail && (
-                      <div className="flex items-center gap-1.5 mb-0.5">
+                      <div className="flex items-center gap-1 mb-1">
                         <span className="text-[12px] text-ink-500 truncate">{usernameOrEmail}</span>
                         <button
                           onClick={() => handleCopy(usernameOrEmail, copyUid)}
-                          className="text-ink-300 hover:text-ink-600 transition-colors shrink-0 cursor-pointer"
+                          className="w-8 h-8 flex items-center justify-center text-ink-300 hover:text-ink-600 active:scale-[0.97] transition-all shrink-0 cursor-pointer"
                           title="Copy username"
                         >
                           {copiedId === copyUid
-                            ? <Check className="w-3 h-3 text-sage-500" />
-                            : <Copy className="w-3 h-3" />}
+                            ? <Check className="w-4 h-4 text-sage-500" />
+                            : <Copy className="w-4 h-4" />}
                         </button>
                       </div>
                     )}
 
                     {/* Password row */}
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[12px] text-ink-500 font-mono tracking-wide truncate">
+                    <div className="flex items-center gap-1 mt-1">
+                      <span className="text-[12px] text-ink-500 font-mono tabular-nums truncate">
                         {isVisible ? entry.password : '••••••••'}
                       </span>
                       <button
                         onClick={() => toggleVisible(entry.id)}
-                        className="text-ink-300 hover:text-ink-600 transition-colors shrink-0 cursor-pointer"
+                        className="w-8 h-8 flex items-center justify-center text-ink-300 hover:text-ink-600 active:scale-[0.97] transition-all shrink-0 cursor-pointer"
                         title={isVisible ? 'Hide password' : 'Show password'}
                       >
                         {isVisible
-                          ? <EyeOff className="w-3 h-3" />
-                          : <Eye className="w-3 h-3" />}
+                          ? <EyeOff className="w-4 h-4" />
+                          : <Eye className="w-4 h-4" />}
                       </button>
                       <button
                         onClick={() => handleCopy(entry.password, copyPwId)}
-                        className="text-ink-300 hover:text-ink-600 transition-colors shrink-0 cursor-pointer"
+                        className="w-8 h-8 flex items-center justify-center text-ink-300 hover:text-ink-600 active:scale-[0.97] transition-all shrink-0 cursor-pointer"
                         title="Copy password"
                       >
                         {copiedId === copyPwId
-                          ? <Check className="w-3 h-3 text-sage-500" />
-                          : <Copy className="w-3 h-3" />}
+                          ? <Check className="w-4 h-4 text-sage-500" />
+                          : <Copy className="w-4 h-4" />}
                       </button>
                     </div>
 
@@ -240,17 +242,17 @@ export default function FamilyPasswords() {
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={() => openEdit(entry)}
-                        className="p-1.5 rounded-lg text-ink-300 hover:text-ink-600 hover:bg-cream-100 transition-all cursor-pointer"
+                        className="w-10 h-10 flex items-center justify-center rounded-lg text-ink-300 hover:text-ink-600 hover:bg-cream-100 active:scale-[0.97] transition-all cursor-pointer"
                         title="Edit"
                       >
-                        <Pencil className="w-3.5 h-3.5" />
+                        <Pencil className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(entry.id)}
-                        className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-ink-300 hover:text-rosa-500 hover:bg-cream-100 transition-all cursor-pointer"
+                        className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 w-10 h-10 flex items-center justify-center rounded-lg text-ink-300 hover:text-rosa-600 hover:bg-cream-100 active:scale-[0.97] transition-all cursor-pointer"
                         title="Delete"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   )}
@@ -263,15 +265,18 @@ export default function FamilyPasswords() {
 
       {/* Form modal */}
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center px-4 overflow-y-auto">
-          <div className="max-w-md w-full mt-20 mb-10 bg-white rounded-2xl p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 anim-fade flex items-end justify-center sm:items-center px-4 sm:p-4 overflow-y-auto">
+          <div className="anim-sheet sm:anim-pop w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl max-h-[90vh] sm:max-h-none overflow-y-auto">
+            {/* Mobile grabber */}
+            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden mb-4" />
+
             {/* Modal header */}
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-display text-lg font-semibold text-ink-900">
                 {editingEntry ? `Edit ${editingEntry.service}` : 'New password'}
               </h3>
-              <button onClick={closeForm} className="p-1.5 rounded-xl text-ink-300 hover:text-ink-700 hover:bg-cream-100 transition-all cursor-pointer">
-                <X className="w-4 h-4" />
+              <button onClick={closeForm} className="w-10 h-10 flex items-center justify-center rounded-lg text-ink-300 hover:text-ink-700 hover:bg-cream-100 active:scale-[0.97] transition-all cursor-pointer">
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -298,7 +303,7 @@ export default function FamilyPasswords() {
                 </label>
                 <input
                   type="text"
-                  className="field w-full"
+                  className="field w-full font-mono tabular-nums"
                   placeholder="https://..."
                   value={form.url}
                   onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
@@ -340,7 +345,7 @@ export default function FamilyPasswords() {
                 </label>
                 <input
                   type="text"
-                  className="field w-full font-mono"
+                  className="field w-full font-mono tabular-nums"
                   placeholder="the password"
                   value={form.password}
                   onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
@@ -368,9 +373,9 @@ export default function FamilyPasswords() {
               {editingEntry && isAdmin && (
                 <button
                   onClick={() => { handleDelete(editingEntry.id); closeForm(); }}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-medium text-rosa-600 hover:bg-rosa-50 transition-colors cursor-pointer mr-auto"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-medium text-rosa-600 hover:bg-rosa-50 active:scale-[0.97] transition-all cursor-pointer mr-auto"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-4 h-4" />
                   Delete
                 </button>
               )}

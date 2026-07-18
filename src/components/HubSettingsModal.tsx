@@ -74,7 +74,7 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm"
+            className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm anim-fade"
           />
 
           {/* Modal card */}
@@ -82,8 +82,11 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            className="card relative w-full max-w-md overflow-hidden rounded-3xl p-6 z-10"
+            className="card relative w-full max-w-md overflow-hidden rounded-3xl p-6 z-10 anim-pop"
           >
+            {/* Mobile grabber bar */}
+            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+
             {/* Header */}
             <div className="flex items-center justify-between pb-4 border-b border-cream-200">
               <div className="flex items-center space-x-2">
@@ -193,7 +196,7 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
                 ) : (
                   /* Placeholder / upload prompt */
                   <div className="p-4 bg-cream-50 border border-dashed border-cream-300 rounded-2xl flex flex-col items-center gap-3">
-                    <div className="w-14 h-14 rounded-full bg-cream-100 border border-cream-300 flex items-center justify-center text-ink-400">
+                    <div className="w-14 h-14 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
                       <Users className="w-6 h-6" />
                     </div>
                     <div className="text-center space-y-1">

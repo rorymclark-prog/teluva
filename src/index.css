@@ -176,6 +176,11 @@
   .text-display-md {
     font-size: 3rem; line-height: 1.05; letter-spacing: -0.025em; font-weight: 800;
   }
+
+  /* Tabular numerals for monospace data (dates, money, IDs) */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 /* ── Motion vocabulary ────────────────────────────────────────────────── */

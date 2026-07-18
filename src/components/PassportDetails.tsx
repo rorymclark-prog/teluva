@@ -105,7 +105,7 @@ export default function PassportDetails({ member, onUpdatePassport }: PassportDe
             <button
               type="button"
               onClick={handleCopy}
-              className="btn-quiet text-sm px-3 py-1.5"
+              className="btn-quiet text-sm px-4 py-3 min-h-11 active:scale-95 transition-transform duration-100"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-sage-600" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copied ? 'Copied!' : 'Copy metadata'}</span>
@@ -114,7 +114,7 @@ export default function PassportDetails({ member, onUpdatePassport }: PassportDe
           <button
             type="button"
             onClick={handleSave}
-            className="btn-primary text-sm px-4 py-1.5"
+            className="btn-primary text-sm px-4 py-3 min-h-11 active:scale-95 transition-transform duration-100"
           >
             {saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
             <span>{saved ? 'Saved!' : 'Save details'}</span>
@@ -198,7 +198,7 @@ export default function PassportDetails({ member, onUpdatePassport }: PassportDe
                 placeholder="e.g. EMILY JANE SMITH"
                 value={passport.fullName}
                 onChange={(e) => handleFieldChange('fullName', e.target.value)}
-                className="field uppercase placeholder:normal-case font-mono tracking-tight"
+                className="field uppercase placeholder:normal-case font-mono tracking-tight tabular-nums"
               />
             </div>
 
@@ -210,7 +210,7 @@ export default function PassportDetails({ member, onUpdatePassport }: PassportDe
                 placeholder="e.g. US982541094"
                 value={passport.passportNumber}
                 onChange={(e) => handleFieldChange('passportNumber', e.target.value)}
-                className="field uppercase placeholder:normal-case font-mono tracking-tight"
+                className="field uppercase placeholder:normal-case font-mono tracking-tight tabular-nums"
               />
             </div>
 
@@ -231,7 +231,7 @@ export default function PassportDetails({ member, onUpdatePassport }: PassportDe
                 type="date"
                 value={passport.dateOfBirth}
                 onChange={(e) => handleFieldChange('dateOfBirth', e.target.value)}
-                className="field"
+                className="field tabular-nums"
               />
             </div>
 
@@ -241,7 +241,7 @@ export default function PassportDetails({ member, onUpdatePassport }: PassportDe
                 type="date"
                 value={passport.issueDate}
                 onChange={(e) => handleFieldChange('issueDate', e.target.value)}
-                className="field"
+                className="field tabular-nums"
               />
             </div>
 
@@ -251,7 +251,7 @@ export default function PassportDetails({ member, onUpdatePassport }: PassportDe
                 type="date"
                 value={passport.expiryDate}
                 onChange={(e) => handleFieldChange('expiryDate', e.target.value)}
-                className="field"
+                className="field tabular-nums"
               />
             </div>
 

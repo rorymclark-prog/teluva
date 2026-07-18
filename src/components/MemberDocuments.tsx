@@ -437,7 +437,7 @@ export default function MemberDocuments({
 
       {/* Upload document panel */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <form onSubmit={handleUploadSubmit} className="lg:col-span-12 xl:col-span-4 space-y-4 bg-cream-100 p-4 border border-cream-300 rounded-2xl shadow-soft">
+        <form onSubmit={handleUploadSubmit} className="lg:col-span-12 xl:col-span-4 space-y-4 card p-4">
           <h4 className="text-[13px] font-semibold text-ink-600 flex items-center gap-1.5 pb-2 border-b border-cream-200">
             <Plus className="w-3.5 h-3.5 text-clay-500" />
             Upload New Document
@@ -597,10 +597,12 @@ export default function MemberDocuments({
           </div>
 
           {(!member.documents || member.documents.length === 0) ? (
-            <div className="text-center py-16 px-4 rounded-2xl border border-dashed border-cream-300 bg-white">
-              <FileImage className="w-8 h-8 text-ink-300 mx-auto mb-3" />
-              <p className="text-[13px] font-semibold text-ink-700">No documents stored yet</p>
-              <p className="text-[13px] text-ink-400 mt-1">
+            <div className="text-center py-16 px-4 rounded-2xl border border-dashed border-cream-300 bg-clay-50">
+              <div className="w-12 h-12 bg-clay-100 text-clay-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <FileImage className="w-6 h-6" />
+              </div>
+              <p className="text-[13px] font-semibold text-clay-900">No documents stored yet</p>
+              <p className="text-[13px] text-clay-700 mt-1">
                 Upload a scan, photo, or certificate to organise {member.name}'s records.
               </p>
             </div>
@@ -609,14 +611,14 @@ export default function MemberDocuments({
               {member.documents.map((doc) => (
                 <div
                   key={doc.id}
-                  className="flex flex-col bg-white border border-cream-200 p-4 rounded-2xl hover:border-cream-300 hover:shadow-soft transition-all gap-3.5 relative overflow-hidden group"
+                  className="flex flex-col bg-white border border-cream-200 p-4 rounded-2xl hover:bg-cream-100/60 transition-all gap-3.5 relative overflow-hidden group"
                 >
                   {/* Category pill + date */}
                   <div className="flex items-start justify-between">
                     <span className={categoryChipClass(doc.category)}>
                       {doc.category}
                     </span>
-                    <p className="text-[12px] text-ink-400 font-mono">
+                    <p className="text-[12px] text-ink-400 font-mono tabular-nums">
                       {doc.uploadedAt}
                     </p>
                   </div>
@@ -630,7 +632,7 @@ export default function MemberDocuments({
                       <h5 className="text-[13px] font-semibold text-ink-900 truncate leading-snug">
                         {doc.name}
                       </h5>
-                      <p className="text-[12px] text-ink-400 font-mono truncate mt-0.5">
+                      <p className="text-[12px] text-ink-400 font-mono truncate mt-0.5 tabular-nums">
                         {doc.fileName} &bull; {formatBytes(doc.fileSize)}
                       </p>
                     </div>
@@ -683,13 +685,16 @@ export default function MemberDocuments({
 
       {/* Camera scanner modal */}
       {isCameraActive && (
-        <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm anim-fade flex items-center justify-center p-4 sm:p-0 sm:pb-4">
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="card rounded-3xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]"
+            initial={{ opacity: 0, translateY: '100%' }}
+            animate={{ opacity: 1, translateY: 0 }}
+            exit={{ opacity: 0, translateY: '100%' }}
+            className="card rounded-3xl sm:rounded-2xl max-w-lg w-full sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col anim-sheet"
           >
+            {/* Mobile grabber bar */}
+            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+
             {/* Modal Header */}
             <div className="p-4 bg-white border-b border-cream-200 flex items-center justify-between">
               <div className="flex items-center space-x-2">

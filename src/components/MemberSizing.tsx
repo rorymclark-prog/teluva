@@ -136,27 +136,27 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
     <div className="space-y-6">
       {/* Sizing Stats Grid */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-cream-100 border border-cream-200 p-5 rounded-2xl shadow-soft">
+        <div className="card p-5">
           <p className="section-label mb-1.5">Shirt size</p>
-          <p className="text-2xl font-light text-ink-900">
+          <p className="text-2xl font-light text-ink-900 tabular-nums">
             {sizes.tops || <span className="text-ink-400 font-extralight">—</span>}
           </p>
         </div>
-        <div className="bg-cream-100 border border-cream-200 p-5 rounded-2xl shadow-soft">
+        <div className="card p-5">
           <p className="section-label mb-1.5">Shoe size</p>
-          <p className="text-2xl font-light text-ink-900">
+          <p className="text-2xl font-light text-ink-900 tabular-nums">
             {sizes.shoes || <span className="text-ink-400 font-extralight">—</span>}
           </p>
         </div>
-        <div className="bg-cream-100 border border-cream-200 p-5 rounded-2xl shadow-soft">
+        <div className="card p-5">
           <p className="section-label mb-1.5">Pant size</p>
-          <p className="text-2xl font-light text-ink-900">
+          <p className="text-2xl font-light text-ink-900 tabular-nums">
             {sizes.bottoms || <span className="text-ink-400 font-extralight">—</span>}
           </p>
         </div>
-        <div className="bg-cream-100 border border-cream-200 p-5 rounded-2xl shadow-soft">
+        <div className="card p-5">
           <p className="section-label mb-1.5">Height &amp; weight</p>
-          <p className="text-xl font-light text-ink-900 truncate">
+          <p className="text-xl font-light text-ink-900 truncate tabular-nums">
             {sizes.heightCm ? `${sizes.heightCm} cm` : <span className="text-ink-400 font-extralight">—</span>}
             {sizes.weightKg && <span className="text-xs text-ink-500 font-normal ml-1">({sizes.weightKg} kg)</span>}
           </p>
@@ -198,7 +198,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
 
       {/* Suggestion Engine */}
       {suggestions && (
-        <div className="p-4 rounded-2xl bg-cream-100 border border-cream-200 flex items-start space-x-3 shadow-soft">
+        <div className="card p-4 flex items-start space-x-3">
           <div className="p-1.5 rounded-xl bg-honey-100 text-honey-700 mt-0.5">
             <TrendingUp className="w-4 h-4" />
           </div>
@@ -210,19 +210,19 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
             <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
               <div className="bg-white p-2 rounded-xl border border-cream-200">
                 <span className="section-label block mb-0.5">Tops/pants</span>
-                <span className="font-semibold text-ink-800">{suggestions.tops}</span>
+                <span className="font-semibold text-ink-800 tabular-nums">{suggestions.tops}</span>
               </div>
               <div className="bg-white p-2 rounded-xl border border-cream-200">
                 <span className="section-label block mb-0.5">Shoes</span>
-                <span className="font-semibold text-ink-800">{suggestions.shoes}</span>
+                <span className="font-semibold text-ink-800 tabular-nums">{suggestions.shoes}</span>
               </div>
               <div className="bg-white p-2 rounded-xl border border-cream-200">
                 <span className="section-label block mb-0.5">Height</span>
-                <span className="font-semibold text-ink-800">{suggestions.height}</span>
+                <span className="font-semibold text-ink-800 tabular-nums">{suggestions.height}</span>
               </div>
               <div className="bg-white p-2 rounded-xl border border-cream-200">
                 <span className="section-label block mb-0.5">Weight</span>
-                <span className="font-semibold text-ink-800">{suggestions.weight}</span>
+                <span className="font-semibold text-ink-800 tabular-nums">{suggestions.weight}</span>
               </div>
             </div>
             <button
@@ -239,7 +239,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
       {/* Sizing Form Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
         {/* Metric Height / Weight */}
-        <div className="p-4 rounded-2xl bg-cream-100 border border-cream-200 grid grid-cols-2 gap-4 col-span-1 sm:col-span-2 shadow-soft">
+        <div className="card p-4 grid grid-cols-2 gap-4 col-span-1 sm:col-span-2">
           <div>
             <label className="field-label">Height (cm)</label>
             <input
@@ -343,7 +343,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
       </div>
 
       {member.clothingSizes.lastUpdated && (
-        <p className="text-right text-xs text-ink-400 font-mono">
+        <p className="text-right text-xs text-ink-400 font-mono tabular-nums">
           Last updated: {member.clothingSizes.lastUpdated}
         </p>
       )}

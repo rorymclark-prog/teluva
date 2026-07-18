@@ -251,9 +251,12 @@ function VaccinationsSection({
         )}
 
         {vaccinations.length === 0 && !adding ? (
-          <p className="text-[13px] text-ink-400 py-6 text-center">
-            No vaccinations recorded — add dates and notes for all vaccines.
-          </p>
+          <div className="py-6 text-center">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
+              <Plus className="w-5 h-5" />
+            </div>
+            <p className="text-[13px] text-ink-400">No vaccinations recorded — add dates and notes for all vaccines.</p>
+          </div>
         ) : (
           <div className="space-y-2.5">
             {vaccinations.map(v => editId === v.id ? (
@@ -265,12 +268,12 @@ function VaccinationsSection({
                 />
               </div>
             ) : (
-              <div key={v.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+              <div key={v.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3 hover:bg-cream-50 hover:border-cream-300 transition-colors">
                 <div className="min-w-0">
                   <p className="text-[14px] font-semibold text-ink-900">{v.name || 'Unnamed vaccine'}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {v.date && (
-                      <span className="chip bg-sage-100 text-sage-700 text-[11px]">{v.date}</span>
+                      <span className="chip bg-sage-100 text-sage-700 text-[11px] tabular-nums">{v.date}</span>
                     )}
                   </div>
                   {v.notes && <p className="text-[12px] text-ink-500 mt-1.5">{v.notes}</p>}

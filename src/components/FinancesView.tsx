@@ -123,9 +123,10 @@ function BankAccountsSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <p className="text-[13px] text-ink-400 py-6 text-center">
-          No bank accounts yet — IBAN, BIC, account details…
-        </p>
+        <div className="text-center py-8 px-4 rounded-2xl bg-clay-50">
+          <p className="text-[13px] text-clay-600 font-medium">No bank accounts yet</p>
+          <p className="text-[12px] text-clay-500 mt-1">IBAN, BIC, account details…</p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {entries.map(e => editId === e.id ? (
@@ -141,8 +142,8 @@ function BankAccountsSection({ entries, onAdd, onUpdate, onDelete }: {
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold text-ink-900">{e.bankName || 'Unnamed'}</p>
                 {e.accountHolder && <p className="text-[12px] text-ink-500 mt-0.5">{e.accountHolder}</p>}
-                {e.iban && <p className="font-mono text-[13px] text-ink-700 break-all mt-1">{e.iban}</p>}
-                {e.bic && <p className="font-mono text-[12px] text-ink-600 mt-0.5">{e.bic}</p>}
+                {e.iban && <p className="font-mono text-[13px] text-ink-700 break-all mt-1 tabular-nums">{e.iban}</p>}
+                {e.bic && <p className="font-mono text-[12px] text-ink-600 mt-0.5 tabular-nums">{e.bic}</p>}
                 {e.notes && <p className="text-[12px] text-ink-500 mt-1">{e.notes}</p>}
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -227,9 +228,10 @@ function InsuranceSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <p className="text-[13px] text-ink-400 py-6 text-center">
-          No insurance policies yet — home, health, car, travel…
-        </p>
+        <div className="text-center py-8 px-4 rounded-2xl bg-clay-50">
+          <p className="text-[13px] text-clay-600 font-medium">No insurance policies yet</p>
+          <p className="text-[12px] text-clay-500 mt-1">home, health, car, travel…</p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {entries.map(e => editId === e.id ? (
@@ -245,10 +247,10 @@ function InsuranceSection({ entries, onAdd, onUpdate, onDelete }: {
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold text-ink-900">{e.provider || 'Unnamed'}</p>
                 {e.type && <span className="chip bg-sage-100 text-sage-700 mt-1">{e.type}</span>}
-                {e.policyNumber && <p className="font-mono text-[13px] text-ink-700 break-all mt-1">{e.policyNumber}</p>}
+                {e.policyNumber && <p className="font-mono text-[13px] text-ink-700 break-all mt-1 tabular-nums">{e.policyNumber}</p>}
                 {e.renewalDate && (
                   <div className="mt-1">
-                    <span className="chip bg-honey-100 text-honey-700">{e.renewalDate}</span>
+                    <span className="chip bg-honey-100 text-honey-700 tabular-nums">{e.renewalDate}</span>
                   </div>
                 )}
                 {e.notes && <p className="text-[12px] text-ink-500 mt-1">{e.notes}</p>}
@@ -335,9 +337,10 @@ function BenefitsSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <p className="text-[13px] text-ink-400 py-6 text-center">
-          No benefits yet — Familienbeihilfe, child benefit, subsidies…
-        </p>
+        <div className="text-center py-8 px-4 rounded-2xl bg-clay-50">
+          <p className="text-[13px] text-clay-600 font-medium">No benefits yet</p>
+          <p className="text-[12px] text-clay-500 mt-1">Familienbeihilfe, child benefit, subsidies…</p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {entries.map(e => editId === e.id ? (
@@ -352,7 +355,7 @@ function BenefitsSection({ entries, onAdd, onUpdate, onDelete }: {
             <div key={e.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold text-ink-900">{e.name || 'Unnamed'}</p>
-                {e.reference && <p className="font-mono text-[13px] text-ink-700 break-all mt-1">{e.reference}</p>}
+                {e.reference && <p className="font-mono text-[13px] text-ink-700 break-all mt-1 tabular-nums">{e.reference}</p>}
                 {e.notes && <p className="text-[12px] text-ink-500 mt-1">{e.notes}</p>}
               </div>
               <div className="flex items-center gap-1 shrink-0">

@@ -63,18 +63,18 @@ export default function DocumentViewer({ document: doc, memberName, onClose }: D
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm"
+            className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm anim-fade"
           />
 
           {/* Modal Window */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 15 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            className="relative w-full max-w-4xl card rounded-3xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 max-h-[90vh]"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="relative w-full max-w-4xl card rounded-3xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 max-h-[90vh] anim-pop"
           >
             {/* Left panel: File viewer */}
-            <div className="lg:col-span-8 bg-cream-100 flex items-center justify-center p-6 border-b lg:border-b-0 lg:border-r border-cream-300 overflow-y-auto">
+            <div className="lg:col-span-8 bg-cream-100 flex items-center justify-center p-6 border-b lg:border-b-0 lg:border-r border-cream-200 overflow-y-auto">
               <div className="max-w-md w-full aspect-[4/5.6] bg-white rounded-2xl shadow-soft overflow-hidden border border-cream-300 relative flex items-center justify-center">
                 {(doc.fileType?.startsWith('image/') || doc.fileData === 'PLACEHOLDER' || !doc.fileType) ? (
                   <img
@@ -123,7 +123,7 @@ export default function DocumentViewer({ document: doc, memberName, onClose }: D
                       <Calendar className="w-4 h-4 text-ink-400 shrink-0" />
                       <div>
                         <p className="section-label mb-0.5">Archived Date</p>
-                        <p className="text-ink-800 font-medium">{doc.uploadedAt}</p>
+                        <p className="text-ink-800 font-medium tabular-nums">{doc.uploadedAt}</p>
                       </div>
                     </div>
 
@@ -131,7 +131,7 @@ export default function DocumentViewer({ document: doc, memberName, onClose }: D
                       <Layers className="w-4 h-4 text-ink-400 shrink-0" />
                       <div>
                         <p className="section-label mb-0.5">Source Format</p>
-                        <p className="text-ink-800 font-mono text-[11px] truncate max-w-[180px]">
+                        <p className="text-ink-800 font-mono text-[11px] truncate max-w-[180px] tabular-nums">
                           {doc.fileName} ({formatBytes(doc.fileSize)})
                         </p>
                       </div>

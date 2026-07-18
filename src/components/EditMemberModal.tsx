@@ -177,15 +177,18 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={handleCancelClose}
-            className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm"
+            className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm anim-fade"
           />
 
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            className="card relative w-full max-w-md overflow-hidden rounded-3xl p-6 z-10"
+            className="card relative w-full max-w-md overflow-hidden rounded-3xl p-6 z-10 anim-pop"
           >
+            {/* Mobile grabber bar */}
+            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+
             {/* Header */}
             <div className="flex items-center justify-between pb-4 border-b border-cream-200">
               <div className="flex items-center space-x-2">

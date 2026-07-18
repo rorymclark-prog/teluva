@@ -514,7 +514,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
                 : 'text-ink-500 hover:text-ink-800'
             }`}
           >
-            All ({favorites.length})
+            All (<span className="tabular-nums">{favorites.length}</span>)
           </button>
           <button
             onClick={() => { setListSection('liked'); setSelectedCategory('All'); }}
@@ -525,7 +525,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
             }`}
           >
             <Heart className="w-3.5 h-3.5 fill-rosa-500 text-rosa-500" />
-            <span>Owned ({favorites.filter(f => f.isWishlist !== true).length})</span>
+            <span>Owned (<span className="tabular-nums">{favorites.filter(f => f.isWishlist !== true).length}</span>)</span>
           </button>
           <button
             onClick={() => { setListSection('wishlist'); setSelectedCategory('All'); }}
@@ -536,7 +536,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
             }`}
           >
             <Gift className="w-3.5 h-3.5 text-honey-500 fill-honey-100" />
-            <span>Wishlist ({favorites.filter(f => f.isWishlist === true).length})</span>
+            <span>Wishlist (<span className="tabular-nums">{favorites.filter(f => f.isWishlist === true).length}</span>)</span>
           </button>
         </div>
 
@@ -557,7 +557,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
               : 'text-ink-500 hover:text-ink-800 hover:bg-cream-200'
           }`}
         >
-          View all ({sectionFiltered.length})
+          View all (<span className="tabular-nums">{sectionFiltered.length}</span>)
         </button>
 
         {CATEGORIES.map(categoryName => {
@@ -572,7 +572,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
                   : 'text-ink-500 hover:text-ink-800 hover:bg-cream-200'
               }`}
             >
-              {categoryName} ({count})
+              {categoryName} (<span className="tabular-nums">{count}</span>)
             </button>
           );
         })}
@@ -580,7 +580,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
 
       {/* Favorites Grid */}
       {filteredFavorites.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-cream-300 rounded-2xl bg-white p-5 space-y-3">
+        <div className="text-center py-16 border border-dashed border-cream-300 rounded-2xl bg-cream-50 p-5 space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-rosa-50 text-rosa-500 border border-rosa-100 flex items-center justify-center mx-auto">
             <Heart className="w-6 h-6" />
           </div>
@@ -674,7 +674,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
                       {item.title}
                     </h4>
                     {item.isWishlist && item.targetPrice && (
-                      <span className="shrink-0 font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded chip bg-honey-100 text-honey-700">
+                      <span className="shrink-0 font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded chip bg-honey-100 text-honey-700 tabular-nums">
                         {item.targetPrice.startsWith('€') || item.targetPrice.startsWith('$') ? item.targetPrice : `€${item.targetPrice}`}
                       </span>
                     )}
@@ -689,7 +689,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
                 </div>
 
                 <div className="border-t border-cream-200 pt-2.5 mt-2.5 flex items-center justify-between text-[11px] text-ink-400 font-mono">
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 tabular-nums">
                     <Calendar className="w-3 h-3" />
                     {item.addedAt}
                   </span>
@@ -738,13 +738,14 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
       {/* Detail Modal */}
       <AnimatePresence>
         {viewingItem && (
-          <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm anim-fade flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl overflow-hidden max-w-lg w-full shadow-lift border border-cream-300/70"
+              className="bg-white rounded-3xl overflow-hidden max-w-lg w-full shadow-lift border border-cream-300/70 anim-pop"
             >
+              <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
               <div className="p-5 border-b border-cream-200 bg-cream-50 flex justify-between items-center">
                 <div>
                   <span className={`chip ${
@@ -784,7 +785,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
                       <div>
                         <p className="font-semibold text-ink-800 text-[13px]">Christmas / birthday shopping</p>
                         <p className="text-ink-500 text-[12px] mt-0.5">
-                          Cost estimate: <span className="text-ink-900 font-semibold">{viewingItem.targetPrice ? (viewingItem.targetPrice.startsWith('€') || viewingItem.targetPrice.startsWith('$') ? viewingItem.targetPrice : `€${viewingItem.targetPrice}`) : 'Unspecified'}</span>
+                          Cost estimate: <span className="text-ink-900 font-semibold tabular-nums">{viewingItem.targetPrice ? (viewingItem.targetPrice.startsWith('€') || viewingItem.targetPrice.startsWith('$') ? viewingItem.targetPrice : `€${viewingItem.targetPrice}`) : 'Unspecified'}</span>
                         </p>
                       </div>
                     </div>
@@ -823,7 +824,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
                   </div>
                 </div>
 
-                <div className="flex justify-between items-center text-[11px] text-ink-400 font-mono border-t border-cream-200 pt-3">
+                <div className="flex justify-between items-center text-[11px] text-ink-400 font-mono border-t border-cream-200 pt-3 tabular-nums">
                   <span>ID: {viewingItem.id}</span>
                   <span>Registered: {viewingItem.addedAt}</span>
                 </div>

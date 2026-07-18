@@ -81,7 +81,7 @@ function VisaForm({
       />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <input
-          className="field font-mono"
+          className="field font-mono tabular-nums"
           placeholder="Visa / stamp number (optional)"
           value={number}
           onChange={e => setNumber(e.target.value)}
@@ -162,7 +162,7 @@ function TransitPassForm({
           onChange={e => setOperator(e.target.value)}
         />
         <input
-          className="field font-mono"
+          className="field font-mono tabular-nums"
           placeholder="Card number (optional)"
           value={cardNumber}
           onChange={e => setCardNumber(e.target.value)}
@@ -309,7 +309,7 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
           <label className="field-label">Frequent flyer number</label>
           <input
             type="text"
-            className="field font-mono"
+            className="field font-mono tabular-nums"
             placeholder="e.g. LH 123456789"
             value={travel.frequentFlyer || ''}
             onChange={e => setField('frequentFlyer', e.target.value)}
@@ -321,7 +321,7 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
           <label className="field-label">Travel insurance number</label>
           <input
             type="text"
-            className="field font-mono"
+            className="field font-mono tabular-nums"
             placeholder="e.g. TI-98765432"
             value={travel.travelInsuranceNumber || ''}
             onChange={e => setField('travelInsuranceNumber', e.target.value)}
@@ -388,9 +388,14 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
         )}
 
         {visas.length === 0 && !addingVisa ? (
-          <p className="text-[13px] text-ink-400 py-6 text-center">
-            No visas added yet — track entry visas, work permits, and tourist stamps here.
-          </p>
+          <div className="py-8 text-center">
+            <div className="mx-auto mb-2 w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <p className="text-[13px] text-ink-400">
+              No visas added yet — track entry visas, work permits, and tourist stamps here.
+            </p>
+          </div>
         ) : (
           <div className="space-y-2.5">
             {visas.map(v =>
@@ -413,10 +418,10 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
                       <ExpiryChip expiryDate={v.expiryDate} />
                     </div>
                     {v.number && (
-                      <p className="font-mono text-[13px] text-ink-600 break-all">{v.number}</p>
+                      <p className="font-mono tabular-nums text-[13px] text-ink-600 break-all">{v.number}</p>
                     )}
                     {v.expiryDate && (
-                      <p className="text-[12px] text-ink-500">
+                      <p className="tabular-nums text-[12px] text-ink-500">
                         Expires {new Date(v.expiryDate).toLocaleDateString('en-GB', {
                           day: 'numeric', month: 'short', year: 'numeric',
                         })}
@@ -471,9 +476,14 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
         )}
 
         {transitPasses.length === 0 && !addingPass ? (
-          <p className="text-[13px] text-ink-400 py-6 text-center">
-            No season tickets added yet — track a Wiener Linien Jahreskarte, ÖBB Klimaticket, or other travel pass here.
-          </p>
+          <div className="py-8 text-center">
+            <div className="mx-auto mb-2 w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
+              <TrainFront className="w-5 h-5" />
+            </div>
+            <p className="text-[13px] text-ink-400">
+              No season tickets added yet — track a Wiener Linien Jahreskarte, ÖBB Klimaticket, or other travel pass here.
+            </p>
+          </div>
         ) : (
           <div className="space-y-2.5">
             {transitPasses.map(p =>
@@ -499,13 +509,13 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
                       <p className="text-[13px] text-ink-600">{p.operator}</p>
                     )}
                     {p.cardNumber && (
-                      <p className="font-mono text-[13px] text-ink-600 break-all">{p.cardNumber}</p>
+                      <p className="font-mono tabular-nums text-[13px] text-ink-600 break-all">{p.cardNumber}</p>
                     )}
                     {p.zone && (
                       <p className="text-[12px] text-ink-500">{p.zone}</p>
                     )}
                     {p.validUntil && (
-                      <p className="text-[12px] text-ink-500">
+                      <p className="tabular-nums text-[12px] text-ink-500">
                         Valid until {new Date(p.validUntil).toLocaleDateString('en-GB', {
                           day: 'numeric', month: 'short', year: 'numeric',
                         })}

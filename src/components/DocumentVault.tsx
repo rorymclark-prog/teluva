@@ -382,15 +382,15 @@ export default function DocumentVault({ members }: { members: FamilyMember[] }) 
 
       {/* Document list */}
       {filtered.length === 0 ? (
-        <div className="card p-10 flex flex-col items-center text-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-dusk-50 text-dusk-500 flex items-center justify-center border border-dusk-100 shadow-soft">
+        <div className="card p-10 flex flex-col items-center text-center gap-3 bg-clay-50">
+          <div className="w-12 h-12 rounded-2xl bg-clay-100 text-clay-600 flex items-center justify-center">
             <FolderLock className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-[14px] font-semibold text-ink-700">
+            <h4 className="text-[14px] font-semibold text-clay-900">
               {docs.length === 0 ? 'No documents yet' : 'Nothing matches your search'}
             </h4>
-            <p className="text-[13px] text-ink-400 mt-1 max-w-xs leading-relaxed">
+            <p className="text-[13px] text-clay-700 mt-1 max-w-xs leading-relaxed">
               {docs.length === 0
                 ? 'Upload your first document — passports, birth certificates, school reports…'
                 : 'Try a different search term or category filter.'}
@@ -412,7 +412,7 @@ export default function DocumentVault({ members }: { members: FamilyMember[] }) 
             return (
               <div
                 key={doc.id}
-                className="card p-4 sm:p-5 flex items-start justify-between gap-4"
+                className="card p-4 sm:p-5 flex items-start justify-between gap-4 hover:bg-cream-100/60 transition-all"
               >
                 <div className="flex items-start gap-3 min-w-0 flex-1">
                   {/* Thumbnail or icon */}
@@ -445,7 +445,7 @@ export default function DocumentVault({ members }: { members: FamilyMember[] }) 
                       )}
                     </div>
                     <p className="text-[12px] text-ink-400 truncate" title={doc.fileName}>{doc.fileName}</p>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 tabular-nums">
                       <span className="text-[12px] text-ink-400">{formatBytes(doc.fileSize)}</span>
                       <span className="text-[12px] text-ink-400">{doc.uploadedAt}</span>
                       {doc.uploadedBy && (
