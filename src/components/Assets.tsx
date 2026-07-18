@@ -26,7 +26,8 @@ const BLANK: AssetItem = {
 };
 
 export default function Assets() {
-  const { isAdmin } = useFamilyCtx();
+  const { isAdmin, aiEligible, aiConsent } = useFamilyCtx();
+  const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
   const [items, setItems] = useState<AssetItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingItem, setEditingItem] = useState<AssetItem | null>(null);
@@ -75,6 +76,7 @@ export default function Assets() {
   // ── Scan asset via /api/scan-asset ──
 
   const processImageForScan = async (file: File) => {
+    if (!aiOn) { setScanError('Turn on the AI assistant in Settings first.'); return; }
     setScanLoading(true);
     setScanError(null);
     try {
@@ -263,7 +265,7 @@ export default function Assets() {
               </button>
               <button
                 onClick={handleScanAsset}
-                disabled={scanLoading}
+                disabled={scanLoading || !aiOn}
                 className="btn-primary text-xs px-3 py-2 disabled:opacity-60"
               >
                 {scanLoading
@@ -429,7 +431,7 @@ export default function Assets() {
                 <div className="space-y-2">
                   <button
                     onClick={handleScanAsset}
-                    disabled={scanLoading}
+                    disabled={scanLoading || !aiOn}
                     className="btn-quiet text-xs px-3 py-2 w-full disabled:opacity-60"
                   >
                     {scanLoading

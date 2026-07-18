@@ -28,6 +28,7 @@ const VERTEX_LOCATION = process.env.VERTEX_LOCATION || 'europe-west1';
 // ("Nano Banana"); the dev API used gemini-3.1-flash-image.
 const MODEL_TEXT = 'gemini-2.5-flash';
 const MODEL_IMAGE = USE_VERTEX ? 'gemini-2.5-flash-image' : 'gemini-3.1-flash-image';
+const AI_CONSENT_VERSION = 1;
 
 const gAuth = USE_VERTEX
   ? new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' })
@@ -94,7 +95,17 @@ async function requireMember(req) {
     displayName: decoded.name || (decoded.email || ''),
     familyId: profile.familyId,
     role: profile.role,
+    aiConsent: profile.aiConsent?.granted === true && (profile.aiConsent?.version ?? 0) >= AI_CONSENT_VERSION,
   };
+}
+
+// AI gate (defense in depth alongside the UI): child accounts never use AI, and
+// every adult must have explicitly opted in (GDPR consent) before anything is
+// sent to Google's models. Returns an error string to send, or null to proceed.
+function aiGateBlocked(caller) {
+  if (caller.role === 'child') return 'AI features are not available on child accounts.';
+  if (!caller.aiConsent) return 'Please turn on the AI assistant in Settings first — it is off until you opt in.';
+  return null;
 }
 
 // --- Same-origin Firebase Auth helper proxy (keeps iOS Safari sign-in working) ---
@@ -196,6 +207,8 @@ app.post('/api/chat', async (req, res) => {
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
 
     const { message, context, history, image, lang } = req.body || {};
     const hasImage = image && image.data && image.mimeType;
@@ -275,6 +288,8 @@ app.post('/api/scan-asset', async (req, res) => {
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
 
     console.log('[scan-asset] request from', caller.email);
 
@@ -338,6 +353,8 @@ app.post('/api/restyle-avatar', async (req, res) => {
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
 
     const { image, style } = req.body || {};
     if (!image || !image.data || !image.mimeType) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link } from 'lucide-react';
+import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { loadFamilyRoles, setFamilyMemberRole } from '../utils/db';
 import { FamilyRole, FamilyMemberRole } from '../types';
@@ -22,7 +22,7 @@ function initials(displayName: string, email: string): string {
  * Rendered as a slide-in modal — parent component gates rendering to isAdmin only.
  */
 export default function FamilySettings({ onClose }: FamilySettingsProps) {
-  const { familyId, uid: currentUid } = useFamilyCtx();
+  const { familyId, uid: currentUid, aiEligible, aiConsent, setAiConsent } = useFamilyCtx();
 
   // --- Invite codes (single-use, 14-day, server-issued) ---
   const [inviteCode, setInviteCode] = useState<string | null>(null);
@@ -108,6 +108,23 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
       setRolesError(err?.message ?? 'Could not update role');
     } finally {
       setSavingUid(null);
+    }
+  }
+
+  // --- AI assistant consent (GDPR opt-in/withdrawal) ---
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  async function handleToggleAi() {
+    if (aiSaving) return;
+    setAiSaving(true);
+    setAiError(null);
+    try {
+      await setAiConsent(!aiConsent);
+    } catch (err: any) {
+      setAiError(err?.message ?? 'Could not update the AI assistant setting');
+    } finally {
+      setAiSaving(false);
     }
   }
 
@@ -266,6 +283,45 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
               );
             })}
           </div>
+
+          {/* Section 3: AI assistant (adults only — child accounts never see this) */}
+          {aiEligible && (
+            <div className="card p-5 space-y-4">
+              <h3 className="section-label flex items-center gap-2">
+                <Sparkles size={14} />
+                AI Assistant
+              </h3>
+
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-medium text-ink-800">AI assistant</div>
+                  <p className="text-[11px] text-ink-400 leading-relaxed mt-0.5">
+                    Answer questions, read documents from photos, and restyle avatars. Processed by Google Vertex AI in the EU — your content is not used to train Google's models.
+                  </p>
+                  <p className="text-[11px] text-ink-400 leading-relaxed mt-1">
+                    Turning this off immediately stops AI processing and disables the assistant everywhere in Family Vault.
+                  </p>
+                  {aiError && (
+                    <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2 mt-2">{aiError}</p>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={aiConsent}
+                  aria-label="AI assistant"
+                  disabled={aiSaving}
+                  onClick={handleToggleAi}
+                  className={`relative shrink-0 w-11 h-6 rounded-full transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${aiConsent ? 'bg-sage-500' : 'bg-cream-300'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-cream-50 shadow-sm transition-transform duration-200 ${aiConsent ? 'translate-x-5' : 'translate-x-0'}`}
+                  />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

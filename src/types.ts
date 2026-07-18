@@ -408,12 +408,21 @@ export interface ShoppingItem {
 // --- Family auth / roles (multi-user vault) ---
 export type FamilyRole = 'admin' | 'member' | 'child';
 
+// Explicit, withdrawable consent for AI processing (GDPR Art. 6/7). Off by
+// default — no aiConsent, or granted:false, means AI features stay disabled.
+export interface AiConsent {
+  granted: boolean;
+  at: string;       // ISO timestamp of the decision
+  version: number;  // which version of the AI terms they agreed to
+}
+
 export interface UserProfile {
   familyId: string;
   role: FamilyRole;
   email: string;
   displayName: string;
   chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>;
+  aiConsent?: AiConsent;
 }
 
 // Firestore doc at families/{familyId}/info

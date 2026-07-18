@@ -41,9 +41,10 @@ service cloud.firestore {
       allow read: if signedIn() && request.auth.uid == uid;
       // Self-update of harmless self-owned fields only — never familyId or role.
       // chatHistory is the user's own AI-assistant transcript (their data alone).
+      // aiConsent is the user's own AI opt-in record (they own their consent).
       allow update: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email', 'chatHistory']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email', 'chatHistory', 'aiConsent']);
       // Admins can update the 'role' field on another member's profile
       allow update: if signedIn()
         && request.auth.uid != uid

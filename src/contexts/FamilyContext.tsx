@@ -1,9 +1,13 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
-import { FamilyRole, UserProfile, FamilyMemberRole } from '../types';
+import { FamilyRole, UserProfile, FamilyMemberRole, AiConsent } from '../types';
 import { setFamilyId, ensureFamilyClaim } from '../utils/db';
+import { AI_CONSENT_VERSION, hasValidAiConsent } from '../utils/aiConsent';
+
+// AI is only ever offered to adults (admin/member) — child accounts never use it.
+const isAdultRole = (r: FamilyRole | null) => r === 'admin' || r === 'member';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -18,6 +22,9 @@ export interface FamilyCtxValue {
   email: string | null;
   isAdmin: boolean;         // role === 'admin'
   canWrite: boolean;        // role === 'admin' || role === 'member'
+  aiEligible: boolean;      // adult (admin/member) — child accounts never get AI
+  aiConsent: boolean;       // has a valid, current AI opt-in
+  setAiConsent: (granted: boolean) => Promise<void>;  // grant / withdraw
   loading: boolean;
 }
 
@@ -45,6 +52,9 @@ const defaultValue: FamilyCtxValue = {
   email: null,
   isAdmin: false,
   canWrite: false,
+  aiEligible: false,
+  aiConsent: false,
+  setAiConsent: async () => {},
   loading: true,
 };
 
@@ -65,6 +75,16 @@ export function useFamilyCtx(): FamilyCtxValue {
 export function FamilyProvider({ children }: { children: React.ReactNode }): React.ReactElement {
   const [value, setValue] = useState<FamilyCtxValue>(defaultValue);
 
+  // Grant or withdraw AI consent — writes the user's own record and reflects it
+  // immediately. Only adults can hold a positive flag (server + rules enforce too).
+  const setAiConsent = useCallback(async (granted: boolean) => {
+    const u = auth.currentUser;
+    if (!u) return;
+    const consent: AiConsent = { granted, at: new Date().toISOString(), version: AI_CONSENT_VERSION };
+    await setDoc(doc(db, 'users', u.uid), { aiConsent: consent }, { merge: true });
+    setValue(v => ({ ...v, aiConsent: granted && v.aiEligible }));
+  }, []);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user: User | null) => {
       if (!user) {
@@ -75,6 +95,9 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           email: null,
           isAdmin: false,
           canWrite: false,
+          aiEligible: false,
+          aiConsent: false,
+          setAiConsent,
           loading: false,
         });
         return;
@@ -111,6 +134,9 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             email,
             isAdmin: profile.role === 'admin',
             canWrite: profile.role === 'admin' || profile.role === 'member',
+            aiEligible: isAdultRole(profile.role),
+            aiConsent: isAdultRole(profile.role) && hasValidAiConsent(profile.aiConsent),
+            setAiConsent,
             loading: false,
           });
           return;
@@ -152,6 +178,9 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             email,
             isAdmin: bootstrapRole === 'admin',
             canWrite: bootstrapRole === 'admin' || bootstrapRole === 'member',
+            aiEligible: isAdultRole(bootstrapRole),
+            aiConsent: isAdultRole(bootstrapRole) && hasValidAiConsent(profile.aiConsent),
+            setAiConsent,
             loading: false,
           });
           return;
@@ -165,6 +194,9 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           email,
           isAdmin: false,
           canWrite: false,
+          aiEligible: false,
+          aiConsent: false,
+          setAiConsent,
           loading: false,
         });
       } catch (err) {
@@ -177,13 +209,16 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           email,
           isAdmin: false,
           canWrite: false,
+          aiEligible: false,
+          aiConsent: false,
+          setAiConsent,
           loading: false,
         });
       }
     });
 
     return unsub;
-  }, []);
+  }, [setAiConsent]);
 
   return (
     <FamilyContext.Provider value={value}>

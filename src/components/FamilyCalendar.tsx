@@ -20,7 +20,8 @@ interface FamilyCalendarProps {
 }
 
 export default function FamilyCalendar({ members, events, onSaveEvents }: FamilyCalendarProps) {
-  const { isAdmin, canWrite } = useFamilyCtx();
+  const { isAdmin, canWrite, aiEligible, aiConsent } = useFamilyCtx();
+  const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
   // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
@@ -272,6 +273,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
   const scanFileRef = useRef<HTMLInputElement>(null);
 
   const handleScanNotice = async (file: File) => {
+    if (!aiOn) { setNoticeError('Turn on the AI assistant in Settings first.'); return; }
     setIsScanningNotice(true);
     setNoticeError(null);
     setNoticeResult(null);
@@ -551,7 +553,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
               />
               <button
                 onClick={() => scanFileRef.current?.click()}
-                disabled={isScanningNotice}
+                disabled={isScanningNotice || !aiOn}
                 className="btn-quiet text-sm disabled:opacity-50"
                 title="Scan a school notice or flyer — AI extracts events automatically"
               >

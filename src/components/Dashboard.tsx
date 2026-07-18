@@ -23,6 +23,7 @@ import {
 } from '../utils/aiApply';
 import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
+import AiConsentModal from './AiConsentModal';
 import AvatarRestyleModal from './AvatarRestyleModal';
 import SectionMenu from './SectionMenu';
 import LegalModal, { LegalTab } from './LegalModal';
@@ -61,12 +62,19 @@ import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
 import FamilyPasswords from './FamilyPasswords';
+import OnThisDay from './OnThisDay';
+import EmergencyCard from './EmergencyCard';
+import BabysitterMode from './BabysitterMode';
+import TravelPack from './TravelPack';
+import FamilyStats from './FamilyStats';
+import FamilyQuiz from './FamilyQuiz';
+import HealthTimeline from './HealthTimeline';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
-  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope
+  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -183,7 +191,19 @@ interface DashboardProps {
 
 export default function Dashboard({ familySettingsButton }: DashboardProps = {}) {
   const demo = isDemoMode();
-  const { isAdmin, canWrite, role } = useFamilyCtx();
+  const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent } = useFamilyCtx();
+  // AI is opt-in and OFF by default. Demo mode always shows it (no real data);
+  // otherwise adults must have consented, and child accounts never get AI.
+  const canUseAI = demo || (aiEligible && aiConsent);
+  const [consentOpen, setConsentOpen] = useState(false);
+  const consentPromptedRef = useRef(false);
+  useEffect(() => {
+    // Prompt eligible adults once per load if they haven't decided yet.
+    if (!demo && aiEligible && !aiConsent && !consentPromptedRef.current) {
+      consentPromptedRef.current = true;
+      setConsentOpen(true);
+    }
+  }, [demo, aiEligible, aiConsent]);
   const { t } = useT();
 
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -209,6 +229,15 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // re-fetch — otherwise an applied change wouldn't show until a manual reload.
   const [aiDataVersion, setAiDataVersion] = useState(0);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+
+  // Full-screen feature modals launched from the "Quick actions" row on the
+  // family/profiles landing view.
+  const [showEmergency, setShowEmergency] = useState(false);
+  const [showBabysitter, setShowBabysitter] = useState(false);
+  const [showTravelPack, setShowTravelPack] = useState(false);
+  const [showFamilyStats, setShowFamilyStats] = useState(false);
+  const [showFamilyQuiz, setShowFamilyQuiz] = useState(false);
+  const [showHealthTimeline, setShowHealthTimeline] = useState(false);
 
   // null = no save attempted yet; true/false = last save reached cloud or not
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -871,6 +900,36 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           <>
             <NeedsAttention members={members} onGo={goToMemberTab} />
 
+            <OnThisDay members={members} events={events} />
+
+            {/* Quick actions — one-tap entry into the full-screen feature modals */}
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setShowEmergency(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                <Siren className="w-4 h-4" />
+                <span>Emergency</span>
+              </button>
+              <button type="button" onClick={() => setShowBabysitter(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                <Baby className="w-4 h-4" />
+                <span>Babysitter</span>
+              </button>
+              <button type="button" onClick={() => setShowTravelPack(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                <Plane className="w-4 h-4" />
+                <span>Travel pack</span>
+              </button>
+              <button type="button" onClick={() => setShowFamilyStats(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                <BarChart3 className="w-4 h-4" />
+                <span>Family stats</span>
+              </button>
+              <button type="button" onClick={() => setShowFamilyQuiz(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                <HelpCircle className="w-4 h-4" />
+                <span>Quiz</span>
+              </button>
+              <button type="button" onClick={() => setShowHealthTimeline(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                <HeartPulse className="w-4 h-4" />
+                <span>Health timeline</span>
+              </button>
+            </div>
+
             {members.length === 0 ? (
               <div className="card text-center py-20 px-6">
                 <div className="w-16 h-16 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-5">
@@ -942,7 +1001,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                             {selectedMember.avatarUrl && isAdmin && (
                               <button
                                 type="button"
-                                onClick={() => setRestyleMemberId(selectedMember.id)}
+                                onClick={() => canUseAI ? setRestyleMemberId(selectedMember.id) : setConsentOpen(true)}
                                 className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-clay-500 hover:bg-clay-600 text-white flex items-center justify-center shadow-lift border-2 border-white transition-all hover:scale-105 active:scale-95 cursor-pointer"
                                 title="Make a fun avatar"
                                 aria-label="Make a fun avatar"
@@ -1175,12 +1234,21 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
       <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
 
-      {/* Floating AI assistant — available on every screen (replaces the old tab) */}
-      <AssistantBubble
-        members={members}
-        onApplyEdits={handleApplyAiEdits}
-        onAddMemberDoc={handleAddDocument}
-        demo={demo}
+      {/* Floating AI assistant — only when AI is enabled (opt-in, off by default) */}
+      {canUseAI && (
+        <AssistantBubble
+          members={members}
+          onApplyEdits={handleApplyAiEdits}
+          onAddMemberDoc={handleAddDocument}
+          demo={demo}
+        />
+      )}
+
+      <AiConsentModal
+        open={consentOpen}
+        onEnable={async () => { await setAiConsent(true); setConsentOpen(false); }}
+        onClose={() => setConsentOpen(false)}
+        onOpenPrivacy={() => setLegalTab('privacy')}
       />
 
       {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
@@ -1196,6 +1264,25 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           />
         ) : null;
       })()}
+
+      {showEmergency && (
+        <EmergencyCard members={members} events={events} onClose={() => setShowEmergency(false)} />
+      )}
+      {showBabysitter && (
+        <BabysitterMode members={members} events={events} onClose={() => setShowBabysitter(false)} />
+      )}
+      {showTravelPack && (
+        <TravelPack members={members} events={events} onClose={() => setShowTravelPack(false)} />
+      )}
+      {showFamilyStats && (
+        <FamilyStats members={members} events={events} onClose={() => setShowFamilyStats(false)} />
+      )}
+      {showFamilyQuiz && (
+        <FamilyQuiz members={members} events={events} onClose={() => setShowFamilyQuiz(false)} />
+      )}
+      {showHealthTimeline && (
+        <HealthTimeline members={members} events={events} onClose={() => setShowHealthTimeline(false)} />
+      )}
     </div>
   );
 }
