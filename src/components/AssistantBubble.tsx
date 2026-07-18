@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import AIChatbot, { AiEdit } from './AIChatbot';
 import type { FamilyMember, FamilyDocument } from '../types';
@@ -14,18 +14,39 @@ interface Props {
 /**
  * Floating assistant launcher — a bubble in the bottom-right that expands into
  * the AI chat on ANY screen (replaces the old full-width Assistant tab). The
- * launcher toggles to a close (X), so there's no separate close control to
- * collide with the chat's own header; on mobile a backdrop tap also closes.
+ * launcher toggles to a close (X); clicking anywhere outside the panel (or Esc,
+ * or the mobile backdrop) also closes it.
  */
 export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, demo }: Props) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const launcherRef = useRef<HTMLButtonElement>(null);
+
+  // Close on any click outside the panel (the launcher is excluded — it toggles
+  // itself) and on Escape. This is what makes clicking the page dismiss the chat.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (launcherRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   return (
     <>
       {open && (
         <>
-          {/* Mobile backdrop — tap anywhere to dismiss */}
+          {/* Mobile backdrop — dims the page + tap to dismiss */}
           <div
             className="fixed inset-0 z-40 bg-ink-900/25 sm:hidden"
             onClick={() => setOpen(false)}
@@ -34,6 +55,7 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
           {/* Chat panel — bottom sheet on mobile, anchored popover on desktop.
               Sits above the launcher (bottom-24) so the launcher's X stays tappable. */}
           <div
+            ref={panelRef}
             role="dialog"
             aria-label={t.nav_assistant}
             className="fixed z-40 flex flex-col bg-white rounded-2xl overflow-hidden border border-cream-300 shadow-lift
@@ -59,6 +81,7 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
       )}
 
       <button
+        ref={launcherRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? t.btn_close : t.nav_assistant}
