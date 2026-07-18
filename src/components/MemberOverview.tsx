@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, HeartPulse, Pill, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye,
+  AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye, Lock,
 } from 'lucide-react';
 import type { ElementType } from 'react';
 import { FamilyMember, FamilyDocument } from '../types';
@@ -54,15 +54,17 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
   if (docCount) tiles.push({ label: 'Documents', value: `${docCount}` });
 
   const rows: { icon: ElementType; label: string; value: string; warn?: boolean; viewSrc?: string }[] = [];
+  // Allergies are a genuine safety flag (a babysitter/ER needs them at a glance).
+  // Detailed/sensitive medical (chronic conditions, medications) is deliberately
+  // NOT shown on this casual default landing — it lives behind the Medical tab.
   if (med.allergies) rows.push({ icon: AlertTriangle, label: 'Allergies', value: med.allergies, warn: true });
-  if (med.conditions) rows.push({ icon: HeartPulse, label: 'Chronic conditions', value: med.conditions });
-  if (med.emergencyMedication) rows.push({ icon: Pill, label: 'Emergency medication', value: med.emergencyMedication });
+  const hasPrivateMedical = !!(med.conditions || med.emergencyMedication || med.medications || med.surgeries);
   if (member.role === 'Child' && member.education?.schoolName) rows.push({ icon: GraduationCap, label: 'School', value: member.education.schoolName });
   if (member.phone) rows.push({ icon: Phone, label: 'Phone', value: member.phone });
   if (member.email) rows.push({ icon: Mail, label: 'Email', value: member.email });
   if (member.address) rows.push({ icon: MapPin, label: 'Address', value: member.address, viewSrc: findAddressScan(member)?.fileData });
 
-  const isEmpty = tiles.length === 0 && rows.length === 0 && !expiry;
+  const isEmpty = tiles.length === 0 && rows.length === 0 && !expiry && !hasPrivateMedical;
 
   if (isEmpty) {
     return (
@@ -127,6 +129,12 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
             );
           })}
         </div>
+      )}
+
+      {hasPrivateMedical && (
+        <p className="flex items-center justify-center gap-1.5 text-[12px] text-ink-400">
+          <Lock className="w-3.5 h-3.5" /> Medical details on file — open the <b className="text-ink-500 font-semibold">Medical</b> tab to view.
+        </p>
       )}
 
       <p className="text-center text-[12px] text-ink-400">Tap a tab above to view or edit the full details.</p>
