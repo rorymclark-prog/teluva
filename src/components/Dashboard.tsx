@@ -14,12 +14,14 @@ import {
   loadDocuments, saveDocuments,
   loadShopping, saveShopping,
   saveAsset,
+  loadFamilyWords, saveFamilyWords,
 } from '../utils/db';
 import {
   applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
   applyCalendarEdits, applyHouseholdEdits, applyFinancesEdits, applyTimelineEdits,
   hasCalendarEdits, hasHouseholdEdits, hasFinancesEdits, hasTimelineEdits,
   hasShoppingEdits, applyShoppingEdits, hasAssetEdits,
+  hasFamilyWordsEdits, applyFamilyWordsEdits,
 } from '../utils/aiApply';
 import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
@@ -528,6 +530,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const ok = await saveTimeline(applyTimelineEdits(t, edits));
       if (!ok) failures.push('timeline');
     }
+    if (hasFamilyWordsEdits(edits)) {
+      const doc = (await loadFamilyWords()) || { words: [] };
+      const ok = await saveFamilyWords({ words: applyFamilyWordsEdits(doc.words || [], edits) });
+      if (!ok) failures.push('family words');
+    }
     if (hasShoppingEdits(edits)) {
       const s = await loadShopping();
       const ok = await saveShopping(applyShoppingEdits(s, edits));
@@ -562,7 +569,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     // (these views load their data once on mount and take no props).
     if (
       hasInfoEdits(edits) || hasHouseholdEdits(edits) || hasFinancesEdits(edits) ||
-      hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits)
+      hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
+      hasFamilyWordsEdits(edits)
     ) {
       setAiDataVersion(v => v + 1);
     }
@@ -874,7 +882,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'finances' && <FinancesView key={aiDataVersion} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
-        {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} />}
+        {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
 

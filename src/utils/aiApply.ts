@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { AVATAR_COLORS } from './avatarPalette';
 
@@ -150,6 +150,16 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[]): Fami
         nextDue: e.nextDue || undefined, notes: e.notes || undefined,
       };
       next = next.map(m => (m.id === target.id ? { ...m, careSchedule: [...(m.careSchedule || []), rec] } : m));
+    } else if (e.kind === 'saying') {
+      const target = resolveMember(next, e.member);
+      if (!target || !e.text || !e.text.trim()) continue;
+      const rec = {
+        id: newId(),
+        text: e.text.trim(),
+        said: (e.said && /^\d{4}-\d{2}-\d{2}$/.test(e.said)) ? e.said : new Date().toLocaleDateString('en-CA'),
+        context: e.context?.trim() || undefined,
+      };
+      next = next.map(m => (m.id === target.id ? { ...m, sayings: [...(m.sayings || []), rec] } : m));
     }
   }
   return next;
@@ -177,7 +187,7 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   return { numbers, contacts };
 }
 
-export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule');
+export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number');
 
 const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;
@@ -284,3 +294,23 @@ export const hasHouseholdEdits = (edits: AiEdit[]) =>
   );
 export const hasFinancesEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['banks', 'insurance', 'benefits'].includes(e.list));
 export const hasTimelineEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && e.list === 'timeline');
+export const hasFamilyWordsEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'family_word');
+
+// Append entries to the Family Dictionary. Requires both word + meaning.
+export function applyFamilyWordsEdits(words: FamilyWord[], edits: AiEdit[]): FamilyWord[] {
+  const added: FamilyWord[] = [];
+  for (const e of edits) {
+    if (e.kind !== 'family_word') continue;
+    const word = (e.word || '').trim();
+    const meaning = (e.meaning || '').trim();
+    if (!word || !meaning) continue;
+    added.push({
+      id: newId(),
+      word,
+      meaning,
+      coinedBy: e.coinedBy?.trim() || undefined,
+      approxDate: (e.approxDate && /^\d{4}-\d{2}-\d{2}$/.test(e.approxDate)) ? e.approxDate : undefined,
+    });
+  }
+  return [...words, ...added];
+}
