@@ -42,7 +42,7 @@ function nearestExpiry(member: FamilyMember): { label: string; date: string; sta
   return { ...soonest, status: months < 0 ? 'expired' : months <= 9 ? 'soon' : 'ok' };
 }
 
-export default function MemberOverview({ member, onViewDocument }: { member: FamilyMember; onViewDocument?: (src: string) => void }) {
+export default function MemberOverview({ member, onViewDocument, canEdit = false }: { member: FamilyMember; onViewDocument?: (src: string) => void; canEdit?: boolean }) {
   const first = member.name.split(/\s+/)[0] || member.name;
   const med = member.medical || {};
   const docCount = member.documents?.length || 0;
@@ -151,7 +151,7 @@ export default function MemberOverview({ member, onViewDocument }: { member: Fam
         </p>
       )}
 
-      <MemberBelongings memberName={member.name} onViewPhoto={onViewDocument} />
+      <MemberBelongings memberName={member.name} canEdit={canEdit} />
 
       <p className="text-center text-[12px] text-ink-400">Tap a tab above to view or edit the full details.</p>
     </div>
