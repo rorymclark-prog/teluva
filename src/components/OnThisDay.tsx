@@ -1,5 +1,5 @@
 import type { ElementType } from 'react';
-import { Calendar, Sparkles, Cake, Ruler, GraduationCap, PartyPopper, Plane, BookOpen } from 'lucide-react';
+import { Calendar, Sparkles, Cake, Ruler, GraduationCap, PartyPopper, Plane, BookOpen, Quote } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FamilyMember, CalendarEvent } from '../types';
 
@@ -167,6 +167,49 @@ function anniversaryInsight(ev: CalendarEvent, memberById: Map<string, FamilyMem
   };
 }
 
+// A saying resurfaced on its anniversary — "N years ago today, X said …". The
+// single most delightful thing this card can show, so it scores high. One per
+// member (their nearest-to-today, oldest-on-tie match) to avoid flooding.
+function sayingInsight(m: FamilyMember, today: Date): Insight | null {
+  const sayings = m.sayings || [];
+  if (sayings.length === 0) return null;
+  const t0 = startOfDay(today);
+  const first = firstName(m.name);
+
+  let best: { diff: number; yearsAgo: number; text: string } | null = null;
+  for (const s of sayings) {
+    if (!s.text || !s.said) continue;
+    const d = new Date(s.said);
+    if (isNaN(d.getTime())) continue;
+
+    const occurrence = occurrenceInYear(t0.getFullYear(), d.getMonth(), d.getDate());
+    let diff = Math.round((occurrence.getTime() - t0.getTime()) / DAY);
+    let occYear = t0.getFullYear();
+    if (diff > 182) { diff -= 365; occYear -= 1; }
+    if (diff < -182) { diff += 365; occYear += 1; }
+    if (diff > 0 || diff < -3) continue; // only "today" through a few days ago
+
+    const yearsAgo = occYear - d.getFullYear();
+    if (yearsAgo < 1) continue; // a quote from this year isn't a throwback yet
+
+    // pick the closest-to-today; on a tie prefer the oldest (most years ago)
+    if (!best || Math.abs(diff) < Math.abs(best.diff) || (diff === best.diff && yearsAgo > best.yearsAgo)) {
+      const quote = s.text.length > 90 ? s.text.slice(0, 88).trimEnd() + '…' : s.text;
+      const when = diff === 0 ? 'today' : 'this week';
+      best = { diff, yearsAgo, text: `💬 ${yearsAgo} year${yearsAgo === 1 ? '' : 's'} ago ${when}, ${first} said: “${quote}”` };
+    }
+  }
+  if (!best) return null;
+
+  return {
+    key: `saying-${m.id}`,
+    icon: Quote,
+    text: best.text,
+    tone: 'clay',
+    score: URGENT_SCORE + 20 - Math.abs(best.diff) * 20, // today = 920 (always-shown tier)
+  };
+}
+
 // Fallback when there's nothing dated to celebrate: either a just-added record
 // (recent document upload), or, failing that, how long this family's story has
 // been kept here at all — computed from the earliest dated evidence we have.
@@ -240,6 +283,8 @@ function buildInsights(members: FamilyMember[], events: CalendarEvent[]): Insigh
     if (b) candidates.push(b);
     const g = growthInsight(m, today);
     if (g) candidates.push(g);
+    const s = sayingInsight(m, today);
+    if (s) candidates.push(s);
   }
   for (const ev of events) {
     const a = anniversaryInsight(ev, memberById, today);
