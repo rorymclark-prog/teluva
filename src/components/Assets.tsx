@@ -308,9 +308,8 @@ export default function Assets() {
                             </button>
                           ) : isAdmin ? (
                             <button type="button" onClick={() => openEditForm(item)}
-                              className="group/ph relative w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-transparent hover:ring-clay-300 hover:bg-clay-50 transition-all cursor-pointer" title="Add a photo">
-                              <Package className="w-4 h-4 text-ink-300 group-hover/ph:opacity-0 transition-opacity" />
-                              <Camera className="w-4 h-4 text-clay-500 absolute opacity-0 group-hover/ph:opacity-100 transition-opacity" />
+                              className="group/ph w-10 h-10 rounded-lg shrink-0 bg-clay-50/60 border border-dashed border-clay-300 flex items-center justify-center hover:border-clay-400 hover:bg-clay-50 transition-all cursor-pointer" title="Add a photo">
+                              <Camera className="w-4 h-4 text-clay-400 group-hover/ph:text-clay-600 transition-colors" />
                             </button>
                           ) : (
                             <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center"><Package className="w-4 h-4 text-ink-300" /></div>

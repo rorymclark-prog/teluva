@@ -155,17 +155,12 @@ export default function MemberBelongings(
                   type="button"
                   onClick={() => pickPhoto(item.id)}
                   disabled={busy}
-                  className="group/ph relative w-9 h-9 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-transparent hover:ring-clay-300 hover:bg-clay-50 transition-all cursor-pointer disabled:opacity-60"
+                  className="group/ph w-9 h-9 rounded-lg shrink-0 bg-clay-50/60 border border-dashed border-clay-300 flex items-center justify-center hover:border-clay-400 hover:bg-clay-50 transition-all cursor-pointer disabled:opacity-60"
                   title="Add a photo"
                 >
-                  {busy ? (
-                    <Loader2 className="w-4 h-4 text-clay-500 animate-spin" />
-                  ) : (
-                    <>
-                      <Package className="w-4 h-4 text-ink-300 group-hover/ph:opacity-0 transition-opacity" />
-                      <Camera className="w-4 h-4 text-clay-500 absolute opacity-0 group-hover/ph:opacity-100 transition-opacity" />
-                    </>
-                  )}
+                  {busy
+                    ? <Loader2 className="w-4 h-4 text-clay-500 animate-spin" />
+                    : <Camera className="w-4 h-4 text-clay-400 group-hover/ph:text-clay-600 transition-colors" />}
                 </button>
               ) : (
                 <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center">

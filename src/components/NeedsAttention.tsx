@@ -1,7 +1,8 @@
-import type { ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard } from 'lucide-react';
-import { FamilyMember } from '../types';
+import { useState, useEffect, type ElementType } from 'react';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package } from 'lucide-react';
+import { FamilyMember, AssetItem } from '../types';
 import { careNextDue } from '../utils/care';
+import { loadAssets } from '../utils/db';
 
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
@@ -14,6 +15,43 @@ interface Nudge {
   tone: Tone;
   text: string;
   tab: string;
+  view?: string; // if set, the nudge navigates to a top-level view (e.g. 'assets') instead of a member tab
+}
+
+// Asset completeness nudges — surfaced from the family's belongings (loaded
+// separately from members). Grouped so the digest never floods, and 'info' tone
+// so they always sit below real expiries/overdue items.
+function computeAssetNudges(assets: AssetItem[]): Nudge[] {
+  const out: Nudge[] = [];
+  const noPhoto = assets.filter((a) => !a.photoDataUrl && !(a.photos && a.photos.length));
+  if (noPhoto.length > 0) {
+    const n = noPhoto.length;
+    out.push({
+      key: 'assets-nophoto',
+      memberId: '',
+      icon: Camera,
+      tone: 'info',
+      text: `${n} belonging${n === 1 ? '' : 's'} ${n === 1 ? 'has' : 'have'} no photo — add one for insurance claims`,
+      tab: 'assets',
+      view: 'assets',
+    });
+  }
+  // Missing key claim details (serial/identifier or a value) on items that DO
+  // exist — one grouped nudge, so proof-of-ownership gaps are visible too.
+  const missingDetails = assets.filter((a) => !a.serialNumber && !a.replacementValue && !a.purchasePrice);
+  if (missingDetails.length > 0) {
+    const n = missingDetails.length;
+    out.push({
+      key: 'assets-nodetails',
+      memberId: '',
+      icon: Package,
+      tone: 'info',
+      text: `${n} belonging${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} missing a serial number or value`,
+      tab: 'assets',
+      view: 'assets',
+    });
+  }
+  return out;
 }
 
 // Deterministic, data-derived nudges — no AI, no cost, no new fields.
@@ -123,8 +161,22 @@ const TONE_STYLE: Record<Tone, string> = {
   info: 'bg-cream-200 text-ink-500',
 };
 
-export default function NeedsAttention({ members, onGo }: { members: FamilyMember[]; onGo: (memberId: string, tab: string) => void }) {
-  const all = computeNudges(members);
+export default function NeedsAttention(
+  { members, onGo, onGoView }:
+  { members: FamilyMember[]; onGo: (memberId: string, tab: string) => void; onGoView?: (view: string) => void },
+) {
+  const [assets, setAssets] = useState<AssetItem[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadAssets()
+      .then((a) => { if (!cancelled) setAssets(a || []); })
+      .catch(() => { if (!cancelled) setAssets([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
+  const all = [...computeNudges(members), ...computeAssetNudges(assets)]
+    .sort((a, b) => order[a.tone] - order[b.tone]);
   if (all.length === 0) return null;
   const shown = all.slice(0, 6);
   const extra = all.length - shown.length;
@@ -142,7 +194,7 @@ export default function NeedsAttention({ members, onGo }: { members: FamilyMembe
           return (
             <button
               key={n.key}
-              onClick={() => onGo(n.memberId, n.tab)}
+              onClick={() => (n.view ? onGoView?.(n.view) : onGo(n.memberId, n.tab))}
               className="w-full flex items-center gap-3 px-5 py-3 text-left hover:bg-cream-50 transition-colors cursor-pointer group"
             >
               <div className={`p-1.5 rounded-lg shrink-0 ${TONE_STYLE[n.tone]}`}>

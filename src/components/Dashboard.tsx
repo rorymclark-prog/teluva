@@ -901,7 +901,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'profiles' && (
           <>
-            <NeedsAttention members={members} onGo={goToMemberTab} />
+            <NeedsAttention members={members} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
 
             <OnThisDay members={members} events={events} />
 
