@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { Package, Camera, Loader2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { AssetItem } from '../types';
-import { loadAssets, saveAsset } from '../utils/db';
+import { loadAssets, saveAsset, uploadAssetPhoto } from '../utils/db';
 import { compressImageToAvatar } from '../utils/imageCompress';
+
+const EXTRA_PHOTO_CAP = 12; // extras live in Storage, so the cap is generous
 
 // Case-insensitive match, WITHOUT loose substring containment (which would
 // cross-attribute e.g. "Ann" → "Joanna"). Matches on: exact full name, OR when
@@ -79,32 +81,37 @@ export default function MemberBelongings(
   };
 
   const handleFile = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files: File[] = e.target.files ? Array.from(e.target.files) : [];
     const itemId = pendingItemRef.current;
     e.target.value = '';
     pendingItemRef.current = null;
-    if (!file || !itemId) return;
+    if (!files.length || !itemId) return;
     const item = items.find((i) => i.id === itemId);
     if (!item) return;
 
     setBusyId(itemId); setError(null);
     try {
-      const dataUrl = await readFile(file);
-      // First photo becomes the primary (bigger); further ones go to photos[]
-      // (smaller, capped at 4) so several fit inside one Firestore doc (~1 MiB).
-      const isPrimary = !item.photoDataUrl;
-      const compressed = await compressImageToAvatar(dataUrl, isPrimary ? 1500 : 1100, isPrimary ? 0.82 : 0.72);
-      const updated: AssetItem = isPrimary
-        ? { ...item, photoDataUrl: compressed }
-        : { ...item, photos: [...(item.photos || []), compressed].slice(0, 4) };
+      // First selected photo (if none yet) becomes the inline primary for a fast
+      // thumbnail; every other photo is uploaded to Storage and stored as a URL,
+      // so an asset can hold many pictures without the ~1 MiB Firestore limit.
+      let updated: AssetItem = { ...item };
+      for (const file of files) {
+        const dataUrl = await readFile(file);
+        if (!updated.photoDataUrl) {
+          updated = { ...updated, photoDataUrl: await compressImageToAvatar(dataUrl, 1500, 0.82) };
+        } else if ((updated.photos || []).length < EXTRA_PHOTO_CAP) {
+          const url = await uploadAssetPhoto(await compressImageToAvatar(dataUrl, 1600, 0.82));
+          updated = { ...updated, photos: [...(updated.photos || []), url] };
+        }
+      }
       const ok = await saveAsset(updated);
       if (ok) {
         setItems((prev) => prev.map((i) => (i.id === itemId ? updated : i)));
       } else {
-        setError('Could not save the photo — it may be too large. Try a smaller image.');
+        setError('Could not save the photos — please try again.');
       }
     } catch {
-      setError('Could not add that photo — please try another.');
+      setError('Could not add those photos — please try another.');
     } finally {
       setBusyId(null);
     }
@@ -202,7 +209,7 @@ export default function MemberBelongings(
         })}
       </div>
 
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFile} className="hidden" />
+      <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFile} className="hidden" />
 
       {/* Image gallery lightbox */}
       {gallery && gallery.length > 0 && (

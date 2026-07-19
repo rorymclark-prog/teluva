@@ -174,12 +174,15 @@ export default function NeedsAttention(
     return () => { cancelled = true; };
   }, []);
 
+  const [showAll, setShowAll] = useState(false);
+
   const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
   const all = [...computeNudges(members), ...computeAssetNudges(assets)]
     .sort((a, b) => order[a.tone] - order[b.tone]);
   if (all.length === 0) return null;
-  const shown = all.slice(0, 6);
-  const extra = all.length - shown.length;
+  const COLLAPSED = 6;
+  const shown = showAll ? all : all.slice(0, COLLAPSED);
+  const extra = all.length - COLLAPSED;
 
   return (
     <div className="card overflow-hidden">
@@ -206,7 +209,14 @@ export default function NeedsAttention(
           );
         })}
       </div>
-      {extra > 0 && <p className="px-5 py-2 text-[12px] text-ink-400">+{extra} more</p>}
+      {extra > 0 && (
+        <button
+          onClick={() => setShowAll((s) => !s)}
+          className="w-full px-5 py-2.5 text-[12.5px] font-semibold text-clay-600 hover:bg-cream-50 transition-colors text-center cursor-pointer"
+        >
+          {showAll ? 'Show less' : `Show all ${all.length}`}
+        </button>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Package, Plus, Pencil, Trash2, Camera, Loader2, X, FileDown, ShieldAlert, Receipt, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
 import { AssetItem } from '../types';
-import { loadAssets, saveAsset, deleteAsset } from '../utils/db';
+import { loadAssets, saveAsset, deleteAsset, uploadAssetPhoto, deleteAssetPhoto } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -61,6 +61,9 @@ function itemValue(item: AssetItem): number {
 }
 
 // All of an item's pictures, labelled, for the gallery viewer.
+// Extra photos live in Firebase Storage (not inline), so the cap is generous.
+const EXTRA_PHOTO_CAP = 12;
+
 function itemImages(item: AssetItem): { src: string; label: string }[] {
   const out: { src: string; label: string }[] = [];
   if (item.photoDataUrl) out.push({ src: item.photoDataUrl, label: 'Photo' });
@@ -84,6 +87,8 @@ export default function Assets() {
   const [galleryIdx, setGalleryIdx] = useState(0);
   const openGallery = (imgs: { src: string; label: string }[], idx = 0) => { if (imgs.length) { setGallery(imgs); setGalleryIdx(idx); } };
   const [showExport, setShowExport] = useState(false);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const photoKindRef = useRef<'primary' | 'extra' | 'receipt'>('primary');
 
   const scanFileRef = useRef<HTMLInputElement>(null);
@@ -163,19 +168,37 @@ export default function Assets() {
     photoFileRef.current?.click();
   };
   const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; e.target.value = '';
+    const files: File[] = e.target.files ? Array.from(e.target.files) : []; e.target.value = '';
+    if (!files.length) return;
     const kind = photoKindRef.current;
-    const dataUrl = await readFile(file);
-    // Kept compact so several images fit inside one Firestore doc (~1 MiB).
-    if (kind === 'primary') patch({ photoDataUrl: await compressImageToAvatar(dataUrl, 1500, 0.82) });
-    else if (kind === 'receipt') patch({ receiptDataUrl: await compressImageToAvatar(dataUrl, 1500, 0.78) });
-    else {
-      const c = await compressImageToAvatar(dataUrl, 1100, 0.72);
-      setEditingItem(prev => (prev ? { ...prev, photos: [...(prev.photos || []), c].slice(0, 4) } : prev));
+    // Primary + receipt stay inline base64 (single, fast thumbnail).
+    if (kind === 'primary') { patch({ photoDataUrl: await compressImageToAvatar(await readFile(files[0]), 1500, 0.82) }); return; }
+    if (kind === 'receipt') { patch({ receiptDataUrl: await compressImageToAvatar(await readFile(files[0]), 1500, 0.78) }); return; }
+    // Extra photos: upload EACH selected file to Storage (no ~1 MiB doc limit),
+    // store the download URL. Respects the cap against whatever is already there.
+    setPhotoError(null); setUploadingPhotos(true);
+    try {
+      const start = (editingItem?.photos || []).length;
+      const room = Math.max(0, EXTRA_PHOTO_CAP - start);
+      if (files.length > room) setPhotoError(`Only ${room} more photo${room === 1 ? '' : 's'} can be added (max ${EXTRA_PHOTO_CAP}).`);
+      for (const file of files.slice(0, room)) {
+        const compressed = await compressImageToAvatar(await readFile(file), 1600, 0.82);
+        const url = await uploadAssetPhoto(compressed);
+        setEditingItem(prev => (prev ? { ...prev, photos: [...(prev.photos || []), url].slice(0, EXTRA_PHOTO_CAP) } : prev));
+      }
+    } catch {
+      setPhotoError('Some photos could not be uploaded — please try again.');
+    } finally {
+      setUploadingPhotos(false);
     }
   };
   const removeExtraPhoto = (idx: number) =>
-    setEditingItem(prev => (prev ? { ...prev, photos: (prev.photos || []).filter((_, i) => i !== idx) } : prev));
+    setEditingItem(prev => {
+      if (!prev) return prev;
+      const url = (prev.photos || [])[idx];
+      if (url) void deleteAssetPhoto(url); // best-effort Storage cleanup (no-op for legacy inline)
+      return { ...prev, photos: (prev.photos || []).filter((_, i) => i !== idx) };
+    });
 
   // ── Save ──
   const handleSave = async () => {
@@ -234,7 +257,7 @@ export default function Assets() {
   return (
     <div className="max-w-lg">
       <input ref={scanFileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleScanFileChange} />
-      <input ref={photoFileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoFileChange} />
+      <input ref={photoFileRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoFileChange} />
 
       <div className="card overflow-hidden">
         <div className="p-5 sm:p-6 border-b border-cream-200 flex items-start justify-between gap-3">
@@ -382,18 +405,21 @@ export default function Assets() {
 
               {/* Extra photos (serial plate, angles) + receipt */}
               <div>
-                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">More photos <span className="normal-case text-ink-300 font-normal">· serial plate, angles</span></label>
+                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">More photos <span className="normal-case text-ink-300 font-normal">· serial plate, angles — pick several at once</span></label>
                 <div className="flex flex-wrap gap-2">
                   {(editing.photos || []).map((src, i) => (
                     <div key={i} className="relative">
-                      <button type="button" onClick={() => openGallery([{ src, label: 'Photo' }])} className="w-14 h-14 rounded-lg overflow-hidden bg-cream-100 ring-1 ring-cream-200 cursor-zoom-in"><img src={src} alt="" className="w-full h-full object-cover" /></button>
+                      <button type="button" onClick={() => openGallery(itemImages(editing), (editing.photoDataUrl ? 1 : 0) + i)} className="w-14 h-14 rounded-lg overflow-hidden bg-cream-100 ring-1 ring-cream-200 cursor-zoom-in"><img src={src} alt="" className="w-full h-full object-cover" /></button>
                       <button onClick={() => removeExtraPhoto(i)} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink-800 text-white flex items-center justify-center hover:bg-rosa-500"><X className="w-2.5 h-2.5" /></button>
                     </div>
                   ))}
-                  {(editing.photos || []).length < 4 && (
-                    <button onClick={() => triggerPhoto('extra')} className="w-14 h-14 rounded-lg border-2 border-dashed border-cream-300 flex items-center justify-center text-ink-300 hover:border-clay-300 hover:text-clay-500 transition-colors"><Plus className="w-4 h-4" /></button>
+                  {(editing.photos || []).length < EXTRA_PHOTO_CAP && (
+                    <button onClick={() => triggerPhoto('extra')} disabled={uploadingPhotos} className="w-14 h-14 rounded-lg border-2 border-dashed border-cream-300 flex items-center justify-center text-ink-300 hover:border-clay-300 hover:text-clay-500 transition-colors disabled:opacity-60">
+                      {uploadingPhotos ? <Loader2 className="w-4 h-4 animate-spin text-clay-500" /> : <Plus className="w-4 h-4" />}
+                    </button>
                   )}
                 </div>
+                {photoError && <p className="text-[11px] text-rosa-600 mt-1.5">{photoError}</p>}
               </div>
 
               {/* Receipt / proof of purchase */}

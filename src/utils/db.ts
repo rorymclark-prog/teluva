@@ -281,6 +281,30 @@ export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', '
 export const saveSettings = (s: HubSettings) => saveReferenceDoc('settings', s, 'family_settings');
 export const loadSettings = () => loadReferenceDoc<HubSettings>('settings', 'family_settings');
 
+// --- Asset photos: extra photos live in Firebase Storage (NOT inline base64) so
+// an asset can hold many pictures without hitting Firestore's ~1 MiB per-doc
+// limit. Takes a (compressed) data URL, returns the download URL to store in
+// AssetItem.photos[]. The primary photo stays inline for fast thumbnails. ---
+export async function uploadAssetPhoto(dataUrl: string): Promise<string> {
+  const blob = await (await fetch(dataUrl)).blob();
+  const storagePath = `families/${FAMILY_ID}/asset-photos/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
+  return getDownloadURL(r);
+}
+
+// Best-effort delete of a Storage-backed asset photo by its download URL.
+// ref(storage, url) resolves an https download URL to its object. Legacy inline
+// base64 photos aren't in Storage, so they're skipped.
+export async function deleteAssetPhoto(url: string): Promise<void> {
+  if (!url || !/^https?:/i.test(url)) return;
+  try {
+    await deleteObject(ref(storage, url));
+  } catch (e) {
+    console.error('Asset photo delete failed (reference will still be removed):', e);
+  }
+}
+
 // --- Document Vault: files in Firebase Storage, metadata in Firestore ---
 export async function uploadVaultFile(file: File, docId: string): Promise<{ storagePath: string; downloadUrl: string }> {
   const safeName = (file.name || 'file').replace(/[^\w.\-]+/g, '_');
