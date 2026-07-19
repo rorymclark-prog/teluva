@@ -309,6 +309,19 @@ export interface InsuranceCoverage {
   notes?: string;
 }
 
+// A condition/obligation QUOTED verbatim from the policyholder's own document by
+// the recall-only reader. `quote` is copied word-for-word from the policy and is
+// NEVER a paraphrase, verdict, or recommendation — there is deliberately no
+// "covered" / "risk" / "advice" field so an opinion cannot be stored here.
+export interface PolicyObligation {
+  id: string;
+  quote: string;    // verbatim text from the document
+  topic?: string;   // neutral tag: Lock | Storage | Travel | Safety | Deadline | Documents | General
+  done?: boolean;   // user-controlled checklist tick
+  verified?: boolean; // true = the server confirmed this quote is a literal substring
+                      // of pasted text; false = read from a photo (OCR, unverifiable)
+}
+
 export interface InsurancePolicy {
   id: string;
   provider: string;              // insurer name (field kept as 'provider' for back-compat)
@@ -332,6 +345,9 @@ export interface InsurancePolicy {
   coverage?: InsuranceCoverage[];
   coveredMemberIds?: string[];   // family member ids this policy covers
   coveredAssetIds?: string[];    // asset ids this policy covers
+  // --- Recall-only reader (dark-launched, see config/features.ts) ---
+  obligations?: PolicyObligation[]; // verbatim quotes of conditions the holder must meet
+  obligationsReadAt?: string;       // ISO timestamp of the last AI read
 }
 
 export interface BenefitInfo {

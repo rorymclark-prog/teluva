@@ -867,7 +867,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         {mainView === 'household' && <HouseholdView key={aiDataVersion} />}
 
         {mainView === 'finances' && <FinancesView key={aiDataVersion} />}
-        {mainView === 'insurance' && <InsuranceView members={members} />}
+        {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
 

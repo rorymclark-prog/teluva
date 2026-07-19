@@ -29,6 +29,12 @@ const VERTEX_LOCATION = process.env.VERTEX_LOCATION || 'europe-west1';
 const MODEL_TEXT = 'gemini-2.5-flash';
 const MODEL_IMAGE = USE_VERTEX ? 'gemini-2.5-flash-image' : 'gemini-3.1-flash-image';
 const AI_CONSENT_VERSION = 1;
+// Dark-launch gate for the recall-only insurance-conditions reader. OFF unless
+// FEATURE_INSURANCE_READER is explicitly set. This is the AUTHORITATIVE gate —
+// even if a client is built with the feature on, the endpoint refuses until a
+// licensed Austrian lawyer clears the recall/advice line (GewO §137). See
+// src/config/features.ts for the paired client flag.
+const FEATURE_INSURANCE_READER = process.env.FEATURE_INSURANCE_READER === '1';
 
 const gAuth = USE_VERTEX
   ? new GoogleAuth({ scopes: 'https://www.googleapis.com/auth/cloud-platform' })
@@ -181,7 +187,8 @@ RULES:
 - Use "care_schedule" when the user mentions a RECURRING check-up ("Mia's dentist every 6 months", "annual eye test", "yearly check-up", "her last dental visit was in March"). Capture careKind, lastVisit and intervalMonths (or a specific nextDue). For a ONE-OFF appointment on a specific date, use "calendar_event" instead — care_schedule is for repeating ones.
 - IF AN IMAGE/DOCUMENT IS ATTACHED: read it (OCR). Extract every useful field — match the right kind: address/wifi → household_set; person's ID/passport → member+passport; contacts → contact; loose reference numbers → number. If it's a Meldezettel or registration certificate, read the person it names and set THEIR address with {"kind":"member","member":"<name>","field":"address","value":"<address>"} (each family member can live at a different address) AND save a scan with {"kind":"document","name":"Meldezettel <name>","category":"Identity"}. Only use household_set for the address if no specific family member is named. If it's a keepable document (passport, ID, residence card, birth/marriage cert, school report, insurance card, medical letter, tax doc), ALSO add ONE {"kind":"document"} edit with a short descriptive name, the best-fit category, AND "member" set to the family member it belongs to (match the name on the document to the family data; e.g. Sophie's passport → "member":"Sophie") so the scan lands on their profile too. In the reply, briefly say what you read and what you'll save.
 - NEVER invent data. If something needed is missing, ask for it in reply. Keep reply warm and brief.
-- BOUNDARIES: You organise and recall the family's own records — you are NOT a doctor, lawyer, pharmacist or financial adviser. NEVER give medical, legal, or financial ADVICE, diagnosis, dosing, interpretation of results, or treatment/product recommendations. You may store and read back what the family recorded (e.g. "her allergy is peanuts"), but if asked for advice ("is this rash serious?", "what dose?", "should we invest?"), gently decline and suggest they consult a qualified professional. You can be wrong — never present a guess as fact.`;
+- BOUNDARIES: You organise and recall the family's own records — you are NOT a doctor, lawyer, pharmacist or financial adviser. NEVER give medical, legal, or financial ADVICE, diagnosis, dosing, interpretation of results, or treatment/product recommendations. You may store and read back what the family recorded (e.g. "her allergy is peanuts"), but if asked for advice ("is this rash serious?", "what dose?", "should we invest?"), gently decline and suggest they consult a qualified professional. You can be wrong — never present a guess as fact.
+- INSURANCE: Any insurance policy obligations/conditions recorded on a policy may be read back to the user verbatim, but must NEVER be interpreted, assessed for coverage, judged, or turned into advice, warnings, or next steps (e.g. never say whether they are covered, whether a claim would pay, or that they should switch/cancel). Recall only.`;
 
 // In-memory per-user rate limit for the AI endpoints — Gemini calls cost money and
 // are the abuse surface. Per Cloud Run instance (a fine first layer); the cap is
@@ -332,6 +339,103 @@ Use empty string "" for any field not visible. category must be one of the enum 
   } catch (e) {
     console.error('[scan-asset] error', e);
     res.status(502).json({ error: 'Something went wrong scanning the item — please try again.' });
+  }
+});
+
+// Recall-only insurance-conditions reader (DARK-LAUNCHED — gated on
+// FEATURE_INSURANCE_READER). The user submits a photo or the text of THEIR OWN
+// policy; we return ONLY verbatim quotes of the obligations/conditions the
+// policyholder must satisfy. It is legally a quoting tool ("mere information"),
+// NOT insurance advice: it must never state coverage, give recommendations, or
+// assess claims. The strict prompt + a whitelist-shaped JSON schema keep advice
+// structurally out of the response.
+const INSURANCE_READ_SYSTEM = `You are a document QUOTING tool inside a private family app. The user gives you the text or an image of THEIR OWN insurance policy document.
+Your ONLY job: copy out, WORD FOR WORD, the sentences that state an OBLIGATION or CONDITION the policyholder must satisfy to keep their side of the contract — for example: a required lock standard, where valuables must be kept, safety or maintenance duties, a time limit to report a claim, documents they must keep, an occupancy/vacancy condition.
+
+STRICT RULES — follow EVERY one:
+- Quote EXACTLY as written. Never paraphrase, summarise, shorten, translate, correct, or "improve" a quote. If the document is in German, keep it in German.
+- Do NOT state, imply, or hint at whether anything is or is not covered.
+- Do NOT give advice, recommendations, opinions, warnings, or next steps.
+- Do NOT assess claims, likelihood of payout, adequacy, suitability, or price.
+- Do NOT invent, infer, guess, or complete any text that is not literally present in what the user gave you. If nothing qualifies, return an empty list.
+- Each quote gets one neutral topic tag from EXACTLY this set: Lock, Storage, Travel, Safety, Deadline, Documents, General.
+Return ONLY valid JSON, no markdown: { "obligations": [ { "quote": string, "topic": string } ] }`;
+const OBLIGATION_TOPICS = ['Lock', 'Storage', 'Travel', 'Safety', 'Deadline', 'Documents', 'General'];
+
+app.post('/api/insurance-read', async (req, res) => {
+  try {
+    if (!FEATURE_INSURANCE_READER) return res.status(403).json({ error: 'This feature is not available yet.' });
+    if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
+
+    console.log('[insurance-read] request from', caller.email);
+
+    const { image, text } = req.body || {};
+    const hasImage = image && image.data && image.mimeType;
+    const hasText = typeof text === 'string' && text.trim().length > 0;
+    if (!hasImage && !hasText) return res.status(400).json({ error: 'No document provided.' });
+
+    const parts = [{ text: 'Quote the policyholder obligations from this policy, following every rule exactly.' }];
+    if (hasText) parts.push({ text: `POLICY TEXT:\n${text.slice(0, 30000)}` });
+    if (hasImage) parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
+
+    const gRes = await generateContent(MODEL_TEXT, {
+      systemInstruction: { parts: [{ text: INSURANCE_READ_SYSTEM }] },
+      contents: [{ role: 'user', parts }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+    });
+
+    const gData = await gRes.json();
+    const outText = (gData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
+    if (!outText) {
+      console.error('[insurance-read] empty response:', JSON.stringify(gData).slice(0, 400));
+      return res.status(502).json({ error: 'Could not read the document — please try again or type the conditions in manually.' });
+    }
+
+    let parsed;
+    try { parsed = JSON.parse(outText); }
+    catch { return res.status(502).json({ error: 'Could not parse the result — please try again.' }); }
+
+    // Whitelist-shape the output: keep only a verbatim quote + a known topic tag.
+    // Anything the model returned outside this shape (a stray "advice"/"covered"
+    // field, an unknown topic) is dropped here, not stored.
+    //
+    // STRUCTURAL VERBATIM ENFORCEMENT (recall-only invariant): on the text path
+    // we drop any "quote" that is not a literal substring of the document the
+    // user gave us — so a paraphrase, verdict, or advice sentence the model
+    // might hallucinate cannot ride inside the quote field and be shown as a
+    // real extract. The image/OCR path cannot be checked against source text, so
+    // those quotes are flagged verified:false and the UI marks them "from photo".
+    const norm = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
+    const docNorm = hasText ? norm(text) : '';
+    const seen = new Set();
+    const obligations = Array.isArray(parsed?.obligations)
+      ? parsed.obligations
+          .map((o) => {
+            const quote = typeof o?.quote === 'string' ? o.quote.trim().slice(0, 600) : '';
+            return {
+              quote,
+              topic: OBLIGATION_TOPICS.includes(o?.topic) ? o.topic : 'General',
+              verified: hasText ? (quote.length > 0 && docNorm.includes(norm(quote))) : false,
+            };
+          })
+          .filter((o) => o.quote.length > 0)
+          // text path: keep ONLY quotes literally present in the document
+          .filter((o) => !hasText || o.verified)
+          // dedupe within the batch (a document that repeats a clause -> one row)
+          .filter((o) => { const k = norm(o.quote); if (seen.has(k)) return false; seen.add(k); return true; })
+          .slice(0, 40)
+      : [];
+
+    res.json({ obligations });
+  } catch (e) {
+    console.error('[insurance-read] error', e);
+    res.status(502).json({ error: 'Something went wrong reading the document — please try again.' });
   }
 });
 

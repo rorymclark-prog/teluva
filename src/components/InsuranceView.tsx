@@ -1,9 +1,24 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ShieldCheck, Shield, Plus, Pencil, Trash2, X, CalendarClock, Users, Package,
+  ScrollText, Info, Loader2, Camera, Check,
 } from 'lucide-react';
-import { FamilyMember, FinancesInfo, InsurancePolicy, InsuranceCoverage, AssetItem } from '../types';
+import { FamilyMember, FinancesInfo, InsurancePolicy, InsuranceCoverage, AssetItem, PolicyObligation } from '../types';
 import { loadFinances, saveFinances, loadAssets } from '../utils/db';
+import { auth } from '../lib/firebase';
+import { compressImageToAvatar } from '../utils/imageCompress';
+import { INSURANCE_READER_ENABLED } from '../config/features';
+
+const OBLIGATION_TOPICS = ['Lock', 'Storage', 'Travel', 'Safety', 'Deadline', 'Documents', 'General'] as const;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as string);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
 
 const EMPTY_FINANCES: FinancesInfo = { banks: [], insurance: [], benefits: [] };
 
@@ -71,7 +86,7 @@ const BLANK_POLICY: InsurancePolicy = {
   coveredMemberIds: [], coveredAssetIds: [],
 };
 
-export default function InsuranceView({ members }: { members: FamilyMember[] }) {
+export default function InsuranceView({ members, canUseAI = false }: { members: FamilyMember[]; canUseAI?: boolean }) {
   const [finances, setFinances] = useState<FinancesInfo>(EMPTY_FINANCES);
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +94,14 @@ export default function InsuranceView({ members }: { members: FamilyMember[] }) 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Recall-only reader (dark-launched): only active when BOTH the build flag and
+  // the user's AI consent are on. Server enforces its own independent gate too.
+  const readerOn = INSURANCE_READER_ENABLED && canUseAI;
+  const [readerLoading, setReaderLoading] = useState(false);
+  const [readerError, setReaderError] = useState<string | null>(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const readerFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -107,17 +130,23 @@ export default function InsuranceView({ members }: { members: FamilyMember[] }) 
     await saveFinances(next);
   };
 
+  // Reset the reader's transient state so pasted text / errors / an in-flight
+  // read from one policy can never leak onto another when the form is reopened.
+  const resetReader = () => { setReaderLoading(false); setReaderError(null); setPasteOpen(false); setPasteText(''); };
+
   const openNewForm = () => {
     setEditingPolicy({ ...BLANK_POLICY, id: '' });
     setFormError(null);
+    resetReader();
     setIsFormOpen(true);
   };
   const openEditForm = (policy: InsurancePolicy) => {
     setEditingPolicy({ ...BLANK_POLICY, ...policy });
     setFormError(null);
+    resetReader();
     setIsFormOpen(true);
   };
-  const closeForm = () => { setIsFormOpen(false); setEditingPolicy(null); setFormError(null); };
+  const closeForm = () => { setIsFormOpen(false); setEditingPolicy(null); setFormError(null); resetReader(); };
 
   const patch = (p: Partial<InsurancePolicy>) => setEditingPolicy(prev => (prev ? { ...prev, ...p } : prev));
 
@@ -148,6 +177,93 @@ export default function InsuranceView({ members }: { members: FamilyMember[] }) 
     if (!prev) return prev;
     return { ...prev, coverage: (prev.coverage || []).filter(c => c.id !== id) };
   });
+
+  // ── Recall-only conditions reader ──
+  // Merges freshly-quoted obligations into the policy, keeping any the user has
+  // already ticked (dedupe by exact quote text so a re-read doesn't wipe ticks).
+  const mergeObligations = (quotes: { quote: string; topic?: string; verified?: boolean }[]) => setEditingPolicy(prev => {
+    if (!prev) return prev;
+    const existing = prev.obligations || [];
+    // `seen` starts from existing quotes AND grows as we accept each new one, so
+    // duplicates within this same batch are also collapsed (not just vs prior).
+    const seen = new Set(existing.map(o => o.quote.trim()));
+    const added: PolicyObligation[] = [];
+    for (const q of quotes) {
+      const quote = (q.quote || '').trim();
+      if (!quote || seen.has(quote)) continue;
+      seen.add(quote);
+      added.push({
+        id: newId(),
+        quote,
+        topic: (OBLIGATION_TOPICS as readonly string[]).includes(q.topic || '') ? q.topic : 'General',
+        done: false,
+        verified: q.verified === true,
+      });
+    }
+    return { ...prev, obligations: [...existing, ...added], obligationsReadAt: new Date().toISOString() };
+  });
+  const toggleObligation = (id: string) => setEditingPolicy(prev => {
+    if (!prev) return prev;
+    return { ...prev, obligations: (prev.obligations || []).map(o => (o.id === id ? { ...o, done: !o.done } : o)) };
+  });
+  const removeObligation = (id: string) => setEditingPolicy(prev => {
+    if (!prev) return prev;
+    return { ...prev, obligations: (prev.obligations || []).filter(o => o.id !== id) };
+  });
+
+  // Returns true only when at least one obligation was merged, so callers know
+  // whether it is safe to discard the user's input.
+  const callReader = async (body: { image?: { mimeType: string; data: string }; text?: string }): Promise<boolean> => {
+    setReaderLoading(true); setReaderError(null);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const resp = await fetch('/api/insurance-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        let msg = `Read failed (${resp.status})`;
+        try { const j = await resp.json(); if (j?.error) msg = j.error; } catch { /* keep default */ }
+        throw new Error(msg);
+      }
+      const data = await resp.json();
+      const found = Array.isArray(data?.obligations) ? data.obligations : [];
+      if (found.length === 0) {
+        setReaderError('No specific conditions were found in what you gave — try a clearer photo of the terms page, or type them in.');
+        return false;
+      }
+      mergeObligations(found);
+      return true;
+    } catch (err: unknown) {
+      setReaderError(err instanceof Error ? err.message : 'Read failed');
+      return false;
+    } finally {
+      setReaderLoading(false);
+    }
+  };
+
+  const handleReaderFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return; e.target.value = '';
+    setReaderError(null);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const compressed = await compressImageToAvatar(dataUrl, 1600, 0.85);
+      const base64Data = compressed.split(',')[1];
+      await callReader({ image: { mimeType: file.type || 'image/jpeg', data: base64Data } });
+    } catch {
+      setReaderError('Could not read that image — please try another.');
+    }
+  };
+
+  const handleReaderPaste = async () => {
+    const t = pasteText.trim();
+    if (!t) { setReaderError('Paste some policy text first.'); return; }
+    // Keep the pasted text on failure/empty so the user can retry or edit it;
+    // only clear and collapse the box once something was actually merged.
+    const ok = await callReader({ text: t });
+    if (ok) { setPasteText(''); setPasteOpen(false); }
+  };
 
   const handleSave = async () => {
     if (!editingPolicy) return;
@@ -538,6 +654,78 @@ export default function InsuranceView({ members }: { members: FamilyMember[] }) 
                   </div>
                 )}
               </div>
+
+              {/* Recall-only conditions reader (dark-launched: readerOn = build flag AND AI consent) */}
+              {readerOn && (
+                <div className="rounded-2xl border border-sage-200 bg-sage-50/50 p-4 space-y-3">
+                  <div className="flex items-center gap-1.5">
+                    <ScrollText className="w-3.5 h-3.5 text-sage-700" />
+                    <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider">Policy conditions</label>
+                  </div>
+
+                  <div className="flex items-start gap-2 rounded-xl bg-white/70 border border-sage-100 p-2.5">
+                    <Info className="w-3.5 h-3.5 text-sage-600 shrink-0 mt-0.5" />
+                    <p className="text-[11px] leading-snug text-ink-500">
+                      Quotes taken from <span className="font-medium">your own document</span> by AI, shown for your information only —
+                      <span className="font-medium"> not advice about your cover</span>. It can be incomplete or misread, so always check
+                      your policy and your insurer. (AI-generated.)
+                    </p>
+                  </div>
+
+                  {(editing.obligations || []).length > 0 && (
+                    <div className="space-y-1.5">
+                      {(editing.obligations || []).map(o => (
+                        <div key={o.id} className="flex items-start gap-2 rounded-xl bg-white/70 border border-cream-200 p-2.5">
+                          <button
+                            type="button"
+                            onClick={() => toggleObligation(o.id)}
+                            className={`mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors ${o.done ? 'bg-sage-500 border-sage-500 text-white' : 'border-cream-300 hover:border-sage-400'}`}
+                            aria-label={o.done ? 'Mark not done' : 'Mark done'}
+                          >
+                            {o.done && <Check className="w-3 h-3" />}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            {o.topic && <span className="chip bg-sage-100 text-sage-700 text-[10px] px-1.5 py-0 mr-1.5">{o.topic}</span>}
+                            <span className={`text-[12.5px] leading-snug ${o.done ? 'text-ink-400 line-through' : 'text-ink-700'}`}>“{o.quote}”</span>
+                            {o.verified === false && <span className="block text-[10px] text-ink-400 mt-0.5">Read from a photo — check the wording matches your policy.</span>}
+                          </div>
+                          <button type="button" onClick={() => removeObligation(o.id)} className="p-1 text-ink-300 hover:text-rosa-500 shrink-0" aria-label="Remove"><X className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {readerError && <p className="text-[11px] text-rosa-600">{readerError}</p>}
+
+                  {pasteOpen ? (
+                    <div className="space-y-2">
+                      <textarea
+                        rows={4}
+                        placeholder="Paste the policy wording here (e.g. the conditions / obligations page)…"
+                        value={pasteText}
+                        onChange={e => setPasteText(e.target.value)}
+                        className="field w-full resize-none text-[12px]"
+                      />
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={handleReaderPaste} disabled={readerLoading} className="btn-primary text-[11px] px-3 py-1.5 disabled:opacity-60">
+                          {readerLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <ScrollText className="w-3 h-3" />} Read conditions
+                        </button>
+                        <button type="button" onClick={() => { setPasteOpen(false); setPasteText(''); }} className="btn-quiet text-[11px] px-3 py-1.5">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => readerFileRef.current?.click()} disabled={readerLoading} className="btn-quiet text-[11px] px-3 py-1.5 disabled:opacity-60">
+                        {readerLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />} Read from a photo
+                      </button>
+                      <button type="button" onClick={() => { setReaderError(null); setPasteOpen(true); }} disabled={readerLoading} className="btn-quiet text-[11px] px-3 py-1.5 disabled:opacity-60">
+                        <ScrollText className="w-3 h-3" /> Paste text
+                      </button>
+                    </div>
+                  )}
+                  <input ref={readerFileRef} type="file" accept="image/*" capture="environment" onChange={handleReaderFile} className="hidden" />
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between gap-3 p-6 pt-0">
