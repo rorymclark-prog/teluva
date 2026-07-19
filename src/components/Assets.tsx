@@ -306,6 +306,12 @@ export default function Assets() {
                               className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-cream-200 hover:ring-clay-300 transition-all cursor-zoom-in" title="View photos">
                               <img src={item.photoDataUrl} alt={item.name} className="w-full h-full object-cover" />
                             </button>
+                          ) : isAdmin ? (
+                            <button type="button" onClick={() => openEditForm(item)}
+                              className="group/ph relative w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-transparent hover:ring-clay-300 hover:bg-clay-50 transition-all cursor-pointer" title="Add a photo">
+                              <Package className="w-4 h-4 text-ink-300 group-hover/ph:opacity-0 transition-opacity" />
+                              <Camera className="w-4 h-4 text-clay-500 absolute opacity-0 group-hover/ph:opacity-100 transition-opacity" />
+                            </button>
                           ) : (
                             <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center"><Package className="w-4 h-4 text-ink-300" /></div>
                           )}
