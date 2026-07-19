@@ -59,6 +59,8 @@ import EmergencyView from './EmergencyView';
 import HouseholdView from './HouseholdView';
 import FinancesView from './FinancesView';
 import InsuranceView from './InsuranceView';
+import MemberSayings from './MemberSayings';
+import FamilyWordsView from './FamilyWordsView';
 import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
@@ -75,7 +77,8 @@ import {
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
-  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby
+  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
+  Quote, BookHeart
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -100,8 +103,8 @@ export function calculateAge(birthdate?: string): string | null {
   return `${age} yrs`;
 }
 
-type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
+type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -113,6 +116,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'growth', label: 'Growth', icon: TrendingUp },
   { id: 'travel', label: 'Travel', icon: Plane },
   { id: 'preferences', label: 'Likes', icon: Sparkles },
+  { id: 'sayings', label: 'Sayings', icon: Quote },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'secrets', label: 'Secrets', icon: Key },
 ];
@@ -130,6 +134,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'assets', icon: Package },
   { id: 'shopping', icon: ShoppingCart },
   { id: 'passwords', icon: KeyRound },
+  { id: 'familyWords', icon: BookHeart },
   { id: 'chat', icon: MessageCircle },
   { id: 'drive', icon: Cloud },
 ];
@@ -146,6 +151,7 @@ function viewLabel(id: ViewId, t: Strings): string {
     vault: t.nav_documents,
     assets: t.nav_assets,
     passwords: t.nav_passwords,
+    familyWords: 'Family Words',
   };
   return map[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 }
@@ -868,6 +874,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'finances' && <FinancesView key={aiDataVersion} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
+        {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} />}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
 
@@ -1132,6 +1139,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               )}
                               {activeTab === 'preferences' && (
                                 <MemberPreferences member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                              )}
+                              {activeTab === 'sayings' && (
+                                <MemberSayings member={selectedMember} onUpdateMember={handleUpdateMember} canEdit={demo || canWrite} />
                               )}
                               {activeTab === 'documents' && (
                                 <MemberDocuments

@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -277,6 +277,10 @@ export const loadFinances = () => loadReferenceDoc<FinancesInfo>('finances', 'fa
 
 export const saveTimeline = (t: FamilyTimeline) => saveReferenceDoc('timeline', t, 'family_timeline');
 export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', 'family_timeline');
+
+// Family Dictionary (invented/mangled words the family adopted) — family-level.
+export const saveFamilyWords = (w: FamilyWordsDoc) => saveReferenceDoc('familyWords', w, 'family_words');
+export const loadFamilyWords = () => loadReferenceDoc<FamilyWordsDoc>('familyWords', 'family_words');
 
 export const saveSettings = (s: HubSettings) => saveReferenceDoc('settings', s, 'family_settings');
 export const loadSettings = () => loadReferenceDoc<HubSettings>('settings', 'family_settings');

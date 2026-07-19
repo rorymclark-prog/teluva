@@ -132,6 +132,32 @@ export interface FamilyMember {
   emergencyContactPhone?: string;
   favorites?: FavoriteItem[];
   careSchedule?: CareSchedule[];    // recurring health/admin appointments (dentist, yearly check-up …)
+  sayings?: Saying[];               // keepsake: funny/wise things they said, age derived from birthdate
+}
+
+// A quote a family member said — captured with the date so their AGE at the time
+// is DERIVED from birthdate (never stored). The keepsake most parents lose.
+export interface Saying {
+  id: string;
+  text: string;         // the quote, verbatim
+  said: string;         // ISO date (YYYY-MM-DD) it was said
+  context?: string;     // what prompted it / where
+  milestone?: boolean;  // star a specially treasured one
+}
+
+// A word a child invented or mangled that the family adopted ("boo-blerries").
+// Family-LEVEL (stored in a reference doc), not per-member — a shared artifact.
+export interface FamilyWord {
+  id: string;
+  word: string;         // the invented/mispronounced word
+  meaning: string;      // what it actually means
+  coinedBy?: string;    // member name (free text, matches assignedMember style)
+  approxDate?: string;  // ISO date (YYYY-MM-DD), optional — enables an age hint
+  stillUsed?: boolean;  // does the family still use it?
+}
+
+export interface FamilyWordsDoc {
+  words: FamilyWord[];
 }
 
 // --- Care schedule (recurring health / admin appointments per member) ---
