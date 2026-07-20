@@ -13,6 +13,19 @@ const STYLES: { key: string; label: string; emoji: string }[] = [
   { key: 'clay', label: 'Claymation', emoji: '🗿' },
 ];
 
+// Quick-fill ideas for the "describe your own" box — deliberately different
+// from the preset grid above so switching to free text still feels fresh.
+const PROMPT_IDEAS: { label: string; prompt: string }[] = [
+  { label: '🧙 Fantasy wizard', prompt: 'a fantasy wizard, flowing robes and a staff' },
+  { label: '🚀 Retro astronaut', prompt: 'a retro 1960s sci-fi astronaut in a space helmet' },
+  { label: '🌊 Studio Ghibli', prompt: 'a warm hand-painted Studio Ghibli-style anime character' },
+  { label: '🏴‍☠️ Pirate captain', prompt: 'a swashbuckling pirate captain, tricorn hat' },
+  { label: '📼 90s yearbook', prompt: 'a cheesy 1990s school yearbook photo, laser background' },
+  { label: '🎮 Video game hero', prompt: 'a stylised video game character portrait, fantasy RPG art style' },
+  { label: '🎄 Christmas card', prompt: 'a cosy, festive Christmas-card portrait with warm fairy lights' },
+  { label: '🌸 Anime chibi', prompt: 'a cute chibi anime-style character, big eyes, simple shading' },
+];
+
 interface Props {
   member: FamilyMember;
   onClose: () => void;
@@ -25,7 +38,7 @@ function parseDataUrl(src: string): { mimeType: string; data: string } | null {
   return m ? { mimeType: m[1], data: m[2] } : null;
 }
 
-const styleLabel = (key: string | null) => STYLES.find((s) => s.key === key)?.label ?? '';
+const styleLabel = (key: string | null) => STYLES.find((s) => s.key === key)?.label ?? (key === 'custom' ? 'Custom' : '');
 
 export default function AvatarRestyleModal({ member, onClose, onApply, onReset }: Props) {
   // Always restyle from the REAL photo if one was stashed, so styles never stack.
@@ -33,26 +46,31 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
   const [phase, setPhase] = useState<'pick' | 'busy' | 'preview'>('pick');
   const [result, setResult] = useState<string | null>(null);
   const [activeStyle, setActiveStyle] = useState<string | null>(null);
+  const [activeLabel, setActiveLabel] = useState<string>('');
+  const [customText, setCustomText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  async function generate(style: string) {
+  async function generate(style: string, label: string, customPrompt?: string) {
     const parsed = parseDataUrl(sourceUrl);
     if (!parsed) {
       setError('This photo can’t be restyled — try re-uploading it.');
       return;
     }
     setActiveStyle(style);
+    setActiveLabel(label);
     setPhase('busy');
     setError(null);
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('Please sign in again.');
       const token = await user.getIdToken();
+      const body: Record<string, unknown> = { image: parsed, style };
+      if (customPrompt) body.customPrompt = customPrompt;
       const res = await fetch('/api/restyle-avatar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ image: parsed, style }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok || !data.image) throw new Error(data.error || 'Could not create the avatar.');
@@ -63,6 +81,13 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
       setPhase('pick');
     }
   }
+
+  const generatePreset = (key: string) => generate(key, styleLabel(key));
+  const generateCustom = () => {
+    const text = customText.trim();
+    if (!text) return;
+    generate('custom', 'Custom', text);
+  };
 
   async function useIt() {
     if (!result || !activeStyle) return;
@@ -119,7 +144,7 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
                   <div className="avatar-ring">
                     <img src={result} className="w-24 h-24 rounded-full object-cover" alt="restyled" />
                   </div>
-                  <p className="text-[11px] text-clay-600 mt-1.5 font-semibold">{styleLabel(activeStyle)}</p>
+                  <p className="text-[11px] text-clay-600 mt-1.5 font-semibold">{activeLabel}</p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -141,7 +166,7 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
               <div className="w-14 h-14 rounded-full bg-clay-50 flex items-center justify-center mx-auto">
                 <RefreshCw className="w-6 h-6 text-clay-500 animate-spin" />
               </div>
-              <p className="text-sm font-semibold text-ink-800">Creating your {styleLabel(activeStyle)} avatar…</p>
+              <p className="text-sm font-semibold text-ink-800">Creating your {activeLabel} avatar…</p>
               <p className="text-[12px] text-ink-400">This takes about 10 seconds.</p>
             </div>
           ) : (
@@ -156,7 +181,7 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
                 {STYLES.map((s) => (
                   <button
                     key={s.key}
-                    onClick={() => generate(s.key)}
+                    onClick={() => generatePreset(s.key)}
                     className="flex flex-col items-center gap-1 p-3 rounded-2xl border border-cream-300 hover:border-clay-400 hover:bg-clay-50 transition-colors cursor-pointer"
                   >
                     <span className="text-2xl leading-none">{s.emoji}</span>
@@ -164,6 +189,43 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
                   </button>
                 ))}
               </div>
+
+              {/* Or describe your own */}
+              <div className="pt-1 space-y-2.5">
+                <p className="text-[12px] font-semibold text-ink-500">Or describe your own style</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {PROMPT_IDEAS.map((idea) => (
+                    <button
+                      key={idea.label}
+                      type="button"
+                      onClick={() => setCustomText(idea.prompt)}
+                      className="chip bg-cream-100 text-ink-600 border border-cream-300 hover:bg-cream-200 transition-colors text-[12px]"
+                    >
+                      {idea.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customText}
+                    onChange={(e) => setCustomText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); generateCustom(); } }}
+                    placeholder="e.g. a viking with a big beard"
+                    maxLength={200}
+                    className="field flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={generateCustom}
+                    disabled={!customText.trim()}
+                    className="btn-primary shrink-0 disabled:opacity-40"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
               {isStyled && (
                 <button
                   onClick={async () => { await onReset(member.id); onClose(); }}

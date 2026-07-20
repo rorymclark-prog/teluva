@@ -1338,6 +1338,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           onAddMemberDoc={handleAddDocument}
           demo={demo}
           isBusinessSpace={isBusinessSpace}
+          onOpenFunAvatar={isAdmin && selectedMember ? () => setRestyleMemberId(selectedMember.id) : undefined}
         />
       )}
 

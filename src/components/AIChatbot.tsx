@@ -63,6 +63,8 @@ interface Props {
   // File a scanned document into a member's own Documents tab (in addition to the vault)
   onAddMemberDoc: (memberId: string, doc: FamilyDocument) => Promise<void>;
   isBusinessSpace?: boolean;
+  /** Open the "fun avatar" generator for whichever profile is currently active. Omitted (no chip shown) when the caller can't use it (not admin, or nothing selected). */
+  onOpenFunAvatar?: () => void;
 }
 
 function slimMembers(members: FamilyMember[]) {
@@ -136,7 +138,7 @@ function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): s
   ]));
 }
 
-export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBusinessSpace }: Props) {
+export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBusinessSpace, onOpenFunAvatar }: Props) {
   const { uid } = useFamilyCtx();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
@@ -625,6 +627,14 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
                     📅 What's coming up
                   </button>
                 </>
+              )}
+              {onOpenFunAvatar && (
+                <button
+                  onClick={onOpenFunAvatar}
+                  className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+                >
+                  🎨 Fun avatar
+                </button>
               )}
             </div>
             <button
