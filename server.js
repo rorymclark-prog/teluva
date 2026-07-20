@@ -515,9 +515,24 @@ app.post('/api/restyle-avatar', async (req, res) => {
 // ---------------------------------------------------------------------------
 // Secrets-vault encryption (passwords / wifi / door codes). The key lives in
 // Secret Manager and only the server holds it, so the ciphertext stored in
-// Firestore is useless to anyone who reads the database. Values are tagged
-// 'enc:1:' — any legacy plaintext passes through untouched and gets encrypted
-// on its next save (graceful migration, no data loss).
+// Firestore is useless to anyone who reads the database.
+//
+// TENANT BINDING (v2 format): each ciphertext is bound to the space it was
+// encrypted for via AES-GCM's AAD (additional authenticated data) = the
+// caller's server-verified familyId. This means a blob can ONLY ever decrypt
+// successfully inside the tenant it was created in — even if it somehow
+// leaked cross-tenant (a rules regression, a stray log line, a bad share
+// link), the receiving side's decrypt call fails closed (GCM auth-tag
+// mismatch) rather than silently returning the secret. Isolation no longer
+// rests on Firestore rules alone.
+//
+// Format history — 'enc:2:' is written by every NEW encryption; 'enc:1:'
+// (pre-AAD, no tenant binding) is still DECRYPTED for backward compatibility
+// and is lazily upgraded to 'enc:2:' the next time that value is saved
+// (savePassword/SecureSecrets already re-protect on every save — same lazy-
+// migration pattern this file already used for plaintext -> enc:1:). No bulk
+// migration needed, no data loss, no breaking change for values not yet
+// touched.
 const VAULT_KEY = (() => {
   const raw = process.env.VAULT_ENC_KEY || '';
   if (!raw) return null;
@@ -525,25 +540,43 @@ const VAULT_KEY = (() => {
   return buf.length === 32 ? buf : crypto.createHash('sha256').update(raw).digest();
 })();
 
-function encryptSecret(plain) {
-  if (!VAULT_KEY || typeof plain !== 'string' || plain === '' || plain.startsWith('enc:1:')) return plain;
+function encryptSecret(plain, familyId) {
+  if (!VAULT_KEY || typeof plain !== 'string' || plain === '' || plain.startsWith('enc:')) return plain;
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', VAULT_KEY, iv);
+  cipher.setAAD(Buffer.from(familyId, 'utf8'));
   const ct = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return `enc:1:${iv.toString('base64')}:${tag.toString('base64')}:${ct.toString('base64')}`;
+  return `enc:2:${iv.toString('base64')}:${tag.toString('base64')}:${ct.toString('base64')}`;
 }
 
-function decryptSecret(v) {
-  if (typeof v !== 'string' || !v.startsWith('enc:1:') || !VAULT_KEY) return v; // legacy plaintext / empty
-  try {
-    const [, , ivB, tagB, ctB] = v.split(':');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', VAULT_KEY, Buffer.from(ivB, 'base64'));
-    decipher.setAuthTag(Buffer.from(tagB, 'base64'));
-    return Buffer.concat([decipher.update(Buffer.from(ctB, 'base64')), decipher.final()]).toString('utf8');
-  } catch {
-    return ''; // corrupt/undecryptable — return empty rather than leak ciphertext
+function decryptSecret(v, familyId) {
+  if (typeof v !== 'string' || !VAULT_KEY) return v; // no key configured
+  if (v.startsWith('enc:2:')) {
+    try {
+      const [, , ivB, tagB, ctB] = v.split(':');
+      const decipher = crypto.createDecipheriv('aes-256-gcm', VAULT_KEY, Buffer.from(ivB, 'base64'));
+      decipher.setAAD(Buffer.from(familyId, 'utf8'));
+      decipher.setAuthTag(Buffer.from(tagB, 'base64'));
+      return Buffer.concat([decipher.update(Buffer.from(ctB, 'base64')), decipher.final()]).toString('utf8');
+    } catch {
+      return ''; // corrupt / wrong tenant / undecryptable — return empty rather than leak ciphertext
+    }
   }
+  if (v.startsWith('enc:1:')) {
+    // Legacy pre-AAD ciphertext — no tenant binding was ever applied to it,
+    // so decrypt it the same way it was encrypted (no AAD). Gets upgraded to
+    // enc:2: automatically the next time this value is saved.
+    try {
+      const [, , ivB, tagB, ctB] = v.split(':');
+      const decipher = crypto.createDecipheriv('aes-256-gcm', VAULT_KEY, Buffer.from(ivB, 'base64'));
+      decipher.setAuthTag(Buffer.from(tagB, 'base64'));
+      return Buffer.concat([decipher.update(Buffer.from(ctB, 'base64')), decipher.final()]).toString('utf8');
+    } catch {
+      return '';
+    }
+  }
+  return v; // legacy plaintext / empty
 }
 
 app.post('/api/vault/protect', async (req, res) => {
@@ -552,7 +585,7 @@ app.post('/api/vault/protect', async (req, res) => {
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     if (!VAULT_KEY) return res.status(500).json({ error: 'Secret encryption is not configured on the server.' });
     const values = Array.isArray(req.body?.values) ? req.body.values : [];
-    res.json({ values: values.map(encryptSecret) });
+    res.json({ values: values.map((v) => encryptSecret(v, caller.familyId)) });
   } catch (e) {
     console.error('[vault/protect]', e);
     res.status(500).json({ error: 'Could not secure those values.' });
@@ -564,7 +597,7 @@ app.post('/api/vault/reveal', async (req, res) => {
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     const values = Array.isArray(req.body?.values) ? req.body.values : [];
-    res.json({ values: values.map(decryptSecret) });
+    res.json({ values: values.map((v) => decryptSecret(v, caller.familyId)) });
   } catch (e) {
     console.error('[vault/reveal]', e);
     res.status(500).json({ error: 'Could not read those values.' });
@@ -714,14 +747,25 @@ app.post('/api/join-family', async (req, res) => {
     }
 
     // Legacy path: a raw family UUID (unguessable). Short ids like 'household'
-    // are deliberately NOT joinable this way.
+    // are deliberately NOT joinable this way. Predates invite codes (added in
+    // the same v39 hardening commit as a deliberate fallback, not leftover
+    // cruft) — kept for any pre-existing family that might still rely on an
+    // old bookmarked link, but explicitly GATED to type:'family' spaces only.
+    // Business/Personal spaces (Business Hub) are brand new and postdate
+    // invite codes entirely — there is no legacy reason for one to accept a
+    // raw-UUID join, and every real business join should go through an
+    // admin-issued invite code. Fails with the SAME generic 404 either way so
+    // a prober can't distinguish "no such id" from "that id is a business".
     if (UUID_RE.test(raw)) {
       const rolesSnap = await adminDb.collection(`families/${raw}/roles`).limit(1).get();
       if (!rolesSnap.empty) {
         const targetInfo = await adminDb.doc(`families/${raw}/info/info`).get();
         const targetData = targetInfo.exists ? targetInfo.data() : {};
-        await grantMembership(caller.uid, caller.email, caller.displayName, raw, 'member', targetData.type || 'family', targetData.name);
-        return res.json({ ok: true, familyId: raw });
+        const targetType = targetData.type || 'family';
+        if (targetType === 'family') {
+          await grantMembership(caller.uid, caller.email, caller.displayName, raw, 'member', targetType, targetData.name);
+          return res.json({ ok: true, familyId: raw });
+        }
       }
     }
 
