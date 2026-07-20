@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { HouseholdInfo, UtilityProvider, Vehicle, Pet } from '../types';
+import { HouseholdInfo, UtilityProvider, Pet } from '../types';
 import { loadHousehold, saveHousehold } from '../utils/db';
 import {
-  Home, Plug, Car, PawPrint, Plus, Trash2, Pencil, Check, X,
+  Home, Plug, PawPrint, Plus, Trash2, Pencil, Check, X,
   Cloud, CloudOff,
 } from 'lucide-react';
 
@@ -129,13 +129,8 @@ export default function HouseholdView() {
         onDelete={(id) => { if (window.confirm('Remove this utility? This can’t be undone.')) persist({ ...info, utilities: (info.utilities ?? []).filter(x => x.id !== id) }); }}
       />
 
-      {/* Vehicles */}
-      <VehiclesSection
-        entries={info.vehicles ?? []}
-        onAdd={(v) => persist({ ...info, vehicles: [...(info.vehicles ?? []), v] })}
-        onUpdate={(v) => persist({ ...info, vehicles: (info.vehicles ?? []).map(x => x.id === v.id ? v : x) })}
-        onDelete={(id) => { if (window.confirm('Remove this vehicle? This can’t be undone.')) persist({ ...info, vehicles: (info.vehicles ?? []).filter(x => x.id !== id) }); }}
-      />
+      {/* Vehicles moved to their own dedicated "Vehicles" section (with inspection,
+          insurance & service reminders). See VehiclesView. */}
 
       {/* Pets */}
       <PetsSection
@@ -255,126 +250,6 @@ function UtilityForm({ initial, onSave, onCancel }: {
         <input className="field" placeholder="Provider  (e.g. Wien Energie)" value={provider} onChange={e => setProvider(e.target.value)} />
       </div>
       <input className="field font-mono" placeholder="Account number" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
-      <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
-      <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
-        <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Vehicles ───────────────────────────────────────────────────────────── */
-
-function VehiclesSection({ entries, onAdd, onUpdate, onDelete }: {
-  entries: Vehicle[];
-  onAdd: (v: Vehicle) => void;
-  onUpdate: (v: Vehicle) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [adding, setAdding] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-
-  return (
-    <section className="card p-5 space-y-4">
-      <div className="flex items-center justify-between pb-3 border-b border-cream-200">
-        <h3 className="section-label flex items-center gap-1.5"><Car className="w-3.5 h-3.5" /> Vehicles</h3>
-        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
-          <Plus className="w-3.5 h-3.5" /> Add
-        </button>
-      </div>
-
-      {adding && (
-        <VehicleForm
-          onSave={(v) => { onAdd(v); setAdding(false); }}
-          onCancel={() => setAdding(false)}
-        />
-      )}
-
-      {entries.length === 0 && !adding ? (
-        <div className="py-6 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
-            <Car className="w-5 h-5" />
-          </div>
-          <p className="text-[13px] text-ink-400">No vehicles yet — car, motorbike, bicycle…</p>
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {entries.map(v => editId === v.id ? (
-            <div key={v.id}>
-              <VehicleForm
-                initial={v}
-                onSave={(upd) => { onUpdate(upd); setEditId(null); }}
-                onCancel={() => setEditId(null)}
-              />
-            </div>
-          ) : (
-            <div key={v.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3 hover:bg-cream-50 hover:border-cream-300 transition-colors">
-              <div className="min-w-0 space-y-0.5">
-                <p className="text-[14px] font-semibold text-ink-900 truncate">{v.name || 'Unnamed vehicle'}</p>
-                <div className="flex flex-wrap gap-1.5 mt-1">
-                  {v.registration && <span className="chip bg-dusk-100 text-dusk-700 font-mono tabular-nums">{v.registration}</span>}
-                  {v.serviceDate && <span className="chip bg-honey-100 text-honey-700 font-mono tabular-nums">Service: {v.serviceDate}</span>}
-                </div>
-                {v.vin && <p className="font-mono tabular-nums text-[11px] text-ink-400 mt-0.5">VIN: {v.vin}</p>}
-                {v.insuranceNumber && <p className="font-mono tabular-nums text-[12px] text-ink-500">Insurance: {v.insuranceNumber}</p>}
-                {v.notes && <p className="text-[12px] text-ink-500">{v.notes}</p>}
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <button onClick={() => { setEditId(v.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={() => onDelete(v.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function VehicleForm({ initial, onSave, onCancel }: {
-  initial?: Vehicle;
-  onSave: (v: Vehicle) => void;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(initial?.name ?? '');
-  const [registration, setRegistration] = useState(initial?.registration ?? '');
-  const [vin, setVin] = useState(initial?.vin ?? '');
-  const [insuranceNumber, setInsuranceNumber] = useState(initial?.insuranceNumber ?? '');
-  const [serviceDate, setServiceDate] = useState(initial?.serviceDate ?? '');
-  const [notes, setNotes] = useState(initial?.notes ?? '');
-
-  const save = () => {
-    if (!name.trim()) { onCancel(); return; }
-    onSave({
-      id: initial?.id ?? newId(),
-      name: name.trim(),
-      registration: registration.trim() || undefined,
-      vin: vin.trim() || undefined,
-      insuranceNumber: insuranceNumber.trim() || undefined,
-      serviceDate: serviceDate || undefined,
-      notes: notes.trim() || undefined,
-    });
-  };
-
-  return (
-    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
-      <input autoFocus className="field" placeholder="Vehicle name  (e.g. VW Golf)" value={name} onChange={e => setName(e.target.value)} />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        <input className="field font-mono" placeholder="Registration plate" value={registration} onChange={e => setRegistration(e.target.value)} />
-        <input className="field font-mono" placeholder="VIN (optional)" value={vin} onChange={e => setVin(e.target.value)} />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        <input className="field" placeholder="Insurance number" value={insuranceNumber} onChange={e => setInsuranceNumber(e.target.value)} />
-        <div>
-          <label className="field-label">Next service date</label>
-          <input className="field" type="date" value={serviceDate} onChange={e => setServiceDate(e.target.value)} />
-        </div>
-      </div>
       <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>

@@ -1,8 +1,9 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package } from 'lucide-react';
-import { FamilyMember, AssetItem } from '../types';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car } from 'lucide-react';
+import { FamilyMember, AssetItem, Vehicle } from '../types';
 import { careNextDue } from '../utils/care';
-import { loadAssets } from '../utils/db';
+import { loadAssets, loadHousehold } from '../utils/db';
+import { vehicleDeadlines, vehicleLabel } from '../utils/vehicle';
 
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
@@ -50,6 +51,24 @@ function computeAssetNudges(assets: AssetItem[]): Nudge[] {
       tab: 'assets',
       view: 'assets',
     });
+  }
+  return out;
+}
+
+// Vehicle deadline nudges — inspection (§57a/MOT), insurance renewal, service,
+// vignette. Overdue = urgent, due within 42 days = warn. One per due deadline.
+function computeVehicleNudges(vehicles: Vehicle[]): Nudge[] {
+  const out: Nudge[] = [];
+  for (const v of vehicles) {
+    for (const d of vehicleDeadlines(v)) {
+      if (d.days > 42) continue;
+      const name = vehicleLabel(v);
+      if (d.days < 0) {
+        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'urgent', text: `${name}: ${d.label} overdue`, tab: 'vehicles', view: 'vehicles' });
+      } else {
+        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles' });
+      }
+    }
   }
   return out;
 }
@@ -166,18 +185,22 @@ export default function NeedsAttention(
   { members: FamilyMember[]; onGo: (memberId: string, tab: string) => void; onGoView?: (view: string) => void },
 ) {
   const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   useEffect(() => {
     let cancelled = false;
     loadAssets()
       .then((a) => { if (!cancelled) setAssets(a || []); })
       .catch(() => { if (!cancelled) setAssets([]); });
+    loadHousehold()
+      .then((h) => { if (!cancelled) setVehicles(h?.vehicles || []); })
+      .catch(() => { if (!cancelled) setVehicles([]); });
     return () => { cancelled = true; };
   }, []);
 
   const [showAll, setShowAll] = useState(false);
 
   const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
-  const all = [...computeNudges(members), ...computeAssetNudges(assets)]
+  const all = [...computeNudges(members), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets)]
     .sort((a, b) => order[a.tone] - order[b.tone]);
   if (all.length === 0) return null;
   const COLLAPSED = 6;

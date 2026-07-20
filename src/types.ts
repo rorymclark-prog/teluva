@@ -281,11 +281,26 @@ export interface Preferences {
 // --- Household (family-wide) ---
 export interface Vehicle {
   id: string;
-  name: string;                 // e.g. "VW Golf"
-  registration?: string;
-  vin?: string;
+  name: string;                 // e.g. "VW Golf" (kept for back-compat)
+  make?: string;
+  model?: string;
+  year?: string;
+  registration?: string;        // number plate / Kennzeichen
+  vin?: string;                 // chassis number / Fahrgestellnummer
+  fuelType?: string;            // Petrol / Diesel / Electric / Hybrid / Other
+  assignedMember?: string;      // primary driver (member name)
+  odometer?: string;
+  // --- Insurance ---
+  insurer?: string;
   insuranceNumber?: string;
-  serviceDate?: string;
+  insuranceRenewal?: string;    // YYYY-MM-DD → renewal reminder
+  // --- Legal / maintenance deadlines (the reminder engine) ---
+  inspectionExpiry?: string;    // §57a Pickerl / MOT / TÜV — YYYY-MM-DD
+  vignetteExpiry?: string;      // motorway toll sticker (AT/CH/SI) — YYYY-MM-DD
+  lastService?: string;         // YYYY-MM-DD
+  serviceIntervalMonths?: number;
+  nextServiceDue?: string;      // explicit override; else derived from lastService + interval
+  serviceDate?: string;         // LEGACY field (older records) — treated as next-service date
   notes?: string;
 }
 

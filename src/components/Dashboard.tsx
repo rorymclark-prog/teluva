@@ -63,6 +63,7 @@ import FinancesView from './FinancesView';
 import InsuranceView from './InsuranceView';
 import MemberSayings from './MemberSayings';
 import FamilyWordsView from './FamilyWordsView';
+import VehiclesView from './VehiclesView';
 import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
@@ -80,7 +81,7 @@ import {
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
-  Quote, BookHeart
+  Quote, BookHeart, Car
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -106,7 +107,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -131,6 +132,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'household', icon: Home },
   { id: 'finances', icon: Landmark },
   { id: 'insurance', icon: ShieldCheck },
+  { id: 'vehicles', icon: Car },
   { id: 'timeline', icon: CalendarHeart },
   { id: 'vault', icon: FolderArchive },
   { id: 'assets', icon: Package },
@@ -883,6 +885,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         {mainView === 'finances' && <FinancesView key={aiDataVersion} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
         {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
+        {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
 
