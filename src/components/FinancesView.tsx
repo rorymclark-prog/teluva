@@ -12,7 +12,12 @@ function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
 }
 
-export default function FinancesView() {
+interface FinancesViewProps {
+  isBusinessSpace?: boolean;
+  refreshKey?: number;
+}
+
+export default function FinancesView({ isBusinessSpace, refreshKey }: FinancesViewProps) {
   const [finances, setFinances] = useState<FinancesInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -27,7 +32,7 @@ export default function FinancesView() {
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [refreshKey]);
 
   const persist = async (next: FinancesInfo) => {
     setFinances(next);
@@ -82,7 +87,7 @@ export default function FinancesView() {
           {cloudSynced === false ? (
             <><CloudOff className="w-3.5 h-3.5 text-honey-700" /><span>Saved on this device — cloud sync unavailable</span></>
           ) : (
-            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your family{cloudSynced ? ' · synced' : ''}</span></>
+            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your {isBusinessSpace ? 'team' : 'family'}{cloudSynced ? ' · synced' : ''}</span></>
           )}
         </div>
       </div>

@@ -129,10 +129,15 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 // Kid/family-specific tabs that make no sense for an employee in a business space.
 const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sayings'];
 // Same idea, one level up — top-level nav sections that are family-only (the
-// keepsake dictionary, the family memory timeline). Insurance/Vehicles/
-// Household/Assets/Documents/Passwords/Chat/etc. all stay — genuinely useful
-// for a business too.
-const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline'];
+// keepsake dictionary, the family memory timeline, a personal shopping list —
+// no small-business equivalent researched). Insurance/Vehicles/Household/
+// Assets/Documents/Passwords/Chat/etc. all stay — genuinely useful for a
+// business too (Household becomes "Locations", Info becomes "Compliance" —
+// see viewLabel below).
+// 'emergency' is a medical/allergy/blood-type card — no business equivalent
+// exists yet (a real workplace-incident log would be a distinct feature, not
+// a relabel of this one) so it's hidden rather than mislabeled.
+const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency'];
 
 const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'profiles', icon: Users },
@@ -158,8 +163,8 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     profiles: isBusinessSpace ? 'Team' : t.nav_family,
     assistant: t.nav_assistant,
     calendar: t.nav_calendar,
-    info: t.nav_info,
-    household: t.nav_household,
+    info: isBusinessSpace ? 'Compliance' : t.nav_info,
+    household: isBusinessSpace ? 'Locations' : t.nav_household,
     finances: t.nav_finances,
     timeline: t.nav_timeline,
     vault: t.nav_documents,
@@ -213,7 +218,7 @@ interface DashboardProps {
 
 export default function Dashboard({ familySettingsButton }: DashboardProps = {}) {
   const demo = isDemoMode();
-  const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId } = useFamilyCtx();
+  const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId, loading: ctxLoading } = useFamilyCtx();
 
   const activeSpaceType = spaces.find((s) => s.id === activeSpaceId)?.type || 'family';
   const isBusinessSpace = activeSpaceType === 'business';
@@ -305,9 +310,20 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     };
   }, []);
 
-  // Load family & events when the signed-in user changes
+  // Load family & events when the signed-in user changes. Gated on ctxLoading:
+  // this component has its OWN onAuthStateChanged listener (below) that flips
+  // currentUser as soon as Firebase resolves a session, but FamilyContext's
+  // listener does an ADDITIONAL awaited Firestore read (the user's profile)
+  // before it calls setFamilyId() with the ACTIVE space id. Without this gate,
+  // on a page refresh while a non-default space (e.g. a business) is active,
+  // this effect could fire and load family/calendar/settings data BEFORE
+  // FAMILY_ID was corrected from its default — silently reading/showing the
+  // wrong space's (usually empty) data. Confirmed live: a refreshed business
+  // space showed its uploaded photo as gone. Waiting for ctxLoading===false
+  // guarantees FAMILY_ID is already correct by the time these loads fire.
   useEffect(() => {
     if (demo) return;
+    if (ctxLoading) return;
 
     async function init() {
       if (!currentUser) {
@@ -331,7 +347,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       if (hub) setSettings(hub);
     }
     init();
-  }, [currentUser]);
+  }, [currentUser, ctxLoading, activeSpaceId]);
 
   const hubName = settings.hubName || (isBusinessSpace ? 'Business Hub' : 'Family Hub');
 
@@ -790,7 +806,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     return items;
   })();
 
-  if (isAuthLoading) {
+  if (isAuthLoading || (!demo && currentUser && ctxLoading)) {
     return (
       <div className="min-h-screen bg-cream-100 flex items-center justify-center font-sans">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-clay-500"></div>
@@ -917,13 +933,13 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           <FamilyCalendar members={members} events={events} onSaveEvents={handleSaveEvents} />
         )}
 
-        {mainView === 'info' && <ImportantInfo key={aiDataVersion} />}
+        {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} />}
 
         {mainView === 'emergency' && <EmergencyView members={members} />}
 
-        {mainView === 'household' && <HouseholdView key={aiDataVersion} />}
+        {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} />}
 
-        {mainView === 'finances' && <FinancesView key={aiDataVersion} />}
+        {mainView === 'finances' && <FinancesView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
         {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
         {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
@@ -931,7 +947,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
 
         {mainView === 'vault' && (
-          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} />
+          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} />
         )}
 
         {mainView === 'shopping' && (
@@ -1179,7 +1195,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                 <CareSchedule member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
                               {activeTab === 'ids' && (
-                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} country={settings.country || 'AT'} />
                               )}
                               {activeTab === 'sizes' && (
                                 <MemberSizing member={selectedMember} onUpdateSizes={handleUpdateSizes} />
@@ -1285,6 +1301,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAdd={handleAddMember}
+        isBusinessSpace={isBusinessSpace}
       />
 
       <EditMemberModal
@@ -1312,6 +1329,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           onApplyEdits={handleApplyAiEdits}
           onAddMemberDoc={handleAddDocument}
           demo={demo}
+          isBusinessSpace={isBusinessSpace}
         />
       )}
 

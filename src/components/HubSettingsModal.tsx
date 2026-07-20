@@ -1,9 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Settings, Users, Trash2, Upload, Save } from 'lucide-react';
-import { HubSettings } from '../types';
+import { HubSettings, IdCountry } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import LanguageSelector from './LanguageSelector';
+
+const COUNTRY_OPTIONS: { value: IdCountry; label: string }[] = [
+  { value: 'AT', label: 'Austria' },
+  { value: 'ZA', label: 'South Africa' },
+  { value: 'other', label: 'Other / generic' },
+];
 
 interface HubSettingsModalProps {
   isOpen: boolean;
@@ -19,6 +25,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
   const [uploadFileName, setUploadFileName] = useState('');
   const [nameDisplay, setNameDisplay] = useState<'real' | 'nick' | 'both'>('both');
   const [astrology, setAstrology] = useState(false);
+  const [country, setCountry] = useState<IdCountry>('AT');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -29,6 +36,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
       setPhoto(settings.familyPhotoUrl || '');
       setNameDisplay(settings.nameDisplay || 'both');
       setAstrology(settings.astrology === true);
+      setCountry(settings.country || 'AT');
       setUploadFileName('');
     }
   }, [isOpen, settings]);
@@ -64,6 +72,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
       familyPhotoUrl: photo || undefined,
       nameDisplay,
       astrology,
+      country,
     });
     onClose();
   };
@@ -131,6 +140,22 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
                   onChange={(e) => setHubName(e.target.value)}
                   className="field"
                 />
+              </div>
+
+              {/* Country — picks the right ID document format below (e-Card/
+                  Aufenthaltstitel for Austria, SA ID/SARS for South Africa) */}
+              <div>
+                <label className="field-label">Country</label>
+                <select
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value as IdCountry)}
+                  className="field"
+                >
+                  {COUNTRY_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="text-[12px] text-ink-400 mt-1.5">Sets which ID document fields show under ID &amp; Passports.</p>
               </div>
 
               {/* How names show */}

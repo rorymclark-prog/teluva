@@ -259,7 +259,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                     onChange={(e) => setRole(e.target.value as MemberRole)}
                     className="field"
                   >
-                    <option value="Child">Child</option>
+                    {!isBusinessSpace && <option value="Child">Child</option>}
                     <option value="Parent">Parent</option>
                     <option value="Grandparent">Grandparent</option>
                     <option value="Other">Other</option>

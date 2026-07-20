@@ -9,12 +9,14 @@ interface AddMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (member: Omit<FamilyMember, 'documents' | 'favorites'>) => void;
+  /** True when adding a member of a business space — no children hired here. */
+  isBusinessSpace?: boolean;
 }
 
-export default function AddMemberModal({ isOpen, onClose, onAdd }: AddMemberModalProps) {
+export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace = false }: AddMemberModalProps) {
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
-  const [role, setRole] = useState<MemberRole>('Child');
+  const [role, setRole] = useState<MemberRole>(isBusinessSpace ? 'Other' : 'Child');
   const [birthdate, setBirthdate] = useState('');
   const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
   const [isOnline, setIsOnline] = useState(true);
@@ -212,7 +214,7 @@ export default function AddMemberModal({ isOpen, onClose, onAdd }: AddMemberModa
                     onChange={(e) => setRole(e.target.value as MemberRole)}
                     className="field"
                   >
-                    <option value="Child">Child</option>
+                    {!isBusinessSpace && <option value="Child">Child</option>}
                     <option value="Parent">Parent</option>
                     <option value="Grandparent">Grandparent</option>
                     <option value="Other">Other</option>

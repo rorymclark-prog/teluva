@@ -57,6 +57,11 @@ function VisaForm({
   const [country, setCountry] = useState(initial?.country || '');
   const [number, setNumber] = useState(initial?.number || '');
   const [expiryDate, setExpiryDate] = useState(initial?.expiryDate || '');
+  const [permitType, setPermitType] = useState(initial?.permitType || '');
+  const [issuingAuthority, setIssuingAuthority] = useState(initial?.issuingAuthority || '');
+  const [sponsor, setSponsor] = useState(initial?.sponsor || '');
+  const [status, setStatus] = useState<VisaRecord['status'] | ''>(initial?.status || '');
+  const [conditions, setConditions] = useState(initial?.conditions || '');
   const [notes, setNotes] = useState(initial?.notes || '');
 
   const save = () => {
@@ -66,6 +71,11 @@ function VisaForm({
       country: country.trim(),
       number: number.trim() || undefined,
       expiryDate: expiryDate || undefined,
+      permitType: permitType.trim() || undefined,
+      issuingAuthority: issuingAuthority.trim() || undefined,
+      sponsor: sponsor.trim() || undefined,
+      status: status || undefined,
+      conditions: conditions.trim() || undefined,
       notes: notes.trim() || undefined,
     });
   };
@@ -94,6 +104,46 @@ function VisaForm({
           onChange={e => setExpiryDate(e.target.value)}
         />
       </div>
+      {/* Work-permit details — optional, matters most for a foreign employee at
+          a multi-location business; a plain travel visa can skip these. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input
+          className="field"
+          placeholder="Permit type  (e.g. Critical Skills, Work Visa) — optional"
+          value={permitType}
+          onChange={e => setPermitType(e.target.value)}
+        />
+        <select
+          className="field"
+          value={status}
+          onChange={e => setStatus(e.target.value as VisaRecord['status'] | '')}
+        >
+          <option value="">Status — optional</option>
+          <option value="active">Active</option>
+          <option value="pending">Pending</option>
+          <option value="expired">Expired</option>
+        </select>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input
+          className="field"
+          placeholder="Issuing authority — optional"
+          value={issuingAuthority}
+          onChange={e => setIssuingAuthority(e.target.value)}
+        />
+        <input
+          className="field"
+          placeholder="Sponsor / employer of record — optional"
+          value={sponsor}
+          onChange={e => setSponsor(e.target.value)}
+        />
+      </div>
+      <input
+        className="field"
+        placeholder="Conditions  (e.g. employer-tied) — optional"
+        value={conditions}
+        onChange={e => setConditions(e.target.value)}
+      />
       <input
         className="field"
         placeholder="Notes (optional)"
@@ -370,7 +420,7 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
       <section className="card p-5 space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-cream-200">
           <h4 className="section-label flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5" /> Visas
+            <ShieldCheck className="w-3.5 h-3.5" /> Visas &amp; work permits
           </h4>
           <button
             onClick={() => { setAddingVisa(true); setEditVisaId(null); }}
@@ -415,6 +465,10 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-[14px] font-semibold text-ink-900">{v.country}</p>
+                      {v.permitType && <span className="chip bg-cream-200 text-ink-600">{v.permitType}</span>}
+                      {v.status && (
+                        <span className={`chip ${v.status === 'active' ? 'bg-sage-100 text-sage-700' : v.status === 'pending' ? 'bg-honey-100 text-honey-700' : 'bg-rosa-100 text-rosa-700'} capitalize`}>{v.status}</span>
+                      )}
                       <ExpiryChip expiryDate={v.expiryDate} />
                     </div>
                     {v.number && (
@@ -426,6 +480,14 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
                           day: 'numeric', month: 'short', year: 'numeric',
                         })}
                       </p>
+                    )}
+                    {(v.issuingAuthority || v.sponsor) && (
+                      <p className="text-[12px] text-ink-500">
+                        {v.issuingAuthority}{v.issuingAuthority && v.sponsor ? ' · ' : ''}{v.sponsor && `Sponsor: ${v.sponsor}`}
+                      </p>
+                    )}
+                    {v.conditions && (
+                      <p className="text-[12px] text-ink-500">{v.conditions}</p>
                     )}
                     {v.notes && (
                       <p className="text-[12px] text-ink-400">{v.notes}</p>

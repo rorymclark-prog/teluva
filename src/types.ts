@@ -217,11 +217,20 @@ export interface PassportRecord {
   notes?: string;
 }
 
+// A visa or work permit. "country" is the country it's valid IN (not the
+// holder's nationality) — the permitType/issuingAuthority/sponsor/status
+// fields matter most for a foreign EMPLOYEE at a multi-location business;
+// they're optional so this stays lightweight for a simple travel visa too.
 export interface VisaRecord {
   id: string;
   country: string;
   number?: string;
   expiryDate?: string;
+  permitType?: string;        // e.g. "Critical Skills", "General Work", "Tourist"
+  issuingAuthority?: string;
+  sponsor?: string;           // employer of record, for a work permit
+  status?: 'active' | 'expired' | 'pending';
+  conditions?: string;        // e.g. "employer-tied"
   notes?: string;
 }
 
@@ -235,7 +244,10 @@ export interface IdentityRecord {
   // Residence / national / international
   residencePermitNumber?: string;
   residencePermitExpiry?: string;
-  nationalIdNumber?: string;    // e.g. SA ID number
+  nationalIdNumber?: string;    // e.g. SA 13-digit ID number
+  idDocumentType?: string;      // e.g. "Smart ID Card", "Green ID Book" (South Africa)
+  birthCertNumber?: string;     // unabridged birth certificate number
+  medicalAidNumber?: string;    // private medical aid membership (SA has no national health-insurance card)
   citizenshipCertNumber?: string;
   driversLicenseNumber?: string;
   driversLicenseExpiry?: string;
@@ -342,6 +354,16 @@ export interface UtilityProvider {
   notes?: string;
 }
 
+// One site for a multi-location business (a home-based family only ever needs
+// the single legacy `address` field above; this is additive, not a replacement).
+export interface BusinessLocation {
+  id: string;
+  label: string;             // e.g. "Head office", "Cape Town branch"
+  address: string;
+  type?: 'hq' | 'branch' | 'site' | 'other';
+  notes?: string;
+}
+
 export interface HouseholdInfo {
   address?: string;
   doorCode?: string;
@@ -350,6 +372,7 @@ export interface HouseholdInfo {
   utilities?: UtilityProvider[];
   vehicles?: Vehicle[];
   pets?: Pet[];
+  locations?: BusinessLocation[];
 }
 
 // --- Finances (family-wide references, not passwords) ---
@@ -438,11 +461,17 @@ export interface FamilyTimeline {
 }
 
 // --- Hub settings (shared): the family's name for their hub + a family photo ---
+// ISO 3166-1 alpha-2 country codes the ID & Passports section has a dedicated
+// field set for; 'other' shows a slim generic set (national ID/tax/driver's
+// licence) that fits most countries reasonably.
+export type IdCountry = 'AT' | 'ZA' | 'other';
+
 export interface HubSettings {
   hubName?: string;
   familyPhotoUrl?: string;   // compressed base64 thumbnail
   nameDisplay?: 'real' | 'nick' | 'both';   // how member names show (default 'both')
   astrology?: boolean;       // opt-in "just for fun" star-sign view (off by default)
+  country?: IdCountry;       // drives which ID & Passports field set renders (default 'AT')
 }
 
 // --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---

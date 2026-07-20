@@ -251,7 +251,7 @@ function FilterBar({ active, counts, onChange }: FilterBarProps) {
 /* Main component                                                       */
 /* ------------------------------------------------------------------ */
 
-export default function DocumentVault({ members }: { members: FamilyMember[] }) {
+export default function DocumentVault({ members, isBusinessSpace }: { members: FamilyMember[]; isBusinessSpace?: boolean }) {
   const [docs, setDocs] = useState<VaultDocument[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -496,7 +496,7 @@ export default function DocumentVault({ members }: { members: FamilyMember[] }) 
           {cloudSynced === false ? (
             <><CloudOff className="w-3.5 h-3.5 text-honey-700" /><span>Saved on this device — cloud sync unavailable</span></>
           ) : (
-            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your family{cloudSynced ? ' · synced' : ''}</span></>
+            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your {isBusinessSpace ? 'team' : 'family'}{cloudSynced ? ' · synced' : ''}</span></>
           )}
         </div>
       </div>

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { HouseholdInfo, UtilityProvider, Pet } from '../types';
+import { HouseholdInfo, UtilityProvider, Pet, BusinessLocation } from '../types';
 import { loadHousehold, saveHousehold } from '../utils/db';
 import {
   Home, Plug, PawPrint, Plus, Trash2, Pencil, Check, X,
-  Cloud, CloudOff,
+  Cloud, CloudOff, MapPin, Building2,
 } from 'lucide-react';
 
 const EMPTY: HouseholdInfo = {
@@ -14,11 +14,17 @@ const EMPTY: HouseholdInfo = {
   utilities: [],
   vehicles: [],
   pets: [],
+  locations: [],
 };
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
-export default function HouseholdView() {
+interface HouseholdViewProps {
+  isBusinessSpace?: boolean;
+  refreshKey?: number;
+}
+
+export default function HouseholdView({ isBusinessSpace, refreshKey }: HouseholdViewProps) {
   const [info, setInfo] = useState<HouseholdInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -33,7 +39,7 @@ export default function HouseholdView() {
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [refreshKey]);
 
   const persist = async (next: HouseholdInfo) => {
     setInfo(next);
@@ -58,9 +64,11 @@ export default function HouseholdView() {
             <Home className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-display text-2xl font-semibold text-ink-900">Household</h2>
+            <h2 className="font-display text-2xl font-semibold text-ink-900">{isBusinessSpace ? 'Locations' : 'Household'}</h2>
             <p className="text-[13px] text-ink-500 font-medium">
-              Property details, utilities, vehicles and pets — all in one shared place.
+              {isBusinessSpace
+                ? 'Business premises, access details and utilities — all in one shared place.'
+                : 'Property details, utilities, vehicles and pets — all in one shared place.'}
             </p>
           </div>
         </div>
@@ -69,7 +77,7 @@ export default function HouseholdView() {
       {/* Property */}
       <section className="card p-5 space-y-4">
         <div className="flex items-center gap-1.5 pb-3 border-b border-cream-200">
-          <h3 className="section-label flex items-center gap-1.5"><Home className="w-3.5 h-3.5" /> Property</h3>
+          <h3 className="section-label flex items-center gap-1.5"><Home className="w-3.5 h-3.5" /> {isBusinessSpace ? 'Main location' : 'Property'}</h3>
         </div>
         <div className="space-y-3">
           <div>
@@ -121,6 +129,17 @@ export default function HouseholdView() {
         </div>
       </section>
 
+      {/* Additional locations (business only — a multi-site business tracks
+          more than one address; a family only ever needs the one above) */}
+      {isBusinessSpace && (
+        <LocationsSection
+          entries={info.locations ?? []}
+          onAdd={(l) => persist({ ...info, locations: [...(info.locations ?? []), l] })}
+          onUpdate={(l) => persist({ ...info, locations: (info.locations ?? []).map(x => x.id === l.id ? l : x) })}
+          onDelete={(id) => { if (window.confirm('Remove this location? This can’t be undone.')) persist({ ...info, locations: (info.locations ?? []).filter(x => x.id !== id) }); }}
+        />
+      )}
+
       {/* Utilities */}
       <UtilitiesSection
         entries={info.utilities ?? []}
@@ -132,13 +151,15 @@ export default function HouseholdView() {
       {/* Vehicles moved to their own dedicated "Vehicles" section (with inspection,
           insurance & service reminders). See VehiclesView. */}
 
-      {/* Pets */}
-      <PetsSection
-        entries={info.pets ?? []}
-        onAdd={(p) => persist({ ...info, pets: [...(info.pets ?? []), p] })}
-        onUpdate={(p) => persist({ ...info, pets: (info.pets ?? []).map(x => x.id === p.id ? p : x) })}
-        onDelete={(id) => { if (window.confirm('Remove this pet? This can’t be undone.')) persist({ ...info, pets: (info.pets ?? []).filter(x => x.id !== id) }); }}
-      />
+      {/* Pets — family only, no business equivalent */}
+      {!isBusinessSpace && (
+        <PetsSection
+          entries={info.pets ?? []}
+          onAdd={(p) => persist({ ...info, pets: [...(info.pets ?? []), p] })}
+          onUpdate={(p) => persist({ ...info, pets: (info.pets ?? []).map(x => x.id === p.id ? p : x) })}
+          onDelete={(id) => { if (window.confirm('Remove this pet? This can’t be undone.')) persist({ ...info, pets: (info.pets ?? []).filter(x => x.id !== id) }); }}
+        />
+      )}
 
       {/* Footer sync status */}
       <div className="text-center">
@@ -146,9 +167,125 @@ export default function HouseholdView() {
           {cloudSynced === false ? (
             <><CloudOff className="w-3.5 h-3.5 text-honey-700" /><span>Saved on this device — not backed up to the cloud</span></>
           ) : (
-            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your family{cloudSynced ? ' · synced' : ''}</span></>
+            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your {isBusinessSpace ? 'team' : 'family'}{cloudSynced ? ' · synced' : ''}</span></>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Locations (business) ──────────────────────────────────────────────── */
+
+function LocationsSection({ entries, onAdd, onUpdate, onDelete }: {
+  entries: BusinessLocation[];
+  onAdd: (l: BusinessLocation) => void;
+  onUpdate: (l: BusinessLocation) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+
+  return (
+    <section className="card p-5 space-y-4">
+      <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+        <h3 className="section-label flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Additional locations</h3>
+        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
+          <Plus className="w-3.5 h-3.5" /> Add
+        </button>
+      </div>
+
+      {adding && (
+        <LocationForm
+          onSave={(l) => { onAdd(l); setAdding(false); }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+
+      {entries.length === 0 && !adding ? (
+        <div className="py-6 text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
+            <MapPin className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">No other locations yet — branches, sites, warehouses…</p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {entries.map(l => editId === l.id ? (
+            <div key={l.id}>
+              <LocationForm
+                initial={l}
+                onSave={(upd) => { onUpdate(upd); setEditId(null); }}
+                onCancel={() => setEditId(null)}
+              />
+            </div>
+          ) : (
+            <div key={l.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-[14px] font-semibold text-ink-900 truncate">{l.label || 'Untitled location'}</p>
+                  {l.type && <span className="chip bg-cream-200 text-ink-600 capitalize">{l.type}</span>}
+                </div>
+                <p className="text-[13px] text-ink-600 whitespace-pre-line mt-0.5">{l.address || '—'}</p>
+                {l.notes && <p className="text-[12px] text-ink-500 mt-0.5">{l.notes}</p>}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => { setEditId(l.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => onDelete(l.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LocationForm({ initial, onSave, onCancel }: {
+  initial?: BusinessLocation;
+  onSave: (l: BusinessLocation) => void;
+  onCancel: () => void;
+}) {
+  const [label, setLabel] = useState(initial?.label ?? '');
+  const [address, setAddress] = useState(initial?.address ?? '');
+  const [type, setType] = useState<BusinessLocation['type']>(initial?.type ?? 'branch');
+  const [notes, setNotes] = useState(initial?.notes ?? '');
+
+  const save = () => {
+    if (!label.trim() && !address.trim()) { onCancel(); return; }
+    onSave({
+      id: initial?.id ?? newId(),
+      label: label.trim(),
+      address: address.trim(),
+      type,
+      notes: notes.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input autoFocus className="field" placeholder="Label  (e.g. Cape Town branch)" value={label} onChange={e => setLabel(e.target.value)} />
+        <select className="field" value={type} onChange={e => setType(e.target.value as BusinessLocation['type'])}>
+          <option value="hq">Head office</option>
+          <option value="branch">Branch</option>
+          <option value="site">Site</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <textarea className="field resize-none" rows={2} placeholder="Street, city, postcode…" value={address} onChange={e => setAddress(e.target.value)} />
+      <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5">
+          <X className="w-3.5 h-3.5" /> Cancel
+        </button>
+        <button onClick={save} className="btn-primary text-xs px-3 py-1.5">
+          <Check className="w-3.5 h-3.5" /> Save
+        </button>
       </div>
     </div>
   );

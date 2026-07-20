@@ -12,7 +12,12 @@ function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
 }
 
-export default function ImportantInfo() {
+interface ImportantInfoProps {
+  isBusinessSpace?: boolean;
+  refreshKey?: number;
+}
+
+export default function ImportantInfo({ isBusinessSpace, refreshKey }: ImportantInfoProps) {
   const [info, setInfo] = useState<FamilyInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -28,7 +33,7 @@ export default function ImportantInfo() {
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [refreshKey]);
 
   const persist = async (next: FamilyInfo) => {
     setInfo(next);
@@ -61,9 +66,11 @@ export default function ImportantInfo() {
               <IdCard className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-display text-2xl font-semibold text-ink-900">Important info</h2>
+              <h2 className="font-display text-2xl font-semibold text-ink-900">{isBusinessSpace ? 'Compliance' : 'Important info'}</h2>
               <p className="text-[13px] text-ink-500 font-medium">
-                Numbers, school &amp; teacher contacts, friends — everything in one shared place.
+                {isBusinessSpace
+                  ? 'Registration numbers, licenses, permits, and key business contacts — everything in one shared place.'
+                  : 'Numbers, school & teacher contacts, friends — everything in one shared place.'}
               </p>
             </div>
           </div>
@@ -86,12 +93,14 @@ export default function ImportantInfo() {
           onAdd={(e) => persist({ ...info, numbers: [...info.numbers, e] })}
           onUpdate={(e) => persist({ ...info, numbers: info.numbers.map(n => n.id === e.id ? e : n) })}
           onDelete={(id) => persist({ ...info, numbers: info.numbers.filter(n => n.id !== id) })}
+          isBusinessSpace={isBusinessSpace}
         />
         <ContactsSection
           entries={contacts}
           onAdd={(c) => persist({ ...info, contacts: [...info.contacts, c] })}
           onUpdate={(c) => persist({ ...info, contacts: info.contacts.map(x => x.id === c.id ? c : x) })}
           onDelete={(id) => persist({ ...info, contacts: info.contacts.filter(c => c.id !== id) })}
+          isBusinessSpace={isBusinessSpace}
         />
       </div>
 
@@ -100,7 +109,7 @@ export default function ImportantInfo() {
           {cloudSynced === false ? (
             <><CloudOff className="w-3.5 h-3.5 text-honey-700" /><span>Saved on this device — cloud sync unavailable</span></>
           ) : (
-            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your family{cloudSynced ? ' · synced' : ''}</span></>
+            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your {isBusinessSpace ? 'team' : 'family'}{cloudSynced ? ' · synced' : ''}</span></>
           )}
         </div>
       </div>
@@ -110,11 +119,12 @@ export default function ImportantInfo() {
 
 /* ---------------- Numbers ---------------- */
 
-function NumbersSection({ entries, onAdd, onUpdate, onDelete }: {
+function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }: {
   entries: InfoEntry[];
   onAdd: (e: InfoEntry) => void;
   onUpdate: (e: InfoEntry) => void;
   onDelete: (id: string) => void;
+  isBusinessSpace?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -132,6 +142,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete }: {
         <NumberForm
           onSave={(e) => { onAdd(e); setAdding(false); }}
           onCancel={() => setAdding(false)}
+          isBusinessSpace={isBusinessSpace}
         />
       )}
 
@@ -141,7 +152,9 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete }: {
             <Hash className="w-5 h-5" />
           </div>
           <p className="text-[13px] text-ink-400">
-            No numbers yet — passports, social security, insurance, policy numbers…
+            {isBusinessSpace
+              ? 'No numbers yet — CIPC registration, SARS tax ref, UIF, COIDA, policy numbers…'
+              : 'No numbers yet — passports, social security, insurance, policy numbers…'}
           </p>
         </div>
       ) : (
@@ -152,6 +165,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete }: {
                 initial={e}
                 onSave={(upd) => { onUpdate(upd); setEditId(null); }}
                 onCancel={() => setEditId(null)}
+                isBusinessSpace={isBusinessSpace}
               />
             </div>
           ) : (
@@ -177,10 +191,11 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete }: {
   );
 }
 
-function NumberForm({ initial, onSave, onCancel }: {
+function NumberForm({ initial, onSave, onCancel, isBusinessSpace }: {
   initial?: InfoEntry;
   onSave: (e: InfoEntry) => void;
   onCancel: () => void;
+  isBusinessSpace?: boolean;
 }) {
   const [label, setLabel] = useState(initial?.label || '');
   const [value, setValue] = useState(initial?.value || '');
@@ -193,7 +208,13 @@ function NumberForm({ initial, onSave, onCancel }: {
 
   return (
     <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
-      <input autoFocus className="field" placeholder="Label  (e.g. Mia – Social security)" value={label} onChange={e => setLabel(e.target.value)} />
+      <input
+        autoFocus
+        className="field"
+        placeholder={isBusinessSpace ? 'Label  (e.g. CIPC registration, SARS tax ref)' : 'Label  (e.g. Mia – Social security)'}
+        value={label}
+        onChange={e => setLabel(e.target.value)}
+      />
       <input className="field font-mono" placeholder="Number / value" value={value} onChange={e => setValue(e.target.value)} />
       <input className="field" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} />
       <div className="flex justify-end gap-2">
@@ -206,11 +227,12 @@ function NumberForm({ initial, onSave, onCancel }: {
 
 /* ---------------- Contacts ---------------- */
 
-function ContactsSection({ entries, onAdd, onUpdate, onDelete }: {
+function ContactsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }: {
   entries: ContactEntry[];
   onAdd: (c: ContactEntry) => void;
   onUpdate: (c: ContactEntry) => void;
   onDelete: (id: string) => void;
+  isBusinessSpace?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -228,6 +250,7 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete }: {
         <ContactForm
           onSave={(c) => { onAdd(c); setAdding(false); }}
           onCancel={() => setAdding(false)}
+          isBusinessSpace={isBusinessSpace}
         />
       )}
 
@@ -237,7 +260,9 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete }: {
             <Users className="w-5 h-5" />
           </div>
           <p className="text-[13px] text-ink-400">
-            No contacts yet — school office, teachers, doctor, friends, emergency…
+            {isBusinessSpace
+              ? 'No contacts yet — accountant, labour consultant, landlord, Dept of Labour…'
+              : 'No contacts yet — school office, teachers, doctor, friends, emergency…'}
           </p>
         </div>
       ) : (
@@ -248,6 +273,7 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete }: {
                 initial={c}
                 onSave={(upd) => { onUpdate(upd); setEditId(null); }}
                 onCancel={() => setEditId(null)}
+                isBusinessSpace={isBusinessSpace}
               />
             </div>
           ) : (
@@ -287,10 +313,11 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete }: {
   );
 }
 
-function ContactForm({ initial, onSave, onCancel }: {
+function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
   initial?: ContactEntry;
   onSave: (c: ContactEntry) => void;
   onCancel: () => void;
+  isBusinessSpace?: boolean;
 }) {
   const [name, setName] = useState(initial?.name || '');
   const [relation, setRelation] = useState(initial?.relation || '');
@@ -312,8 +339,19 @@ function ContactForm({ initial, onSave, onCancel }: {
 
   return (
     <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
-      <input autoFocus className="field" placeholder="Name  (e.g. Frau Müller / Volksschule)" value={name} onChange={e => setName(e.target.value)} />
-      <input className="field" placeholder="Relation  (e.g. Class teacher 3b, Doctor, Friend)" value={relation} onChange={e => setRelation(e.target.value)} />
+      <input
+        autoFocus
+        className="field"
+        placeholder={isBusinessSpace ? 'Name  (e.g. Sipho Dlamini / ABC Accounting)' : 'Name  (e.g. Frau Müller / Volksschule)'}
+        value={name}
+        onChange={e => setName(e.target.value)}
+      />
+      <input
+        className="field"
+        placeholder={isBusinessSpace ? 'Relation  (e.g. Accountant, Labour consultant, Landlord)' : 'Relation  (e.g. Class teacher 3b, Doctor, Friend)'}
+        value={relation}
+        onChange={e => setRelation(e.target.value)}
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <input className="field" placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} />
         <input className="field" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />

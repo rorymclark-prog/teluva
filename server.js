@@ -166,7 +166,7 @@ basic: name, nickname, birthdate, place_of_birth, nationality, languages, gender
 contact: address, phone, email
 sizes: shirt_size, pants_size, shoe_size, dress_size, jacket_size, hat_size, ring_size, height_cm, weight_kg, size_notes
 medical: blood_group, allergies, medications, conditions, surgeries, emergency_medication, organ_donor, family_medical_history, medical_notes
-identity: sv_number, ecard_number, tax_number, student_number, school_reg_number, residence_permit_number, residence_permit_expiry, national_id_number, citizenship_cert_number, drivers_license_number, drivers_license_expiry
+identity: sv_number, ecard_number, tax_number, student_number, school_reg_number, residence_permit_number, residence_permit_expiry, national_id_number, id_document_type, birth_cert_number, medical_aid_number, citizenship_cert_number, drivers_license_number, drivers_license_expiry
 education: school_name, class_grade, teacher_name, teacher_contact
 travel: frequent_flyer, travel_insurance_number, etias_status, travel_preferences, emergency_travel_contact
 emergency: emergency_contact_name, emergency_contact_phone

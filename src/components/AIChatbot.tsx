@@ -9,6 +9,7 @@ import {
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
+import ImageLightbox from './ImageLightbox';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff,
@@ -60,6 +61,7 @@ interface Props {
   onApplyEdits: (edits: AiEdit[]) => Promise<void>;
   // File a scanned document into a member's own Documents tab (in addition to the vault)
   onAddMemberDoc: (memberId: string, doc: FamilyDocument) => Promise<void>;
+  isBusinessSpace?: boolean;
 }
 
 function slimMembers(members: FamilyMember[]) {
@@ -98,8 +100,23 @@ function dataUrlToBlob(dataUrl: string): Blob {
 
 const firstName = (m: FamilyMember): string => (m.nickname || m.name).trim().split(/\s+/)[0];
 
-// Starter suggestions built from the REAL family, not placeholders.
-function buildSuggestions(members: FamilyMember[]): string[] {
+// Starter suggestions built from the REAL family/team, not placeholders.
+function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): string[] {
+  if (isBusinessSpace) {
+    if (!members.length) {
+      return [
+        'Add a new team member',
+        'What can you help me with?',
+        'What’s coming up on the calendar?',
+      ];
+    }
+    return Array.from(new Set([
+      `When does ${firstName(members[0])}’s residence permit expire?`,
+      'Whose passport expires soonest?',
+      'What documents are missing for the team?',
+      'What’s coming up on the calendar?',
+    ]));
+  }
   if (!members.length) {
     return [
       'Add a new family member',
@@ -118,10 +135,10 @@ function buildSuggestions(members: FamilyMember[]): string[] {
   ]));
 }
 
-export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Props) {
+export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBusinessSpace }: Props) {
   const { uid } = useFamilyCtx();
   const { lang, t } = useT();
-  const suggestions = buildSuggestions(members);
+  const suggestions = buildSuggestions(members, isBusinessSpace);
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try { const raw = localStorage.getItem(CHAT_KEY); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
@@ -136,6 +153,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
   // Progressive word-by-word reveal of the latest assistant reply — null means
   // "not streaming" (either no reply yet, or the reveal has finished).
   const [streamWordCount, setStreamWordCount] = useState<number | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -526,7 +544,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
           <Sparkles className="w-5 h-5" />
         </div>
         <div className="min-w-0 hidden sm:block">
-          <h2 className="font-display text-xl font-semibold text-ink-900">Family assistant</h2>
+          <h2 className="font-display text-xl font-semibold text-ink-900">{isBusinessSpace ? 'Business assistant' : 'Family assistant'}</h2>
           <p className="text-[13px] text-ink-500 font-medium truncate">Ask, tell me a fact, or attach a document to scan.</p>
         </div>
         <h2 className="font-display text-lg font-semibold text-ink-900 sm:hidden">Assistant</h2>
@@ -551,7 +569,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
             <div className="space-y-1">
               <h3 className="font-display text-lg font-semibold text-ink-900">How can I help?</h3>
               <p className="text-[13px] text-ink-500 max-w-sm">
-                Tell me a fact like “Mia wears EU 30 shoes”, ask “when does Papa's passport expire?”, or 📎 attach a passport/certificate and I'll read it and file it.
+                {isBusinessSpace
+                  ? 'Tell me a fact like “Rory’s residence permit expires in March”, ask “when does the team’s insurance renew?”, or 📎 attach an ID or contract and I\'ll read it and file it.'
+                  : 'Tell me a fact like “Mia wears EU 30 shoes”, ask “when does Papa\'s passport expire?”, or 📎 attach a passport/certificate and I\'ll read it and file it.'}
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2 max-w-md">
@@ -562,24 +582,49 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
               ))}
             </div>
             <div className="flex flex-wrap justify-center gap-2 max-w-sm pt-1">
-              <button
-                onClick={() => send("Give me a quick check-up across the whole family: anything expired or expiring soon (passports, residence permits, visas, driver's licenses), anyone missing a blood type or emergency contact, and anything important that looks incomplete.")}
-                className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
-              >
-                🩺 Family check-up
-              </button>
-              <button
-                onClick={() => send("Suggest birthday and Christmas gift ideas for each child, based on their likes, wishlist and current sizes.")}
-                className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
-              >
-                🎁 Gift ideas
-              </button>
-              <button
-                onClick={() => send("What's coming up on the family calendar in the next few weeks?")}
-                className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
-              >
-                📅 What's coming up
-              </button>
+              {isBusinessSpace ? (
+                <>
+                  <button
+                    onClick={() => send("Give me a quick check-up across the whole team: anything expired or expiring soon (passports, residence permits, visas, driver's licenses), and anything important that looks incomplete.")}
+                    className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+                  >
+                    📋 Team check-up
+                  </button>
+                  <button
+                    onClick={() => send('What documents are missing for the team?')}
+                    className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+                  >
+                    📄 Missing documents
+                  </button>
+                  <button
+                    onClick={() => send("What's coming up on the calendar in the next few weeks?")}
+                    className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+                  >
+                    📅 What's coming up
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => send("Give me a quick check-up across the whole family: anything expired or expiring soon (passports, residence permits, visas, driver's licenses), anyone missing a blood type or emergency contact, and anything important that looks incomplete.")}
+                    className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+                  >
+                    🩺 Family check-up
+                  </button>
+                  <button
+                    onClick={() => send("Suggest birthday and Christmas gift ideas for each child, based on their likes, wishlist and current sizes.")}
+                    className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+                  >
+                    🎁 Gift ideas
+                  </button>
+                  <button
+                    onClick={() => send("What's coming up on the family calendar in the next few weeks?")}
+                    className="chip bg-clay-50 text-clay-700 border border-clay-200 hover:bg-clay-100 transition-colors px-3 py-1.5 text-[12px]"
+                  >
+                    📅 What's coming up
+                  </button>
+                </>
+              )}
             </div>
             <button
               onClick={() => fileRef.current?.click()}
@@ -609,12 +654,25 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
                 const imgs = m.images || (m.image ? [m.image] : []);
                 if (imgs.length === 0) return null;
                 if (imgs.length === 1) {
-                  return <img src={imgs[0]} alt="attachment" className="max-w-[180px] rounded-2xl border border-cream-300 shadow-soft" />;
+                  return (
+                    <img
+                      src={imgs[0]}
+                      alt="attachment"
+                      onClick={() => setLightboxSrc(imgs[0])}
+                      className="max-w-[180px] rounded-2xl border border-cream-300 shadow-soft cursor-zoom-in"
+                    />
+                  );
                 }
                 return (
                   <div className={`flex flex-wrap gap-1.5 ${m.role === 'user' ? 'justify-end' : ''}`}>
                     {imgs.map((src, k) => (
-                      <img key={k} src={src} alt="attachment" className="w-20 h-20 object-cover rounded-2xl border border-cream-300 shadow-soft" />
+                      <img
+                        key={k}
+                        src={src}
+                        alt="attachment"
+                        onClick={() => setLightboxSrc(src)}
+                        className="w-20 h-20 object-cover rounded-2xl border border-cream-300 shadow-soft cursor-zoom-in"
+                      />
                     ))}
                   </div>
                 );
@@ -757,6 +815,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
           }
         </p>
       </div>
+
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} name="Chat attachment" />
     </div>
   );
 }

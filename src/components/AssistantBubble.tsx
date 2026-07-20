@@ -9,6 +9,7 @@ interface Props {
   onApplyEdits: (edits: AiEdit[]) => Promise<void>;
   onAddMemberDoc: (memberId: string, doc: FamilyDocument) => Promise<void>;
   demo?: boolean;
+  isBusinessSpace?: boolean;
 }
 
 /**
@@ -17,7 +18,7 @@ interface Props {
  * launcher toggles to a close (X); clicking anywhere outside the panel (or Esc,
  * or the mobile backdrop) also closes it.
  */
-export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, demo }: Props) {
+export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, demo, isBusinessSpace }: Props) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -78,7 +79,7 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
                 </p>
               </div>
             ) : (
-              <AIChatbot members={members} onApplyEdits={onApplyEdits} onAddMemberDoc={onAddMemberDoc} />
+              <AIChatbot members={members} onApplyEdits={onApplyEdits} onAddMemberDoc={onAddMemberDoc} isBusinessSpace={isBusinessSpace} />
             )}
           </div>
         </>
