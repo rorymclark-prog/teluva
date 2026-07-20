@@ -151,7 +151,7 @@ Edit is one of:
 - {"kind":"passport","member":<name>,"country":<country>,"number":<string>,"expiry":<YYYY-MM-DD or "">}
 - {"kind":"contact","name":<string>,"relation":<string>,"phone":<string>,"email":<string>}   // a shared family contact (school office, doctor, a friend, etc.)
 - {"kind":"number","label":<string>,"value":<string>}                                          // a shared standalone reference number
-- {"kind":"document","name":<string>,"category":"Identity"|"Education"|"Medical"|"Financial"|"Legal"|"Travel"|"Other","member":<existing member name or "">}  // file the ATTACHED scan into the Document Vault; set "member" to the family member the document belongs to (their passport/ID/school report/medical letter) so it ALSO files into that person's own Documents tab. Use "Legal" for leases/tenancy agreements, contracts, wills, powers of attorney, court/notary papers
+- {"kind":"document","name":<string>,"category":"Identity"|"Education"|"Medical"|"Financial"|"Legal"|"Travel"|"Other","member":<existing member name or "">,"imageIndex":<0-based index, only when MULTIPLE images were attached>}  // file the ATTACHED scan into the Document Vault; set "member" to the family member the document belongs to (their passport/ID/school report/medical letter) so it ALSO files into that person's own Documents tab. Use "Legal" for leases/tenancy agreements, contracts, wills, powers of attorney, court/notary papers
 - {"kind":"calendar_event","title":<string>,"date":<YYYY-MM-DD>,"time":<HH:MM or "">,"category":"Milestone"|"Appointment"|"School"|"Travel"|"Other","memberNames":[<existing member names>]}  // put an appointment/event on the family calendar
 - {"kind":"list_add","list":"vehicles"|"pets"|"utilities"|"banks"|"insurance"|"benefits"|"timeline"|"shopping","item":{<string fields>}}  // add a row to a household/finances/timeline list, or add item(s) to the family shopping list
 - {"kind":"asset","name":<string>,"category":"Electronics"|"Bike"|"Sporting"|"Vehicle"|"Jewellery"|"Furniture"|"Other","assignedMember":<existing member name or "">,"make":<string>,"model":<string>,"serialNumber":<string>,"purchaseDate":<YYYY-MM-DD or "">,"purchasePrice":<string>,"notes":<string>}  // add an item to the family asset inventory
@@ -201,6 +201,7 @@ RULES:
 - Use "saying" when the user shares a quote to remember — "Mia said '…' yesterday", "log this: Ben called it '…'", or a photo of a note with a child's quote. Copy the quote verbatim into "text", resolve the date into "said" (today if unspecified), and attribute it to the named member. Do NOT invent or embellish the quote.
 - Use "family_word" when the user describes a made-up or mispronounced word the family uses ("we all say 'hanitizer' for hand sanitizer", "the kids invented '…'"). Capture the word + its meaning; set coinedBy if a person is named. This is family-wide, so no member is required.
 - IF AN IMAGE/DOCUMENT IS ATTACHED: read it (OCR). Extract every useful field — match the right kind: address/wifi → household_set; person's ID/passport → member+passport; contacts → contact; loose reference numbers → number. If it's a Meldezettel or registration certificate, read the person it names and set THEIR address with {"kind":"member","member":"<name>","field":"address","value":"<address>"} (each family member can live at a different address) AND save a scan with {"kind":"document","name":"Meldezettel <name>","category":"Identity"}. Only use household_set for the address if no specific family member is named. If it's a keepable document (passport, ID, residence card, birth/marriage cert, school report, insurance card, medical letter, tax doc), ALSO add ONE {"kind":"document"} edit with a short descriptive name, the best-fit category, AND "member" set to the family member it belongs to (match the name on the document to the family data; e.g. Sophie's passport → "member":"Sophie") so the scan lands on their profile too. In the reply, briefly say what you read and what you'll save.
+- IF MULTIPLE IMAGES ARE ATTACHED (each one is preceded by a text label "Image 0:", "Image 1:", etc. in the order they were attached): decide whether they are MULTIPLE PAGES/SIDES OF THE SAME DOCUMENT (e.g. the front and back of one ID card, or 2 pages of one contract) or SEPARATE DISTINCT DOCUMENTS. For pages/sides of the SAME document, read all of them together but emit only ONE {"kind":"document"} edit, with "imageIndex" pointing at whichever single image is the best/clearest representative (usually the front, imageIndex 0). For SEPARATE distinct documents (e.g. two different family members' passports scanned in one go), emit ONE {"kind":"document"} edit PER document, each with the correct "imageIndex" matching which image it came from, and each with the correct "member" for whoever it belongs to. Extract data fields (member/passport/household_set/etc.) from every attached image regardless of how many document edits you emit.
 - NEVER invent data. If something needed is missing, ask for it in reply. Keep reply warm and brief.
 - BOUNDARIES: You organise and recall the family's own records — you are NOT a doctor, lawyer, pharmacist or financial adviser. NEVER give medical, legal, or financial ADVICE, diagnosis, dosing, interpretation of results, or treatment/product recommendations. You may store and read back what the family recorded (e.g. "her allergy is peanuts"), but if asked for advice ("is this rash serious?", "what dose?", "should we invest?"), gently decline and suggest they consult a qualified professional. You can be wrong — never present a guess as fact.
 - INSURANCE: Any insurance policy obligations/conditions recorded on a policy may be read back to the user verbatim, but must NEVER be interpreted, assessed for coverage, judged, or turned into advice, warnings, or next steps (e.g. never say whether they are covered, whether a claim would pay, or that they should switch/cancel). Recall only.`;
@@ -232,8 +233,13 @@ app.post('/api/chat', async (req, res) => {
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
 
-    const { message, context, history, image, lang } = req.body || {};
-    const hasImage = image && image.data && image.mimeType;
+    const { message, context, history, image, images, lang } = req.body || {};
+    // "images" (array) is the current shape; "image" (singular) is kept for any
+    // client still mid-rollout on the old single-attachment build.
+    const imageList = (Array.isArray(images) ? images : (image ? [image] : []))
+      .filter((img) => img && img.data && img.mimeType)
+      .slice(0, 6);
+    const hasImage = imageList.length > 0;
     if ((!message || typeof message !== 'string') && !hasImage) {
       return res.status(400).json({ error: 'No message.' });
     }
@@ -243,11 +249,14 @@ app.post('/api/chat', async (req, res) => {
     const ctxJson = JSON.stringify(context ?? {}).slice(0, 120000);
     const today = new Date().toISOString().slice(0, 10);
     const userText = (message && typeof message === 'string') ? message
-      : 'Please read the attached document and extract any useful family info.';
+      : 'Please read the attached document(s) and extract any useful family info.';
     const userParts = [{ text: `Today's date is ${today}.\nRESPOND IN: ${langName}. Write your "reply" field in ${langName}. All edit field values stay in the original language (names, labels, dates — never translate these).\nFAMILY DATA (JSON):\n${ctxJson}\n\nUSER MESSAGE:\n${userText}` }];
-    if (hasImage) {
-      userParts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
-    }
+    // Each image is preceded by an "Image N:" label so the model can reference
+    // imageIndex on a "document" edit when multiple images are attached.
+    imageList.forEach((img, i) => {
+      if (imageList.length > 1) userParts.push({ text: `Image ${i}:` });
+      userParts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+    });
     const contents = [
       ...((Array.isArray(history) ? history : []).slice(-8).map(h => ({
         role: h.role === 'user' ? 'user' : 'model',

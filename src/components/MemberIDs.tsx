@@ -29,6 +29,29 @@ function findPassportScan(p: PassportRecord, docs?: FamilyDocument[]): FamilyDoc
     || (idDocs.length === 1 ? idDocs[0] : undefined);
 }
 
+// Same idea, for the identity-number fields below (e-Card, tax number, residence
+// permit, etc.) — each field maps to a keyword pattern its scanned document's name
+// is expected to match (English or German).
+const IDENTITY_SCAN_PATTERNS: Partial<Record<keyof IdentityRecord, RegExp>> = {
+  eCardNumber: /e-?card/i,
+  taxNumber: /tax|steuer/i,
+  studentNumber: /student|matrikel/i,
+  schoolRegNumber: /school|sch(?:ü|ue)ler/i,
+  residencePermitNumber: /residence|aufenthalt/i,
+  nationalIdNumber: /national\s*id|id\s*card|personalausweis/i,
+  citizenshipCertNumber: /citizenship|staatsb(?:ü|ue)rger/i,
+  driversLicenseNumber: /driver|f(?:ü|ue)hrerschein/i,
+};
+
+function findIdentityScan(field: keyof IdentityRecord, docs?: FamilyDocument[]): FamilyDocument | undefined {
+  const pattern = IDENTITY_SCAN_PATTERNS[field];
+  if (!pattern) return undefined;
+  const idDocs = (docs || []).filter(d => d.category === 'ID' && d.fileData && pattern.test(d.name));
+  if (idDocs.length === 0) return undefined;
+  if (idDocs.length === 1) return idDocs[0];
+  return [...idDocs].sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''))[0];
+}
+
 /* ─── expiry chip helper ─────────────────────────────────────────── */
 
 function expiryChip(dateStr: string | undefined): React.ReactNode {
@@ -292,14 +315,46 @@ function PassportsSection({
 
 /* ─── Identity section ───────────────────────────────────────────── */
 
+// Field label with an optional "view scan" eye icon, shown only when a matching
+// scanned document exists — keeps the common no-scan case visually unchanged.
+function IdentityLabelRow({
+  label,
+  scan,
+  onViewScan,
+  viewTitle,
+}: {
+  label: string;
+  scan: FamilyDocument | undefined;
+  onViewScan: (src: string) => void;
+  viewTitle: string;
+}) {
+  if (!scan) return <label className="field-label">{label}</label>;
+  return (
+    <div className="flex items-center justify-between mb-1.5">
+      <label className="text-[13px] font-semibold text-ink-600">{label}</label>
+      <button
+        onClick={() => onViewScan(scan.fileData!)}
+        className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg"
+        title={viewTitle}
+      >
+        <Eye className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
 function IdentitySection({
   identity,
   onChange,
+  documents,
+  onViewScan,
   memberName,
   onShowCard,
 }: {
   identity: IdentityRecord;
   onChange: (next: IdentityRecord) => void;
+  documents?: FamilyDocument[];
+  onViewScan: (src: string) => void;
   memberName: string;
   onShowCard: (data: ShowCardData) => void;
 }) {
@@ -326,21 +381,36 @@ function IdentitySection({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">e-Card number</label>
-              {identity.eCardNumber && (
-                <button
-                  onClick={() => onShowCard({
-                    title: 'e-card',
-                    subtitle: memberName,
-                    fields: [
-                      { label: 'e-Card number', value: identity.eCardNumber || '—', mono: true, big: true },
-                    ],
-                  })}
-                  className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
-                  title="Show this e-card"
-                >
-                  <Maximize2 className="w-3 h-3" /> Show
-                </button>
-              )}
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const scan = findIdentityScan('eCardNumber', documents);
+                  return scan ? (
+                    <button
+                      onClick={() => onViewScan(scan.fileData!)}
+                      className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg"
+                      title="View scanned e-card"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null;
+                })()}
+                {identity.eCardNumber && (
+                  <button
+                    onClick={() => onShowCard({
+                      title: 'e-card',
+                      subtitle: memberName,
+                      fields: [
+                        { label: 'e-Card number', value: identity.eCardNumber || '—', mono: true, big: true },
+                      ],
+                      scanSrc: findIdentityScan('eCardNumber', documents)?.fileData,
+                    })}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
+                    title="Show this e-card"
+                  >
+                    <Maximize2 className="w-3 h-3" /> Show
+                  </button>
+                )}
+              </div>
             </div>
             <input
               className="field font-mono tabular-nums"
@@ -361,7 +431,12 @@ function IdentitySection({
             />
           </div>
           <div>
-            <label className="field-label">Tax number</label>
+            <IdentityLabelRow
+              label="Tax number"
+              scan={findIdentityScan('taxNumber', documents)}
+              onViewScan={onViewScan}
+              viewTitle="View scanned tax document"
+            />
             <input
               className="field font-mono tabular-nums"
               placeholder="Steuernummer"
@@ -371,7 +446,12 @@ function IdentitySection({
             />
           </div>
           <div>
-            <label className="field-label">Student number</label>
+            <IdentityLabelRow
+              label="Student number"
+              scan={findIdentityScan('studentNumber', documents)}
+              onViewScan={onViewScan}
+              viewTitle="View scanned student number document"
+            />
             <input
               className="field font-mono tabular-nums"
               placeholder="Matrikelnummer"
@@ -381,7 +461,12 @@ function IdentitySection({
             />
           </div>
           <div>
-            <label className="field-label">School registration number</label>
+            <IdentityLabelRow
+              label="School registration number"
+              scan={findIdentityScan('schoolRegNumber', documents)}
+              onViewScan={onViewScan}
+              viewTitle="View scanned school registration document"
+            />
             <input
               className="field font-mono tabular-nums"
               placeholder="Schülerausweis-Nr"
@@ -402,24 +487,39 @@ function IdentitySection({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">Residence permit number</label>
-              {identity.residencePermitNumber && (
-                <button
-                  onClick={() => onShowCard({
-                    title: 'Residence permit',
-                    subtitle: memberName,
-                    fields: [
-                      { label: 'Residence permit number', value: identity.residencePermitNumber || '—', mono: true, big: true },
-                      ...(identity.residencePermitExpiry
-                        ? [{ label: 'Expiry', value: identity.residencePermitExpiry }]
-                        : []),
-                    ],
-                  })}
-                  className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
-                  title="Show this residence permit"
-                >
-                  <Maximize2 className="w-3 h-3" /> Show
-                </button>
-              )}
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const scan = findIdentityScan('residencePermitNumber', documents);
+                  return scan ? (
+                    <button
+                      onClick={() => onViewScan(scan.fileData!)}
+                      className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg"
+                      title="View scanned residence permit"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null;
+                })()}
+                {identity.residencePermitNumber && (
+                  <button
+                    onClick={() => onShowCard({
+                      title: 'Residence permit',
+                      subtitle: memberName,
+                      fields: [
+                        { label: 'Residence permit number', value: identity.residencePermitNumber || '—', mono: true, big: true },
+                        ...(identity.residencePermitExpiry
+                          ? [{ label: 'Expiry', value: identity.residencePermitExpiry }]
+                          : []),
+                      ],
+                      scanSrc: findIdentityScan('residencePermitNumber', documents)?.fileData,
+                    })}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
+                    title="Show this residence permit"
+                  >
+                    <Maximize2 className="w-3 h-3" /> Show
+                  </button>
+                )}
+              </div>
             </div>
             <input
               className="field font-mono tabular-nums"
@@ -445,7 +545,12 @@ function IdentitySection({
             />
           </div>
           <div>
-            <label className="field-label">National ID number</label>
+            <IdentityLabelRow
+              label="National ID number"
+              scan={findIdentityScan('nationalIdNumber', documents)}
+              onViewScan={onViewScan}
+              viewTitle="View scanned national ID document"
+            />
             <input
               className="field font-mono tabular-nums"
               placeholder="e.g. SA ID number"
@@ -455,7 +560,12 @@ function IdentitySection({
             />
           </div>
           <div>
-            <label className="field-label">Citizenship certificate number</label>
+            <IdentityLabelRow
+              label="Citizenship certificate number"
+              scan={findIdentityScan('citizenshipCertNumber', documents)}
+              onViewScan={onViewScan}
+              viewTitle="View scanned citizenship certificate"
+            />
             <input
               className="field font-mono tabular-nums"
               placeholder="Staatsbürgerschaftsnachweis"
@@ -474,7 +584,12 @@ function IdentitySection({
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="field-label">Driver's licence number</label>
+            <IdentityLabelRow
+              label="Driver's licence number"
+              scan={findIdentityScan('driversLicenseNumber', documents)}
+              onViewScan={onViewScan}
+              viewTitle="View scanned driver's licence"
+            />
             <input
               className="field font-mono tabular-nums"
               placeholder="Führerschein-Nr"
@@ -575,6 +690,8 @@ export default function MemberIDs({ member, onUpdate }: MemberIDsProps) {
       <IdentitySection
         identity={identity}
         onChange={handleIdentityChange}
+        documents={member.documents}
+        onViewScan={setViewScanSrc}
         memberName={member.name}
         onShowCard={setShowCard}
       />

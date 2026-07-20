@@ -21,6 +21,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [birthdate, setBirthdate] = useState('');
   const [birthTime, setBirthTime] = useState('');
   const [placeOfBirth, setPlaceOfBirth] = useState('');
+  const [birthHospital, setBirthHospital] = useState('');
   const [taxNumber, setTaxNumber] = useState('');
   const [startDate, setStartDate] = useState('');
   const [address, setAddress] = useState('');
@@ -48,6 +49,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setBirthdate(member.birthdate || '');
       setBirthTime(member.birthTime || '');
       setPlaceOfBirth(member.placeOfBirth || '');
+      setBirthHospital(member.birthHospital || '');
       setTaxNumber(member.taxNumber || '');
       setStartDate(member.startDate || '');
       setAddress(member.address || '');
@@ -167,6 +169,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       birthdate: birthdate || undefined,
       birthTime: birthTime || undefined,
       placeOfBirth: placeOfBirth.trim() || undefined,
+      birthHospital: birthHospital.trim() || undefined,
       taxNumber: taxNumber.trim() || undefined,
       startDate: startDate || undefined,
       address: address.trim() || undefined,
@@ -282,6 +285,13 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                 <div>
                   <label className="field-label">Place of birth <span className="normal-case text-ink-300 font-normal">· optional</span></label>
                   <input type="text" placeholder="e.g. Vienna, Austria" value={placeOfBirth} onChange={(e) => setPlaceOfBirth(e.target.value)} className="field" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="field-label">Hospital / clinic <span className="normal-case text-ink-300 font-normal">· optional</span></label>
+                  <input type="text" placeholder="e.g. Rudolfstiftung, Vienna" value={birthHospital} onChange={(e) => setBirthHospital(e.target.value)} className="field" />
                 </div>
               </div>
 

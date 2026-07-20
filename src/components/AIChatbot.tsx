@@ -28,7 +28,7 @@ export type AiEdit =
   | { kind: 'passport'; member: string; country: string; number: string; expiry?: string }
   | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string }
   | { kind: 'number'; label: string; value: string }
-  | { kind: 'document'; name: string; category: VaultCategory; member?: string }
+  | { kind: 'document'; name: string; category: VaultCategory; member?: string; imageIndex?: number }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
   | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string }
@@ -40,13 +40,19 @@ export type AiEdit =
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
+// Attach up to this many files/photos to a single message — plenty for a
+// multi-page ID or several documents at once, without ballooning the request.
+const MAX_ATTACHMENTS = 6;
+
 interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   edits?: AiEdit[];
   applied?: boolean;
-  image?: string;            // dataUrl preview on a user message (stripped from storage)
-  sourceImage?: Attachment;  // carried on the assistant message so 'document' edits can file the scan
+  image?: string;             // legacy single dataUrl preview — kept for messages persisted before multi-attach
+  images?: string[];          // dataUrl previews on a user message (stripped from storage)
+  sourceImage?: Attachment;   // legacy single source — kept for messages persisted before multi-attach
+  sourceImages?: Attachment[]; // carried on the assistant message so 'document' edits can file the right scan
 }
 
 interface Props {
@@ -121,7 +127,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     catch { return []; }
   });
   const [input, setInput] = useState('');
-  const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -179,10 +185,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading, streamWordCount]);
 
-  // Strip heavy/base64 fields (image, sourceImage) before persisting; keep
-  // edits + applied so cards restore their applied state.
+  // Strip heavy/base64 fields (image(s), sourceImage(s)) before persisting;
+  // keep edits + applied so cards restore their applied state.
   const slimForCloud = (msgs: ChatMessage[]) =>
-    msgs.map(({ image, sourceImage, ...m }) => m);
+    msgs.map(({ image, images, sourceImage, sourceImages, ...m }) => m);
 
   // Persist the conversation (minus heavy image data) on this device.
   useEffect(() => {
@@ -197,7 +203,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     setMessages([]);
     setError(null);
     setInput('');
-    setAttachment(null);
+    setAttachments([]);
     try { localStorage.removeItem(CHAT_KEY); } catch { /* ignore */ }
     if (uid) saveChatHistory(uid, []);
   };
@@ -218,10 +224,14 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
         const file = item.getAsFile();
         if (!file) continue;
         e.preventDefault();
+        if (attachments.length >= MAX_ATTACHMENTS) {
+          setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`);
+          return;
+        }
         try {
           let dataUrl = await fileToDataUrl(file);
           dataUrl = await compressImageToAvatar(dataUrl, 1600, 0.82);
-          setAttachment({ name: 'screenshot.jpg', mimeType: 'image/jpeg', dataUrl });
+          setAttachments(prev => [...prev, { name: `screenshot-${prev.length + 1}.jpg`, mimeType: 'image/jpeg', dataUrl }]);
           setError(null);
         } catch {
           setError("Couldn't read the pasted image.");
@@ -232,25 +242,35 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
   };
 
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files: File[] = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = '';
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) { setError('That file is over 20MB — please use a smaller scan.'); return; }
-    try {
-      let dataUrl = await fileToDataUrl(file);
-      let mimeType = file.type || 'application/octet-stream';
-      // Shrink photos before sending — a raw phone photo is too big for the
-      // request and slows the scan; 1600px is plenty for OCR. PDFs pass through.
-      if (mimeType.startsWith('image/')) {
-        // 1200px @ 0.75 is plenty for OCR and keeps the payload small on mobile
-        dataUrl = await compressImageToAvatar(dataUrl, 1200, 0.75);
-        mimeType = 'image/jpeg';
+    if (!files.length) return;
+
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (room <= 0) { setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`); return; }
+    const toProcess = files.slice(0, room);
+    if (files.length > room) setError(`You can attach up to ${MAX_ATTACHMENTS} files at once — added the first ${room}.`);
+    else setError(null);
+
+    const next: Attachment[] = [];
+    for (const file of toProcess) {
+      if (file.size > 20 * 1024 * 1024) { setError('One of those files is over 20MB — please use a smaller scan.'); continue; }
+      try {
+        let dataUrl = await fileToDataUrl(file);
+        let mimeType = file.type || 'application/octet-stream';
+        // Shrink photos before sending — a raw phone photo is too big for the
+        // request and slows the scan; 1600px is plenty for OCR. PDFs pass through.
+        if (mimeType.startsWith('image/')) {
+          // 1200px @ 0.75 is plenty for OCR and keeps the payload small on mobile
+          dataUrl = await compressImageToAvatar(dataUrl, 1200, 0.75);
+          mimeType = 'image/jpeg';
+        }
+        next.push({ name: file.name, mimeType, dataUrl });
+      } catch {
+        setError("Couldn't read one of those files.");
       }
-      setAttachment({ name: file.name, mimeType, dataUrl });
-      setError(null);
-    } catch {
-      setError("Couldn't read that file.");
     }
+    if (next.length) setAttachments(prev => [...prev, ...next]);
   };
 
   const toggleVoice = () => {
@@ -289,18 +309,19 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     setListening(true);
   };
 
-  const send = async (text: string, retryAtt?: Attachment | null) => {
+  const send = async (text: string, retryAtts?: Attachment[] | null) => {
     const msg = text.trim();
-    const att = retryAtt !== undefined ? retryAtt : attachment;
-    if ((!msg && !att) || loading) return;
+    const atts = retryAtts !== undefined ? (retryAtts || []) : attachments;
+    if ((!msg && atts.length === 0) || loading) return;
     stopStreaming(); // cancel any reveal still playing from a prior reply
     setError(null);
     setInput('');
-    setAttachment(null);
-    setIsScanning(!!att);
+    setAttachments([]);
+    setIsScanning(atts.length > 0);
 
     const history = messages.map(m => ({ role: m.role, text: m.text }));
-    setMessages(prev => [...prev, { role: 'user', text: msg || `📎 ${att?.name}`, image: att?.dataUrl }]);
+    const fallbackText = atts.length === 1 ? `📎 ${atts[0].name}` : `📎 ${atts.length} files`;
+    setMessages(prev => [...prev, { role: 'user', text: msg || fallbackText, images: atts.length ? atts.map(a => a.dataUrl) : undefined }]);
     setLoading(true);
 
     try {
@@ -310,7 +331,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
       const context = await buildContext();
 
       const body: any = { message: msg, context, history, lang };
-      if (att) body.image = { mimeType: att.mimeType, data: att.dataUrl.split(',')[1] };
+      if (atts.length) body.images = atts.map(a => ({ mimeType: a.mimeType, data: a.dataUrl.split(',')[1] }));
 
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -332,7 +353,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
         role: 'assistant',
         text: data.reply || '…',
         edits: edits.length ? edits : undefined,
-        sourceImage: att || undefined,
+        sourceImages: atts.length ? atts : undefined,
       };
       setMessages(prev => {
         const updatedMessages = [...prev, assistantMsg];
@@ -343,13 +364,13 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     } catch (e: any) {
       const raw = e?.message || 'Something went wrong.';
       // "Load failed" is Safari/iOS's fetch abort error — surface a clearer message
-      // and restore the attachment + text so the user can retry without re-uploading.
+      // and restore the attachments + text so the user can retry without re-uploading.
       const errMsg = raw === 'Load failed' || raw === 'Failed to fetch'
         ? 'Network error — the scan timed out. Tap Retry to try again.'
         : raw;
       setMessages(prev => prev.slice(0, -1)); // remove optimistic user message
       setInput(msg);                           // restore text
-      if (att) setAttachment(att);             // restore attachment
+      if (atts.length) setAttachments(atts);   // restore attachments
       setError(errMsg);
     } finally {
       setLoading(false);
@@ -404,12 +425,14 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
     return undefined;
   };
 
-  // File the scanned image for any 'document' edits: always into the shared
+  // File the scanned image(s) for any 'document' edits: always into the shared
   // Document Vault, AND into the named member's own Documents tab when the AI
-  // says who the document belongs to (e.g. Sophie's passport).
-  const fileScans = async (docEdits: AiEdit[], src: Attachment) => {
-    const blob = dataUrlToBlob(src.dataUrl);
-    const file = new File([blob], src.name, { type: src.mimeType });
+  // says who the document belongs to (e.g. Sophie's passport). When multiple
+  // images were attached in one turn, each 'document' edit's imageIndex picks
+  // which one it came from (untagged/out-of-range edits fall back to the
+  // first image, matching the old single-attachment behaviour).
+  const fileScans = async (docEdits: AiEdit[], srcs: Attachment[]) => {
+    if (!srcs.length) return;
     const existing = await loadDocuments();
     const today = new Date().toISOString().slice(0, 10);
     const by = auth.currentUser?.displayName || auth.currentUser?.email || 'Family';
@@ -417,6 +440,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
 
     for (const e of docEdits) {
       if (e.kind !== 'document') continue;
+      const src = srcs[e.imageIndex ?? 0] || srcs[0];
+      const blob = dataUrlToBlob(src.dataUrl);
+      const file = new File([blob], src.name, { type: src.mimeType });
       const id = newId();
       const { storagePath, downloadUrl } = await uploadVaultFile(file, id);
       added.push({
@@ -461,10 +487,11 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
           return owner ? { ...e, member: owner.name } : e;
         });
       if (dataEdits.length) await onApplyEdits(dataEdits);
-      const src = messages[idx]?.sourceImage;
-      if (docEdits.length && src) {
-        await fileScans(docEdits, src);
-      } else if (docEdits.length && !src) {
+      const msg = messages[idx];
+      const srcs = msg?.sourceImages || (msg?.sourceImage ? [msg.sourceImage] : []);
+      if (docEdits.length && srcs.length) {
+        await fileScans(docEdits, srcs);
+      } else if (docEdits.length && !srcs.length) {
         // Image is stripped from persisted history — after a reload we can't
         // file the scan. Don't fail silently: the data edits applied, but the
         // user must re-attach the photo to store the document itself.
@@ -578,9 +605,20 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
               {m.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
             </div>
             <div className={`max-w-[80%] space-y-2 ${m.role === 'user' ? 'items-end' : ''}`}>
-              {m.image && (
-                <img src={m.image} alt="attachment" className="max-w-[180px] rounded-2xl border border-cream-300 shadow-soft" />
-              )}
+              {(() => {
+                const imgs = m.images || (m.image ? [m.image] : []);
+                if (imgs.length === 0) return null;
+                if (imgs.length === 1) {
+                  return <img src={imgs[0]} alt="attachment" className="max-w-[180px] rounded-2xl border border-cream-300 shadow-soft" />;
+                }
+                return (
+                  <div className={`flex flex-wrap gap-1.5 ${m.role === 'user' ? 'justify-end' : ''}`}>
+                    {imgs.map((src, k) => (
+                      <img key={k} src={src} alt="attachment" className="w-20 h-20 object-cover rounded-2xl border border-cream-300 shadow-soft" />
+                    ))}
+                  </div>
+                );
+              })()}
               <div
                 className={`p-3 rounded-2xl text-[14px] leading-relaxed ${m.role === 'user' ? 'text-white rounded-tr-sm' : 'bg-white/80 border border-cream-200 text-ink-800 rounded-tl-sm'}`}
                 style={m.role === 'user' ? { backgroundImage: 'linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600))' } : undefined}
@@ -645,20 +683,35 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
       <div className="p-4 border-t border-cream-200 bg-white/70">
         {error && <p className="text-[12px] text-rosa-700 mb-2">{error}</p>}
 
-        {attachment && (
-          <div className="mb-2 flex items-center gap-2 p-2 rounded-xl bg-cream-100 border border-cream-300 w-fit max-w-full">
-            {attachment.mimeType.startsWith('image/') ? (
-              <img src={attachment.dataUrl} alt="" className="w-8 h-8 rounded-lg object-cover border border-cream-300" />
-            ) : (
-              <div className="w-8 h-8 rounded-lg bg-rosa-100 text-rosa-700 flex items-center justify-center"><FileText className="w-4 h-4" /></div>
+        {attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            {attachments.map((att, k) => (
+              <div key={k} className="flex items-center gap-2 p-2 rounded-xl bg-cream-100 border border-cream-300 w-fit max-w-full">
+                {att.mimeType.startsWith('image/') ? (
+                  <img src={att.dataUrl} alt="" className="w-8 h-8 rounded-lg object-cover border border-cream-300" />
+                ) : (
+                  <div className="w-8 h-8 rounded-lg bg-rosa-100 text-rosa-700 flex items-center justify-center"><FileText className="w-4 h-4" /></div>
+                )}
+                <span className="text-[12px] font-semibold text-ink-700 truncate max-w-[140px]">{att.name}</span>
+                <button onClick={() => setAttachments(prev => prev.filter((_, i) => i !== k))} className="p-1 text-ink-400 hover:text-rosa-500 rounded-lg"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            ))}
+            {attachments.length < MAX_ATTACHMENTS && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={loading}
+                title="Add another file or photo"
+                className="w-9 h-9 rounded-xl border border-dashed border-cream-300 text-ink-400 hover:text-clay-600 hover:border-clay-300 flex items-center justify-center disabled:opacity-40"
+              >
+                <Paperclip className="w-3.5 h-3.5" />
+              </button>
             )}
-            <span className="text-[12px] font-semibold text-ink-700 truncate max-w-[180px]">{attachment.name}</span>
-            <button onClick={() => setAttachment(null)} className="p-1 text-ink-400 hover:text-rosa-500 rounded-lg"><X className="w-3.5 h-3.5" /></button>
           </div>
         )}
 
         <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="flex gap-2 items-center">
-          <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={onPickFile} className="hidden" />
+          <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple onChange={onPickFile} className="hidden" />
           {SR && (
             <button
               type="button"
@@ -677,8 +730,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            disabled={loading}
-            title="Attach a photo, PDF or file — or paste a screenshot with Ctrl+V / Cmd+V. For Google Drive files, open the file in Drive and use File → Download first."
+            disabled={loading || attachments.length >= MAX_ATTACHMENTS}
+            title={`Attach up to ${MAX_ATTACHMENTS} photos, PDFs or files at once — or paste a screenshot with Ctrl+V / Cmd+V. For Google Drive files, open the file in Drive and use File → Download first.`}
             className="btn-quiet h-11 px-3 shrink-0 disabled:opacity-40"
           >
             <Paperclip className="w-4 h-4" />
@@ -686,14 +739,14 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
           </button>
           <input
             type="text"
-            placeholder={attachment ? 'Add a note, or just send to scan…' : 'Ask or tell me something…'}
+            placeholder={attachments.length > 0 ? 'Add a note, or just send to scan…' : 'Ask or tell me something…'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onPaste={onPasteImage}
             disabled={loading}
             className="field flex-1 h-11"
           />
-          <button type="submit" disabled={(!input.trim() && !attachment) || loading} className="btn-primary h-11 w-11 !p-0 shrink-0 disabled:opacity-40">
+          <button type="submit" disabled={(!input.trim() && attachments.length === 0) || loading} className="btn-primary h-11 w-11 !p-0 shrink-0 disabled:opacity-40">
             <Send className="w-4 h-4" />
           </button>
         </form>
