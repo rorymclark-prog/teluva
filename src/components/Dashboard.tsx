@@ -585,7 +585,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       if (!ok) failures.push('family members');
     }
     if (hasInfoEdits(edits)) {
-      const info = (await loadFamilyInfo()) || { numbers: [], contacts: [] };
+      const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [] };
       const ok = await saveFamilyInfo(applyInfoEdits(info, edits));
       if (!ok) failures.push('contacts & numbers');
     }

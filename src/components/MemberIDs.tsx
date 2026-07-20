@@ -758,6 +758,18 @@ function SouthAfricanFields({ identity, val, set, onChange, documents, onViewSca
             <input className="field font-mono tabular-nums" placeholder="Medical aid member number" value={val('medicalAidNumber')} onChange={set('medicalAidNumber')} onBlur={() => onChange({ ...identity })} />
           </div>
           <div>
+            <label className="field-label">Medical aid scheme</label>
+            <input className="field" placeholder="e.g. Discovery Health, Bonitas, GEMS" value={val('medicalAidScheme')} onChange={set('medicalAidScheme')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <label className="field-label">Plan / option name</label>
+            <input className="field" placeholder="e.g. Discovery Classic Saver" value={val('medicalAidPlanOption')} onChange={set('medicalAidPlanOption')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <label className="field-label">Dependant code</label>
+            <input className="field font-mono tabular-nums" placeholder="00 = principal member, 01, 02…" value={val('medicalAidDependantCode')} onChange={set('medicalAidDependantCode')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
             <IdentityLabelRow label="Citizenship certificate number" scan={findIdentityScan('citizenshipCertNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned citizenship certificate" />
             <input className="field font-mono tabular-nums" placeholder="Citizenship certificate number" value={val('citizenshipCertNumber')} onChange={set('citizenshipCertNumber')} onBlur={() => onChange({ ...identity })} />
           </div>
@@ -925,6 +937,10 @@ function UKFields({ identity, val, set, onChange, documents, onViewScan, memberN
             <input className="field font-mono tabular-nums" placeholder="NHS number" value={val('medicalAidNumber')} onChange={set('medicalAidNumber')} onBlur={() => onChange({ ...identity })} />
           </div>
           <div>
+            <label className="field-label">Registered GP practice</label>
+            <input className="field" placeholder="e.g. The Oaks Surgery" value={val('registeredGpPractice')} onChange={set('registeredGpPractice')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
             <IdentityLabelRow label="Naturalisation certificate number" scan={findIdentityScan('citizenshipCertNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned naturalisation certificate" />
             <input className="field font-mono tabular-nums" placeholder="Certificate number" value={val('citizenshipCertNumber')} onChange={set('citizenshipCertNumber')} onBlur={() => onChange({ ...identity })} />
           </div>
@@ -1044,6 +1060,18 @@ function USFields({ identity, val, set, onChange, documents, onViewScan, memberN
           <div>
             <IdentityLabelRow label="Health insurance member ID" scan={findIdentityScan('medicalAidNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned health insurance card" />
             <input className="field font-mono tabular-nums" placeholder="Health insurance member ID" value={val('medicalAidNumber')} onChange={set('medicalAidNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <label className="field-label">Insurer / plan name</label>
+            <input className="field" placeholder="e.g. Blue Cross Blue Shield PPO" value={val('medicalAidScheme')} onChange={set('medicalAidScheme')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <label className="field-label">Group number</label>
+            <input className="field font-mono tabular-nums" placeholder="Group #" value={val('insuranceGroupNumber')} onChange={set('insuranceGroupNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <label className="field-label">Plan type</label>
+            <input className="field" placeholder="e.g. HMO — referral needed for specialists" value={val('medicalAidPlanOption')} onChange={set('medicalAidPlanOption')} onBlur={() => onChange({ ...identity })} />
           </div>
           <div>
             <IdentityLabelRow label="Certificate of Naturalization no." scan={findIdentityScan('citizenshipCertNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned naturalization certificate" />

@@ -21,6 +21,7 @@ const initMedical = (member: FamilyMember): MedicalRecord => ({
   emergencyMedication: member.medical?.emergencyMedication || '',
   organDonor: member.medical?.organDonor || false,
   familyHistory: member.medical?.familyHistory || '',
+  preferredPharmacy: member.medical?.preferredPharmacy || '',
   notes: member.medical?.notes || '',
 });
 
@@ -151,6 +152,9 @@ export default function MemberMedical({ member, onUpdate }: MemberMedicalProps) 
           <span className="w-1.5 h-3.5 bg-ink-800 rounded-full inline-block"></span>
           Health details
         </h3>
+        <p className="text-[12.5px] text-ink-400 -mt-2">
+          Doctors, specialists, and the family GP are kept in <span className="font-semibold text-ink-500">Info → Doctors &amp; Specialists</span>.
+        </p>
         <div className="card p-5 space-y-4">
           <div>
             <label className="field-label">Medications</label>
@@ -161,6 +165,18 @@ export default function MemberMedical({ member, onUpdate }: MemberMedicalProps) 
               onChange={(e) => handleFieldChange('medications', e.target.value)}
               onBlur={() => handleFieldBlur('medications')}
               className="field font-sans"
+            />
+          </div>
+
+          <div>
+            <label className="field-label">Preferred pharmacy <span className="normal-case text-ink-300 font-normal">· optional</span></label>
+            <input
+              type="text"
+              placeholder="If different from the household default"
+              value={medical.preferredPharmacy || ''}
+              onChange={(e) => handleFieldChange('preferredPharmacy', e.target.value)}
+              onBlur={() => handleFieldBlur('preferredPharmacy')}
+              className="field"
             />
           </div>
 

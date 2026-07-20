@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { AVATAR_COLORS } from './avatarPalette';
 
@@ -199,22 +199,38 @@ function defaultCareInterval(kind: string): number {
   return 12;
 }
 
-// Apply contact + number edits onto the shared family info doc.
+const VALID_PROVIDER_TYPES = ['GP practice', 'Dentist', 'Optician', 'Specialist', 'Pharmacy', 'Other'];
+
+// Apply contact + number + provider edits onto the shared family info doc.
 export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   const numbers = [...(info.numbers || [])];
   const contacts = [...(info.contacts || [])];
+  const providers = [...(info.providers || [])];
   for (const e of edits) {
     if (e.kind === 'contact') {
       contacts.push({ id: newId(), name: e.name, relation: e.relation, phone: e.phone, email: e.email });
     } else if (e.kind === 'number') {
       numbers.push({ id: newId(), label: e.label, value: e.value });
+    } else if (e.kind === 'provider') {
+      providers.push({
+        id: newId(),
+        name: e.name,
+        type: (e.type && VALID_PROVIDER_TYPES.includes(e.type)) ? e.type as HealthcareProvider['type'] : 'Other',
+        specialty: e.specialty,
+        practiceName: e.practiceName,
+        phone: e.phone,
+        afterHoursPhone: e.afterHoursPhone,
+        email: e.email,
+        address: e.address,
+        forMember: e.forMember,
+      });
     }
   }
-  return { numbers, contacts };
+  return { numbers, contacts, providers };
 }
 
 export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying');
-export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number');
+export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number' || e.kind === 'provider');
 
 const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;
 type CalendarCat = typeof VALID_CALENDAR_CATS[number];

@@ -207,6 +207,7 @@ export interface MedicalRecord {
   emergencyMedication?: string;
   organDonor?: boolean;
   familyHistory?: string;       // diabetes, heart disease, cancer, genetic
+  preferredPharmacy?: string;   // UK: EPS nomination · US: per-member override of the household default
   notes?: string;
 }
 
@@ -251,6 +252,11 @@ export interface IdentityRecord {
   idDocumentType?: string;      // e.g. "Smart ID Card", "Green ID Book" (South Africa)
   birthCertNumber?: string;     // unabridged birth certificate number
   medicalAidNumber?: string;    // private medical aid membership (SA has no national health-insurance card)
+  medicalAidScheme?: string;    // SA: scheme name (Discovery Health, Bonitas, GEMS…) · US: insurer/plan name
+  medicalAidPlanOption?: string; // SA: plan/option name · US: plan type (e.g. "HMO — referral needed")
+  medicalAidDependantCode?: string; // SA only — 00 principal member, 01/02… dependants
+  insuranceGroupNumber?: string;    // US only — needed alongside the member ID to use insurance
+  registeredGpPractice?: string;    // UK only — the practice you're registered with (not an individual GP)
   citizenshipCertNumber?: string;
   driversLicenseNumber?: string;
   driversLicenseExpiry?: string;
@@ -526,9 +532,35 @@ export interface ContactEntry {
   note?: string;
 }
 
+// A doctor, practice, specialist, or pharmacy — the family's own directory of
+// who to call. Shared at the family/business level (a GP is usually one
+// shared practice, not a per-member fact); `forMember` optionally tags an
+// entry to one person (e.g. "Mia's allergist") without needing a separate
+// per-member list.
+export type ProviderType = 'GP practice' | 'Dentist' | 'Optician' | 'Specialist' | 'Pharmacy' | 'Other';
+
+export interface HealthcareProvider {
+  id: string;
+  name: string;              // doctor/consultant name, or practice/pharmacy name if no named doctor
+  type: ProviderType;
+  specialty?: string;        // e.g. "Paediatrician", "Cardiologist"
+  practiceName?: string;     // practice / clinic / hospital / Trust name (when `name` is a person)
+  phone?: string;
+  afterHoursPhone?: string;  // emergency / out-of-hours line
+  email?: string;
+  address?: string;
+  networksAccepted?: string; // SA: "Discovery Health – Delta network only" · US: "In-network: BCBS PPO"
+  practiceNumber?: string;   // SA: HPCSA practice number · US: NPI number
+  referredBy?: string;       // UK: referring GP/practice for a specialist
+  isPrimary?: boolean;       // "our usual GP" / registered practice / PCP-on-file
+  forMember?: string;        // family member's name this is specifically for; blank = whole family
+  note?: string;
+}
+
 export interface FamilyInfo {
   numbers: InfoEntry[];
   contacts: ContactEntry[];
+  providers: HealthcareProvider[];
 }
 
 // --- Shopping list ---

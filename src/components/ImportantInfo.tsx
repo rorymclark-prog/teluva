@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { FamilyInfo, InfoEntry, ContactEntry } from '../types';
+import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType } from '../types';
 import { loadFamilyInfo, saveFamilyInfo } from '../utils/db';
 import {
   Hash, Phone, Mail, Plus, Trash2, Pencil, Check, X,
-  IdCard, Users, Search, Cloud, CloudOff
+  IdCard, Users, Search, Cloud, CloudOff, Stethoscope, Star
 } from 'lucide-react';
 
-const EMPTY: FamilyInfo = { numbers: [], contacts: [] };
+const EMPTY: FamilyInfo = { numbers: [], contacts: [], providers: [] };
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -28,7 +28,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey }: Important
     (async () => {
       const data = await loadFamilyInfo();
       if (active) {
-        setInfo(data && (data.numbers || data.contacts) ? { numbers: data.numbers || [], contacts: data.contacts || [] } : EMPTY);
+        setInfo(data && (data.numbers || data.contacts || data.providers) ? { numbers: data.numbers || [], contacts: data.contacts || [], providers: data.providers || [] } : EMPTY);
         setLoaded(true);
       }
     })();
@@ -48,6 +48,9 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey }: Important
   const contacts = q
     ? info.contacts.filter(c => `${c.name} ${c.relation || ''} ${c.phone || ''} ${c.email || ''} ${c.note || ''}`.toLowerCase().includes(q))
     : info.contacts;
+  const providers = q
+    ? (info.providers || []).filter(p => `${p.name} ${p.type} ${p.specialty || ''} ${p.practiceName || ''} ${p.phone || ''} ${p.forMember || ''} ${p.note || ''}`.toLowerCase().includes(q))
+    : (info.providers || []);
 
   if (!loaded) {
     return (
@@ -86,6 +89,15 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey }: Important
           </div>
         </div>
       </div>
+
+      {!isBusinessSpace && (
+        <ProvidersSection
+          entries={providers}
+          onAdd={(p) => persist({ ...info, providers: [...(info.providers || []), p] })}
+          onUpdate={(p) => persist({ ...info, providers: (info.providers || []).map(x => x.id === p.id ? p : x) })}
+          onDelete={(id) => persist({ ...info, providers: (info.providers || []).filter(p => p.id !== id) })}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <NumbersSection
@@ -356,6 +368,186 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
         <input className="field" placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} />
         <input className="field" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
       </div>
+      <input className="field" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} />
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
+        <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Doctors & Specialists ---------------- */
+
+const PROVIDER_TYPES: ProviderType[] = ['GP practice', 'Dentist', 'Optician', 'Specialist', 'Pharmacy', 'Other'];
+
+function ProvidersSection({ entries, onAdd, onUpdate, onDelete }: {
+  entries: HealthcareProvider[];
+  onAdd: (p: HealthcareProvider) => void;
+  onUpdate: (p: HealthcareProvider) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+
+  return (
+    <section className="card p-5 space-y-4">
+      <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+        <div>
+          <h3 className="section-label flex items-center gap-1.5"><Stethoscope className="w-3.5 h-3.5" /> Doctors & Specialists</h3>
+          <p className="text-[12px] text-ink-400 mt-0.5">Your family's GP, dentist, and specialists — one place to find who to call.</p>
+        </div>
+        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5 shrink-0">
+          <Plus className="w-3.5 h-3.5" /> Add
+        </button>
+      </div>
+
+      {adding && (
+        <ProviderForm
+          onSave={(p) => { onAdd(p); setAdding(false); }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+
+      {entries.length === 0 && !adding ? (
+        <div className="text-center py-6">
+          <div className="w-10 h-10 rounded-2xl bg-rosa-50 text-rosa-600 flex items-center justify-center mx-auto mb-2">
+            <Stethoscope className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">
+            No doctors or specialists yet — your GP, dentist, paediatrician, or any specialist a family member sees.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {entries.map(p => editId === p.id ? (
+            <div key={p.id} className="sm:col-span-2">
+              <ProviderForm
+                initial={p}
+                onSave={(upd) => { onUpdate(upd); setEditId(null); }}
+                onCancel={() => setEditId(null)}
+              />
+            </div>
+          ) : (
+            <div key={p.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="chip bg-rosa-100 text-rosa-700">{p.type}</span>
+                  {p.isPrimary && <Star className="w-3.5 h-3.5 text-honey-500 fill-honey-400" />}
+                </div>
+                <p className="text-[14px] font-semibold text-ink-900 truncate mt-1">{p.name || 'Unnamed'}</p>
+                {(p.specialty || p.practiceName) && (
+                  <p className="text-[12.5px] text-ink-500">{[p.specialty, p.practiceName].filter(Boolean).join(' · ')}</p>
+                )}
+                <div className="mt-1 space-y-0.5">
+                  {p.phone && (
+                    <a href={`tel:${p.phone.replace(/\s+/g, '')}`} className="flex items-center gap-1.5 text-[13px] font-mono tabular-nums text-sage-700 hover:underline">
+                      <Phone className="w-3 h-3 shrink-0" /> {p.phone}
+                    </a>
+                  )}
+                  {p.afterHoursPhone && (
+                    <a href={`tel:${p.afterHoursPhone.replace(/\s+/g, '')}`} className="flex items-center gap-1.5 text-[13px] font-mono tabular-nums text-honey-700 hover:underline">
+                      <Phone className="w-3 h-3 shrink-0" /> {p.afterHoursPhone} <span className="text-ink-400 font-sans not-italic">after-hours</span>
+                    </a>
+                  )}
+                  {p.email && (
+                    <a href={`mailto:${p.email}`} className="flex items-center gap-1.5 text-[13px] text-dusk-700 hover:underline break-all">
+                      <Mail className="w-3 h-3 shrink-0" /> {p.email}
+                    </a>
+                  )}
+                  {p.address && <p className="text-[12px] text-ink-500">{p.address}</p>}
+                  {p.networksAccepted && <p className="text-[12px] text-ink-500">Networks: {p.networksAccepted}</p>}
+                  {p.practiceNumber && <p className="text-[12px] text-ink-400 font-mono">{p.practiceNumber}</p>}
+                  {p.referredBy && <p className="text-[12px] text-ink-400">Referred by {p.referredBy}</p>}
+                  {p.forMember && <span className="chip bg-cream-100 text-ink-600">{p.forMember}</span>}
+                  {p.note && <p className="text-[12px] text-ink-500">{p.note}</p>}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => { setEditId(p.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => onDelete(p.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProviderForm({ initial, onSave, onCancel }: {
+  initial?: HealthcareProvider;
+  onSave: (p: HealthcareProvider) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial?.name || '');
+  const [type, setType] = useState<ProviderType>(initial?.type || 'GP practice');
+  const [specialty, setSpecialty] = useState(initial?.specialty || '');
+  const [practiceName, setPracticeName] = useState(initial?.practiceName || '');
+  const [phone, setPhone] = useState(initial?.phone || '');
+  const [afterHoursPhone, setAfterHoursPhone] = useState(initial?.afterHoursPhone || '');
+  const [email, setEmail] = useState(initial?.email || '');
+  const [address, setAddress] = useState(initial?.address || '');
+  const [networksAccepted, setNetworksAccepted] = useState(initial?.networksAccepted || '');
+  const [practiceNumber, setPracticeNumber] = useState(initial?.practiceNumber || '');
+  const [referredBy, setReferredBy] = useState(initial?.referredBy || '');
+  const [forMember, setForMember] = useState(initial?.forMember || '');
+  const [isPrimary, setIsPrimary] = useState(initial?.isPrimary || false);
+  const [note, setNote] = useState(initial?.note || '');
+
+  const save = () => {
+    if (!name.trim() && !practiceName.trim() && !phone.trim()) { onCancel(); return; }
+    onSave({
+      id: initial?.id || newId(),
+      name: name.trim(),
+      type,
+      specialty: specialty.trim() || undefined,
+      practiceName: practiceName.trim() || undefined,
+      phone: phone.trim() || undefined,
+      afterHoursPhone: afterHoursPhone.trim() || undefined,
+      email: email.trim() || undefined,
+      address: address.trim() || undefined,
+      networksAccepted: networksAccepted.trim() || undefined,
+      practiceNumber: practiceNumber.trim() || undefined,
+      referredBy: referredBy.trim() || undefined,
+      forMember: forMember.trim() || undefined,
+      isPrimary,
+      note: note.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input autoFocus className="field" placeholder="Name  (e.g. Dr. Naidoo, or practice name)" value={name} onChange={e => setName(e.target.value)} />
+        <select className="field" value={type} onChange={e => setType(e.target.value as ProviderType)}>
+          {PROVIDER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      {type !== 'Pharmacy' && (
+        <input className="field" placeholder="Specialty  (e.g. Paediatrician, Cardiologist)" value={specialty} onChange={e => setSpecialty(e.target.value)} />
+      )}
+      <input className="field" placeholder="Practice / clinic / hospital name" value={practiceName} onChange={e => setPracticeName(e.target.value)} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input className="field" placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} />
+        <input className="field" placeholder="After-hours / emergency phone" value={afterHoursPhone} onChange={e => setAfterHoursPhone(e.target.value)} />
+      </div>
+      <input className="field" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
+      <input className="field" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} />
+      <input className="field" placeholder="Insurance / medical aid networks accepted (optional)" value={networksAccepted} onChange={e => setNetworksAccepted(e.target.value)} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input className="field" placeholder="Practice / NPI number (optional)" value={practiceNumber} onChange={e => setPracticeNumber(e.target.value)} />
+        <input className="field" placeholder="Referred by (optional)" value={referredBy} onChange={e => setReferredBy(e.target.value)} />
+      </div>
+      <input className="field" placeholder="For  (optional — e.g. Mia; blank = whole family)" value={forMember} onChange={e => setForMember(e.target.value)} />
+      <label className="flex items-center gap-2 text-[13px] text-ink-600 cursor-pointer select-none">
+        <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} className="rounded" />
+        This is our usual GP / primary provider
+      </label>
       <input className="field" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} />
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>

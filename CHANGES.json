@@ -1,8 +1,9 @@
 {
   "changes": [
-    "Business titles: Director, Manager, Employee + your own custom title",
-    "Fixed a business member still showing as \"Child\" after editing",
-    "Business documents now open in the same viewer as family documents",
-    "Business/Family settings now show the right name, plus a Country switch"
+    "New: a family Doctors & Specialists directory — GP, dentist, specialists, all in Info",
+    "South Africa: medical aid scheme, plan, and dependant code fields",
+    "UK: registered GP practice field",
+    "US: insurer/plan name and group number fields",
+    "Preferred pharmacy field on each member's Medical tab"
   ]
 }

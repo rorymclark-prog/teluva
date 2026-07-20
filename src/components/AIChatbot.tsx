@@ -29,6 +29,7 @@ export type AiEdit =
   | { kind: 'member'; member: string; field: string; value: string }
   | { kind: 'passport'; member: string; country: string; number: string; expiry?: string }
   | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string }
+  | { kind: 'provider'; name: string; type?: string; specialty?: string; practiceName?: string; phone?: string; afterHoursPhone?: string; email?: string; address?: string; forMember?: string }
   | { kind: 'number'; label: string; value: string }
   | { kind: 'document'; name: string; category: VaultCategory; member?: string; imageIndex?: number }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
@@ -839,6 +840,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'member') return `${e.member}: set ${e.field.replace(/_/g, ' ')} → “${e.value}”`;
   if (e.kind === 'passport') return `${e.member}: add ${e.country} passport ${e.number}${e.expiry ? ` (exp ${e.expiry})` : ''}`;
   if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}`;
+  if (e.kind === 'provider') return `Add ${(e.type || 'provider').toLowerCase()}: ${e.name}${e.specialty ? ` (${e.specialty})` : ''}${e.forMember ? ` — for ${e.forMember}` : ''}`;
   if (e.kind === 'number') return `Add number “${e.label}” → ${e.value}`;
   if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}`;
   if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;
