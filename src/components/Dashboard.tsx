@@ -1125,7 +1125,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                           >
                             <>
                               {activeTab === 'overview' && (
-                                <MemberOverview member={selectedMember} onViewDocument={setLightboxImage} canEdit={!demo && canWrite} />
+                                <MemberOverview member={selectedMember} onViewDocument={setLightboxImage} canEdit={!demo && canWrite} showAstrology={!!settings.astrology} />
                               )}
                               {activeTab === 'medical' && (
                                 <MemberMedical member={selectedMember} onUpdate={handlePatchSelectedMember} />

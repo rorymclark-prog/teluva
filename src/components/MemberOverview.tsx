@@ -4,6 +4,7 @@ import {
 import type { ElementType } from 'react';
 import { FamilyMember, FamilyDocument } from '../types';
 import { soonestCare, careDueLabel } from '../utils/care';
+import { sunSign, elementTint } from '../utils/astrology';
 import MemberBelongings from './MemberBelongings';
 
 // Proof of address: an ID-category scan named like a Meldezettel / registration
@@ -42,7 +43,8 @@ function nearestExpiry(member: FamilyMember): { label: string; date: string; sta
   return { ...soonest, status: months < 0 ? 'expired' : months <= 9 ? 'soon' : 'ok' };
 }
 
-export default function MemberOverview({ member, onViewDocument, canEdit = false }: { member: FamilyMember; onViewDocument?: (src: string) => void; canEdit?: boolean }) {
+export default function MemberOverview({ member, onViewDocument, canEdit = false, showAstrology = false }: { member: FamilyMember; onViewDocument?: (src: string) => void; canEdit?: boolean; showAstrology?: boolean }) {
+  const zodiac = showAstrology ? sunSign(member.birthdate) : null;
   const first = member.name.split(/\s+/)[0] || member.name;
   const med = member.medical || {};
   const docCount = member.documents?.length || 0;
@@ -149,6 +151,17 @@ export default function MemberOverview({ member, onViewDocument, canEdit = false
         <p className="flex items-center justify-center gap-1.5 text-[12px] text-ink-400">
           <Lock className="w-3.5 h-3.5" /> Medical details on file — open the <b className="text-ink-500 font-semibold">Medical</b> tab to view.
         </p>
+      )}
+
+      {zodiac && (
+        <div className="card p-4 flex items-center gap-4">
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 ${elementTint(zodiac.element)}`} aria-hidden="true">{zodiac.symbol}</div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">Star sign · just for fun</p>
+            <p className="text-[14px] font-semibold text-ink-800">{zodiac.sign} <span className="text-ink-400 font-normal">· {zodiac.element}</span></p>
+            <p className="text-[12.5px] text-ink-500 leading-snug">{zodiac.blurb}{member.birthTime ? ` Born ${member.birthTime}${member.placeOfBirth ? ` in ${member.placeOfBirth}` : ''}.` : ''}</p>
+          </div>
+        </div>
       )}
 
       <MemberBelongings memberName={member.name} canEdit={canEdit} />

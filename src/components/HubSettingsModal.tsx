@@ -17,6 +17,7 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
   const [photo, setPhoto] = useState<string>('');
   const [uploadFileName, setUploadFileName] = useState('');
   const [nameDisplay, setNameDisplay] = useState<'real' | 'nick' | 'both'>('both');
+  const [astrology, setAstrology] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -26,6 +27,7 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
       setHubName(settings.hubName || '');
       setPhoto(settings.familyPhotoUrl || '');
       setNameDisplay(settings.nameDisplay || 'both');
+      setAstrology(settings.astrology === true);
       setUploadFileName('');
     }
   }, [isOpen, settings]);
@@ -60,6 +62,7 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
       hubName: hubName.trim() || undefined,
       familyPhotoUrl: photo || undefined,
       nameDisplay,
+      astrology,
     });
     onClose();
   };
@@ -149,6 +152,25 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
                   ))}
                 </div>
                 <p className="text-[12px] text-ink-400 mt-1.5">Just for fun — e.g. show “Mia ‘Mimi’” or only “Mimi”.</p>
+              </div>
+
+              {/* Astrology (opt-in, off by default) */}
+              <div>
+                <label className="flex items-center justify-between gap-3 cursor-pointer select-none">
+                  <span>
+                    <span className="field-label" style={{ marginBottom: 0 }}>Star signs <span className="normal-case text-ink-300 font-normal">· just for fun</span></span>
+                    <span className="block text-[12px] text-ink-400 mt-0.5">Shows a light-hearted star sign on each profile with a birthday. Off by default — not everyone’s into it.</span>
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={astrology}
+                    onClick={() => setAstrology(v => !v)}
+                    className={`relative w-11 h-6 rounded-full shrink-0 transition-colors ${astrology ? 'bg-clay-500' : 'bg-cream-300'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-soft transition-transform ${astrology ? 'translate-x-5' : ''}`} />
+                  </button>
+                </label>
               </div>
 
               {/* Family photo field */}

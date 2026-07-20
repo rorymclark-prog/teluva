@@ -17,6 +17,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
   const [nickname, setNickname] = useState('');
   const [role, setRole] = useState<MemberRole>('Child');
   const [birthdate, setBirthdate] = useState('');
+  const [birthTime, setBirthTime] = useState('');
+  const [placeOfBirth, setPlaceOfBirth] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -40,6 +42,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
       setNickname(member.nickname || '');
       setRole(member.role);
       setBirthdate(member.birthdate || '');
+      setBirthTime(member.birthTime || '');
+      setPlaceOfBirth(member.placeOfBirth || '');
       setAddress(member.address || '');
       setPhone(member.phone || '');
       setEmail(member.email || '');
@@ -155,6 +159,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
       nickname: nickname.trim() || undefined,
       role,
       birthdate: birthdate || undefined,
+      birthTime: birthTime || undefined,
+      placeOfBirth: placeOfBirth.trim() || undefined,
       address: address.trim() || undefined,
       phone: phone.trim() || undefined,
       email: email.trim() || undefined,
@@ -257,6 +263,17 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
                     onChange={(e) => setBirthdate(e.target.value)}
                     className="field"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="field-label">Time of birth <span className="normal-case text-ink-300 font-normal">· optional</span></label>
+                  <input type="time" value={birthTime} onChange={(e) => setBirthTime(e.target.value)} className="field" />
+                </div>
+                <div>
+                  <label className="field-label">Place of birth <span className="normal-case text-ink-300 font-normal">· optional</span></label>
+                  <input type="text" placeholder="e.g. Vienna, Austria" value={placeOfBirth} onChange={(e) => setPlaceOfBirth(e.target.value)} className="field" />
                 </div>
               </div>
 

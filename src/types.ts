@@ -101,6 +101,7 @@ export interface FamilyMember {
   nickname?: string;
   role: MemberRole;
   birthdate?: string;
+  birthTime?: string;        // HH:MM — optional, powers the fun astrology view
   placeOfBirth?: string;
   nationality?: string;     // comma-separated is fine, free text
   languages?: string;
@@ -438,6 +439,7 @@ export interface HubSettings {
   hubName?: string;
   familyPhotoUrl?: string;   // compressed base64 thumbnail
   nameDisplay?: 'real' | 'nick' | 'both';   // how member names show (default 'both')
+  astrology?: boolean;       // opt-in "just for fun" star-sign view (off by default)
 }
 
 // --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---
