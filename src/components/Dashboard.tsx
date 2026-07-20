@@ -1110,8 +1110,16 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               {selectedMember.birthdate && (
                                 <>
                                   <span className="chip bg-dusk-100 text-dusk-700 tabular-nums">{calculateAge(selectedMember.birthdate)}</span>
-                                  <span className="text-ink-400 tabular-nums">born {selectedMember.birthdate}</span>
+                                  <span className="text-ink-400 tabular-nums">
+                                    born {selectedMember.birthdate}
+                                    {selectedMember.birthTime ? ` at ${selectedMember.birthTime}` : ''}
+                                  </span>
                                 </>
+                              )}
+                              {(selectedMember.placeOfBirth || selectedMember.birthHospital) && (
+                                <span className="text-ink-400">
+                                  · {[selectedMember.placeOfBirth, selectedMember.birthHospital].filter(Boolean).join(', ')}
+                                </span>
                               )}
                             </p>
                             {/* Contact & address — visible to every family member.
