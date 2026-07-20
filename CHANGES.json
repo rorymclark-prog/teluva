@@ -1,11 +1,9 @@
 {
-  "label": "v100",
+  "label": "v101",
   "changes": [
-    "Restyled the update banner to match your other apps",
-    "New: a family Doctors & Specialists directory — GP, dentist, specialists, all in Info",
-    "South Africa: medical aid scheme, plan, and dependant code fields",
-    "UK: registered GP practice field",
-    "US: insurer/plan name and group number fields",
-    "Preferred pharmacy field on each member's Medical tab"
+    "Passport scans are now reliably filed to ID & Passports, even when photographed as multiple pages",
+    "A warning banner appears if a passport-looking scan didn't get a full passport record — so nothing slips through silently",
+    "New: duplicate-document detection — scanning or uploading a file that looks already saved now asks Replace existing or Keep both, instead of silently creating a copy",
+    "Applies everywhere you add a document: AI chat, a member's own Documents tab, and the shared Document Vault"
   ]
 }

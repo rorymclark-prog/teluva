@@ -4,10 +4,11 @@ import { getDocumentPlaceholderSvg } from '../utils/svgPlaceholders';
 import {
   FileText, Upload, Trash2, Eye, Download, Plus,
   Sparkles, FileImage, ShieldCheck, AlertCircle,
-  Camera, X, RefreshCcw
+  Camera, X, RefreshCcw, AlertTriangle
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { jsPDF } from 'jspdf';
+import { hashDataUrl, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
 
 interface MemberDocumentsProps {
   member: FamilyMember;
@@ -61,6 +62,9 @@ export default function MemberDocuments({
     type: string;
     size: number;
   } | null>(null);
+  const [duplicateMatch, setDuplicateMatch] = useState<DupMatch<FamilyDocument> | null>(null);
+  const [pendingHash, setPendingHash] = useState<string>('');
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
 
   // Device Camera States & Refs
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -367,10 +371,19 @@ export default function MemberDocuments({
     fileInputRef.current?.click();
   };
 
-  const handleUploadSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!docName.trim() || !pendingFileData) return;
+  const resetUploadForm = () => {
+    setDocName('');
+    setCategory('ID');
+    setNotes('');
+    setPendingFileData(null);
+    setSelectedFileName(null);
+    setDuplicateMatch(null);
+    setPendingHash('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
+  const saveNewDoc = (contentHash: string) => {
+    if (!pendingFileData) return;
     const newDoc: FamilyDocument = {
       id: 'doc-' + Date.now().toString(),
       name: docName.trim(),
@@ -383,17 +396,42 @@ export default function MemberDocuments({
       uploadedAt: todayLocal(),
       notes: notes.trim() || undefined,
       fileData: pendingFileData.data,
+      contentHash,
     };
-
     onAddDocument(member.id, newDoc);
+    resetUploadForm();
+  };
 
-    // Reset Fields
-    setDocName('');
-    setCategory('ID');
-    setNotes('');
-    setPendingFileData(null);
-    setSelectedFileName(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  const handleUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!docName.trim() || !pendingFileData) return;
+
+    setCheckingDuplicate(true);
+    try {
+      const hash = await hashDataUrl(pendingFileData.data);
+      const match = findLikelyDuplicate(
+        { fileName: pendingFileData.name, fileSize: pendingFileData.size, contentHash: hash },
+        member.documents || [],
+      );
+      if (match) {
+        setDuplicateMatch(match);
+        setPendingHash(hash);
+        return; // wait for the user to choose Replace or Keep both
+      }
+      saveNewDoc(hash);
+    } finally {
+      setCheckingDuplicate(false);
+    }
+  };
+
+  const resolveDuplicateReplace = () => {
+    if (!duplicateMatch) return;
+    onDeleteDocument(member.id, duplicateMatch.doc.id);
+    saveNewDoc(pendingHash);
+  };
+
+  const resolveDuplicateKeepBoth = () => {
+    saveNewDoc(pendingHash);
   };
 
   const getDocSource = (doc: FamilyDocument) => {
@@ -570,17 +608,37 @@ export default function MemberDocuments({
             />
           </div>
 
+          {duplicateMatch && (
+            <div className="p-3 rounded-xl bg-honey-50 border border-honey-200 text-[13px] text-honey-800 space-y-2">
+              <p className="flex items-start gap-2 leading-normal">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  This looks like it might already be saved as “{duplicateMatch.doc.name}”.
+                  {duplicateMatch.confidence === 'probable' && ' Same filename and size.'}
+                </span>
+              </p>
+              <div className="flex gap-2">
+                <button type="button" onClick={resolveDuplicateReplace} className="btn-primary text-xs px-3 py-1.5 flex-1 justify-center">
+                  Replace existing
+                </button>
+                <button type="button" onClick={resolveDuplicateKeepBoth} className="btn-quiet text-xs px-3 py-1.5 flex-1 justify-center">
+                  Keep both
+                </button>
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
-            disabled={!pendingFileData || !docName.trim()}
+            disabled={!pendingFileData || !docName.trim() || checkingDuplicate || !!duplicateMatch}
             className={`w-full py-2.5 rounded-2xl text-[13px] font-semibold transition-all flex items-center justify-center gap-1.5 ${
-              !pendingFileData || !docName.trim()
+              !pendingFileData || !docName.trim() || checkingDuplicate || !!duplicateMatch
                 ? 'bg-cream-200 text-ink-400 cursor-not-allowed'
                 : 'btn-primary'
             }`}
           >
-            <ShieldCheck className="w-4 h-4" />
-            <span>Save Document</span>
+            {checkingDuplicate ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            <span>{checkingDuplicate ? 'Checking…' : 'Save Document'}</span>
           </button>
         </form>
 

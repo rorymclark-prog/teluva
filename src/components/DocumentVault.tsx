@@ -5,8 +5,9 @@ import { auth } from '../lib/firebase';
 import DocumentViewer from './DocumentViewer';
 import {
   FolderLock, Upload, Search, Trash2, Eye, Cloud, CloudOff,
-  Plus, X, Check, Loader2, FileText, File, Image, AlertCircle
+  Plus, X, Check, Loader2, FileText, File, Image, AlertCircle, AlertTriangle
 } from 'lucide-react';
+import { computeFileHash, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
 
 const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
 
@@ -38,11 +39,12 @@ function formatBytes(bytes: number): string {
 
 interface UploadPanelProps {
   members: FamilyMember[];
-  onUpload: (doc: VaultDocument) => void;
+  existingDocs: VaultDocument[];
+  onUpload: (doc: VaultDocument, replaceId?: string) => void;
   onCancel: () => void;
 }
 
-function UploadPanel({ members, onUpload, onCancel }: UploadPanelProps) {
+function UploadPanel({ members, existingDocs, onUpload, onCancel }: UploadPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
@@ -51,20 +53,19 @@ function UploadPanel({ members, onUpload, onCancel }: UploadPanelProps) {
   const [notes, setNotes] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [duplicateMatch, setDuplicateMatch] = useState<DupMatch<VaultDocument> | null>(null);
+  const [pendingHash, setPendingHash] = useState('');
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
     setFile(f);
     if (f && !name) setName(f.name.replace(/\.[^.]+$/, ''));
     setError(null);
+    setDuplicateMatch(null);
   };
 
-  const handleSubmit = async () => {
-    if (!file) { setError('Please choose a file to upload.'); return; }
-    if (file.size > 20 * 1024 * 1024) {
-      setError('File is larger than 20 MB. Please compress it first.');
-      return;
-    }
+  const doUpload = async (contentHash: string, replaceId?: string) => {
+    if (!file) return;
     const docName = name.trim() || file.name;
     setUploading(true);
     setError(null);
@@ -84,14 +85,49 @@ function UploadPanel({ members, onUpload, onCancel }: UploadPanelProps) {
         uploadedBy: auth.currentUser?.displayName || auth.currentUser?.email || undefined,
         memberId: memberId || undefined,
         notes: notes.trim() || undefined,
+        contentHash,
       };
-      onUpload(newDoc);
+      onUpload(newDoc, replaceId);
     } catch (err: unknown) {
       console.error('Upload failed:', err);
       setError('Upload failed. Check your connection and try again.');
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleSubmit = async () => {
+    if (!file) { setError('Please choose a file to upload.'); return; }
+    if (file.size > 20 * 1024 * 1024) {
+      setError('File is larger than 20 MB. Please compress it first.');
+      return;
+    }
+    setUploading(true);
+    setError(null);
+    try {
+      const hash = await computeFileHash(file);
+      const match = findLikelyDuplicate({ fileName: file.name, fileSize: file.size, contentHash: hash }, existingDocs);
+      if (match) {
+        setDuplicateMatch(match);
+        setPendingHash(hash);
+        setUploading(false);
+        return; // wait for the user to choose Replace or Keep both
+      }
+      await doUpload(hash);
+    } catch (err: unknown) {
+      console.error('Duplicate check failed:', err);
+      setError('Something went wrong. Please try again.');
+      setUploading(false);
+    }
+  };
+
+  const resolveDuplicateReplace = () => {
+    if (!duplicateMatch) return;
+    doUpload(pendingHash, duplicateMatch.doc.id);
+  };
+
+  const resolveDuplicateKeepBoth = () => {
+    doUpload(pendingHash);
   };
 
   return (
@@ -190,13 +226,33 @@ function UploadPanel({ members, onUpload, onCancel }: UploadPanelProps) {
         </div>
       </div>
 
+      {duplicateMatch && (
+        <div className="p-3 bg-honey-50 border border-honey-200 rounded-2xl text-[13px] text-honey-800 space-y-2">
+          <p className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>
+              This looks like it might already be saved as “{duplicateMatch.doc.name}”.
+              {duplicateMatch.confidence === 'probable' && ' Same filename and size.'}
+            </span>
+          </p>
+          <div className="flex gap-2">
+            <button onClick={resolveDuplicateReplace} className="btn-primary text-xs px-3 py-1.5 flex-1 justify-center">
+              Replace existing
+            </button>
+            <button onClick={resolveDuplicateKeepBoth} className="btn-quiet text-xs px-3 py-1.5 flex-1 justify-center">
+              Keep both
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end gap-2 pt-1">
         <button onClick={onCancel} className="btn-quiet text-sm px-4 py-2">
           <X className="w-3.5 h-3.5" /> Cancel
         </button>
         <button
           onClick={handleSubmit}
-          disabled={!file || uploading}
+          disabled={!file || uploading || !!duplicateMatch}
           className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
         >
           {uploading ? (
@@ -279,8 +335,16 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
     setCloudSynced(ok);
   };
 
-  const handleUpload = async (doc: VaultDocument) => {
-    const next = [doc, ...docs];
+  const handleUpload = async (doc: VaultDocument, replaceId?: string) => {
+    let base = docs;
+    if (replaceId) {
+      const old = docs.find(d => d.id === replaceId);
+      if (old) {
+        try { await deleteVaultFile(old.storagePath); } catch (e) { console.error('Replace: old file delete failed (removing metadata anyway):', e); }
+        base = docs.filter(d => d.id !== replaceId);
+      }
+    }
+    const next = [doc, ...base];
     await persist(next);
     setShowUpload(false);
   };
@@ -373,6 +437,7 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
       {showUpload && (
         <UploadPanel
           members={members}
+          existingDocs={docs}
           onUpload={handleUpload}
           onCancel={() => setShowUpload(false)}
         />

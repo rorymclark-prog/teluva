@@ -39,6 +39,7 @@ export interface FamilyDocument {
   uploadedAt: string;
   notes?: string;
   fileData?: string; // base64 string or url
+  contentHash?: string; // SHA-256 of the file bytes — powers duplicate detection; absent on documents saved before this existed
 }
 
 export interface GrowthLog {
@@ -499,6 +500,7 @@ export interface VaultDocument {
   uploadedBy?: string;
   memberId?: string;     // optional link to a family member
   notes?: string;
+  contentHash?: string;  // SHA-256 of the file bytes — powers duplicate detection; absent on documents saved before this existed
 }
 
 export interface CalendarEvent {

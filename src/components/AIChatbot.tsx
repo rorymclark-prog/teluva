@@ -3,7 +3,7 @@ import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument } from '../t
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
-  loadDocuments, saveDocuments, uploadVaultFile, loadCalendarEvents,
+  loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
   loadChatHistory, saveChatHistory,
 } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -11,9 +11,10 @@ import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import ImageLightbox from './ImageLightbox';
 import { looksLikePdf } from '../utils/fileType';
+import { computeFileHash, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
-  Paperclip, FileText, Image as ImageIcon, Mic, MicOff,
+  Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle,
 } from 'lucide-react';
 
 // Web Speech API — may be undefined in unsupported browsers
@@ -43,6 +44,15 @@ export type AiEdit =
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
+// A document edit that looks like it might already be saved — surfaced inline
+// so the user can pick Replace or Keep both before Apply actually files it.
+interface DocDuplicateFlag {
+  editIdx: number; // index within that message's docEdits array
+  name: string;
+  match: DupMatch<VaultDocument>;
+  resolution?: 'replace' | 'keep';
+}
+
 // Attach up to this many files/photos to a single message — plenty for a
 // multi-page ID or several documents at once, without ballooning the request.
 const MAX_ATTACHMENTS = 6;
@@ -56,6 +66,7 @@ interface ChatMessage {
   images?: string[];          // dataUrl previews on a user message (stripped from storage)
   sourceImage?: Attachment;   // legacy single source — kept for messages persisted before multi-attach
   sourceImages?: Attachment[]; // carried on the assistant message so 'document' edits can file the right scan
+  warnings?: string[];        // client-side safety-net notices (e.g. a likely-missed passport record) — display only, never persisted server-side
 }
 
 interface Props {
@@ -144,13 +155,19 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    try { const raw = localStorage.getItem(CHAT_KEY); return raw ? JSON.parse(raw) : []; }
-    catch { return []; }
+    try {
+      const raw = localStorage.getItem(CHAT_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
   });
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
+  // Duplicate-document flags for a message's pending Apply, keyed by message
+  // index → one entry per flagged document edit (editIdx = index within that
+  // message's own docEdits array). Apply is held until every flag is resolved.
+  const [docDuplicates, setDocDuplicates] = useState<Record<number, DocDuplicateFlag[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -371,11 +388,25 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         const owner = inferDocOwner(e, rawEdits);
         return owner ? { ...e, member: owner.name } : e;
       });
+      // Safety net for a known failure mode: the model sometimes files a passport
+      // scan as a plain document without the matching structured passport edit
+      // (most often when it's photographed alongside other images). We can't
+      // fabricate the passport number/country ourselves, so don't silently
+      // create a blank record — just warn visibly so the user knows to check.
+      const passportGaps = edits.filter(e =>
+        e.kind === 'document' && e.category === 'Identity' && /passport/i.test(e.name) &&
+        !edits.some(p => p.kind === 'passport' && resolveMemberByName(p.member)?.id === resolveMemberByName(e.member)?.id),
+      );
+      const warnings = passportGaps.map(e => {
+        const owner = resolveMemberByName((e as Extract<AiEdit, { kind: 'document' }>).member);
+        return `Looks like ${owner ? owner.name + "'s" : 'a'} passport, but no passport record was extracted — check ID & Passports and add it if it's missing.`;
+      });
       const assistantMsg: ChatMessage = {
         role: 'assistant',
         text: data.reply || '…',
         edits: edits.length ? edits : undefined,
         sourceImages: atts.length ? atts : undefined,
+        warnings: warnings.length ? warnings : undefined,
       };
       setMessages(prev => {
         const updatedMessages = [...prev, assistantMsg];
@@ -447,30 +478,60 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     return undefined;
   };
 
+  type DocEdit = Extract<AiEdit, { kind: 'document' }>;
+
+  // Checks each document edit against the vault before anything is saved —
+  // returns one flag per edit that looks like it might already exist, so the
+  // user can choose Replace or Keep both instead of silently getting a second copy.
+  const checkDocDuplicates = async (docEdits: DocEdit[], srcs: Attachment[]): Promise<DocDuplicateFlag[]> => {
+    const existing = await loadDocuments();
+    const flags: DocDuplicateFlag[] = [];
+    for (let i = 0; i < docEdits.length; i++) {
+      const e = docEdits[i];
+      const src = srcs[e.imageIndex ?? 0] || srcs[0];
+      if (!src) continue;
+      const blob = dataUrlToBlob(src.dataUrl);
+      const hash = await computeFileHash(blob);
+      const match = findLikelyDuplicate({ fileName: src.name, fileSize: blob.size, contentHash: hash }, existing);
+      if (match) flags.push({ editIdx: i, name: e.name, match });
+    }
+    return flags;
+  };
+
   // File the scanned image(s) for any 'document' edits: always into the shared
   // Document Vault, AND into the named member's own Documents tab when the AI
   // says who the document belongs to (e.g. Sophie's passport). When multiple
   // images were attached in one turn, each 'document' edit's imageIndex picks
   // which one it came from (untagged/out-of-range edits fall back to the
-  // first image, matching the old single-attachment behaviour).
-  const fileScans = async (docEdits: AiEdit[], srcs: Attachment[]) => {
+  // first image, matching the old single-attachment behaviour). `resolutions`
+  // carries the user's Replace/Keep-both choice for any edit flagged as a
+  // likely duplicate by checkDocDuplicates (absent = no flag, nothing to resolve).
+  const fileScans = async (docEdits: DocEdit[], srcs: Attachment[], resolutions: Record<number, DocDuplicateFlag>) => {
     if (!srcs.length) return;
-    const existing = await loadDocuments();
+    let existing = await loadDocuments();
     const today = new Date().toISOString().slice(0, 10);
     const by = auth.currentUser?.displayName || auth.currentUser?.email || 'Family';
     const added: VaultDocument[] = [];
 
-    for (const e of docEdits) {
-      if (e.kind !== 'document') continue;
+    for (let i = 0; i < docEdits.length; i++) {
+      const e = docEdits[i];
       const src = srcs[e.imageIndex ?? 0] || srcs[0];
       const blob = dataUrlToBlob(src.dataUrl);
       const file = new File([blob], src.name, { type: src.mimeType });
+      const hash = await computeFileHash(blob);
+
+      const flag = resolutions[i];
+      if (flag?.resolution === 'replace') {
+        try { await deleteVaultFile(flag.match.doc.storagePath); } catch (err) { console.error('Replace: old file delete failed (removing metadata anyway):', err); }
+        existing = existing.filter(d => d.id !== flag.match.doc.id);
+      }
+
       const id = newId();
       const { storagePath, downloadUrl } = await uploadVaultFile(file, id);
       added.push({
         id, name: e.name, category: e.category,
         fileName: src.name, fileType: src.mimeType, fileSize: blob.size,
-        storagePath, downloadUrl, uploadedAt: today, uploadedBy: by,
+        storagePath, downloadUrl, uploadedAt: today, uploadedBy: by, contentHash: hash,
       });
 
       // Also file on the member's profile when the doc names its owner. Store the
@@ -488,31 +549,62 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
           fileSize: blob.size,
           uploadedAt: today,
           fileData: downloadUrl,
+          contentHash: hash,
         });
       }
     }
     if (added.length) await saveDocuments([...added, ...existing]);
   };
 
-  const applyEdits = async (idx: number, edits: AiEdit[]) => {
+  // `flagsOverride`, when passed, is used instead of reading docDuplicates[idx]
+  // from state — needed because a setTimeout-deferred call (see resolveDocDuplicate)
+  // still closes over whatever docDuplicates looked like at the moment the
+  // enclosing render created this function, which can be a render *before* the
+  // setDocDuplicates update that resolved the flag. Passing the just-computed
+  // array directly sidesteps that stale-closure read entirely.
+  const applyEdits = async (idx: number, edits: AiEdit[], flagsOverride?: DocDuplicateFlag[]) => {
+    const msg = messages[idx];
+    const srcs = msg?.sourceImages || (msg?.sourceImage ? [msg.sourceImage] : []);
+    // Re-resolve the scan's owner at APPLY time too (not just parse time), so
+    // re-applying an older card — whose stored edit predates the fix and has no
+    // member — still files onto the person's Documents, not just the vault.
+    const docEdits: DocEdit[] = edits
+      .filter((e): e is DocEdit => e.kind === 'document')
+      .map(e => {
+        if (resolveMemberByName(e.member)) return e;
+        const owner = inferDocOwner(e, edits);
+        return owner ? { ...e, member: owner.name } : e;
+      });
+
+    // Check-then-commit: the first click (when this message hasn't been
+    // checked yet) only checks for duplicates and, if any are found, stops
+    // here so the user can resolve them — nothing is saved until they do.
+    // `flags` stays a single local variable throughout so this never depends
+    // on whether the setDocDuplicates state update has re-rendered yet.
+    let flags: DocDuplicateFlag[] = flagsOverride ?? (docDuplicates[idx] || []);
+    if (flagsOverride === undefined && docEdits.length && srcs.length && !(idx in docDuplicates)) {
+      setApplyingIdx(idx);
+      try {
+        flags = await checkDocDuplicates(docEdits, srcs);
+        setDocDuplicates(prev => ({ ...prev, [idx]: flags }));
+      } catch (e: any) {
+        setError(e?.message || "Couldn't check for duplicates.");
+        setApplyingIdx(null);
+        return;
+      }
+      setApplyingIdx(null);
+      if (flags.length) return; // wait for Replace/Keep-both on each flagged item
+    }
+    if (flags.length && flags.some(f => !f.resolution)) return; // still waiting on a choice
+
     setApplyingIdx(idx);
     try {
       const dataEdits = edits.filter(e => e.kind !== 'document');
-      // Re-resolve the scan's owner at APPLY time too (not just parse time), so
-      // re-applying an older card — whose stored edit predates the fix and has no
-      // member — still files onto the person's Documents, not just the vault.
-      const docEdits = edits
-        .filter((e): e is Extract<AiEdit, { kind: 'document' }> => e.kind === 'document')
-        .map(e => {
-          if (resolveMemberByName(e.member)) return e;
-          const owner = inferDocOwner(e, edits);
-          return owner ? { ...e, member: owner.name } : e;
-        });
       if (dataEdits.length) await onApplyEdits(dataEdits);
-      const msg = messages[idx];
-      const srcs = msg?.sourceImages || (msg?.sourceImage ? [msg.sourceImage] : []);
       if (docEdits.length && srcs.length) {
-        await fileScans(docEdits, srcs);
+        const resolutions: Record<number, DocDuplicateFlag> = {};
+        flags.forEach(f => { resolutions[f.editIdx] = f; });
+        await fileScans(docEdits, srcs, resolutions);
       } else if (docEdits.length && !srcs.length) {
         // Image is stripped from persisted history — after a reload we can't
         // file the scan. Don't fail silently: the data edits applied, but the
@@ -533,8 +625,21 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     }
   };
 
+  const resolveDocDuplicate = (idx: number, editIdx: number, resolution: 'replace' | 'keep', edits: AiEdit[]) => {
+    setDocDuplicates(prev => {
+      const updated = (prev[idx] || []).map(f => f.editIdx === editIdx ? { ...f, resolution } : f);
+      // Once every flagged doc has a choice, auto-commit — no need for a
+      // second manual Apply click. Deferred so this state update flushes first.
+      if (updated.length && updated.every(f => f.resolution)) {
+        setTimeout(() => applyEdits(idx, edits, updated), 0);
+      }
+      return { ...prev, [idx]: updated };
+    });
+  };
+
   const dismissEdits = (idx: number) => {
     setMessages(prev => prev.map((m, i) => i === idx ? { ...m, edits: undefined } : m));
+    setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
   };
 
   return (
@@ -711,6 +816,35 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
                       </li>
                     ))}
                   </ul>
+                  {!m.applied && docDuplicates[i]?.some(f => !f.resolution) && (
+                    <div className="space-y-2 pt-1">
+                      {docDuplicates[i]!.filter(f => !f.resolution).map((f) => (
+                        <div key={f.editIdx} className="p-2.5 rounded-xl bg-honey-50 border border-honey-200 space-y-1.5">
+                          <p className="text-[12px] text-honey-800 flex items-start gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span>
+                              "{f.name}" looks like it may already be saved as "{f.match.doc.name}".
+                              {f.match.confidence === 'probable' && ' Same filename and size.'}
+                            </span>
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => resolveDocDuplicate(i, f.editIdx, 'replace', m.edits!)}
+                              className="btn-primary text-xs px-2.5 py-1 flex-1 justify-center"
+                            >
+                              Replace existing
+                            </button>
+                            <button
+                              onClick={() => resolveDocDuplicate(i, f.editIdx, 'keep', m.edits!)}
+                              className="btn-quiet text-xs px-2.5 py-1 flex-1 justify-center"
+                            >
+                              Keep both
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {m.applied ? (
                     <p className="text-[12px] font-semibold text-sage-700 flex items-center gap-1.5">
                       <Check className="w-3.5 h-3.5" /> {t.ai_applied}
@@ -719,7 +853,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
                     <div className="flex gap-2 pt-1">
                       <button
                         onClick={() => applyEdits(i, m.edits!)}
-                        disabled={applyingIdx === i}
+                        disabled={applyingIdx === i || !!docDuplicates[i]?.some(f => !f.resolution)}
                         className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50"
                       >
                         {applyingIdx === i ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} {t.btn_apply}
@@ -729,6 +863,16 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
                       </button>
                     </div>
                   )}
+                </div>
+              )}
+
+              {m.warnings && m.warnings.length > 0 && (
+                <div className="rounded-2xl border border-honey-200 bg-honey-50 p-3 space-y-1">
+                  {m.warnings.map((w, j) => (
+                    <p key={j} className="text-[12.5px] text-honey-800 flex items-start gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> <span>{w}</span>
+                    </p>
+                  ))}
                 </div>
               )}
             </div>
