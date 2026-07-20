@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { VaultDocument, VaultCategory, FamilyMember } from '../types';
+import { VaultDocument, VaultCategory, FamilyMember, FamilyDocument } from '../types';
 import { loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile } from '../utils/db';
 import { auth } from '../lib/firebase';
+import DocumentViewer from './DocumentViewer';
 import {
-  FolderLock, Upload, Search, Trash2, ExternalLink, Cloud, CloudOff,
+  FolderLock, Upload, Search, Trash2, Eye, Cloud, CloudOff,
   Plus, X, Check, Loader2, FileText, File, Image, AlertCircle
 } from 'lucide-react';
 
@@ -320,6 +321,19 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
     return members.find(m => m.id === id)?.name ?? null;
   };
 
+  // Reuse the same in-app viewer the per-member Documents tab uses, instead of
+  // a bare new-tab download link — same PDF/image rendering, same layout.
+  const [viewingDoc, setViewingDoc] = useState<VaultDocument | null>(null);
+  const VAULT_CATEGORY_TO_FAMILY: Record<VaultCategory, FamilyDocument['category']> = {
+    Identity: 'ID', Education: 'Education', Medical: 'Health',
+    Financial: 'Other', Legal: 'Other', Travel: 'Travel', Other: 'Other',
+  };
+  const toFamilyDoc = (v: VaultDocument): FamilyDocument => ({
+    id: v.id, name: v.name, category: VAULT_CATEGORY_TO_FAMILY[v.category],
+    fileType: v.fileType, fileName: v.fileName, fileSize: v.fileSize,
+    uploadedAt: v.uploadedAt, notes: v.notes, fileData: v.downloadUrl,
+  });
+
   if (!loaded) {
     return (
       <div className="card flex items-center justify-center py-24">
@@ -461,16 +475,15 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
 
                 {/* Actions */}
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <a
-                    href={doc.downloadUrl}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => setViewingDoc(doc)}
                     className="btn-quiet text-xs px-3 py-1.5"
-                    title="Open / download file"
+                    title="View document"
                   >
-                    <ExternalLink className="w-3 h-3" />
+                    <Eye className="w-3 h-3" />
                     View
-                  </a>
+                  </button>
                   <button
                     onClick={() => handleDelete(doc)}
                     disabled={isDeleting}
@@ -500,6 +513,12 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
           )}
         </div>
       </div>
+
+      <DocumentViewer
+        document={viewingDoc ? toFamilyDoc(viewingDoc) : null}
+        memberName={viewingDoc ? (memberName(viewingDoc.memberId) ?? (isBusinessSpace ? 'the team' : 'the family')) : ''}
+        onClose={() => setViewingDoc(null)}
+      />
     </div>
   );
 }

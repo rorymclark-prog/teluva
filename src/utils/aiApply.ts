@@ -3,10 +3,16 @@ import type { AiEdit } from '../components/AIChatbot';
 import { AVATAR_COLORS } from './avatarPalette';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
-const VALID_ROLES: MemberRole[] = ['Parent', 'Child', 'Grandparent', 'Other'];
+const VALID_FAMILY_ROLES: MemberRole[] = ['Parent', 'Child', 'Grandparent', 'Other'];
 
-function createMember(name: string, role: string | undefined, nickname: string | undefined, birthdate: string | undefined, idx: number): FamilyMember {
-  const r = (role && VALID_ROLES.includes(role as MemberRole)) ? role as MemberRole : 'Child';
+function createMember(name: string, role: string | undefined, nickname: string | undefined, birthdate: string | undefined, idx: number, isBusinessSpace?: boolean): FamilyMember {
+  // A business space has no fixed role vocabulary — any AI-proposed title the
+  // model gives is accepted as-is (free-text, same as the manual Add form's
+  // "Custom…" option); only the family literals get validated against a list,
+  // and 'Child' specifically is never valid there.
+  const r = isBusinessSpace
+    ? (role && role.trim() && role !== 'Child' ? role.trim() : 'Employee')
+    : (role && VALID_FAMILY_ROLES.includes(role as MemberRole)) ? role as MemberRole : 'Child';
   return {
     id: newId(),
     name,
@@ -111,12 +117,12 @@ function resolveMember(members: FamilyMember[], name: string): FamilyMember | un
 }
 
 // Apply member + passport edits, returning the next members array.
-export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[]): FamilyMember[] {
+export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBusinessSpace?: boolean): FamilyMember[] {
   let next = members;
   // Pass 1: create any new members first, so later field edits can target them.
   for (const e of edits) {
     if (e.kind === 'new_member' && e.name) {
-      next = [...next, createMember(e.name, e.role, e.nickname, e.birthdate, next.length)];
+      next = [...next, createMember(e.name, e.role, e.nickname, e.birthdate, next.length, isBusinessSpace)];
     }
   }
   // Pass 2: field + passport edits.

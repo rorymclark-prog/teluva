@@ -578,7 +578,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     const failures: string[] = [];
 
     if (hasMemberEdits(edits)) {
-      const next = applyMemberEdits(membersRef.current, edits);
+      const next = applyMemberEdits(membersRef.current, edits, isBusinessSpace);
       membersRef.current = next; // so a following fileScans→handleAddDocument merges onto this
       setMembers(next);
       const ok = await saveFamilyMembers(next);

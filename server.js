@@ -189,7 +189,7 @@ Output ONLY valid JSON of the form:
 {"reply": string, "edits": Edit[]}
 
 Edit is one of:
-- {"kind":"new_member","name":<string>,"role":"Parent"|"Child"|"Grandparent"|"Other","nickname":<string or "">,"birthdate":<YYYY-MM-DD or "">}  // create a brand-new family member
+- {"kind":"new_member","name":<string>,"role":__ROLE_ENUM__,"nickname":<string or "">,"birthdate":<YYYY-MM-DD or "">}  // create a brand-new family member
 - {"kind":"member","member":<existing member name>,"field":<canonical key>,"value":<string>}
 - {"kind":"passport","member":<name>,"country":<country>,"number":<string>,"expiry":<YYYY-MM-DD or "">}
 - {"kind":"contact","name":<string>,"relation":<string>,"phone":<string>,"email":<string>}   // a shared family contact (school office, doctor, a friend, etc.)
@@ -229,6 +229,7 @@ RULES:
 - If the user is TELLING you info to store: produce edits and a short reply confirming what you'll set.
 - "member" MUST match an existing family member name (case-insensitive). If you cannot tell which member, ASK in reply and return edits=[].
 - If the user introduces a NEW person who is NOT already in the family, FIRST add a {"kind":"new_member"} edit, then you may add {"kind":"member"} edits referencing that same new name to fill in their details.
+- __ROLE_GUIDANCE__
 - Dates: YYYY-MM-DD. organ_donor value: "yes" or "no".
 - Use kind "passport" for passports, "contact" for people/places to phone (school, doctor, friend), "number" for a loose reference number not tied to a person.
 - Use "calendar_event" for appointments, dates, events, and reminders. Resolve relative dates ("next Tuesday", "this Friday") using today's date already given in the prompt. Set memberNames only for names that exist in the family data.
@@ -309,8 +310,17 @@ app.post('/api/chat', async (req, res) => {
       { role: 'user', parts: userParts },
     ];
 
+    // Business spaces have no fixed role vocabulary (no "Child" — job titles
+    // like "Manager" or "Contractor" are free text instead).
+    const spaceIsBusiness = !!(context && context.isBusinessSpace);
+    const systemInstruction = SYSTEM_INSTRUCTION
+      .replace('__ROLE_ENUM__', spaceIsBusiness ? '<a short job title, e.g. "Manager", "Contractor" — free text, NOT one of the family values>' : '"Parent"|"Child"|"Grandparent"|"Other"')
+      .replace('__ROLE_GUIDANCE__', spaceIsBusiness
+        ? 'This is a BUSINESS space, not a family — "role" must be a short job title (e.g. "Manager", "Owner", "Contractor"), NEVER "Child" or a family relation.'
+        : 'Use "role" values "Parent", "Child", "Grandparent", or "Other" — never a job title here.');
+
     const callGemini = () => generateContent(MODEL_TEXT, {
-      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+      systemInstruction: { parts: [{ text: systemInstruction }] },
       contents,
       generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
     });

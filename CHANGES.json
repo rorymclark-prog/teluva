@@ -1,0 +1,8 @@
+{
+  "changes": [
+    "Business titles: Director, Manager, Employee + your own custom title",
+    "Fixed a business member still showing as \"Child\" after editing",
+    "Business documents now open in the same viewer as family documents",
+    "Business/Family settings now show the right name, plus a Country switch"
+  ]
+}

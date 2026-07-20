@@ -4,6 +4,7 @@ import { FamilyMember, MemberRole } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
+import { BUSINESS_ROLE_PRESETS } from '../utils/businessRoles';
 
 interface AddMemberModalProps {
   isOpen: boolean;
@@ -16,7 +17,8 @@ interface AddMemberModalProps {
 export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace = false }: AddMemberModalProps) {
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
-  const [role, setRole] = useState<MemberRole>(isBusinessSpace ? 'Other' : 'Child');
+  const [role, setRole] = useState<MemberRole>(isBusinessSpace ? 'Employee' : 'Child');
+  const [customRole, setCustomRole] = useState('');
   const [birthdate, setBirthdate] = useState('');
   const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
   const [isOnline, setIsOnline] = useState(true);
@@ -113,11 +115,13 @@ export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace
     e.preventDefault();
     if (!name.trim()) return;
 
+    const finalRole = isBusinessSpace && role === 'Custom' ? (customRole.trim() || 'Employee') : role;
+
     onAdd({
       id: Date.now().toString(),
       name: name.trim(),
       nickname: nickname.trim() || undefined,
-      role,
+      role: finalRole,
       birthdate: birthdate || undefined,
       avatarColor: selectedColor,
       avatarUrl: avatarMode === 'upload' && uploadedBase64 ? uploadedBase64 : undefined,
@@ -128,7 +132,8 @@ export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace
     // Reset form
     setName('');
     setNickname('');
-    setRole('Child');
+    setRole(isBusinessSpace ? 'Employee' : 'Child');
+    setCustomRole('');
     setBirthdate('');
     setSelectedColor(AVATAR_COLORS[0]);
     setIsOnline(true);
@@ -208,16 +213,25 @@ export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="field-label">Role</label>
+                  <label className="field-label">{isBusinessSpace ? 'Title' : 'Role'}</label>
                   <select
                     value={role}
                     onChange={(e) => setRole(e.target.value as MemberRole)}
                     className="field"
                   >
-                    {!isBusinessSpace && <option value="Child">Child</option>}
-                    <option value="Parent">Parent</option>
-                    <option value="Grandparent">Grandparent</option>
-                    <option value="Other">Other</option>
+                    {isBusinessSpace ? (
+                      <>
+                        {BUSINESS_ROLE_PRESETS.map((t) => <option key={t} value={t}>{t}</option>)}
+                        <option value="Custom">Custom…</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="Child">Child</option>
+                        <option value="Parent">Parent</option>
+                        <option value="Grandparent">Grandparent</option>
+                        <option value="Other">Other</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -231,6 +245,17 @@ export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace
                   />
                 </div>
               </div>
+
+              {isBusinessSpace && role === 'Custom' && (
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Head Chef, Bookkeeper"
+                  value={customRole}
+                  onChange={(e) => setCustomRole(e.target.value)}
+                  className="field"
+                />
+              )}
 
               {/* Online Status Toggle */}
               <div className="bg-sage-50 border border-sage-100 rounded-2xl p-3 flex items-center justify-between">

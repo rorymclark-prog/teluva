@@ -4,6 +4,7 @@ import { FamilyMember, MemberRole } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
+import { BUSINESS_ROLE_PRESETS } from '../utils/businessRoles';
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
   const [role, setRole] = useState<MemberRole>('Child');
+  const [customRole, setCustomRole] = useState('');
   const [birthdate, setBirthdate] = useState('');
   const [birthTime, setBirthTime] = useState('');
   const [placeOfBirth, setPlaceOfBirth] = useState('');
@@ -45,7 +47,20 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
     if (member) {
       setName(member.name);
       setNickname(member.nickname || '');
-      setRole(member.role);
+      if (isBusinessSpace) {
+        // Coerce a legacy/stray 'Child' (a family-only value that can't happen
+        // in a business space going forward) rather than displaying it.
+        const stored = member.role === 'Child' ? 'Employee' : member.role;
+        if (BUSINESS_ROLE_PRESETS.includes(stored)) {
+          setRole(stored);
+          setCustomRole('');
+        } else {
+          setRole('Custom');
+          setCustomRole(stored);
+        }
+      } else {
+        setRole(member.role);
+      }
       setBirthdate(member.birthdate || '');
       setBirthTime(member.birthTime || '');
       setPlaceOfBirth(member.placeOfBirth || '');
@@ -65,7 +80,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
         setUploadedBase64('');
       }
     }
-  }, [member, isOpen]);
+  }, [member, isOpen, isBusinessSpace]);
 
   // Belt-and-braces: stop camera when modal closes or component unmounts
   useEffect(() => {
@@ -161,11 +176,13 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       finalAvatarUrl = uploadedBase64 || undefined;
     }
 
+    const finalRole = isBusinessSpace && role === 'Custom' ? (customRole.trim() || 'Employee') : role;
+
     const updated: FamilyMember = {
       ...member,
       name: name.trim(),
       nickname: nickname.trim() || undefined,
-      role,
+      role: finalRole,
       birthdate: birthdate || undefined,
       birthTime: birthTime || undefined,
       placeOfBirth: placeOfBirth.trim() || undefined,
@@ -253,16 +270,25 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="field-label">Role</label>
+                  <label className="field-label">{isBusinessSpace ? 'Title' : 'Role'}</label>
                   <select
                     value={role}
                     onChange={(e) => setRole(e.target.value as MemberRole)}
                     className="field"
                   >
-                    {!isBusinessSpace && <option value="Child">Child</option>}
-                    <option value="Parent">Parent</option>
-                    <option value="Grandparent">Grandparent</option>
-                    <option value="Other">Other</option>
+                    {isBusinessSpace ? (
+                      <>
+                        {BUSINESS_ROLE_PRESETS.map((t) => <option key={t} value={t}>{t}</option>)}
+                        <option value="Custom">Custom…</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="Child">Child</option>
+                        <option value="Parent">Parent</option>
+                        <option value="Grandparent">Grandparent</option>
+                        <option value="Other">Other</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -276,6 +302,17 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                   />
                 </div>
               </div>
+
+              {isBusinessSpace && role === 'Custom' && (
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Head Chef, Bookkeeper"
+                  value={customRole}
+                  onChange={(e) => setCustomRole(e.target.value)}
+                  className="field"
+                />
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>

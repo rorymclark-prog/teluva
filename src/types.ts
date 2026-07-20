@@ -1,4 +1,7 @@
-export type MemberRole = 'Parent' | 'Child' | 'Grandparent' | 'Other';
+// Family spaces use the 4 fixed values below. Business spaces use a preset
+// business title (see BUSINESS_ROLE_PRESETS in AddMemberModal.tsx) or any
+// custom free-text title — hence the open `string` fallback.
+export type MemberRole = 'Parent' | 'Child' | 'Grandparent' | 'Other' | string;
 
 export interface ClothingSizes {
   tops?: string;

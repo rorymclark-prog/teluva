@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles } from 'lucide-react';
+import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { loadFamilyRoles, setFamilyMemberRole } from '../utils/db';
-import { FamilyRole, FamilyMemberRole } from '../types';
+import { loadFamilyRoles, setFamilyMemberRole, loadSettings, saveSettings } from '../utils/db';
+import { FamilyRole, FamilyMemberRole, IdCountry } from '../types';
+import { COUNTRY_OPTIONS } from './HubSettingsModal';
 
 interface FamilySettingsProps {
   onClose: () => void;
@@ -22,7 +23,26 @@ function initials(displayName: string, email: string): string {
  * Rendered as a slide-in modal — parent component gates rendering to isAdmin only.
  */
 export default function FamilySettings({ onClose }: FamilySettingsProps) {
-  const { familyId, uid: currentUid, aiEligible, aiConsent, setAiConsent } = useFamilyCtx();
+  const { familyId, uid: currentUid, aiEligible, aiConsent, setAiConsent, spaces } = useFamilyCtx();
+  const isBusinessSpace = spaces.find((s) => s.id === familyId)?.type === 'business';
+
+  // --- Country (drives which ID/passport template MemberIDs shows) — each
+  // space (family and business) has its own, independent of the other.
+  const [country, setCountry] = useState<IdCountry>('AT');
+  const [countrySaving, setCountrySaving] = useState(false);
+  useEffect(() => {
+    loadSettings().then((s) => { if (s?.country) setCountry(s.country); });
+  }, [familyId]);
+  const handleCountryChange = async (value: IdCountry) => {
+    setCountry(value);
+    setCountrySaving(true);
+    try {
+      const current = (await loadSettings()) || {};
+      await saveSettings({ ...current, country: value });
+    } finally {
+      setCountrySaving(false);
+    }
+  };
 
   // --- Invite codes (single-use, 14-day, server-issued) ---
   const [inviteCode, setInviteCode] = useState<string | null>(null);
@@ -146,7 +166,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
             </div>
             <div>
               <h2 className="font-display text-lg font-semibold text-ink-900 leading-tight">
-                Family Settings
+                {isBusinessSpace ? 'Business Settings' : 'Family Settings'}
               </h2>
               <p className="text-[11px] text-ink-400 font-medium leading-tight">Admin controls</p>
             </div>
@@ -158,6 +178,28 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
 
         {/* Body */}
         <div className="flex-1 p-6 space-y-6">
+          {/* Section 0: Country — drives which ID/passport fields show. Each
+              space has its own, so a family and its business can differ. */}
+          <div className="card p-5 space-y-2">
+            <h3 className="section-label flex items-center gap-2">
+              <Globe size={14} />
+              Country
+            </h3>
+            <p className="text-[13px] text-ink-500">
+              Sets which ID & passport fields {isBusinessSpace ? 'this business' : 'this family'} sees. Independent from your other space.
+            </p>
+            <select
+              value={country}
+              onChange={(e) => handleCountryChange(e.target.value as IdCountry)}
+              disabled={countrySaving}
+              className="field disabled:opacity-60"
+            >
+              {COUNTRY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Section 1: Invite codes */}
           <div className="card p-5 space-y-3">
             <h3 className="section-label flex items-center gap-2">
@@ -175,7 +217,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
                 className="field w-auto text-[13px]"
               >
                 <option value="member">Invite as member</option>
-                <option value="child">Invite as child (view only)</option>
+                <option value="child">{isBusinessSpace ? 'Invite as viewer (view only)' : 'Invite as child (view only)'}</option>
               </select>
               <button
                 onClick={handleGenerateInvite}
@@ -221,7 +263,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
           <div className="card p-5 space-y-4">
             <h3 className="section-label flex items-center gap-2">
               <Users size={14} />
-              Family Members
+              {isBusinessSpace ? 'Team Members' : 'Family Members'}
             </h3>
 
             {rolesLoading && (

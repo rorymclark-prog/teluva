@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import LanguageSelector from './LanguageSelector';
 
-const COUNTRY_OPTIONS: { value: IdCountry; label: string }[] = [
+export const COUNTRY_OPTIONS: { value: IdCountry; label: string }[] = [
   { value: 'AT', label: 'Austria' },
   { value: 'ZA', label: 'South Africa' },
   { value: 'UK', label: 'United Kingdom' },

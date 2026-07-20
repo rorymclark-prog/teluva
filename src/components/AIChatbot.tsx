@@ -234,7 +234,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(),
     ]);
     const documents = (docs || []).map(d => ({ name: d.name, category: d.category, memberId: d.memberId, uploadedAt: d.uploadedAt }));
-    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [] };
+    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {
