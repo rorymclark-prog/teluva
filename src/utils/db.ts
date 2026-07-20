@@ -3,10 +3,6 @@ import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
-const MEMBERS_KEY = 'family_members';
-const CALENDAR_KEY = 'family_calendar';
-const INFO_KEY = 'family_info';
-
 // One shared vault for the whole household. Every authorised family account
 // (see firestore.rules) reads and writes this same path, so Mama, Papa and the
 // kids all see the same family — instead of each Google account getting its own
@@ -17,6 +13,25 @@ export let FAMILY_ID = 'household';
 export function setFamilyId(id: string): void {
   FAMILY_ID = id;
 }
+
+// SPACE-SCOPED localStorage keys. THESE MUST BE FUNCTIONS, not constants — a
+// fixed key like 'family_members' is shared by every space a device has ever
+// viewed. Business Hub means the SAME browser now moves between multiple
+// spaces (a family + one or more businesses) without signing out, and every
+// loader below has an "if the cloud looks empty, migrate this device's local
+// cache up to Firestore" fallback (a genuinely useful one-time migration for a
+// brand-new device that predates cloud sync). With an UNSCOPED key, that
+// fallback fires for any genuinely-empty NEW space too — "empty cloud" no
+// longer means "never synced", it can just mean "you just created this
+// space" — and silently copies whatever the LAST space cached into the new
+// one's Firestore. That's a real bug that happened live: creating a business
+// space copied the family's members/calendar/info into it. Keep the
+// 'family_' prefix (not just the suffix) so logout()'s existing cleanup in
+// lib/firebase.ts (which sweeps every key starting with 'family_') still
+// catches these without needing its own change.
+const membersKey = () => `family_members_${FAMILY_ID}`;
+const calendarKey = () => `family_calendar_${FAMILY_ID}`;
+const infoKey = () => `family_info_${FAMILY_ID}`;
 
 // Returns true when the data reached Firestore, false when it only landed in
 // localStorage — callers surface that so silent sync failures are impossible.
@@ -47,7 +62,7 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
 
   // Always keep local storage updated for fast loading
   try {
-    localStorage.setItem(MEMBERS_KEY, JSON.stringify(members));
+    localStorage.setItem(membersKey(), JSON.stringify(members));
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
@@ -70,13 +85,13 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
         const members = snaps.map(s => s.data() as FamilyMember).filter(Boolean);
 
         // Cache locally
-        localStorage.setItem(MEMBERS_KEY, JSON.stringify(members));
+        localStorage.setItem(membersKey(), JSON.stringify(members));
         return members.length > 0 ? members : null;
       }
 
       // Shared vault is empty: migrate whatever this device saved locally (e.g.
       // data entered before sharing existed) up into the family vault, once.
-      const local = localStorage.getItem(MEMBERS_KEY);
+      const local = localStorage.getItem(membersKey());
       if (local) {
         const localMembers = JSON.parse(local) as FamilyMember[];
         if (Array.isArray(localMembers) && localMembers.length > 0) {
@@ -90,7 +105,7 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
   }
 
   // Fallback to local (not signed in)
-  const local = localStorage.getItem(MEMBERS_KEY);
+  const local = localStorage.getItem(membersKey());
   if (local) {
     try {
       return JSON.parse(local);
@@ -126,7 +141,7 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boole
   }
 
   try {
-    localStorage.setItem(CALENDAR_KEY, JSON.stringify(events));
+    localStorage.setItem(calendarKey(), JSON.stringify(events));
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
@@ -148,12 +163,12 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
         const snaps = await Promise.all(eventReqs);
         const events = snaps.map(s => s.data() as CalendarEvent).filter(Boolean);
 
-        localStorage.setItem(CALENDAR_KEY, JSON.stringify(events));
+        localStorage.setItem(calendarKey(), JSON.stringify(events));
         return events.length > 0 ? events : null;
       }
 
       // Shared vault empty: migrate this device's local events up, once.
-      const local = localStorage.getItem(CALENDAR_KEY);
+      const local = localStorage.getItem(calendarKey());
       if (local) {
         const localEvents = JSON.parse(local) as CalendarEvent[];
         if (Array.isArray(localEvents) && localEvents.length > 0) {
@@ -166,7 +181,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
     }
   }
 
-  const local = localStorage.getItem(CALENDAR_KEY);
+  const local = localStorage.getItem(calendarKey());
   if (local) {
     try {
       return JSON.parse(local);
@@ -192,7 +207,7 @@ export async function saveFamilyInfo(info: FamilyInfo): Promise<boolean> {
   }
 
   try {
-    localStorage.setItem(INFO_KEY, JSON.stringify(info));
+    localStorage.setItem(infoKey(), JSON.stringify(info));
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
@@ -208,7 +223,7 @@ export async function loadFamilyInfo(): Promise<FamilyInfo | null> {
       const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', 'info'));
       if (snap.exists()) {
         const info = snap.data() as FamilyInfo;
-        localStorage.setItem(INFO_KEY, JSON.stringify(info));
+        localStorage.setItem(infoKey(), JSON.stringify(info));
         return info;
       }
     } catch (error) {
@@ -216,7 +231,7 @@ export async function loadFamilyInfo(): Promise<FamilyInfo | null> {
     }
   }
 
-  const local = localStorage.getItem(INFO_KEY);
+  const local = localStorage.getItem(infoKey());
   if (local) {
     try {
       return JSON.parse(local);
@@ -229,6 +244,9 @@ export async function loadFamilyInfo(): Promise<FamilyInfo | null> {
 
 // --- Generic shared single-doc reference store (household / finances / timeline) ---
 // Each lives at families/{FAMILY_ID}/reference/{key}, shared across the household.
+// localKey is scoped by FAMILY_ID internally (see membersKey/calendarKey/infoKey
+// above for why) — callers keep passing their existing plain 'family_household'-
+// style constant, no call-site change needed.
 async function saveReferenceDoc<T>(key: string, value: T, localKey: string): Promise<boolean> {
   const user = auth.currentUser;
   let cloudOk = false;
@@ -241,7 +259,7 @@ async function saveReferenceDoc<T>(key: string, value: T, localKey: string): Pro
     }
   }
   try {
-    localStorage.setItem(localKey, JSON.stringify(value));
+    localStorage.setItem(`${localKey}_${FAMILY_ID}`, JSON.stringify(value));
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
@@ -249,20 +267,21 @@ async function saveReferenceDoc<T>(key: string, value: T, localKey: string): Pro
 }
 
 async function loadReferenceDoc<T>(key: string, localKey: string): Promise<T | null> {
+  const scopedKey = `${localKey}_${FAMILY_ID}`;
   const user = auth.currentUser;
   if (user) {
     try {
       const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', key));
       if (snap.exists()) {
         const data = snap.data() as T;
-        localStorage.setItem(localKey, JSON.stringify(data));
+        localStorage.setItem(scopedKey, JSON.stringify(data));
         return data;
       }
     } catch (error) {
       console.error(`Error loading ${key}:`, error);
     }
   }
-  const local = localStorage.getItem(localKey);
+  const local = localStorage.getItem(scopedKey);
   if (local) {
     try { return JSON.parse(local); } catch (e) { return null; }
   }
@@ -481,14 +500,20 @@ export async function switchSpace(spaceId: string): Promise<void> {
   setFamilyId(data.familyId || trimmed);
 }
 
-// Ask the server to (re)stamp the familyId custom claim, then refresh the
-// local token so Storage rules see it. No-op if it fails — AI calls backfill too.
+// Ask the server to (re)stamp the familyId/familyIds custom claims, then
+// refresh the local token so Storage rules see them. No-op if it fails — AI
+// calls backfill too.
 export async function ensureFamilyClaim(): Promise<void> {
   const user = auth.currentUser;
   if (!user) return;
   try {
     const current = await user.getIdTokenResult();
-    if (current.claims.familyId) return;
+    // Require BOTH claims, not just familyId: an account that already has the
+    // legacy single claim but not the new familyIds array (i.e. every account
+    // that existed before Business Hub shipped) would otherwise skip the
+    // refresh forever and never pick up the array claim. This is the one
+    // forced refresh that migrates already-signed-in sessions.
+    if (current.claims.familyId && current.claims.familyIds) return;
     const res = await fetch('/api/refresh-claims', {
       method: 'POST',
       headers: { Authorization: `Bearer ${current.token}` },
