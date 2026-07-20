@@ -76,7 +76,7 @@ function Privacy() {
     <>
       <p className="text-[12px] text-ink-400">Last updated: {UPDATED}</p>
       <p>
-        This policy explains what personal data Family Vault collects, why, and your rights under the EU
+        This policy explains what personal data Tresa collects, why, and your rights under the EU
         General Data Protection Regulation (GDPR).
       </p>
 
@@ -107,7 +107,7 @@ function Privacy() {
 
       <H>Children&apos;s data</H>
       <p>
-        Family Vault is used by adults to keep records about their family, including children. If you add a
+        Tresa is used by adults to keep records about their family, including children. If you add a
         child&apos;s data you confirm you have the right (as a parent or guardian) to do so. We do not
         knowingly let children create their own accounts.
       </p>
@@ -146,7 +146,7 @@ function Terms() {
       <p className="text-[12px] text-ink-400">Last updated: {UPDATED}</p>
 
       <H>1. The service</H>
-      <p>Family Vault is a private tool for organising your family&apos;s information. You need a Google account to sign in.</p>
+      <p>Tresa is a private tool for organising your family&apos;s information. You need a Google account to sign in.</p>
 
       <H>2. Your responsibilities</H>
       <ul className="list-disc pl-5 space-y-1">

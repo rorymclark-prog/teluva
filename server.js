@@ -91,9 +91,20 @@ async function requireMember(req) {
   const snap = await adminDb.doc(`users/${decoded.uid}`).get();
   if (!snap.exists) return { status: 403, error: 'This account is not part of a family yet — create or join one first.' };
   const profile = snap.data();
-  if (decoded.familyId !== profile.familyId) {
-    // Storage rules read this claim; backfill for accounts from before claims existed
-    admin.auth().setCustomUserClaims(decoded.uid, { familyId: profile.familyId }).catch(() => {});
+  // Storage rules read these claims; backfill whenever the legacy familyId
+  // claim is stale OR the familyIds array claim is missing/out of sync with
+  // profile.spaces (e.g. an account minted before the array claim existed, or
+  // one that just joined/created a second space server-side elsewhere). This
+  // comparison only ever triggers a re-mint (harmless) — it is not itself an
+  // access decision, so it doesn't need to be exact.
+  const wantFamilyIds = Array.isArray(profile.spaces) && profile.spaces.length > 0
+    ? profile.spaces.map((s) => s.id)
+    : [profile.familyId]; // pre-P1 accounts have no spaces[] yet — single-space fallback
+  const haveFamilyIds = Array.isArray(decoded.familyIds) ? decoded.familyIds : [];
+  const familyIdsMatch = haveFamilyIds.length === wantFamilyIds.length
+    && wantFamilyIds.every((id) => haveFamilyIds.includes(id));
+  if (decoded.familyId !== profile.familyId || !familyIdsMatch) {
+    admin.auth().setCustomUserClaims(decoded.uid, { familyId: profile.familyId, familyIds: wantFamilyIds }).catch(() => {});
   }
   return {
     uid: decoded.uid,
@@ -636,6 +647,7 @@ async function requireSignedIn(req) {
 async function grantMembership(uid, email, displayName, familyId, role, spaceType = 'family', spaceName) {
   const rolesRef = adminDb.doc(`families/${familyId}/roles/${uid}`);
   const userRef = adminDb.doc(`users/${uid}`);
+  let claimSpaces = [{ id: familyId, role, type: spaceType }]; // fallback if the transaction somehow doesn't set it
   await adminDb.runTransaction(async (tx) => {
     const userSnap = await tx.get(userRef);
     const existing = (userSnap.exists && Array.isArray(userSnap.data().spaces)) ? userSnap.data().spaces : [];
@@ -644,9 +656,13 @@ async function grantMembership(uid, email, displayName, familyId, role, spaceTyp
     const spaces = [...existing.filter((s) => s && s.id !== familyId), entry];
     tx.set(rolesRef, { role, email, displayName });
     tx.set(userRef, { familyId, role, email, displayName, spaces }, { merge: true });
+    claimSpaces = spaces;
   });
-  // Storage rules gate vault files on this claim
-  await admin.auth().setCustomUserClaims(uid, { familyId }).catch(() => {});
+  // Storage rules gate vault files on these claims — familyId is the legacy
+  // single-space claim (kept for older code paths that still read it);
+  // familyIds is the new array claim so Storage access holds for every space
+  // this account belongs to, not just the one just granted/active.
+  await admin.auth().setCustomUserClaims(uid, { familyId, familyIds: claimSpaces.map((s) => s.id) }).catch(() => {});
 }
 
 // --- Create a new family (caller becomes its admin) ---
@@ -798,11 +814,24 @@ app.post('/api/switch-space', async (req, res) => {
     }
     const role = roleSnap.data().role;
 
+    // Read the caller's full space list so the familyIds claim (below) covers
+    // every space they belong to, not just the one being switched to. A plain
+    // get() is fine here — unlike grantMembership, this endpoint never
+    // mutates the spaces array, only reads it, so there's no write to race.
+    const userSnap = await adminDb.doc(`users/${caller.uid}`).get();
+    const spaces = (userSnap.exists && Array.isArray(userSnap.data().spaces)) ? userSnap.data().spaces : [];
+    const familyIds = spaces.length > 0 ? spaces.map((s) => s.id) : [spaceId]; // pre-P1 accounts have no spaces[] yet
+
     // Update the single "active space" pointer — same field requireMember,
     // Firestore rules (via the client SDK's own reads) and Storage rules all
     // key off today. No schema change beyond what P1 already added.
     await adminDb.doc(`users/${caller.uid}`).set({ familyId: spaceId, role }, { merge: true });
-    await admin.auth().setCustomUserClaims(caller.uid, { familyId: spaceId }).catch(() => {});
+
+    // Mint BOTH claims: familyId (legacy, "active" space — some code still
+    // reads only this) and familyIds (every space the account belongs to, so
+    // Storage access doesn't lag/flicker on the space just switched AWAY from
+    // — e.g. a second tab still open on it).
+    await admin.auth().setCustomUserClaims(caller.uid, { familyId: spaceId, familyIds }).catch(() => {});
 
     res.json({ ok: true, familyId: spaceId, role });
   } catch (err) {

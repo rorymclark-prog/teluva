@@ -10,15 +10,19 @@ interface EditMemberModalProps {
   member: FamilyMember | undefined;
   onClose: () => void;
   onSave: (updatedMember: FamilyMember) => void;
+  /** True when editing a member of a business space — shows employee-flavored fields (e.g. start date). */
+  isBusinessSpace?: boolean;
 }
 
-export default function EditMemberModal({ isOpen, member, onClose, onSave }: EditMemberModalProps) {
+export default function EditMemberModal({ isOpen, member, onClose, onSave, isBusinessSpace = false }: EditMemberModalProps) {
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
   const [role, setRole] = useState<MemberRole>('Child');
   const [birthdate, setBirthdate] = useState('');
   const [birthTime, setBirthTime] = useState('');
   const [placeOfBirth, setPlaceOfBirth] = useState('');
+  const [taxNumber, setTaxNumber] = useState('');
+  const [startDate, setStartDate] = useState('');
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -44,6 +48,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
       setBirthdate(member.birthdate || '');
       setBirthTime(member.birthTime || '');
       setPlaceOfBirth(member.placeOfBirth || '');
+      setTaxNumber(member.taxNumber || '');
+      setStartDate(member.startDate || '');
       setAddress(member.address || '');
       setPhone(member.phone || '');
       setEmail(member.email || '');
@@ -161,6 +167,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
       birthdate: birthdate || undefined,
       birthTime: birthTime || undefined,
       placeOfBirth: placeOfBirth.trim() || undefined,
+      taxNumber: taxNumber.trim() || undefined,
+      startDate: startDate || undefined,
       address: address.trim() || undefined,
       phone: phone.trim() || undefined,
       email: email.trim() || undefined,
@@ -275,6 +283,20 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave }: Edi
                   <label className="field-label">Place of birth <span className="normal-case text-ink-300 font-normal">· optional</span></label>
                   <input type="text" placeholder="e.g. Vienna, Austria" value={placeOfBirth} onChange={(e) => setPlaceOfBirth(e.target.value)} className="field" />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className={isBusinessSpace ? '' : 'sm:col-span-2'}>
+                  <label className="field-label">Tax / SSN number <span className="normal-case text-ink-300 font-normal">· optional</span></label>
+                  <input type="text" placeholder="e.g. tax or social security number" value={taxNumber} onChange={(e) => setTaxNumber(e.target.value)} className="field" />
+                </div>
+                {isBusinessSpace && (
+                  <div>
+                    <label className="field-label">Start date <span className="normal-case text-ink-300 font-normal">· optional</span></label>
+                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="field" />
+                    <p className="text-[11px] text-ink-400 mt-1">e.g. when they joined the business</p>
+                  </div>
+                )}
               </div>
 
               {/* Contact & address — visible to the whole family. Members can live at different addresses. */}

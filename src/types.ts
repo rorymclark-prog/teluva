@@ -103,6 +103,8 @@ export interface FamilyMember {
   birthdate?: string;
   birthTime?: string;        // HH:MM — optional, powers the fun astrology view
   placeOfBirth?: string;
+  taxNumber?: string;        // personal tax / social-security number — useful for a family member too, not business-only
+  startDate?: string;        // YYYY-MM-DD — unused for a family member; an employee's start-of-employment date in a business space
   nationality?: string;     // comma-separated is fine, free text
   languages?: string;
   gender?: string;

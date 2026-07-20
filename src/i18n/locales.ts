@@ -1,4 +1,4 @@
-// Translation strings for Family Vault.
+// Translation strings for Tresa.
 // Keys cover: navigation, common buttons, section headings, AI chatbot UI.
 // Deep form labels and placeholder text are left in English for now — browser
 // translation (Chrome/Safari) handles the long tail automatically.

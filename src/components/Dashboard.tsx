@@ -126,6 +126,9 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'secrets', label: 'Secrets', icon: Key },
 ];
 
+// Kid/family-specific tabs that make no sense for an employee in a business space.
+const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sayings'];
+
 const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'profiles', icon: Users },
   { id: 'emergency', icon: Siren },
@@ -791,6 +794,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           <div className="w-16 h-16 rounded-full bg-sage-100 flex items-center justify-center mx-auto mb-5">
             <ShieldCheck className="w-8 h-8 text-sage-600" />
           </div>
+          <p className="text-[11px] font-bold text-clay-500 uppercase tracking-wider mb-1">Tresa</p>
           <h1 className="text-display-md text-ink-900 mb-3">{hubName}</h1>
           <p className="text-sm text-ink-500 leading-relaxed mb-8">
             Sizes, documents, growth and plans for the whole family — together in one private place.
@@ -1122,7 +1126,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                         </div>
 
                         <div className="flex flex-wrap gap-1 bg-cream-200 p-1 rounded-2xl w-fit self-start md:self-auto select-none">
-                          {TABS.filter(tab => tab.id !== 'growth' || selectedMember.role === 'Child').map(tab => (
+                          {TABS.filter(tab => (tab.id !== 'growth' || selectedMember.role === 'Child') && !(isBusinessSpace && HIDDEN_IN_BUSINESS.includes(tab.id))).map(tab => (
                             <button
                               key={tab.id}
                               type="button"
@@ -1268,6 +1272,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         member={selectedMember}
         onClose={() => setIsEditingProfile(false)}
         onSave={handleUpdateMember}
+        isBusinessSpace={isBusinessSpace}
       />
 
       <HubSettingsModal

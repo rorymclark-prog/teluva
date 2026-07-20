@@ -299,7 +299,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
                     Answer questions, read documents from photos, and restyle avatars. Processed by Google Vertex AI in the EU — your content is not used to train Google's models.
                   </p>
                   <p className="text-[11px] text-ink-400 leading-relaxed mt-1">
-                    Turning this off immediately stops AI processing and disables the assistant everywhere in Family Vault.
+                    Turning this off immediately stops AI processing and disables the assistant everywhere in Tresa.
                   </p>
                   {aiError && (
                     <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2 mt-2">{aiError}</p>

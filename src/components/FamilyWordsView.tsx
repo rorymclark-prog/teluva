@@ -7,7 +7,7 @@ import { ageLabelAt, todayISO } from '../utils/age';
 const newId = () => 'word-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const BLANK = { word: '', meaning: '', coinedBy: '', approxDate: '', stillUsed: false };
 
-export default function FamilyWordsView({ members, canEdit = false, demo = false }: { members: FamilyMember[]; canEdit?: boolean; demo?: boolean }) {
+export default function FamilyWordsView({ members, canEdit = false, demo = false, refreshKey = 0 }: { members: FamilyMember[]; canEdit?: boolean; demo?: boolean; refreshKey?: number }) {
   const canWrite = canEdit;
   const [words, setWords] = useState<FamilyWord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +27,7 @@ export default function FamilyWordsView({ members, canEdit = false, demo = false
       .catch(() => { if (active) setWords([]); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [demo]);
+  }, [demo, refreshKey]);
 
   const sorted = [...words].sort((a, b) => a.word.localeCompare(b.word));
 

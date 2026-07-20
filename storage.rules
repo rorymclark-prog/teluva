@@ -6,10 +6,22 @@ service firebase.storage {
     // create-family / join-family (and lazily backfilled on any AI call /
     // /api/refresh-claims). This makes vault files per-family for EVERY
     // family, not just the seeded household.
+    //
+    // Business Hub: a user can belong to multiple spaces at once, but only one
+    // can be the "active" familyId claim at a time — which meant a second tab
+    // (or the moment right after switching spaces, before the ID token
+    // refreshes) could lose Storage access to a space the user is still a
+    // real member of. familyIds is an ARRAY claim listing EVERY space the
+    // user belongs to, so membership in any of them is enough, independent of
+    // which one is currently "active". The single familyId claim is kept as a
+    // fallback for tokens minted before this claim existed.
     function inFamily(familyId) {
       return request.auth != null &&
         request.auth.token.email_verified == true &&
-        request.auth.token.familyId == familyId;
+        (
+          request.auth.token.familyId == familyId ||
+          (('familyIds' in request.auth.token) && familyId in request.auth.token.familyIds)
+        );
     }
 
     // Transition fallback: the original household accounts keep access to

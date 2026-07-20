@@ -20,7 +20,7 @@ async function srcToFile(src: string, name: string): Promise<File> {
 
 // Full-screen viewer for a scan / photo, with download + native share (which is
 // how you email or message a file on mobile). Click the backdrop to close.
-export default function ImageLightbox({ src, onClose, name = 'Family Vault document' }: Props) {
+export default function ImageLightbox({ src, onClose, name = 'Tresa document' }: Props) {
   async function handleDownload() {
     if (!src) return;
     try {
