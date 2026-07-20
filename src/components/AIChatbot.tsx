@@ -22,6 +22,7 @@ const SR: any = (typeof window !== 'undefined')
 
 const CHAT_KEY = 'assistant_chat_v1';
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
+const isPdfSrc = (src: string) => src.startsWith('data:application/pdf');
 
 export type AiEdit =
   | { kind: 'new_member'; name: string; role?: string; nickname?: string; birthdate?: string }
@@ -653,27 +654,29 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
               {(() => {
                 const imgs = m.images || (m.image ? [m.image] : []);
                 if (imgs.length === 0) return null;
-                if (imgs.length === 1) {
-                  return (
-                    <img
-                      src={imgs[0]}
-                      alt="attachment"
-                      onClick={() => setLightboxSrc(imgs[0])}
-                      className="max-w-[180px] rounded-2xl border border-cream-300 shadow-soft cursor-zoom-in"
-                    />
-                  );
-                }
+                const thumb = (src: string, key?: number, small?: boolean) => isPdfSrc(src) ? (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setLightboxSrc(src)}
+                    className={`flex items-center gap-2 rounded-2xl border border-cream-300 shadow-soft bg-white cursor-zoom-in ${small ? 'w-20 h-20 flex-col justify-center' : 'px-3 py-2.5'}`}
+                  >
+                    <FileText className={small ? 'w-6 h-6 text-rosa-600' : 'w-5 h-5 text-rosa-600'} />
+                    <span className={`font-semibold text-ink-700 ${small ? 'text-[10px]' : 'text-[13px]'}`}>PDF</span>
+                  </button>
+                ) : (
+                  <img
+                    key={key}
+                    src={src}
+                    alt="attachment"
+                    onClick={() => setLightboxSrc(src)}
+                    className={small ? 'w-20 h-20 object-cover rounded-2xl border border-cream-300 shadow-soft cursor-zoom-in' : 'max-w-[180px] rounded-2xl border border-cream-300 shadow-soft cursor-zoom-in'}
+                  />
+                );
+                if (imgs.length === 1) return thumb(imgs[0]);
                 return (
                   <div className={`flex flex-wrap gap-1.5 ${m.role === 'user' ? 'justify-end' : ''}`}>
-                    {imgs.map((src, k) => (
-                      <img
-                        key={k}
-                        src={src}
-                        alt="attachment"
-                        onClick={() => setLightboxSrc(src)}
-                        className="w-20 h-20 object-cover rounded-2xl border border-cream-300 shadow-soft cursor-zoom-in"
-                      />
-                    ))}
+                    {imgs.map((src, k) => thumb(src, k, true))}
                   </div>
                 );
               })()}

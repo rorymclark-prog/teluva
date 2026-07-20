@@ -11,6 +11,7 @@ interface DocumentViewerProps {
 }
 
 export default function DocumentViewer({ document: doc, memberName, onClose }: DocumentViewerProps) {
+  const isPdf = doc?.fileType === 'application/pdf';
   // BUG FIX #3: AnimatePresence must always render; the early `if (!doc) return null`
   // was placed before AnimatePresence, so the exit animation never fired. All helper
   // functions that depend on `doc` are now defined unconditionally (safe because they
@@ -75,8 +76,10 @@ export default function DocumentViewer({ document: doc, memberName, onClose }: D
           >
             {/* Left panel: File viewer */}
             <div className="lg:col-span-8 bg-cream-100 flex items-center justify-center p-6 border-b lg:border-b-0 lg:border-r border-cream-200 overflow-y-auto">
-              <div className="max-w-md w-full aspect-[4/5.6] bg-white rounded-2xl shadow-soft overflow-hidden border border-cream-300 relative flex items-center justify-center">
-                {(doc.fileType?.startsWith('image/') || doc.fileData === 'PLACEHOLDER' || !doc.fileType) ? (
+              <div className={`w-full bg-white rounded-2xl shadow-soft overflow-hidden border border-cream-300 relative flex items-center justify-center ${isPdf ? 'max-w-2xl h-[80vh]' : 'max-w-md aspect-[4/5.6]'}`}>
+                {isPdf ? (
+                  <iframe src={getDocSource()} title={doc.name} className="w-full h-full border-0" />
+                ) : (doc.fileType?.startsWith('image/') || doc.fileData === 'PLACEHOLDER' || !doc.fileType) ? (
                   <img
                     src={getDocSource()}
                     alt={doc.name}
@@ -86,10 +89,10 @@ export default function DocumentViewer({ document: doc, memberName, onClose }: D
                 ) : (
                   <div className="text-center p-8 space-y-3">
                     <div className="w-16 h-16 bg-cream-100 border border-cream-300 rounded-2xl flex items-center justify-center mx-auto text-ink-500 font-bold uppercase text-xs font-mono">
-                      PDF
+                      {(doc.fileType?.split('/')[1] || 'FILE').slice(0, 4).toUpperCase()}
                     </div>
                     <h3 className="text-sm font-semibold text-ink-800 truncate max-w-xs">{doc.fileName}</h3>
-                    <p className="text-xs text-ink-400">PDF loaded — download to view in full.</p>
+                    <p className="text-xs text-ink-400">Preview isn't available for this file type — download to view.</p>
                   </div>
                 )}
               </div>
