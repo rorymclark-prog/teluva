@@ -390,6 +390,32 @@ export async function createFamily(familyName: string): Promise<string> {
   return data.familyId;
 }
 
+/**
+ * Create a new BUSINESS (or other non-family) space — the caller becomes its
+ * admin, and it becomes their active space. Mirrors createFamily exactly
+ * (server-only writer, forced getIdToken(true) refresh) — a Business space is
+ * the same families/{id}/* document tree as a Family space, just tagged with
+ * a different `type`, so every existing view (Vehicles, Documents, Insurance,
+ * Passwords, members-as-team) works inside it unmodified.
+ */
+export async function createSpace(name: string, type: 'business' | 'personal' = 'business'): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to create a space');
+
+  const token = await user.getIdToken();
+  const res = await fetch('/api/create-space', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name: name.trim(), type }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not create the space. Please try again.');
+
+  await user.getIdToken(true); // pick up the new familyId custom claim for Storage
+  setFamilyId(data.spaceId);
+  return data.spaceId;
+}
+
 // --- Babysitter / carer share links ---
 export interface CarerShareSnapshot {
   children: { name: string; age?: string; allergies?: string; medications?: string; conditions?: string; doctor?: string; school?: string; notes?: string }[];

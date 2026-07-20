@@ -65,7 +65,7 @@ import MemberSayings from './MemberSayings';
 import FamilyWordsView from './FamilyWordsView';
 import VehiclesView from './VehiclesView';
 import SpaceSwitcher from './SpaceSwitcher';
-import { switchSpace } from '../utils/db';
+import { switchSpace, createSpace } from '../utils/db';
 import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
@@ -207,8 +207,15 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const demo = isDemoMode();
   const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId } = useFamilyCtx();
 
+  const activeSpaceType = spaces.find((s) => s.id === activeSpaceId)?.type || 'family';
+  const isBusinessSpace = activeSpaceType === 'business';
+
   const handleSwitchSpace = async (spaceId: string) => {
     await switchSpace(spaceId);
+    window.location.reload();
+  };
+  const handleCreateSpace = async (name: string) => {
+    await createSpace(name, 'business');
     window.location.reload();
   };
   // AI is opt-in and OFF by default. Demo mode always shows it (no real data);
@@ -318,7 +325,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     init();
   }, [currentUser]);
 
-  const hubName = settings.hubName || 'Family Hub';
+  const hubName = settings.hubName || (isBusinessSpace ? 'Business Hub' : 'Family Hub');
 
   // How to render a member's name (fun display preference)
   const memberName = (m: FamilyMember) => {
@@ -829,14 +836,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             )}
             <div>
               <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight">{hubName}</h1>
-              <p className="hidden sm:block text-[11px] text-ink-400 font-medium leading-tight">Everything for the family, in one place</p>
+              <p className="hidden sm:block text-[11px] text-ink-400 font-medium leading-tight">{isBusinessSpace ? 'Everything for the business, in one place' : 'Everything for the family, in one place'}</p>
             </div>
           </button>
 
           {/* Space switcher (Family / Business / Personal) — renders nothing
               until an account belongs to more than one space. Not shown in demo
               (demo isn't a real signed-in account, nothing to switch to). */}
-          {!demo && <SpaceSwitcher spaces={spaces} activeId={activeSpaceId} onSwitch={handleSwitchSpace} />}
+          {!demo && <SpaceSwitcher spaces={spaces} activeId={activeSpaceId} canCreate={canWrite} onSwitch={handleSwitchSpace} onCreate={handleCreateSpace} />}
 
           {/* Main view switcher — a burger dropdown so all sections are reachable
               in one tap, no horizontal sliding. */}
@@ -970,12 +977,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 </div>
                 <h2 className="text-display-sm text-ink-900 mb-2">Welcome to your {hubName}</h2>
                 <p className="text-sm text-ink-500 max-w-md mx-auto mb-7">
-                  Keep everyone&apos;s clothing sizes, documents, growth history and wish lists in one tidy, private place.
+                  {isBusinessSpace
+                    ? 'Keep your team, vehicles, leases, insurance and documents in one tidy, private place.'
+                    : "Keep everyone's clothing sizes, documents, growth history and wish lists in one tidy, private place."}
                 </p>
                 {isAdmin && (
                   <button onClick={() => setIsAddModalOpen(true)} className="btn-primary">
                     <UserPlus className="w-4 h-4" />
-                    <span>Add your first family member</span>
+                    <span>{isBusinessSpace ? 'Add your first team member' : 'Add your first family member'}</span>
                   </button>
                 )}
               </div>
@@ -985,7 +994,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 <section className="lg:col-span-4 space-y-5">
                   <div className="card p-5 space-y-4">
                     <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
-                      <h4 className="section-label">Your family</h4>
+                      <h4 className="section-label">{isBusinessSpace ? 'Your team' : 'Your family'}</h4>
                       <span className="chip bg-cream-200 text-ink-600 tabular-nums">
                         {members.length} member{members.length !== 1 ? 's' : ''}
                       </span>

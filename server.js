@@ -600,13 +600,15 @@ async function requireSignedIn(req) {
 // spaces survive a SECOND grantMembership call (joining/creating a 2nd space).
 // Previously this did a full (non-merge) overwrite of users/{uid}, which would
 // have silently wiped consent + chat history the moment multi-space existed.
-async function grantMembership(uid, email, displayName, familyId, role, spaceType = 'family') {
+async function grantMembership(uid, email, displayName, familyId, role, spaceType = 'family', spaceName) {
   const rolesRef = adminDb.doc(`families/${familyId}/roles/${uid}`);
   const userRef = adminDb.doc(`users/${uid}`);
   await adminDb.runTransaction(async (tx) => {
     const userSnap = await tx.get(userRef);
     const existing = (userSnap.exists && Array.isArray(userSnap.data().spaces)) ? userSnap.data().spaces : [];
-    const spaces = [...existing.filter((s) => s && s.id !== familyId), { id: familyId, role, type: spaceType }];
+    const entry = { id: familyId, role, type: spaceType };
+    if (spaceName) entry.name = spaceName; // cached label for the space switcher
+    const spaces = [...existing.filter((s) => s && s.id !== familyId), entry];
     tx.set(rolesRef, { role, email, displayName });
     tx.set(userRef, { familyId, role, email, displayName, spaces }, { merge: true });
   });
@@ -623,13 +625,39 @@ app.post('/api/create-family', async (req, res) => {
     const name = String((req.body || {}).name || '').trim() || 'Our Family';
     const familyId = crypto.randomUUID();
     await adminDb.doc(`families/${familyId}/info/info`).set({
-      name, createdAt: new Date().toISOString().slice(0, 10), adminUid: caller.uid,
+      name, type: 'family', createdAt: new Date().toISOString().slice(0, 10), adminUid: caller.uid,
     });
-    await grantMembership(caller.uid, caller.email, caller.displayName, familyId, 'admin');
+    await grantMembership(caller.uid, caller.email, caller.displayName, familyId, 'admin', 'family', name);
     res.json({ ok: true, familyId });
   } catch (err) {
     console.error('/api/create-family error:', err);
     res.status(500).json({ error: 'Could not create the family. Please try again.' });
+  }
+});
+
+// --- Create a new BUSINESS (or other non-family) space; caller becomes its
+// admin. Business Hub: a user's account can hold a Family space AND one or
+// more Business spaces, switched via /api/switch-space. Reuses the exact same
+// families/{id}/* document tree as a family — a Business space IS a family
+// document tree, just tagged with a different `type`. ---
+app.post('/api/create-space', async (req, res) => {
+  try {
+    const caller = await requireSignedIn(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+
+    const rawType = String((req.body || {}).type || 'business');
+    const type = ['business', 'personal'].includes(rawType) ? rawType : 'business';
+    const name = String((req.body || {}).name || '').trim() || (type === 'business' ? 'My Business' : 'My Space');
+
+    const spaceId = crypto.randomUUID();
+    await adminDb.doc(`families/${spaceId}/info/info`).set({
+      name, type, createdAt: new Date().toISOString().slice(0, 10), adminUid: caller.uid,
+    });
+    await grantMembership(caller.uid, caller.email, caller.displayName, spaceId, 'admin', type, name);
+    res.json({ ok: true, spaceId, type });
+  } catch (err) {
+    console.error('/api/create-space error:', err);
+    res.status(500).json({ error: 'Could not create the space. Please try again.' });
   }
 });
 
@@ -678,7 +706,9 @@ app.post('/api/join-family', async (req, res) => {
       if (inv.expiresAt && new Date(inv.expiresAt) < new Date()) {
         return res.status(410).json({ error: 'This invite has expired — ask your admin for a new one.' });
       }
-      await grantMembership(caller.uid, caller.email, caller.displayName, inv.familyId, inv.role || 'member');
+      const targetInfo = await adminDb.doc(`families/${inv.familyId}/info/info`).get();
+      const targetData = targetInfo.exists ? targetInfo.data() : {};
+      await grantMembership(caller.uid, caller.email, caller.displayName, inv.familyId, inv.role || 'member', targetData.type || 'family', targetData.name);
       await inviteRef.set({ usedBy: caller.uid, usedAt: new Date().toISOString() }, { merge: true });
       return res.json({ ok: true, familyId: inv.familyId });
     }
@@ -688,7 +718,9 @@ app.post('/api/join-family', async (req, res) => {
     if (UUID_RE.test(raw)) {
       const rolesSnap = await adminDb.collection(`families/${raw}/roles`).limit(1).get();
       if (!rolesSnap.empty) {
-        await grantMembership(caller.uid, caller.email, caller.displayName, raw, 'member');
+        const targetInfo = await adminDb.doc(`families/${raw}/info/info`).get();
+        const targetData = targetInfo.exists ? targetInfo.data() : {};
+        await grantMembership(caller.uid, caller.email, caller.displayName, raw, 'member', targetData.type || 'family', targetData.name);
         return res.json({ ok: true, familyId: raw });
       }
     }
