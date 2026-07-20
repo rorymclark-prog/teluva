@@ -29,9 +29,23 @@ export function setFamilyId(id: string): void {
 // 'family_' prefix (not just the suffix) so logout()'s existing cleanup in
 // lib/firebase.ts (which sweeps every key starting with 'family_') still
 // catches these without needing its own change.
-const membersKey = () => `family_members_${FAMILY_ID}`;
-const calendarKey = () => `family_calendar_${FAMILY_ID}`;
-const infoKey = () => `family_info_${FAMILY_ID}`;
+//
+// '_v2_': bumped the moment this scoping shipped. A browser that already
+// cached wrongly-copied data under the OLD unscoped key (or even under a
+// correctly-scoped-but-still-wrong key, from before this fix existed) must
+// never have that data read again — the version bump makes every such key
+// simply absent for every reader, a clean slate, without needing to reach
+// into anyone's browser. Also caught live: even a correctly-scoped cache can
+// resurrect data an admin deliberately deleted server-side, because "cloud
+// empty" isn't only true for "never synced" — it's also true right after a
+// legitimate cleanup. The MIGRATED_KEY guard below closes that: once a
+// migration has been attempted for a space (successful or not), it never
+// fires again for that space, so a later server-side delete can't be
+// silently undone by a stale local cache.
+const membersKey = () => `family_members_v2_${FAMILY_ID}`;
+const calendarKey = () => `family_calendar_v2_${FAMILY_ID}`;
+const infoKey = () => `family_info_v2_${FAMILY_ID}`;
+const migratedFlagKey = (kind: string) => `family_migrated_v2_${kind}_${FAMILY_ID}`;
 
 // Returns true when the data reached Firestore, false when it only landed in
 // localStorage — callers surface that so silent sync failures are impossible.
@@ -90,14 +104,22 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
       }
 
       // Shared vault is empty: migrate whatever this device saved locally (e.g.
-      // data entered before sharing existed) up into the family vault, once.
-      const local = localStorage.getItem(membersKey());
-      if (local) {
-        const localMembers = JSON.parse(local) as FamilyMember[];
-        if (Array.isArray(localMembers) && localMembers.length > 0) {
-          await saveFamilyMembers(localMembers);
-          return localMembers;
+      // data entered before sharing existed) up into the family vault — but
+      // ONLY ONCE per space, ever. Without the flag, this fires every time the
+      // cloud looks empty, including right after a deliberate server-side
+      // delete — which would silently resurrect data an admin just removed.
+      const migratedKey = migratedFlagKey('members');
+      if (!localStorage.getItem(migratedKey)) {
+        const local = localStorage.getItem(membersKey());
+        if (local) {
+          const localMembers = JSON.parse(local) as FamilyMember[];
+          if (Array.isArray(localMembers) && localMembers.length > 0) {
+            await saveFamilyMembers(localMembers);
+            localStorage.setItem(migratedKey, '1');
+            return localMembers;
+          }
         }
+        localStorage.setItem(migratedKey, '1');
       }
     } catch (error) {
       console.error('Error loading from Firestore:', error);
@@ -167,14 +189,22 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
         return events.length > 0 ? events : null;
       }
 
-      // Shared vault empty: migrate this device's local events up, once.
-      const local = localStorage.getItem(calendarKey());
-      if (local) {
-        const localEvents = JSON.parse(local) as CalendarEvent[];
-        if (Array.isArray(localEvents) && localEvents.length > 0) {
-          await saveCalendarEvents(localEvents);
-          return localEvents;
+      // Shared vault empty: migrate this device's local events up — ONLY ONCE
+      // per space, ever (see the members loader above for why: without the
+      // flag, a deliberate server-side delete gets silently undone on the
+      // next load from a stale local cache).
+      const migratedKey = migratedFlagKey('events');
+      if (!localStorage.getItem(migratedKey)) {
+        const local = localStorage.getItem(calendarKey());
+        if (local) {
+          const localEvents = JSON.parse(local) as CalendarEvent[];
+          if (Array.isArray(localEvents) && localEvents.length > 0) {
+            await saveCalendarEvents(localEvents);
+            localStorage.setItem(migratedKey, '1');
+            return localEvents;
+          }
         }
+        localStorage.setItem(migratedKey, '1');
       }
     } catch (error) {
       console.error('Error loading events from Firestore:', error);

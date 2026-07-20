@@ -650,7 +650,19 @@ async function grantMembership(uid, email, displayName, familyId, role, spaceTyp
   let claimSpaces = [{ id: familyId, role, type: spaceType }]; // fallback if the transaction somehow doesn't set it
   await adminDb.runTransaction(async (tx) => {
     const userSnap = await tx.get(userRef);
-    const existing = (userSnap.exists && Array.isArray(userSnap.data().spaces)) ? userSnap.data().spaces : [];
+    const priorData = userSnap.exists ? userSnap.data() : null;
+    let existing = (priorData && Array.isArray(priorData.spaces)) ? priorData.spaces : [];
+    // Backfill: an account created before Business Hub shipped has a
+    // familyId/role but no spaces[] entry for it at all (spaces[] didn't
+    // exist yet when it was written). Without this, granting a SECOND space
+    // would silently DROP the account's pre-existing membership from the
+    // discoverable list — the user stays a real member server-side (their
+    // roles/{uid} doc for it is untouched), but the space switcher can never
+    // show it again because it only renders what's in spaces[]. Confirmed
+    // live: this exact thing happened the first time Business Hub was used.
+    if (existing.length === 0 && priorData && priorData.familyId && priorData.familyId !== familyId) {
+      existing = [{ id: priorData.familyId, role: priorData.role || 'member', type: 'family' }];
+    }
     const entry = { id: familyId, role, type: spaceType };
     if (spaceName) entry.name = spaceName; // cached label for the space switcher
     const spaces = [...existing.filter((s) => s && s.id !== familyId), entry];
