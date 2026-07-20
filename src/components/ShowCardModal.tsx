@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { looksLikePdf } from '../utils/fileType';
 
 export interface ShowCardField {
   label: string;
@@ -23,6 +24,7 @@ interface Props {
 // number, optional scan, screen kept awake. This is the teen "show my card" flow.
 export default function ShowCardModal({ open, onClose, title, subtitle, fields = [], scanSrc }: Props) {
   const wakeRef = useRef<{ release: () => void } | null>(null);
+  const scanIsPdf = !!scanSrc && looksLikePdf(scanSrc);
 
   // Keep the screen awake while the card is shown (best-effort; ignored where unsupported).
   useEffect(() => {
@@ -73,11 +75,19 @@ export default function ShowCardModal({ open, onClose, title, subtitle, fields =
               </div>
 
               {scanSrc && (
-                <img
-                  src={scanSrc}
-                  alt={title}
-                  className="w-full max-h-[42vh] rounded-2xl object-contain bg-white border border-cream-200"
-                />
+                scanIsPdf ? (
+                  <iframe
+                    src={scanSrc}
+                    title={title}
+                    className="w-full h-[42vh] rounded-2xl bg-white border border-cream-200"
+                  />
+                ) : (
+                  <img
+                    src={scanSrc}
+                    alt={title}
+                    className="w-full max-h-[42vh] rounded-2xl object-contain bg-white border border-cream-200"
+                  />
+                )
               )}
 
               {fields.length > 0 && (

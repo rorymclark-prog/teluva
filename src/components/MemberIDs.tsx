@@ -349,6 +349,8 @@ function IdentityLabelRow({
 const COUNTRY_SECTION_TITLE: Record<IdCountry, string> = {
   AT: 'Austrian & national IDs',
   ZA: 'South African & national IDs',
+  UK: 'UK & national IDs',
+  US: 'US & national IDs',
   other: 'IDs & national documents',
 };
 
@@ -385,6 +387,12 @@ function IdentitySection({
 
       {country === 'ZA' && (
         <SouthAfricanFields identity={identity} val={val} set={set} onChange={onChange} documents={documents} onViewScan={onViewScan} memberName={memberName} onShowCard={onShowCard} />
+      )}
+      {country === 'UK' && (
+        <UKFields identity={identity} val={val} set={set} onChange={onChange} documents={documents} onViewScan={onViewScan} memberName={memberName} onShowCard={onShowCard} />
+      )}
+      {country === 'US' && (
+        <USFields identity={identity} val={val} set={set} onChange={onChange} documents={documents} onViewScan={onViewScan} memberName={memberName} onShowCard={onShowCard} />
       )}
       {country === 'other' && (
         <GenericIdentityFields identity={identity} val={val} set={set} onChange={onChange} documents={documents} onViewScan={onViewScan} memberName={memberName} onShowCard={onShowCard} />
@@ -872,6 +880,270 @@ function GenericIdentityFields({ identity, val, set, onChange, documents, onView
         </div>
       </div>
     </div>
+  );
+}
+
+function UKFields({ identity, val, set, onChange, documents, onViewScan, memberName, onShowCard }: FieldSetProps) {
+  return (
+    <>
+      {/* Identity */}
+      <div className="space-y-3">
+        <p className="section-label flex items-center gap-1.5 text-clay-600">
+          <MapPin className="w-3 h-3" /> Identity
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[13px] font-semibold text-ink-600">National Insurance number</label>
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const scan = findIdentityScan('nationalIdNumber', documents);
+                  return scan ? (
+                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned NI document">
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null;
+                })()}
+                {identity.nationalIdNumber && (
+                  <button
+                    onClick={() => onShowCard({
+                      title: 'National Insurance number', subtitle: memberName,
+                      fields: [{ label: 'NI number', value: identity.nationalIdNumber || '—', mono: true, big: true }],
+                      scanSrc: findIdentityScan('nationalIdNumber', documents)?.fileData,
+                    })}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
+                    title="Show this NI number"
+                  >
+                    <Maximize2 className="w-3 h-3" /> Show
+                  </button>
+                )}
+              </div>
+            </div>
+            <input className="field font-mono tabular-nums" placeholder="e.g. QQ 12 34 56 C" value={val('nationalIdNumber')} onChange={set('nationalIdNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Unabridged birth certificate no." scan={findIdentityScan('birthCertNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned birth certificate" />
+            <input className="field font-mono tabular-nums" placeholder="Birth certificate number" value={val('birthCertNumber')} onChange={set('birthCertNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Tax reference (UTR)" scan={findIdentityScan('taxNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned tax document" />
+            <input className="field font-mono tabular-nums" placeholder="Unique Taxpayer Reference" value={val('taxNumber')} onChange={set('taxNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Student number" scan={findIdentityScan('studentNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned student number document" />
+            <input className="field font-mono tabular-nums" placeholder="Student number" value={val('studentNumber')} onChange={set('studentNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="School registration number" scan={findIdentityScan('schoolRegNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned school registration document" />
+            <input className="field font-mono tabular-nums" placeholder="School registration number" value={val('schoolRegNumber')} onChange={set('schoolRegNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+        </div>
+      </div>
+
+      {/* Residence, travel & other */}
+      <div className="space-y-3">
+        <p className="section-label flex items-center gap-1.5 text-dusk-700">
+          <BookOpen className="w-3 h-3" /> Residence, travel &amp; other
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[13px] font-semibold text-ink-600">BRP / visa number</label>
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const scan = findIdentityScan('residencePermitNumber', documents);
+                  return scan ? (
+                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned BRP/visa">
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null;
+                })()}
+                {identity.residencePermitNumber && (
+                  <button
+                    onClick={() => onShowCard({
+                      title: 'BRP / visa', subtitle: memberName,
+                      fields: [
+                        { label: 'BRP/visa number', value: identity.residencePermitNumber || '—', mono: true, big: true },
+                        ...(identity.residencePermitExpiry ? [{ label: 'Expiry', value: identity.residencePermitExpiry }] : []),
+                      ],
+                      scanSrc: findIdentityScan('residencePermitNumber', documents)?.fileData,
+                    })}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
+                    title="Show this BRP/visa"
+                  >
+                    <Maximize2 className="w-3 h-3" /> Show
+                  </button>
+                )}
+              </div>
+            </div>
+            <input className="field font-mono tabular-nums" placeholder="Biometric Residence Permit / visa number" value={val('residencePermitNumber')} onChange={set('residencePermitNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <label className="field-label">
+              BRP / visa expiry
+              {identity.residencePermitExpiry && <span className="ml-2">{expiryChip(identity.residencePermitExpiry)}</span>}
+            </label>
+            <input type="date" className="field tabular-nums" value={val('residencePermitExpiry')} onChange={set('residencePermitExpiry')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Driving licence number" scan={findIdentityScan('driversLicenseNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned driving licence" />
+            <input className="field font-mono tabular-nums" placeholder="Driving licence number" value={val('driversLicenseNumber')} onChange={set('driversLicenseNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <label className="field-label">
+              Driving licence expiry
+              {identity.driversLicenseExpiry && <span className="ml-2">{expiryChip(identity.driversLicenseExpiry)}</span>}
+            </label>
+            <input type="date" className="field tabular-nums" value={val('driversLicenseExpiry')} onChange={set('driversLicenseExpiry')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="NHS number" scan={findIdentityScan('medicalAidNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned NHS card" />
+            <input className="field font-mono tabular-nums" placeholder="NHS number" value={val('medicalAidNumber')} onChange={set('medicalAidNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Naturalisation certificate number" scan={findIdentityScan('citizenshipCertNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned naturalisation certificate" />
+            <input className="field font-mono tabular-nums" placeholder="Certificate number" value={val('citizenshipCertNumber')} onChange={set('citizenshipCertNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function USFields({ identity, val, set, onChange, documents, onViewScan, memberName, onShowCard }: FieldSetProps) {
+  return (
+    <>
+      {/* Identity */}
+      <div className="space-y-3">
+        <p className="section-label flex items-center gap-1.5 text-clay-600">
+          <MapPin className="w-3 h-3" /> Identity
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="field-label">ID document type</label>
+            <select
+              className="field"
+              value={val('idDocumentType')}
+              onChange={(e) => onChange({ ...identity, idDocumentType: e.target.value || undefined })}
+            >
+              <option value="">Select…</option>
+              <option value="State ID Card">State ID Card</option>
+              <option value="State Driver's License">State Driver's License</option>
+              <option value="Foreign passport">Foreign passport</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[13px] font-semibold text-ink-600">Social Security number</label>
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const scan = findIdentityScan('nationalIdNumber', documents);
+                  return scan ? (
+                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned SSN card">
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null;
+                })()}
+                {identity.nationalIdNumber && (
+                  <button
+                    onClick={() => onShowCard({
+                      title: 'Social Security number', subtitle: memberName,
+                      fields: [{ label: 'SSN', value: identity.nationalIdNumber || '—', mono: true, big: true }],
+                      scanSrc: findIdentityScan('nationalIdNumber', documents)?.fileData,
+                    })}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
+                    title="Show this SSN"
+                  >
+                    <Maximize2 className="w-3 h-3" /> Show
+                  </button>
+                )}
+              </div>
+            </div>
+            <input className="field font-mono tabular-nums" placeholder="e.g. 123-45-6789" value={val('nationalIdNumber')} onChange={set('nationalIdNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Unabridged birth certificate no." scan={findIdentityScan('birthCertNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned birth certificate" />
+            <input className="field font-mono tabular-nums" placeholder="Birth certificate number" value={val('birthCertNumber')} onChange={set('birthCertNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Tax ID (if different from SSN)" scan={findIdentityScan('taxNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned tax document" />
+            <input className="field font-mono tabular-nums" placeholder="ITIN / state tax ID" value={val('taxNumber')} onChange={set('taxNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Student number" scan={findIdentityScan('studentNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned student number document" />
+            <input className="field font-mono tabular-nums" placeholder="Student number" value={val('studentNumber')} onChange={set('studentNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+        </div>
+      </div>
+
+      {/* Residence, travel & other */}
+      <div className="space-y-3">
+        <p className="section-label flex items-center gap-1.5 text-dusk-700">
+          <BookOpen className="w-3 h-3" /> Residence, travel &amp; other
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[13px] font-semibold text-ink-600">Green Card / visa number</label>
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const scan = findIdentityScan('residencePermitNumber', documents);
+                  return scan ? (
+                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned Green Card/visa">
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null;
+                })()}
+                {identity.residencePermitNumber && (
+                  <button
+                    onClick={() => onShowCard({
+                      title: 'Green Card / visa', subtitle: memberName,
+                      fields: [
+                        { label: 'Number', value: identity.residencePermitNumber || '—', mono: true, big: true },
+                        ...(identity.residencePermitExpiry ? [{ label: 'Expiry', value: identity.residencePermitExpiry }] : []),
+                      ],
+                      scanSrc: findIdentityScan('residencePermitNumber', documents)?.fileData,
+                    })}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-clay-600 hover:text-clay-800"
+                    title="Show this Green Card/visa"
+                  >
+                    <Maximize2 className="w-3 h-3" /> Show
+                  </button>
+                )}
+              </div>
+            </div>
+            <input className="field font-mono tabular-nums" placeholder="Green Card / visa number" value={val('residencePermitNumber')} onChange={set('residencePermitNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <label className="field-label">
+              Green Card / visa expiry
+              {identity.residencePermitExpiry && <span className="ml-2">{expiryChip(identity.residencePermitExpiry)}</span>}
+            </label>
+            <input type="date" className="field tabular-nums" value={val('residencePermitExpiry')} onChange={set('residencePermitExpiry')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Driver's license number" scan={findIdentityScan('driversLicenseNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned driver's license" />
+            <input className="field font-mono tabular-nums" placeholder="Driver's license number" value={val('driversLicenseNumber')} onChange={set('driversLicenseNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <label className="field-label">
+              Driver's license expiry
+              {identity.driversLicenseExpiry && <span className="ml-2">{expiryChip(identity.driversLicenseExpiry)}</span>}
+            </label>
+            <input type="date" className="field tabular-nums" value={val('driversLicenseExpiry')} onChange={set('driversLicenseExpiry')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Health insurance member ID" scan={findIdentityScan('medicalAidNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned health insurance card" />
+            <input className="field font-mono tabular-nums" placeholder="Health insurance member ID" value={val('medicalAidNumber')} onChange={set('medicalAidNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+          <div>
+            <IdentityLabelRow label="Certificate of Naturalization no." scan={findIdentityScan('citizenshipCertNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned naturalization certificate" />
+            <input className="field font-mono tabular-nums" placeholder="Certificate number" value={val('citizenshipCertNumber')} onChange={set('citizenshipCertNumber')} onBlur={() => onChange({ ...identity })} />
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 

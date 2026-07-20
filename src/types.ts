@@ -464,7 +464,7 @@ export interface FamilyTimeline {
 // ISO 3166-1 alpha-2 country codes the ID & Passports section has a dedicated
 // field set for; 'other' shows a slim generic set (national ID/tax/driver's
 // licence) that fits most countries reasonably.
-export type IdCountry = 'AT' | 'ZA' | 'other';
+export type IdCountry = 'AT' | 'ZA' | 'UK' | 'US' | 'other';
 
 export interface HubSettings {
   hubName?: string;

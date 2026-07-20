@@ -1,5 +1,6 @@
 import { X, Download, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { looksLikePdf } from '../utils/fileType';
 
 interface Props {
   src: string | null;
@@ -11,15 +12,6 @@ interface Props {
 }
 
 const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-
-// Recognise a PDF even without an explicit mimeType: a base64 data URL says so
-// directly, and a Storage download URL keeps the original filename (incl.
-// extension) in its path.
-function looksLikePdf(src: string, mimeType?: string): boolean {
-  if (mimeType) return mimeType === 'application/pdf';
-  if (src.startsWith('data:application/pdf')) return true;
-  return /\.pdf(\?|#|$)/i.test(src);
-}
 
 async function srcToFile(src: string, name: string): Promise<File> {
   const res = await fetch(src);

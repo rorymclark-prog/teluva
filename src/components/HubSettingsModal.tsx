@@ -8,6 +8,8 @@ import LanguageSelector from './LanguageSelector';
 const COUNTRY_OPTIONS: { value: IdCountry; label: string }[] = [
   { value: 'AT', label: 'Austria' },
   { value: 'ZA', label: 'South Africa' },
+  { value: 'UK', label: 'United Kingdom' },
+  { value: 'US', label: 'United States' },
   { value: 'other', label: 'Other / generic' },
 ];
 

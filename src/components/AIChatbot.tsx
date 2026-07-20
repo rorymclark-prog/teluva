@@ -10,6 +10,7 @@ import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import ImageLightbox from './ImageLightbox';
+import { looksLikePdf } from '../utils/fileType';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff,
@@ -22,7 +23,6 @@ const SR: any = (typeof window !== 'undefined')
 
 const CHAT_KEY = 'assistant_chat_v1';
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
-const isPdfSrc = (src: string) => src.startsWith('data:application/pdf');
 
 export type AiEdit =
   | { kind: 'new_member'; name: string; role?: string; nickname?: string; birthdate?: string }
@@ -654,7 +654,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
               {(() => {
                 const imgs = m.images || (m.image ? [m.image] : []);
                 if (imgs.length === 0) return null;
-                const thumb = (src: string, key?: number, small?: boolean) => isPdfSrc(src) ? (
+                const thumb = (src: string, key?: number, small?: boolean) => looksLikePdf(src) ? (
                   <button
                     key={key}
                     type="button"

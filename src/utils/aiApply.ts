@@ -129,8 +129,25 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[]): Fami
     } else if (e.kind === 'passport') {
       const target = resolveMember(next, e.member);
       if (!target) continue;
-      const rec = { id: newId(), country: e.country, number: e.number, expiryDate: e.expiry || undefined };
-      next = next.map(m => (m.id === target.id ? { ...m, passports: [...(m.passports || []), rec] } : m));
+      // The AI can re-extract the same passport across multiple messages (a
+      // re-scanned photo, or the same document referenced by more than one
+      // card) — match on country+number and update in place instead of
+      // appending a duplicate row.
+      const existing = (target.passports || []).find(p =>
+        (p.country || '').trim().toLowerCase() === (e.country || '').trim().toLowerCase()
+        && (p.number || '').trim() === (e.number || '').trim()
+      );
+      if (existing) {
+        next = next.map(m => (m.id === target.id ? {
+          ...m,
+          passports: (m.passports || []).map(p => p.id === existing.id
+            ? { ...p, country: e.country, number: e.number, expiryDate: e.expiry || p.expiryDate }
+            : p),
+        } : m));
+      } else {
+        const rec = { id: newId(), country: e.country, number: e.number, expiryDate: e.expiry || undefined };
+        next = next.map(m => (m.id === target.id ? { ...m, passports: [...(m.passports || []), rec] } : m));
+      }
     } else if (e.kind === 'transit_pass') {
       const target = resolveMember(next, e.member);
       if (!target || !e.name) continue;
