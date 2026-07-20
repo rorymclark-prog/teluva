@@ -80,7 +80,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -95,7 +95,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            className="card relative w-full max-w-md overflow-hidden rounded-3xl p-6 z-10 anim-pop"
+            className="card relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl p-6 z-10 anim-pop"
           >
             {/* Mobile grabber bar */}
             <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
