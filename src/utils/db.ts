@@ -530,6 +530,27 @@ export async function switchSpace(spaceId: string): Promise<void> {
   setFamilyId(data.familyId || trimmed);
 }
 
+/**
+ * Rename the caller's ACTIVE space (families/{id}/info/info.name). Admin-only
+ * server-side; also propagates the new name into every member's cached
+ * users/{uid}.spaces[] entry so the space switcher shows it for everyone.
+ */
+export async function renameSpace(name: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to rename a space');
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Missing name');
+
+  const token = await user.getIdToken();
+  const res = await fetch('/api/rename-space', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name: trimmed }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not rename the space. Please try again.');
+}
+
 // Ask the server to (re)stamp the familyId/familyIds custom claims, then
 // refresh the local token so Storage rules see them. No-op if it fails — AI
 // calls backfill too.

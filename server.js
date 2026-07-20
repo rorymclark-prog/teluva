@@ -852,6 +852,45 @@ app.post('/api/switch-space', async (req, res) => {
   }
 });
 
+// --- Rename the caller's ACTIVE space (Business Hub) ---
+// Updates the canonical families/{id}/info/info.name AND propagates the new
+// name into every member's cached users/{uid}.spaces[] entry for that space,
+// so the space switcher shows the new name for everyone, not just the admin
+// who renamed it. Always operates on caller.familyId (from requireMember,
+// server-verified) — never a client-supplied id — so a member of space A can
+// never rename space B by guessing its id.
+app.post('/api/rename-space', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can rename the space.' });
+
+    const name = String((req.body || {}).name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Missing name.' });
+
+    const familyId = caller.familyId;
+    await adminDb.doc(`families/${familyId}/info/info`).set({ name }, { merge: true });
+
+    const rolesSnap = await adminDb.collection(`families/${familyId}/roles`).get();
+    await Promise.all(rolesSnap.docs.map(async (roleDoc) => {
+      const userRef = adminDb.doc(`users/${roleDoc.id}`);
+      await adminDb.runTransaction(async (tx) => {
+        const userSnap = await tx.get(userRef);
+        if (!userSnap.exists) return;
+        const data = userSnap.data();
+        if (!Array.isArray(data.spaces)) return;
+        const spaces = data.spaces.map((s) => (s && s.id === familyId ? { ...s, name } : s));
+        tx.set(userRef, { spaces }, { merge: true });
+      });
+    }));
+
+    res.json({ ok: true, name });
+  } catch (err) {
+    console.error('/api/rename-space error:', err);
+    res.status(500).json({ error: 'Could not rename the space. Please try again.' });
+  }
+});
+
 // --- Refresh custom claims (called by the client when its token lacks familyId) ---
 app.post('/api/refresh-claims', async (req, res) => {
   try {

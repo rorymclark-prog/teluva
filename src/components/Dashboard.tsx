@@ -65,7 +65,7 @@ import MemberSayings from './MemberSayings';
 import FamilyWordsView from './FamilyWordsView';
 import VehiclesView from './VehiclesView';
 import SpaceSwitcher from './SpaceSwitcher';
-import { switchSpace, createSpace } from '../utils/db';
+import { switchSpace, createSpace, renameSpace } from '../utils/db';
 import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
@@ -344,9 +344,21 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   };
 
   const handleSaveSettings = async (next: HubSettings) => {
+    const trimmedName = (next.hubName || '').trim();
+    const nameChanged = isAdmin && trimmedName && trimmedName !== (settings.hubName || '').trim();
     setSettings(next);
     setIsSettingsOpen(false);
-    if (!demo) await saveSettings(next);
+    if (!demo) {
+      await saveSettings(next);
+      if (nameChanged) {
+        try {
+          await renameSpace(trimmedName);
+          window.location.reload(); // keep the space switcher's cached name in sync everywhere
+        } catch (e) {
+          console.error('Could not sync the new name to the space switcher:', e);
+        }
+      }
+    }
   };
 
   // Drag-to-reorder the family list. onReorder updates live; we persist the
@@ -952,33 +964,35 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
             <OnThisDay members={members} events={events} />
 
-            {/* Quick actions — one-tap entry into the full-screen feature modals */}
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setShowEmergency(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                <Siren className="w-4 h-4" />
-                <span>Emergency</span>
-              </button>
-              <button type="button" onClick={() => setShowBabysitter(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                <Baby className="w-4 h-4" />
-                <span>Babysitter</span>
-              </button>
-              <button type="button" onClick={() => setShowTravelPack(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                <Plane className="w-4 h-4" />
-                <span>Travel pack</span>
-              </button>
-              <button type="button" onClick={() => setShowFamilyStats(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                <BarChart3 className="w-4 h-4" />
-                <span>Family stats</span>
-              </button>
-              <button type="button" onClick={() => setShowFamilyQuiz(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                <HelpCircle className="w-4 h-4" />
-                <span>Quiz</span>
-              </button>
-              <button type="button" onClick={() => setShowHealthTimeline(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                <HeartPulse className="w-4 h-4" />
-                <span>Health timeline</span>
-              </button>
-            </div>
+            {/* Quick actions — one-tap entry into the full-screen feature modals (family-only) */}
+            {!isBusinessSpace && (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setShowEmergency(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                  <Siren className="w-4 h-4" />
+                  <span>Emergency</span>
+                </button>
+                <button type="button" onClick={() => setShowBabysitter(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                  <Baby className="w-4 h-4" />
+                  <span>Babysitter</span>
+                </button>
+                <button type="button" onClick={() => setShowTravelPack(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                  <Plane className="w-4 h-4" />
+                  <span>Travel pack</span>
+                </button>
+                <button type="button" onClick={() => setShowFamilyStats(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                  <BarChart3 className="w-4 h-4" />
+                  <span>Family stats</span>
+                </button>
+                <button type="button" onClick={() => setShowFamilyQuiz(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                  <HelpCircle className="w-4 h-4" />
+                  <span>Quiz</span>
+                </button>
+                <button type="button" onClick={() => setShowHealthTimeline(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                  <HeartPulse className="w-4 h-4" />
+                  <span>Health timeline</span>
+                </button>
+              </div>
+            )}
 
             {members.length === 0 ? (
               <div className="card text-center py-20 px-6">
@@ -1284,6 +1298,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       <HubSettingsModal
         isOpen={isSettingsOpen}
         settings={settings}
+        isBusinessSpace={isBusinessSpace}
         onClose={() => setIsSettingsOpen(false)}
         onSave={handleSaveSettings}
       />

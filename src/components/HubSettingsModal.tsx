@@ -8,11 +8,12 @@ import LanguageSelector from './LanguageSelector';
 interface HubSettingsModalProps {
   isOpen: boolean;
   settings: HubSettings;
+  isBusinessSpace?: boolean;
   onClose: () => void;
   onSave: (s: HubSettings) => void;
 }
 
-export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: HubSettingsModalProps) {
+export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, onClose, onSave }: HubSettingsModalProps) {
   const [hubName, setHubName] = useState('');
   const [photo, setPhoto] = useState<string>('');
   const [uploadFileName, setUploadFileName] = useState('');
@@ -97,8 +98,10 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
                   <Settings className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-display text-xl font-semibold text-ink-900">Hub settings</h3>
-                  <p className="text-[13px] font-semibold text-ink-500">Name your family hub and add a family photo.</p>
+                  <h3 className="font-display text-xl font-semibold text-ink-900">{isBusinessSpace ? 'Business settings' : 'Hub settings'}</h3>
+                  <p className="text-[13px] font-semibold text-ink-500">
+                    {isBusinessSpace ? 'Name your business and add a logo or photo.' : 'Name your family hub and add a family photo.'}
+                  </p>
                 </div>
               </div>
               <button
@@ -118,12 +121,12 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
                 <LanguageSelector />
               </div>
 
-              {/* Hub name field */}
+              {/* Hub / business name field */}
               <div>
-                <label className="field-label">Hub name</label>
+                <label className="field-label">{isBusinessSpace ? 'Business name' : 'Hub name'}</label>
                 <input
                   type="text"
-                  placeholder="Family Hub"
+                  placeholder={isBusinessSpace ? 'My Business' : 'Family Hub'}
                   value={hubName}
                   onChange={(e) => setHubName(e.target.value)}
                   className="field"
@@ -173,9 +176,9 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
                 </label>
               </div>
 
-              {/* Family photo field */}
+              {/* Family / business photo field */}
               <div className="space-y-2.5">
-                <label className="field-label">Family photo</label>
+                <label className="field-label">{isBusinessSpace ? 'Business photo' : 'Family photo'}</label>
 
                 {photo ? (
                   /* Preview with remove button */
@@ -184,12 +187,12 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
                       <div className="w-14 h-14 rounded-2xl overflow-hidden border border-cream-300 bg-white shadow-soft shrink-0">
                         <img
                           src={photo}
-                          alt="Family photo preview"
+                          alt={isBusinessSpace ? 'Business photo preview' : 'Family photo preview'}
                           className="w-full h-full object-cover"
                         />
                       </div>
                       <div>
-                        <p className="text-[13px] font-semibold text-ink-800">Family photo set</p>
+                        <p className="text-[13px] font-semibold text-ink-800">{isBusinessSpace ? 'Business photo set' : 'Family photo set'}</p>
                         <p className="text-[13px] font-semibold text-ink-400 truncate max-w-[180px]">
                           {uploadFileName || 'Stored locally.'}
                         </p>
@@ -210,7 +213,7 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
                       type="button"
                       onClick={handleRemovePhoto}
                       className="p-1.5 hover:bg-rosa-50 text-ink-400 hover:text-rosa-700 rounded-lg transition-colors cursor-pointer shrink-0"
-                      title="Remove family photo"
+                      title={isBusinessSpace ? 'Remove business photo' : 'Remove family photo'}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -222,8 +225,8 @@ export default function HubSettingsModal({ isOpen, settings, onClose, onSave }: 
                       <Users className="w-6 h-6" />
                     </div>
                     <div className="text-center space-y-1">
-                      <p className="text-[13px] font-semibold text-ink-600">No family photo yet</p>
-                      <p className="text-[13px] font-semibold text-ink-400">A shared photo shown across the hub.</p>
+                      <p className="text-[13px] font-semibold text-ink-600">{isBusinessSpace ? 'No business photo yet' : 'No family photo yet'}</p>
+                      <p className="text-[13px] font-semibold text-ink-400">{isBusinessSpace ? 'A shared photo or logo shown across the hub.' : 'A shared photo shown across the hub.'}</p>
                     </div>
                     <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-dusk-50 text-dusk-700 hover:bg-dusk-100/80 rounded-lg text-[13px] font-semibold cursor-pointer transition-all border border-dusk-200">
                       <Upload className="w-3 h-3" />
