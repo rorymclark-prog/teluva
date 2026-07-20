@@ -1,8 +1,9 @@
 import React from 'react';
 import { FamilyDocument } from '../types';
 import { getDocumentPlaceholderSvg } from '../utils/svgPlaceholders';
-import { X, Download, Shield, Calendar, Layers, Info } from 'lucide-react';
+import { X, Download, Share2, Shield, Calendar, Layers, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { canShare, shareFile } from '../utils/share';
 
 interface DocumentViewerProps {
   document: FamilyDocument | null;
@@ -168,14 +169,26 @@ export default function DocumentViewer({ document: doc, memberName, onClose }: D
 
               {/* Actions for right pane footer */}
               <div className="pt-6 border-t border-cream-200 flex flex-col gap-2 mt-6 lg:mt-0">
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  className="btn-primary w-full"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download Copy</span>
-                </button>
+                <div className={canShare ? 'grid grid-cols-2 gap-2' : ''}>
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className="btn-primary w-full"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download</span>
+                  </button>
+                  {canShare && (
+                    <button
+                      type="button"
+                      onClick={() => shareFile(getDocSource(), doc.name)}
+                      className="btn-quiet w-full"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      <span>Share</span>
+                    </button>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={onClose}

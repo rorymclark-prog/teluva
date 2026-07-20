@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
+import { X, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { looksLikePdf } from '../utils/fileType';
+import { canShare, shareFile } from '../utils/share';
 
 export interface ShowCardField {
   label: string;
@@ -52,13 +53,24 @@ export default function ShowCardModal({ open, onClose, title, subtitle, fields =
           onClick={onClose}
           className="fixed inset-0 z-[120] flex items-center justify-center p-5 bg-white cursor-zoom-out"
         >
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 p-2.5 rounded-full bg-ink-900/5 text-ink-500 hover:bg-ink-900/10 transition-colors cursor-pointer z-10"
-            title="Close"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          <div className="absolute top-4 right-4 flex items-center gap-2 z-10" onClick={(e) => e.stopPropagation()}>
+            {canShare && scanSrc && (
+              <button
+                onClick={() => shareFile(scanSrc, title)}
+                className="p-2.5 rounded-full bg-ink-900/5 text-ink-500 hover:bg-ink-900/10 transition-colors cursor-pointer"
+                title="Share"
+              >
+                <Share2 className="w-6 h-6" />
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2.5 rounded-full bg-ink-900/5 text-ink-500 hover:bg-ink-900/10 transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
 
           <motion.div
             initial={{ scale: 0.94, opacity: 0 }}

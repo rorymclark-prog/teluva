@@ -266,18 +266,6 @@ function PassportsSection({
                 {p.notes && <p className="text-[12px] text-ink-500">{p.notes}</p>}
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                {(() => {
-                  const scan = findPassportScan(p, documents);
-                  return scan ? (
-                    <button
-                      onClick={() => onViewScan(scan.fileData!)}
-                      className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg"
-                      title="View scanned passport"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null;
-                })()}
                 <button
                   onClick={() => onShowCard({
                     title: p.country ? `${p.country} passport` : 'Passport',
@@ -410,18 +398,6 @@ function IdentitySection({
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">e-Card number</label>
               <div className="flex items-center gap-1">
-                {(() => {
-                  const scan = findIdentityScan('eCardNumber', documents);
-                  return scan ? (
-                    <button
-                      onClick={() => onViewScan(scan.fileData!)}
-                      className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg"
-                      title="View scanned e-card"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null;
-                })()}
                 {identity.eCardNumber && (
                   <button
                     onClick={() => onShowCard({
@@ -516,18 +492,6 @@ function IdentitySection({
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">Residence permit number</label>
               <div className="flex items-center gap-1">
-                {(() => {
-                  const scan = findIdentityScan('residencePermitNumber', documents);
-                  return scan ? (
-                    <button
-                      onClick={() => onViewScan(scan.fileData!)}
-                      className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg"
-                      title="View scanned residence permit"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null;
-                })()}
                 {identity.residencePermitNumber && (
                   <button
                     onClick={() => onShowCard({
@@ -705,14 +669,6 @@ function SouthAfricanFields({ identity, val, set, onChange, documents, onViewSca
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">SA ID number</label>
               <div className="flex items-center gap-1">
-                {(() => {
-                  const scan = findIdentityScan('nationalIdNumber', documents);
-                  return scan ? (
-                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned ID">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null;
-                })()}
                 {identity.nationalIdNumber && (
                   <button
                     onClick={() => onShowCard({
@@ -759,14 +715,6 @@ function SouthAfricanFields({ identity, val, set, onChange, documents, onViewSca
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">Residence permit / visa number</label>
               <div className="flex items-center gap-1">
-                {(() => {
-                  const scan = findIdentityScan('residencePermitNumber', documents);
-                  return scan ? (
-                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned permit/visa">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null;
-                })()}
                 {identity.residencePermitNumber && (
                   <button
                     onClick={() => onShowCard({
@@ -827,14 +775,6 @@ function GenericIdentityFields({ identity, val, set, onChange, documents, onView
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-[13px] font-semibold text-ink-600">National ID number</label>
             <div className="flex items-center gap-1">
-              {(() => {
-                const scan = findIdentityScan('nationalIdNumber', documents);
-                return scan ? (
-                  <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned ID">
-                    <Eye className="w-3.5 h-3.5" />
-                  </button>
-                ) : null;
-              })()}
               {identity.nationalIdNumber && (
                 <button
                   onClick={() => onShowCard({
@@ -896,14 +836,6 @@ function UKFields({ identity, val, set, onChange, documents, onViewScan, memberN
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">National Insurance number</label>
               <div className="flex items-center gap-1">
-                {(() => {
-                  const scan = findIdentityScan('nationalIdNumber', documents);
-                  return scan ? (
-                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned NI document">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null;
-                })()}
                 {identity.nationalIdNumber && (
                   <button
                     onClick={() => onShowCard({
@@ -950,14 +882,6 @@ function UKFields({ identity, val, set, onChange, documents, onViewScan, memberN
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">BRP / visa number</label>
               <div className="flex items-center gap-1">
-                {(() => {
-                  const scan = findIdentityScan('residencePermitNumber', documents);
-                  return scan ? (
-                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned BRP/visa">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null;
-                })()}
                 {identity.residencePermitNumber && (
                   <button
                     onClick={() => onShowCard({
@@ -1037,14 +961,6 @@ function USFields({ identity, val, set, onChange, documents, onViewScan, memberN
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">Social Security number</label>
               <div className="flex items-center gap-1">
-                {(() => {
-                  const scan = findIdentityScan('nationalIdNumber', documents);
-                  return scan ? (
-                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned SSN card">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null;
-                })()}
                 {identity.nationalIdNumber && (
                   <button
                     onClick={() => onShowCard({
@@ -1087,14 +1003,6 @@ function USFields({ identity, val, set, onChange, documents, onViewScan, memberN
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">Green Card / visa number</label>
               <div className="flex items-center gap-1">
-                {(() => {
-                  const scan = findIdentityScan('residencePermitNumber', documents);
-                  return scan ? (
-                    <button onClick={() => onViewScan(scan.fileData!)} className="p-1.5 text-clay-500 hover:text-clay-700 hover:bg-clay-50 rounded-lg" title="View scanned Green Card/visa">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  ) : null;
-                })()}
                 {identity.residencePermitNumber && (
                   <button
                     onClick={() => onShowCard({
