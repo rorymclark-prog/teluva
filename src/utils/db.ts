@@ -426,6 +426,35 @@ export async function revokeCarerShare(shareToken: string): Promise<void> {
   }
 }
 
+/**
+ * Switch the caller's ACTIVE space to a different one they already belong to
+ * (a family or business they're a member of — see SpaceMembership). Mirrors
+ * createFamily/joinFamily exactly: the server is the ONLY writer of familyId/
+ * role on users/{uid} (Firestore rules block clients from writing that), and
+ * it verifies real membership via the authoritative families/{id}/roles/{uid}
+ * doc — never trusts a client-supplied role. Throws with a human-readable
+ * message on failure; on success the caller must reload (the whole app tree
+ * reads FAMILY_ID/role from one active pointer, same as after create/join).
+ */
+export async function switchSpace(spaceId: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to switch spaces');
+  const trimmed = spaceId.trim();
+  if (!trimmed) throw new Error('Missing space id');
+
+  const token = await user.getIdToken();
+  const res = await fetch('/api/switch-space', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ spaceId: trimmed }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not switch space. Please try again.');
+
+  await user.getIdToken(true); // pick up the new familyId custom claim for Storage
+  setFamilyId(data.familyId || trimmed);
+}
+
 // Ask the server to (re)stamp the familyId custom claim, then refresh the
 // local token so Storage rules see it. No-op if it fails — AI calls backfill too.
 export async function ensureFamilyClaim(): Promise<void> {

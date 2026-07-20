@@ -64,6 +64,8 @@ import InsuranceView from './InsuranceView';
 import MemberSayings from './MemberSayings';
 import FamilyWordsView from './FamilyWordsView';
 import VehiclesView from './VehiclesView';
+import SpaceSwitcher from './SpaceSwitcher';
+import { switchSpace } from '../utils/db';
 import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
@@ -203,7 +205,12 @@ interface DashboardProps {
 
 export default function Dashboard({ familySettingsButton }: DashboardProps = {}) {
   const demo = isDemoMode();
-  const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent } = useFamilyCtx();
+  const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId } = useFamilyCtx();
+
+  const handleSwitchSpace = async (spaceId: string) => {
+    await switchSpace(spaceId);
+    window.location.reload();
+  };
   // AI is opt-in and OFF by default. Demo mode always shows it (no real data);
   // otherwise adults must have consented, and child accounts never get AI.
   const canUseAI = demo || (aiEligible && aiConsent);
@@ -825,6 +832,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               <p className="hidden sm:block text-[11px] text-ink-400 font-medium leading-tight">Everything for the family, in one place</p>
             </div>
           </button>
+
+          {/* Space switcher (Family / Business / Personal) — renders nothing
+              until an account belongs to more than one space. Not shown in demo
+              (demo isn't a real signed-in account, nothing to switch to). */}
+          {!demo && <SpaceSwitcher spaces={spaces} activeId={activeSpaceId} onSwitch={handleSwitchSpace} />}
 
           {/* Main view switcher — a burger dropdown so all sections are reachable
               in one tap, no horizontal sliding. */}

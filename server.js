@@ -700,6 +700,41 @@ app.post('/api/join-family', async (req, res) => {
   }
 });
 
+// --- Switch the caller's ACTIVE space (Business Hub / multi-space) ---
+// Makes an already-joined space (family or business) the caller's active one.
+// SECURITY: membership is verified against the AUTHORITATIVE families/{spaceId}/
+// roles/{uid} doc — the same doc firestore.rules' isMemberOf() checks — never
+// against the client-supplied spaceId alone or the cached users/{uid}.spaces[]
+// mirror (which exists for fast UI listing, not as an access-control source).
+// A caller who is not a member of spaceId gets 403 regardless of what's in
+// their own spaces[] cache or request body.
+app.post('/api/switch-space', async (req, res) => {
+  try {
+    const caller = await requireSignedIn(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+
+    const spaceId = String((req.body || {}).spaceId || '').trim();
+    if (!spaceId) return res.status(400).json({ error: 'Missing spaceId.' });
+
+    const roleSnap = await adminDb.doc(`families/${spaceId}/roles/${caller.uid}`).get();
+    if (!roleSnap.exists) {
+      return res.status(403).json({ error: 'You are not a member of that space.' });
+    }
+    const role = roleSnap.data().role;
+
+    // Update the single "active space" pointer — same field requireMember,
+    // Firestore rules (via the client SDK's own reads) and Storage rules all
+    // key off today. No schema change beyond what P1 already added.
+    await adminDb.doc(`users/${caller.uid}`).set({ familyId: spaceId, role }, { merge: true });
+    await admin.auth().setCustomUserClaims(caller.uid, { familyId: spaceId }).catch(() => {});
+
+    res.json({ ok: true, familyId: spaceId, role });
+  } catch (err) {
+    console.error('/api/switch-space error:', err);
+    res.status(500).json({ error: 'Could not switch space. Please try again.' });
+  }
+});
+
 // --- Refresh custom claims (called by the client when its token lacks familyId) ---
 app.post('/api/refresh-claims', async (req, res) => {
   try {
