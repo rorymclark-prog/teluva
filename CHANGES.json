@@ -1,5 +1,7 @@
 {
+  "label": "v100",
   "changes": [
+    "Restyled the update banner to match your other apps",
     "New: a family Doctors & Specialists directory — GP, dentist, specialists, all in Info",
     "South Africa: medical aid scheme, plan, and dependant code fields",
     "UK: registered GP practice field",
