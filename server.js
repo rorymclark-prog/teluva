@@ -593,11 +593,23 @@ async function requireSignedIn(req) {
   };
 }
 
-async function grantMembership(uid, email, displayName, familyId, role) {
-  const batch = adminDb.batch();
-  batch.set(adminDb.doc(`families/${familyId}/roles/${uid}`), { role, email, displayName });
-  batch.set(adminDb.doc(`users/${uid}`), { familyId, role, email, displayName });
-  await batch.commit();
+// Grants membership in a space (family or business) and makes it the caller's
+// ACTIVE space. Uses a transaction (not a plain batch) because it must READ the
+// user's existing `spaces` list to append/update this one without dropping the
+// others — and writes users/{uid} with merge:true so aiConsent/chatHistory/other
+// spaces survive a SECOND grantMembership call (joining/creating a 2nd space).
+// Previously this did a full (non-merge) overwrite of users/{uid}, which would
+// have silently wiped consent + chat history the moment multi-space existed.
+async function grantMembership(uid, email, displayName, familyId, role, spaceType = 'family') {
+  const rolesRef = adminDb.doc(`families/${familyId}/roles/${uid}`);
+  const userRef = adminDb.doc(`users/${uid}`);
+  await adminDb.runTransaction(async (tx) => {
+    const userSnap = await tx.get(userRef);
+    const existing = (userSnap.exists && Array.isArray(userSnap.data().spaces)) ? userSnap.data().spaces : [];
+    const spaces = [...existing.filter((s) => s && s.id !== familyId), { id: familyId, role, type: spaceType }];
+    tx.set(rolesRef, { role, email, displayName });
+    tx.set(userRef, { familyId, role, email, displayName, spaces }, { merge: true });
+  });
   // Storage rules gate vault files on this claim
   await admin.auth().setCustomUserClaims(uid, { familyId }).catch(() => {});
 }

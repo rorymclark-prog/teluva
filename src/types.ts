@@ -515,13 +515,30 @@ export interface AiConsent {
   version: number;  // which version of the AI terms they agreed to
 }
 
-export interface UserProfile {
-  familyId: string;
+// A "space" is the generalisation of "family" — the same underlying
+// families/{id}/* document tree, just typed differently so the UI can render a
+// Family preset, a Business preset, or (later) a Personal preset on top of it.
+export type SpaceType = 'family' | 'business' | 'personal';
+
+// One entry in a user's space list — every space (family/business) they belong
+// to, with their role in THAT space (roles are per-space, not global).
+export interface SpaceMembership {
+  id: string;       // the space's id (same value used as familyId today)
   role: FamilyRole;
+  type: SpaceType;
+  name?: string;     // cached display name for a fast switcher — source of truth is families/{id}/info
+}
+
+export interface UserProfile {
+  familyId: string;  // the ACTIVE space (back-compat name — same field, now one-of-many)
+  role: FamilyRole;  // the caller's role in the ACTIVE space
   email: string;
   displayName: string;
   chatHistory?: Array<{ role: 'user' | 'assistant'; text: string }>;
   aiConsent?: AiConsent;
+  spaces?: SpaceMembership[]; // every space this user belongs to (family + business). Absent/empty on
+                              // pre-multi-space accounts — callers should fall back to a single-entry
+                              // list built from familyId/role.
 }
 
 // Firestore doc at families/{familyId}/info
@@ -530,6 +547,7 @@ export interface FamilyInfoDoc {
   name: string;
   createdAt: string;
   adminUid: string;
+  type?: SpaceType; // undefined = 'family' (back-compat default)
 }
 
 export interface FamilyMemberRole {

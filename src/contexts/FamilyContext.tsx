@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
-import { FamilyRole, UserProfile, FamilyMemberRole, AiConsent } from '../types';
+import { FamilyRole, UserProfile, FamilyMemberRole, AiConsent, SpaceMembership } from '../types';
 import { setFamilyId, ensureFamilyClaim } from '../utils/db';
 import { AI_CONSENT_VERSION, hasValidAiConsent } from '../utils/aiConsent';
 
@@ -16,8 +16,8 @@ const isAdultRole = (r: FamilyRole | null) => r === 'admin' || r === 'member';
 export type { FamilyRole };
 
 export interface FamilyCtxValue {
-  familyId: string | null;  // null while loading or no family assigned
-  role: FamilyRole | null;  // null while loading
+  familyId: string | null;  // null while loading or no family assigned — the ACTIVE space
+  role: FamilyRole | null;  // null while loading — the caller's role in the ACTIVE space
   uid: string | null;       // firebase auth uid
   email: string | null;
   isAdmin: boolean;         // role === 'admin'
@@ -25,6 +25,8 @@ export interface FamilyCtxValue {
   aiEligible: boolean;      // adult (admin/member) — child accounts never get AI
   aiConsent: boolean;       // has a valid, current AI opt-in
   setAiConsent: (granted: boolean) => Promise<void>;  // grant / withdraw
+  spaces: SpaceMembership[]; // every space (family/business) this user belongs to — always has at
+                             // least the active one, even for accounts written before spaces[] existed
   loading: boolean;
 }
 
@@ -55,8 +57,17 @@ const defaultValue: FamilyCtxValue = {
   aiEligible: false,
   aiConsent: false,
   setAiConsent: async () => {},
+  spaces: [],
   loading: true,
 };
+
+// Every account has at least one space (its active one) even if `spaces[]`
+// hasn't been backfilled server-side yet — synthesize it client-side so no
+// migration script is needed before this field can be relied on.
+function withSpacesFallback(profile: { familyId: string; role: FamilyRole; spaces?: SpaceMembership[] }): SpaceMembership[] {
+  if (profile.spaces && profile.spaces.length > 0) return profile.spaces;
+  return [{ id: profile.familyId, role: profile.role, type: 'family' }];
+}
 
 export const FamilyContext = createContext<FamilyCtxValue>(defaultValue);
 
@@ -98,6 +109,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           aiEligible: false,
           aiConsent: false,
           setAiConsent,
+          spaces: [],
           loading: false,
         });
         return;
@@ -137,6 +149,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             aiEligible: isAdultRole(profile.role),
             aiConsent: isAdultRole(profile.role) && hasValidAiConsent(profile.aiConsent),
             setAiConsent,
+            spaces: withSpacesFallback(profile),
             loading: false,
           });
           return;
@@ -152,6 +165,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             role: bootstrapRole,
             email,
             displayName,
+            spaces: [{ id: familyId, role: bootstrapRole, type: 'family' }],
           };
 
           // Write users/{uid}
@@ -181,6 +195,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             aiEligible: isAdultRole(bootstrapRole),
             aiConsent: isAdultRole(bootstrapRole) && hasValidAiConsent(profile.aiConsent),
             setAiConsent,
+            spaces: profile.spaces!,
             loading: false,
           });
           return;
@@ -197,6 +212,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           aiEligible: false,
           aiConsent: false,
           setAiConsent,
+          spaces: [],
           loading: false,
         });
       } catch (err) {
@@ -212,6 +228,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           aiEligible: false,
           aiConsent: false,
           setAiConsent,
+          spaces: [],
           loading: false,
         });
       }
