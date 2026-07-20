@@ -5,7 +5,7 @@ import { parseDateOnly } from './age';
 // reminder. Austrian context: 'inspection' = §57a Begutachtung (Pickerl),
 // 'vignette' = motorway toll sticker. Shared by VehiclesView + NeedsAttention.
 export interface VehicleDeadline {
-  kind: 'inspection' | 'insurance' | 'service' | 'vignette';
+  kind: 'inspection' | 'insurance' | 'service' | 'vignette' | 'parking';
   label: string;
   date: string;   // YYYY-MM-DD
   days: number;   // days until (negative = overdue)
@@ -48,6 +48,7 @@ export function vehicleDeadlines(v: Vehicle): VehicleDeadline[] {
   push('inspection', 'Inspection (§57a / MOT)', v.inspectionExpiry);
   push('insurance', 'Insurance renewal', v.insuranceRenewal);
   push('vignette', 'Vignette', v.vignetteExpiry);
+  push('parking', 'Parking permit', v.parkingPermitExpiry);
   push('service', 'Service due', nextServiceDate(v));
   return out.sort((a, b) => a.days - b.days);
 }

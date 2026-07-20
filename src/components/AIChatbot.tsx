@@ -360,7 +360,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc }: Pro
   // Vault categories → member-document categories (two historic enums)
   const MEMBER_DOC_CAT: Record<VaultCategory, FamilyDocument['category']> = {
     Identity: 'ID', Medical: 'Health', Education: 'Education', Travel: 'Travel',
-    Financial: 'Other', Other: 'Other',
+    Financial: 'Other', Legal: 'Other', Other: 'Other',
   };
 
   const resolveMemberByName = (name?: string): FamilyMember | undefined => {

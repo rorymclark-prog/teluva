@@ -7,13 +7,14 @@ import {
   Plus, X, Check, Loader2, FileText, File, Image, AlertCircle
 } from 'lucide-react';
 
-const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Travel', 'Other'];
+const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
 
 const CATEGORY_CHIP: Record<VaultCategory, string> = {
   Identity: 'bg-dusk-100 text-dusk-700',
   Education: 'bg-sage-100 text-sage-700',
   Medical: 'bg-rosa-100 text-rosa-700',
   Financial: 'bg-honey-100 text-honey-700',
+  Legal: 'bg-ink-100 text-ink-700',
   Travel: 'bg-clay-100 text-clay-600',
   Other: 'bg-cream-200 text-ink-600',
 };

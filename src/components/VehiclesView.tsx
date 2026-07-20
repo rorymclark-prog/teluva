@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Car, Plus, Pencil, Trash2, X, CalendarClock, User, Gauge, ShieldCheck, Wrench } from 'lucide-react';
-import { FamilyMember, HouseholdInfo, Vehicle } from '../types';
+import { Car, Plus, Pencil, Trash2, X, CalendarClock, User, Gauge, ShieldCheck, Wrench, MapPin } from 'lucide-react';
+import { FamilyMember, HouseholdInfo, Vehicle, ServiceRecord } from '../types';
 import { loadHousehold, saveHousehold } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel, VehicleDeadline } from '../utils/vehicle';
 
@@ -12,8 +12,10 @@ const BLANK: Vehicle = {
   id: '', name: '', make: '', model: '', year: '', registration: '', vin: '', fuelType: '',
   assignedMember: '', odometer: '', insurer: '', insuranceNumber: '', insuranceRenewal: '',
   inspectionExpiry: '', vignetteExpiry: '', lastService: '', serviceIntervalMonths: undefined,
-  nextServiceDue: '', notes: '',
+  nextServiceDue: '', serviceLog: [], parkingPermit: '', parkingPermitExpiry: '', parkingSpot: '', notes: '',
 };
+
+const BLANK_RECORD = { date: '', work: '', odometer: '', cost: '', garage: '', notes: '' };
 
 const DEADLINE_STYLE = (days: number) =>
   days < 0 ? 'bg-rosa-100 text-rosa-700' : days <= DEADLINE_WINDOW ? 'bg-honey-100 text-honey-700' : 'bg-sage-100 text-sage-700';
@@ -60,8 +62,33 @@ export default function VehiclesView(
 
   const openNew = () => { setEditing({ ...BLANK }); setFormError(null); setIsFormOpen(true); };
   const openEdit = (v: Vehicle) => { setEditing({ ...BLANK, ...v }); setFormError(null); setIsFormOpen(true); };
-  const close = () => { setIsFormOpen(false); setEditing(null); setFormError(null); };
+  const close = () => { setIsFormOpen(false); setEditing(null); setFormError(null); setRecordDraft({ ...BLANK_RECORD }); };
   const patch = (p: Partial<Vehicle>) => setEditing((prev) => (prev ? { ...prev, ...p } : prev));
+
+  // Service & repair log
+  const [recordDraft, setRecordDraft] = useState<{ date: string; work: string; odometer: string; cost: string; garage: string; notes: string }>({ ...BLANK_RECORD });
+  const addRecord = () => {
+    const work = recordDraft.work.trim();
+    if (!work) return;
+    const rec: ServiceRecord = {
+      id: newId(),
+      date: recordDraft.date || new Date().toLocaleDateString('en-CA'),
+      work,
+      odometer: recordDraft.odometer.trim() || undefined,
+      cost: recordDraft.cost.trim() || undefined,
+      garage: recordDraft.garage.trim() || undefined,
+      notes: recordDraft.notes.trim() || undefined,
+    };
+    setEditing((prev) => {
+      if (!prev) return prev;
+      const log = [...(prev.serviceLog || []), rec];
+      // Logging a service also freshens "last service" so the next-due reminder stays accurate.
+      const lastService = (!prev.lastService || rec.date > prev.lastService) ? rec.date : prev.lastService;
+      return { ...prev, serviceLog: log, lastService };
+    });
+    setRecordDraft({ ...BLANK_RECORD });
+  };
+  const removeRecord = (id: string) => setEditing((prev) => (prev ? { ...prev, serviceLog: (prev.serviceLog || []).filter((r) => r.id !== id) } : prev));
 
   const handleSave = async () => {
     if (!editing) return;
@@ -254,6 +281,16 @@ export default function VehiclesView(
                 <div><label className="field-label">Renewal date</label><input type="date" value={v.insuranceRenewal || ''} onChange={(e) => patch({ insuranceRenewal: e.target.value })} className="field w-full" /></div>
               </div>
 
+              {/* Parking */}
+              <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
+                <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> Parking</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="field-label">Permit (Parkpickerl)</label><input type="text" placeholder="e.g. Zone 1010" value={v.parkingPermit || ''} onChange={(e) => patch({ parkingPermit: e.target.value })} className="field w-full" /></div>
+                  <div><label className="field-label">Permit expiry</label><input type="date" value={v.parkingPermitExpiry || ''} onChange={(e) => patch({ parkingPermitExpiry: e.target.value })} className="field w-full" /></div>
+                </div>
+                <div><label className="field-label">Spot / location</label><input type="text" placeholder="e.g. Garage bay 14" value={v.parkingSpot || ''} onChange={(e) => patch({ parkingSpot: e.target.value })} className="field w-full" /></div>
+              </div>
+
               {/* Service */}
               <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
                 <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><Wrench className="w-3.5 h-3.5" /> Service</label>
@@ -262,6 +299,43 @@ export default function VehiclesView(
                   <div><label className="field-label">Every (months)</label><input type="number" min={0} placeholder="12" value={v.serviceIntervalMonths ?? ''} onChange={(e) => patch({ serviceIntervalMonths: e.target.value === '' ? undefined : Math.max(0, parseInt(e.target.value, 10) || 0) })} className="field w-full tabular-nums" /></div>
                 </div>
                 <div><label className="field-label">Or a specific next-service date</label><input type="date" value={v.nextServiceDue || ''} onChange={(e) => patch({ nextServiceDue: e.target.value })} className="field w-full" /></div>
+              </div>
+
+              {/* Service & repair log */}
+              <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
+                <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><Wrench className="w-3.5 h-3.5" /> Service &amp; repair log</label>
+                {(v.serviceLog || []).length > 0 && (
+                  <div className="space-y-2">
+                    {[...(v.serviceLog || [])].sort((a, b) => (b.date || '').localeCompare(a.date || '')).map((r) => (
+                      <div key={r.id} className="flex items-start gap-2 rounded-xl bg-white border border-cream-200 p-2.5">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-medium text-ink-800">{r.work}</p>
+                          <div className="flex flex-wrap items-center gap-2 mt-0.5 text-[11px] text-ink-400">
+                            {r.date && <span className="tabular-nums">{r.date}</span>}
+                            {r.odometer && <span>{r.odometer} km</span>}
+                            {r.garage && <span>· {r.garage}</span>}
+                            {r.cost && <span className="text-ink-600 font-medium">{r.cost}</span>}
+                          </div>
+                          {r.notes && <p className="text-[11.5px] text-ink-500 mt-1 italic">“{r.notes}”</p>}
+                        </div>
+                        <button type="button" onClick={() => removeRecord(r.id)} className="p-1 text-ink-300 hover:text-rosa-500 shrink-0"><X className="w-3.5 h-3.5" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="rounded-xl bg-white border border-cream-200 p-2.5 space-y-2">
+                  <input type="text" placeholder="What was done / the issue (e.g. brake pads replaced)" value={recordDraft.work} onChange={(e) => setRecordDraft({ ...recordDraft, work: e.target.value })} className="field w-full text-[13px]" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="date" value={recordDraft.date} onChange={(e) => setRecordDraft({ ...recordDraft, date: e.target.value })} className="field w-full text-[12px]" />
+                    <input type="text" inputMode="numeric" placeholder="km" value={recordDraft.odometer} onChange={(e) => setRecordDraft({ ...recordDraft, odometer: e.target.value })} className="field w-full text-[12px] tabular-nums" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="text" placeholder="Garage" value={recordDraft.garage} onChange={(e) => setRecordDraft({ ...recordDraft, garage: e.target.value })} className="field w-full text-[12px]" />
+                    <input type="text" placeholder="Cost" value={recordDraft.cost} onChange={(e) => setRecordDraft({ ...recordDraft, cost: e.target.value })} className="field w-full text-[12px]" />
+                  </div>
+                  <input type="text" placeholder="Notes — the mechanic's comments…" value={recordDraft.notes} onChange={(e) => setRecordDraft({ ...recordDraft, notes: e.target.value })} className="field w-full text-[12px]" />
+                  <button type="button" onClick={addRecord} disabled={!recordDraft.work.trim()} className="btn-quiet text-[11px] px-3 py-1.5 disabled:opacity-40"><Plus className="w-3 h-3" /> Add to log</button>
+                </div>
               </div>
 
               <div>

@@ -301,6 +301,22 @@ export interface Vehicle {
   serviceIntervalMonths?: number;
   nextServiceDue?: string;      // explicit override; else derived from lastService + interval
   serviceDate?: string;         // LEGACY field (older records) — treated as next-service date
+  serviceLog?: ServiceRecord[]; // maintenance & repair history ("what was done last time")
+  // --- Parking ---
+  parkingPermit?: string;       // e.g. Parkpickerl 1010 / resident zone permit
+  parkingPermitExpiry?: string; // YYYY-MM-DD → renewal reminder
+  parkingSpot?: string;         // garage / bay / space number or location
+  notes?: string;
+}
+
+// One entry in a vehicle's service & repair history.
+export interface ServiceRecord {
+  id: string;
+  date: string;      // YYYY-MM-DD
+  work: string;      // what was done / the issue reported
+  odometer?: string;
+  cost?: string;
+  garage?: string;   // workshop / who did it
   notes?: string;
 }
 
@@ -425,7 +441,7 @@ export interface HubSettings {
 }
 
 // --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---
-export type VaultCategory = 'Identity' | 'Education' | 'Medical' | 'Financial' | 'Travel' | 'Other';
+export type VaultCategory = 'Identity' | 'Education' | 'Medical' | 'Financial' | 'Legal' | 'Travel' | 'Other';
 
 export interface VaultDocument {
   id: string;
