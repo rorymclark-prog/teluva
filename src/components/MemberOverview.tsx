@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye, Lock, Stethoscope,
+  AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye, Lock, Stethoscope, Dices, RefreshCw,
 } from 'lucide-react';
 import type { ElementType } from 'react';
 import { FamilyMember, FamilyDocument } from '../types';
@@ -43,7 +43,22 @@ function nearestExpiry(member: FamilyMember): { label: string; date: string; sta
   return { ...soonest, status: months < 0 ? 'expired' : months <= 9 ? 'soon' : 'ok' };
 }
 
-export default function MemberOverview({ member, onViewDocument, canEdit = false, showAstrology = false }: { member: FamilyMember; onViewDocument?: (src: string) => void; canEdit?: boolean; showAstrology?: boolean }) {
+export default function MemberOverview({
+  member,
+  onViewDocument,
+  canEdit = false,
+  showAstrology = false,
+  onShuffleAstrology,
+  astrologyBlurb,
+}: {
+  member: FamilyMember;
+  onViewDocument?: (src: string) => void;
+  canEdit?: boolean;
+  showAstrology?: boolean;
+  /** Present only when the viewer is allowed to (re-)generate an AI blurb — omitted hides the shuffle button. */
+  onShuffleAstrology?: () => void;
+  astrologyBlurb?: { text: string; loading: boolean; error: string | null };
+}) {
   const zodiac = showAstrology ? sunSign(member.birthdate) : null;
   const first = member.name.split(/\s+/)[0] || member.name;
   const med = member.medical || {};
@@ -156,10 +171,26 @@ export default function MemberOverview({ member, onViewDocument, canEdit = false
       {zodiac && (
         <div className="card p-4 flex items-center gap-4">
           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 ${elementTint(zodiac.element)}`} aria-hidden="true">{zodiac.symbol}</div>
-          <div className="min-w-0">
-            <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">Star sign · just for fun</p>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">Star sign · just for fun</p>
+              {onShuffleAstrology && (
+                <button
+                  type="button"
+                  onClick={onShuffleAstrology}
+                  disabled={astrologyBlurb?.loading}
+                  className="shrink-0 p-1 -m-1 text-clay-500 hover:text-clay-700 disabled:opacity-50 cursor-pointer"
+                  title={astrologyBlurb?.text ? 'Shuffle for a new one' : 'Get an AI-written version'}
+                >
+                  {astrologyBlurb?.loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Dices className="w-3.5 h-3.5" />}
+                </button>
+              )}
+            </div>
             <p className="text-[14px] font-semibold text-ink-800">{zodiac.sign} <span className="text-ink-400 font-normal">· {zodiac.element}</span></p>
-            <p className="text-[12.5px] text-ink-500 leading-snug">{zodiac.blurb}{member.birthTime ? ` Born ${member.birthTime}${member.placeOfBirth ? ` in ${member.placeOfBirth}` : ''}.` : ''}</p>
+            <p className="text-[12.5px] text-ink-500 leading-snug">
+              {astrologyBlurb?.text || `${zodiac.blurb}${member.birthTime ? ` Born ${member.birthTime}${member.placeOfBirth ? ` in ${member.placeOfBirth}` : ''}.` : ''}`}
+            </p>
+            {astrologyBlurb?.error && <p className="text-[11px] text-rosa-600 mt-0.5">{astrologyBlurb.error}</p>}
           </div>
         </div>
       )}

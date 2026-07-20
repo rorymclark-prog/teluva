@@ -262,6 +262,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
   const [mainView, setMainView] = useState<ViewId>('profiles');
   const [restyleMemberId, setRestyleMemberId] = useState<string | null>(null);
+  const [astroBlurb, setAstroBlurb] = useState<Record<string, { text: string; loading: boolean; error: string | null }>>({});
   const [legalTab, setLegalTab] = useState<LegalTab | null>(null);
   // Bumped after the AI chatbot applies edits so the self-loading views
   // (household / info / finances / timeline / assets / shopping) remount and
@@ -506,6 +507,33 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         : m,
     );
     await persistChanges(updated);
+  };
+
+  // Re-rolls the "Star sign" card's blurb via Gemini — deliberately NOT persisted
+  // (it's fun/ephemeral, not a record worth a write), so this just lives in local
+  // state keyed by member id for the session.
+  const shuffleAstrology = async (memberId: string) => {
+    const member = members.find((m) => m.id === memberId);
+    if (!member) return;
+    setAstroBlurb((s) => ({ ...s, [memberId]: { text: s[memberId]?.text || '', loading: true, error: null } }));
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Please sign in again.');
+      const token = await user.getIdToken();
+      const res = await fetch('/api/astrology-blurb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ birthdate: member.birthdate, birthTime: member.birthTime, placeOfBirth: member.placeOfBirth }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.blurb) throw new Error(data.error || 'Could not generate a blurb.');
+      setAstroBlurb((s) => ({ ...s, [memberId]: { text: data.blurb, loading: false, error: null } }));
+    } catch (e) {
+      setAstroBlurb((s) => ({
+        ...s,
+        [memberId]: { text: s[memberId]?.text || '', loading: false, error: e instanceof Error ? e.message : 'Something went wrong.' },
+      }));
+    }
   };
 
   const handleSaveEvents = async (updatedEvents: CalendarEvent[]) => {
@@ -1194,7 +1222,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                           >
                             <>
                               {activeTab === 'overview' && (
-                                <MemberOverview member={selectedMember} onViewDocument={setLightboxImage} canEdit={!demo && canWrite} showAstrology={!!settings.astrology} />
+                                <MemberOverview
+                                  member={selectedMember}
+                                  onViewDocument={setLightboxImage}
+                                  canEdit={!demo && canWrite}
+                                  showAstrology={!!settings.astrology}
+                                  onShuffleAstrology={isAdmin ? () => (canUseAI ? shuffleAstrology(selectedMember.id) : setConsentOpen(true)) : undefined}
+                                  astrologyBlurb={astroBlurb[selectedMember.id]}
+                                />
                               )}
                               {activeTab === 'medical' && (
                                 <MemberMedical member={selectedMember} onUpdate={handlePatchSelectedMember} />

@@ -29,6 +29,49 @@ const VERTEX_LOCATION = process.env.VERTEX_LOCATION || 'europe-west1';
 const MODEL_TEXT = 'gemini-2.5-flash';
 const MODEL_IMAGE = USE_VERTEX ? 'gemini-2.5-flash-image' : 'gemini-3.1-flash-image';
 const AI_CONSENT_VERSION = 1;
+
+// Fixed tropical-zodiac date ranges — deterministic, computed in code so the
+// model never has to (and can't get it wrong). Mirrors src/utils/astrology.ts's
+// client-side sunSign() boundaries.
+function sunSignFromBirthdate(birthdateStr) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(birthdateStr || '').trim());
+  if (!m) return null;
+  const month = Number(m[2]), day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const md = month * 100 + day; // e.g. Mar 21 -> 321
+  if (md >= 321 && md <= 419) return 'Aries';
+  if (md >= 420 && md <= 520) return 'Taurus';
+  if (md >= 521 && md <= 620) return 'Gemini';
+  if (md >= 621 && md <= 722) return 'Cancer';
+  if (md >= 723 && md <= 822) return 'Leo';
+  if (md >= 823 && md <= 922) return 'Virgo';
+  if (md >= 923 && md <= 1022) return 'Libra';
+  if (md >= 1023 && md <= 1121) return 'Scorpio';
+  if (md >= 1122 && md <= 1221) return 'Sagittarius';
+  if (md >= 1222 || md <= 119) return 'Capricorn'; // wraps year-end
+  if (md >= 120 && md <= 218) return 'Aquarius';
+  if (md >= 219 && md <= 320) return 'Pisces';
+  return null;
+}
+
+// "Just for fun" astrology blurb — entertainment only, never a real reading.
+// Hard-banned topics below are enforced BOTH in the prompt and re-checked in
+// code after generation (belt + suspenders — some profiles here are children).
+const ASTROLOGY_BLURB_SYSTEM = `You are writing a short, fun "just for fun" astrology-style blurb for a family app profile page. This is entertainment only — NOT a real astrological reading, NOT a horoscope, NOT a natal chart.
+
+Hard rules:
+- Write 2 to 4 sentences. No more, no less.
+- Tone: warm, playful, light-hearted — like a fun fact, not a fortune teller.
+- Make it clear, briefly and not preachy, that this is just for fun and not a real reading (e.g. "just for fun" or "no crystal ball required").
+- Base the content ONLY on the sun sign given below and its well-known, family-friendly personality traits (curious, warm, stubborn, adventurous, creative, etc.).
+- Do NOT predict or mention: health, illness, death, money, finances, career success/failure, or romance/dating/marriage/relationships. This profile may belong to a child.
+- Do NOT use dark, scary, violent, or adult themes.
+- If a birth time and/or place of birth are given below, use them ONLY as light color/atmosphere in a single descriptive phrase (e.g. "born under a golden autumn evening near Durban"). NEVER claim this lets you compute a moon sign, rising sign, ascendant, or any other real astrological placement — you only know the sun sign.
+- If no birth time or place is given, write the blurb from the sun sign alone — do not invent a time, weather, season, or location.
+- Do not mention you are an AI, do not mention Gemini, do not break character, no disclaimers beyond the brief "just for fun" note.
+- Output plain text only — the blurb itself, no headings, no markdown, no surrounding quotation marks.`;
+
+const ASTROLOGY_BANNED_WORDS = /\b(die|died|death|dying|ill|illness|disease|cancer|hospital|money|rich|poor|wealth|career|job|salary|marry|marriage|wedding|dating|boyfriend|girlfriend|romance|divorce)\b/i;
 // Dark-launch gate for the recall-only insurance-conditions reader. OFF unless
 // FEATURE_INSURANCE_READER is explicitly set. This is the AUTHORITATIVE gate —
 // even if a client is built with the feature on, the endpoint refuses until a
@@ -539,6 +582,51 @@ app.post('/api/restyle-avatar', async (req, res) => {
   } catch (e) {
     console.error('[restyle-avatar] error', e);
     res.status(502).json({ error: 'Something went wrong creating the avatar — please try again.' });
+  }
+});
+
+app.post('/api/astrology-blurb', async (req, res) => {
+  try {
+    if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
+
+    const { birthdate, birthTime, placeOfBirth } = req.body || {};
+    const sign = sunSignFromBirthdate(birthdate);
+    if (!sign) return res.status(400).json({ error: 'A valid birthdate is required.' });
+
+    const time = typeof birthTime === 'string' ? birthTime.trim().slice(0, 20) : '';
+    const place = typeof placeOfBirth === 'string' ? placeOfBirth.trim().slice(0, 80) : '';
+
+    const detail = [`Sun sign: ${sign} (already computed — do not recalculate or contradict it).`];
+    if (time) detail.push(`Birth time (flavor only — NOT for computing rising/moon signs): ${time}`);
+    if (place) detail.push(`Place of birth (flavor only): ${place}`);
+    if (!time && !place) detail.push('No birth time or place given — write from the sun sign alone, do not invent any details.');
+
+    console.log('[astrology-blurb]', sign, 'for', caller.email);
+
+    let text = null;
+    for (let attempt = 0; attempt < 2 && !text; attempt++) {
+      const gRes = await generateContent(MODEL_TEXT, {
+        systemInstruction: { parts: [{ text: ASTROLOGY_BLURB_SYSTEM }] },
+        contents: [{ role: 'user', parts: [{ text: detail.join('\n') }] }],
+        generationConfig: { temperature: 0.6 },
+      });
+      const gData = await gRes.json();
+      const candidate = (gData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
+      if (candidate && !ASTROLOGY_BANNED_WORDS.test(candidate)) text = candidate.trim();
+      else if (!candidate) console.error('[astrology-blurb] empty response:', JSON.stringify(gData).slice(0, 400));
+    }
+
+    if (!text) return res.status(502).json({ error: 'Could not generate a blurb right now — please try again.' });
+    res.json({ blurb: text, sign });
+  } catch (e) {
+    console.error('[astrology-blurb] error', e);
+    res.status(502).json({ error: 'Something went wrong generating the blurb — please try again.' });
   }
 });
 
