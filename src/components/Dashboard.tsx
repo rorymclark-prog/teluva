@@ -128,6 +128,11 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 
 // Kid/family-specific tabs that make no sense for an employee in a business space.
 const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sayings'];
+// Same idea, one level up — top-level nav sections that are family-only (the
+// keepsake dictionary, the family memory timeline). Insurance/Vehicles/
+// Household/Assets/Documents/Passwords/Chat/etc. all stay — genuinely useful
+// for a business too.
+const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline'];
 
 const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'profiles', icon: Users },
@@ -148,9 +153,9 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'drive', icon: Cloud },
 ];
 
-function viewLabel(id: ViewId, t: Strings): string {
+function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
   const map: Partial<Record<ViewId, string>> = {
-    profiles: t.nav_family,
+    profiles: isBusinessSpace ? 'Team' : t.nav_family,
     assistant: t.nav_assistant,
     calendar: t.nav_calendar,
     info: t.nav_info,
@@ -854,7 +859,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           <SectionMenu
             views={VIEWS
               .filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin))
-              .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t) }))}
+              .filter(view => !(isBusinessSpace && HIDDEN_VIEWS_IN_BUSINESS.includes(view.id)))
+              .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t, isBusinessSpace) }))}
             current={mainView}
             onSelect={(id) => setMainView(id as ViewId)}
           />
