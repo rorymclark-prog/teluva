@@ -4,7 +4,7 @@ import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
-  loadChatHistory, saveChatHistory, uploadChatAttachment,
+  loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto,
 } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
@@ -43,6 +43,7 @@ export type AiEdit =
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
   | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string }
+  | { kind: 'recipe'; title: string; ingredients: string[]; steps: string[]; tags?: string[]; photoUrl?: string }  // photoUrl is filled client-side after Apply — never sent by the model
   | { kind: 'household_set'; field: 'address' | 'doorCode' | 'wifiName' | 'wifiPassword' | 'garageCode'; value: string }
   | { kind: 'transit_pass'; member: string; name: string; operator?: string; cardNumber?: string; zone?: string; validFrom?: string; validUntil?: string; notes?: string }
   | { kind: 'care_schedule'; member: string; careKind: string; provider?: string; lastVisit?: string; intervalMonths?: number; nextDue?: string; notes?: string }
@@ -654,7 +655,22 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
 
     setApplyingIdx(idx);
     try {
-      const dataEdits = edits.filter(e => e.kind !== 'document');
+      // A recipe edit carries an optional photo of the original card/page —
+      // upload it now (the model never supplies a URL itself) and stamp it
+      // onto the edit before it flows into the normal dataEdits path. If the
+      // photo is no longer available (e.g. after a reload), the recipe still
+      // saves — just without its photo.
+      let resolvedEdits = edits;
+      if (srcs.length && edits.some(e => e.kind === 'recipe')) {
+        try {
+          const photoUrl = await uploadRecipePhoto(srcs[0].dataUrl);
+          resolvedEdits = edits.map(e => (e.kind === 'recipe' ? { ...e, photoUrl } : e));
+        } catch {
+          // Non-fatal — recipe text below still gets saved without a photo.
+        }
+      }
+
+      const dataEdits = resolvedEdits.filter(e => e.kind !== 'document');
       if (dataEdits.length) await onApplyEdits(dataEdits);
       if (docEdits.length && srcs.length) {
         const resolutions: Record<number, DocDuplicateFlag> = {};
@@ -1062,6 +1078,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
   if (e.kind === 'household_set') return `Set household ${e.field.replace(/([A-Z])/g, ' $1').toLowerCase()}: "${e.value}"`;
   if (e.kind === 'asset') return `Add asset: ${e.name}${e.category ? ` (${e.category})` : ''}`;
+  if (e.kind === 'recipe') return `Save recipe “${e.title}”${e.tags?.length ? ` · ${e.tags.join(', ')}` : ''} (${(e.ingredients || []).length} ingredients, ${(e.steps || []).length} steps)`;
   if (e.kind === 'transit_pass') return `${e.member}: add travel pass “${e.name}”${e.validUntil ? ` (valid to ${e.validUntil})` : ''}`;
   if (e.kind === 'care_schedule') return `${e.member}: add ${e.careKind}${e.intervalMonths ? ` every ${e.intervalMonths} mo` : ''}${e.lastVisit ? ` (last ${e.lastVisit})` : ''}`;
   if (e.kind === 'saying') return `${e.member}: save a saying — “${e.text}”${e.said ? ` (${e.said})` : ''}`;

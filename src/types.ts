@@ -690,3 +690,19 @@ export interface PasswordEntry {
   notes?: string;
   createdAt: string;
 }
+
+// --- Recipe Book (family-wide): recipes captured by photographing a
+// handwritten card / cookbook page, or dictated to the AI assistant. A
+// memory-keeping feature — no meal planning, shopping-list generation, or
+// nutrition info in v1.
+export interface Recipe {
+  id: string;
+  title: string;
+  ingredients: string[];   // one per line
+  steps: string[];         // one per line
+  tags?: string[];         // "Mama's", "Christmas", occasion, free text
+  photoUrl?: string;       // Storage download URL of the original card/page
+  createdAt: string;       // ISO date
+}
+
+export interface RecipeBookDoc { recipes: Recipe[]; }

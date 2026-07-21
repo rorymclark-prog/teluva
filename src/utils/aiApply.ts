@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { AVATAR_COLORS } from './avatarPalette';
 
@@ -331,6 +331,26 @@ export function applyShoppingEdits(items: ShoppingItem[], edits: AiEdit[]): Shop
   return [...items, ...added];
 }
 export const hasAssetEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'asset');
+
+// Add recipes from AI edits. photoUrl (when present) was already uploaded to
+// Storage client-side before this runs — the model itself never supplies it.
+export const hasRecipeEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'recipe');
+
+export function applyRecipeEdits(recipes: Recipe[], edits: AiEdit[]): Recipe[] {
+  const today = new Date().toISOString().slice(0, 10);
+  const added: Recipe[] = edits
+    .filter((e): e is Extract<AiEdit, { kind: 'recipe' }> => e.kind === 'recipe' && !!e.title)
+    .map(e => ({
+      id: newId(),
+      title: e.title,
+      ingredients: Array.isArray(e.ingredients) ? e.ingredients.filter(Boolean) : [],
+      steps: Array.isArray(e.steps) ? e.steps.filter(Boolean) : [],
+      tags: e.tags && e.tags.length ? e.tags : undefined,
+      photoUrl: e.photoUrl || undefined,
+      createdAt: today,
+    }));
+  return [...recipes, ...added];
+}
 export const hasHouseholdEdits = (edits: AiEdit[]) =>
   edits.some(e =>
     (e.kind === 'list_add' && ['vehicles', 'pets', 'utilities'].includes(e.list)) ||
