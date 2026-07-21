@@ -3,7 +3,7 @@ import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType }
 import { loadFamilyInfo, saveFamilyInfo } from '../utils/db';
 import {
   Hash, Phone, Mail, Plus, Trash2, Pencil, Check, X,
-  IdCard, Users, Search, Cloud, CloudOff, Stethoscope, Star
+  IdCard, Users, Search, Cloud, CloudOff, Stethoscope, Star, Briefcase
 } from 'lucide-react';
 
 const EMPTY: FamilyInfo = { numbers: [], contacts: [], providers: [] };
@@ -53,9 +53,15 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
   const contacts = q
     ? info.contacts.filter(c => `${c.name} ${c.relation || ''} ${c.phone || ''} ${c.email || ''} ${c.note || ''}`.toLowerCase().includes(q))
     : info.contacts;
-  const providers = q
-    ? (info.providers || []).filter(p => `${p.name} ${p.type} ${p.specialty || ''} ${p.practiceName || ''} ${p.phone || ''} ${p.forMember || ''} ${p.note || ''}`.toLowerCase().includes(q))
+  // Business spaces keep the professional contacts (adviser, accountant,
+  // lawyer/notary, insurance broker, bank contact, or unspecified "Other")
+  // but hide the family's medical providers — a GP isn't a business contact.
+  const spaceProviders = isBusinessSpace
+    ? (info.providers || []).filter(p => !MEDICAL_PROVIDER_TYPES.includes(p.type))
     : (info.providers || []);
+  const providers = q
+    ? spaceProviders.filter(p => `${p.name} ${p.type} ${p.specialty || ''} ${p.practiceName || ''} ${p.phone || ''} ${p.forMember || ''} ${p.note || ''}`.toLowerCase().includes(q))
+    : spaceProviders;
 
   if (!loaded) {
     return (
@@ -95,14 +101,13 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
         </div>
       </div>
 
-      {!isBusinessSpace && (
-        <ProvidersSection
-          entries={providers}
-          onAdd={(p) => persist({ ...info, providers: [...(info.providers || []), p] })}
-          onUpdate={(p) => persist({ ...info, providers: (info.providers || []).map(x => x.id === p.id ? p : x) })}
-          onDelete={(id) => persist({ ...info, providers: (info.providers || []).filter(p => p.id !== id) })}
-        />
-      )}
+      <ProvidersSection
+        entries={providers}
+        isBusinessSpace={isBusinessSpace}
+        onAdd={(p) => persist({ ...info, providers: [...(info.providers || []), p] })}
+        onUpdate={(p) => persist({ ...info, providers: (info.providers || []).map(x => x.id === p.id ? p : x) })}
+        onDelete={(id) => persist({ ...info, providers: (info.providers || []).filter(p => p.id !== id) })}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <NumbersSection
@@ -388,12 +393,20 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
   );
 }
 
-/* ---------------- Doctors & Specialists ---------------- */
+/* ---------------- Doctors, Advisers & Professionals ---------------- */
 
-const PROVIDER_TYPES: ProviderType[] = ['GP practice', 'Dentist', 'Optician', 'Specialist', 'Pharmacy', 'Other'];
+// A family's own medical directory (GP, dentist, optician…) vs the
+// professional/financial contacts they also keep on file (adviser,
+// accountant, lawyer/notary, insurance broker, bank contact). Both share
+// the same HealthcareProvider shape — "alongside doctors", one list.
+const MEDICAL_PROVIDER_TYPES: ProviderType[] = ['GP practice', 'Dentist', 'Optician', 'Specialist', 'Pharmacy'];
+const PROFESSIONAL_PROVIDER_TYPES: ProviderType[] = ['Financial advisor', 'Accountant', 'Lawyer / Notary', 'Insurance broker', 'Bank contact'];
+const PROVIDER_TYPES: ProviderType[] = [...MEDICAL_PROVIDER_TYPES, ...PROFESSIONAL_PROVIDER_TYPES, 'Other'];
+const isProfessionalType = (t: ProviderType) => PROFESSIONAL_PROVIDER_TYPES.includes(t);
 
-function ProvidersSection({ entries, onAdd, onUpdate, onDelete }: {
+function ProvidersSection({ entries, isBusinessSpace, onAdd, onUpdate, onDelete }: {
   entries: HealthcareProvider[];
+  isBusinessSpace?: boolean;
   onAdd: (p: HealthcareProvider) => void;
   onUpdate: (p: HealthcareProvider) => void;
   onDelete: (id: string) => void;
@@ -405,8 +418,15 @@ function ProvidersSection({ entries, onAdd, onUpdate, onDelete }: {
     <section className="card p-5 space-y-4">
       <div className="flex items-center justify-between pb-3 border-b border-cream-200">
         <div>
-          <h3 className="section-label flex items-center gap-1.5"><Stethoscope className="w-3.5 h-3.5" /> Doctors & Specialists</h3>
-          <p className="text-[12px] text-ink-400 mt-0.5">Your family's GP, dentist, and specialists — one place to find who to call.</p>
+          <h3 className="section-label flex items-center gap-1.5">
+            {isBusinessSpace ? <Briefcase className="w-3.5 h-3.5" /> : <Stethoscope className="w-3.5 h-3.5" />}
+            {isBusinessSpace ? 'Advisers & Professionals' : 'Doctors, Advisers & Professionals'}
+          </h3>
+          <p className="text-[12px] text-ink-400 mt-0.5">
+            {isBusinessSpace
+              ? "Your accountant, financial adviser, lawyer, insurance broker, bank contact — one place to find who to call."
+              : "Your family's GP, dentist, specialists, financial adviser, accountant, lawyer — one place to find who to call."}
+          </p>
         </div>
         <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5 shrink-0">
           <Plus className="w-3.5 h-3.5" /> Add
@@ -415,6 +435,7 @@ function ProvidersSection({ entries, onAdd, onUpdate, onDelete }: {
 
       {adding && (
         <ProviderForm
+          isBusinessSpace={isBusinessSpace}
           onSave={(p) => { onAdd(p); setAdding(false); }}
           onCancel={() => setAdding(false)}
         />
@@ -423,10 +444,12 @@ function ProvidersSection({ entries, onAdd, onUpdate, onDelete }: {
       {entries.length === 0 && !adding ? (
         <div className="text-center py-6">
           <div className="w-10 h-10 rounded-2xl bg-rosa-50 text-rosa-600 flex items-center justify-center mx-auto mb-2">
-            <Stethoscope className="w-5 h-5" />
+            {isBusinessSpace ? <Briefcase className="w-5 h-5" /> : <Stethoscope className="w-5 h-5" />}
           </div>
           <p className="text-[13px] text-ink-400">
-            No doctors or specialists yet — your GP, dentist, paediatrician, or any specialist a family member sees.
+            {isBusinessSpace
+              ? 'No professional contacts yet — your accountant, financial adviser, lawyer/notary, insurance broker, or bank contact.'
+              : 'No doctors, advisers, or professionals yet — your GP, dentist, paediatrician, financial adviser, accountant, or anyone else the family calls.'}
           </p>
         </div>
       ) : (
@@ -435,6 +458,7 @@ function ProvidersSection({ entries, onAdd, onUpdate, onDelete }: {
             <div key={p.id} className="sm:col-span-2">
               <ProviderForm
                 initial={p}
+                isBusinessSpace={isBusinessSpace}
                 onSave={(upd) => { onUpdate(upd); setEditId(null); }}
                 onCancel={() => setEditId(null)}
               />
@@ -443,7 +467,7 @@ function ProvidersSection({ entries, onAdd, onUpdate, onDelete }: {
             <div key={p.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="chip bg-rosa-100 text-rosa-700">{p.type}</span>
+                  <span className={`chip ${isProfessionalType(p.type) ? 'bg-dusk-100 text-dusk-700' : 'bg-rosa-100 text-rosa-700'}`}>{p.type}</span>
                   {p.isPrimary && <Star className="w-3.5 h-3.5 text-honey-500 fill-honey-400" />}
                 </div>
                 <p className="text-[14px] font-semibold text-ink-900 truncate mt-1">{p.name || 'Unnamed'}</p>
@@ -490,13 +514,18 @@ function ProvidersSection({ entries, onAdd, onUpdate, onDelete }: {
   );
 }
 
-function ProviderForm({ initial, onSave, onCancel }: {
+function ProviderForm({ initial, isBusinessSpace, onSave, onCancel }: {
   initial?: HealthcareProvider;
+  isBusinessSpace?: boolean;
   onSave: (p: HealthcareProvider) => void;
   onCancel: () => void;
 }) {
+  // Business spaces only offer the professional types (+ "Other") — a GP
+  // isn't something a business keeps on file.
+  const typeOptions = isBusinessSpace ? [...PROFESSIONAL_PROVIDER_TYPES, 'Other' as ProviderType] : PROVIDER_TYPES;
   const [name, setName] = useState(initial?.name || '');
-  const [type, setType] = useState<ProviderType>(initial?.type || 'GP practice');
+  const [type, setType] = useState<ProviderType>(initial?.type || (isBusinessSpace ? 'Financial advisor' : 'GP practice'));
+  const professional = isProfessionalType(type);
   const [specialty, setSpecialty] = useState(initial?.specialty || '');
   const [practiceName, setPracticeName] = useState(initial?.practiceName || '');
   const [phone, setPhone] = useState(initial?.phone || '');
@@ -534,30 +563,45 @@ function ProviderForm({ initial, onSave, onCancel }: {
   return (
     <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        <input autoFocus className="field" placeholder="Name  (e.g. Dr. Naidoo, or practice name)" value={name} onChange={e => setName(e.target.value)} />
+        <input
+          autoFocus
+          className="field"
+          placeholder={professional ? 'Name  (e.g. Jane Smith, or firm name)' : 'Name  (e.g. Dr. Naidoo, or practice name)'}
+          value={name}
+          onChange={e => setName(e.target.value)}
+        />
         <select className="field" value={type} onChange={e => setType(e.target.value as ProviderType)}>
-          {PROVIDER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          {typeOptions.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
       </div>
-      {type !== 'Pharmacy' && (
+      {type !== 'Pharmacy' && !professional && (
         <input className="field" placeholder="Specialty  (e.g. Paediatrician, Cardiologist)" value={specialty} onChange={e => setSpecialty(e.target.value)} />
       )}
-      <input className="field" placeholder="Practice / clinic / hospital name" value={practiceName} onChange={e => setPracticeName(e.target.value)} />
+      <input
+        className="field"
+        placeholder={professional ? 'Firm / company name' : 'Practice / clinic / hospital name'}
+        value={practiceName}
+        onChange={e => setPracticeName(e.target.value)}
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <input className="field" placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} />
-        <input className="field" placeholder="After-hours / emergency phone" value={afterHoursPhone} onChange={e => setAfterHoursPhone(e.target.value)} />
+        <input className="field" placeholder={professional ? 'Alternate phone' : 'After-hours / emergency phone'} value={afterHoursPhone} onChange={e => setAfterHoursPhone(e.target.value)} />
       </div>
       <input className="field" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
       <input className="field" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} />
-      <input className="field" placeholder="Insurance / medical aid networks accepted (optional)" value={networksAccepted} onChange={e => setNetworksAccepted(e.target.value)} />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        <input className="field" placeholder="Practice / NPI number (optional)" value={practiceNumber} onChange={e => setPracticeNumber(e.target.value)} />
-        <input className="field" placeholder="Referred by (optional)" value={referredBy} onChange={e => setReferredBy(e.target.value)} />
-      </div>
+      {!professional && (
+        <>
+          <input className="field" placeholder="Insurance / medical aid networks accepted (optional)" value={networksAccepted} onChange={e => setNetworksAccepted(e.target.value)} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <input className="field" placeholder="Practice / NPI number (optional)" value={practiceNumber} onChange={e => setPracticeNumber(e.target.value)} />
+            <input className="field" placeholder="Referred by (optional)" value={referredBy} onChange={e => setReferredBy(e.target.value)} />
+          </div>
+        </>
+      )}
       <input className="field" placeholder="For  (optional — e.g. Mia; blank = whole family)" value={forMember} onChange={e => setForMember(e.target.value)} />
       <label className="flex items-center gap-2 text-[13px] text-ink-600 cursor-pointer select-none">
         <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} className="rounded" />
-        This is our usual GP / primary provider
+        {professional ? 'This is our main point of contact for this kind of thing' : 'This is our usual GP / primary provider'}
       </label>
       <input className="field" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} />
       <div className="flex justify-end gap-2">

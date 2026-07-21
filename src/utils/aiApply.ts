@@ -199,7 +199,7 @@ function defaultCareInterval(kind: string): number {
   return 12;
 }
 
-const VALID_PROVIDER_TYPES = ['GP practice', 'Dentist', 'Optician', 'Specialist', 'Pharmacy', 'Other'];
+const VALID_PROVIDER_TYPES = ['GP practice', 'Dentist', 'Optician', 'Specialist', 'Pharmacy', 'Other', 'Financial advisor', 'Accountant', 'Lawyer / Notary', 'Insurance broker', 'Bank contact'];
 
 // Apply contact + number + provider edits onto the shared family info doc.
 export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
