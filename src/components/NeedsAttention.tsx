@@ -1,10 +1,11 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car } from 'lucide-react';
-import { FamilyMember, AssetItem, Vehicle, ContactEntry } from '../types';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, ScrollText } from 'lucide-react';
+import { FamilyMember, AssetItem, Vehicle, ContactEntry, EstateRecord } from '../types';
 import { careNextDue } from '../utils/care';
-import { loadAssets, loadHousehold } from '../utils/db';
+import { loadAssets, loadHousehold, loadWillsEstate } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel } from '../utils/vehicle';
 import { birthdayPhotoNudge } from '../utils/birthday';
+import { isReviewStale } from '../utils/willsEstate';
 
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
@@ -82,6 +83,27 @@ export function computeVehicleNudges(vehicles: Vehicle[]): Nudge[] {
         out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days });
       }
     }
+  }
+  return out;
+}
+
+// Estate review nudges — grouped like computeAssetNudges, 'info' tone since
+// this is a suggestion to go check, never a deadline. Store-and-recall only:
+// this counts staleness by date, it never judges the document itself.
+function computeEstateNudges(records: EstateRecord[]): Nudge[] {
+  const out: Nudge[] = [];
+  const stale = records.filter((r) => isReviewStale(r.lastReviewed));
+  if (stale.length > 0) {
+    const n = stale.length;
+    out.push({
+      key: 'estate-stale',
+      memberId: '',
+      icon: ScrollText,
+      tone: 'info',
+      text: `${n} estate document${n === 1 ? '' : 's'} ${n === 1 ? "hasn't" : "haven't"} been reviewed in a while`,
+      tab: 'willsEstate',
+      view: 'willsEstate',
+    });
   }
   return out;
 }
@@ -254,6 +276,7 @@ export default function NeedsAttention(
 ) {
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [estateRecords, setEstateRecords] = useState<EstateRecord[]>([]);
   useEffect(() => {
     let cancelled = false;
     loadAssets()
@@ -262,13 +285,16 @@ export default function NeedsAttention(
     loadHousehold()
       .then((h) => { if (!cancelled) setVehicles(h?.vehicles || []); })
       .catch(() => { if (!cancelled) setVehicles([]); });
+    loadWillsEstate()
+      .then((d) => { if (!cancelled) setEstateRecords(d?.records || []); })
+      .catch(() => { if (!cancelled) setEstateRecords([]); });
     return () => { cancelled = true; };
   }, []);
 
   const [showAll, setShowAll] = useState(false);
 
   const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
-  const all = [...computeNudges(members), ...computeContactNudges(contacts || []), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets)]
+  const all = [...computeNudges(members), ...computeContactNudges(contacts || []), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets), ...computeEstateNudges(estateRecords)]
     .sort((a, b) => order[a.tone] - order[b.tone]);
   if (all.length === 0) return null;
   const COLLAPSED = 6;
