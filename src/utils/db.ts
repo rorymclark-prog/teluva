@@ -404,6 +404,21 @@ export async function deleteVaultFile(storagePath: string): Promise<void> {
   }
 }
 
+// Bulk photo import (Photos / Google Photos picker on device): takes an
+// already-compressed data URL (compressImageToAvatar) and uploads it under
+// the SAME families/{FAMILY_ID}/documents/{docId}/... prefix uploadVaultFile
+// already writes to, so no storage.rules change is needed. Modeled on
+// uploadVaultFile exactly, just skipping the File object in favour of a data URL.
+export async function uploadVaultPhoto(dataUrl: string, docId: string): Promise<{ storagePath: string; downloadUrl: string }> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const storagePath = `families/${FAMILY_ID}/documents/${docId}/photo.jpg`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
+  const downloadUrl = await getDownloadURL(r);
+  return { storagePath, downloadUrl };
+}
+
 // --- Travel timeline photos: real Storage files, only the URL lives in the
 // shared travelTimeline reference doc (all entries share ONE Firestore doc —
 // inlining base64 there like Assets does would blow the ~1MB doc cap after a

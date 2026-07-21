@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { VaultDocument, VaultCategory, FamilyMember, FamilyDocument } from '../types';
-import { loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile } from '../utils/db';
+import { loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, uploadVaultPhoto } from '../utils/db';
 import { auth } from '../lib/firebase';
 import DocumentViewer from './DocumentViewer';
 import {
   FolderLock, Upload, Search, Trash2, Eye, Cloud, CloudOff,
   Plus, X, Check, Loader2, File, AlertCircle, AlertTriangle,
-  CheckSquare, Share2, Download
+  CheckSquare, Share2, Download, ImagePlus
 } from 'lucide-react';
 import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch } from '../utils/documentDedup';
 import { canShare, shareMultiple, downloadZip } from '../utils/share';
+import { compressImageToAvatar } from '../utils/imageCompress';
 import PdfThumbnail from './PdfThumbnail';
 
 const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
@@ -38,6 +39,17 @@ function formatBytes(bytes: number): string {
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// Same tiny local helper Assets.tsx and MemberBelongings.tsx each already
+// duplicate rather than sharing — kept consistent with that convention.
+function readFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target?.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -278,6 +290,215 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel }: 
 }
 
 /* ------------------------------------------------------------------ */
+/* Bulk photo import panel — multi-select from Photos, one row per      */
+/* photo. Mirrors UploadPanel above but drives an <input multiple> and   */
+/* uploads every selected image before handing the whole batch back to  */
+/* the parent in ONE call (one Firestore write, not N).                 */
+/* ------------------------------------------------------------------ */
+
+const BULK_IMPORT_CAP = 40;
+
+type ImportStatus = 'queued' | 'compressing' | 'uploading' | 'done' | 'failed';
+interface ImportItem {
+  file: File;
+  status: ImportStatus;
+}
+
+interface BulkPhotoImportPanelProps {
+  members: FamilyMember[];
+  categories: VaultCategory[];
+  onImport: (docs: VaultDocument[]) => void;
+  onCancel: () => void;
+}
+
+function BulkPhotoImportPanel({ members, categories, onImport, onCancel }: BulkPhotoImportPanelProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [items, setItems] = useState<ImportItem[]>([]);
+  const [category, setCategory] = useState<VaultCategory>('Other');
+  const [memberId, setMemberId] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    e.target.value = '';
+    if (!files.length) return;
+    setError(null);
+    setDone(false);
+    const capped = files.slice(0, BULK_IMPORT_CAP);
+    if (files.length > BULK_IMPORT_CAP) {
+      setError(`Only the first ${BULK_IMPORT_CAP} photos will be imported — that's the most in one batch.`);
+    }
+    setItems(capped.map(file => ({ file, status: 'queued' as ImportStatus })));
+  };
+
+  const setStatus = (idx: number, status: ImportStatus) => {
+    setItems(prev => prev.map((it, i) => (i === idx ? { ...it, status } : it)));
+  };
+
+  const handleImport = async () => {
+    if (!items.length || importing) return;
+    setImporting(true);
+    setError(null);
+    const uploaded: VaultDocument[] = [];
+    let failCount = 0;
+    // Sequential, not parallel — predictable progress and it keeps a single
+    // slow/large photo from starving the rest of the batch of bandwidth.
+    for (let i = 0; i < items.length; i++) {
+      const { file } = items[i];
+      try {
+        setStatus(i, 'compressing');
+        const raw = await readFile(file);
+        // Hash the RAW original bytes (matches UploadPanel's semantic) even
+        // though the STORED copy is compressed — so a photo imported both via
+        // bulk and via the single-file path can still be matched later.
+        const [hash, compressed] = await Promise.all([
+          computeFileHash(file),
+          compressImageToAvatar(raw, 1600, 0.82),
+        ]);
+        setStatus(i, 'uploading');
+        const docId = `${Date.now().toString()}${Math.floor(Math.random() * 1000)}_${i}`;
+        const { storagePath, downloadUrl } = await uploadVaultPhoto(compressed, docId);
+        uploaded.push({
+          id: docId,
+          name: file.name.replace(/\.[^.]+$/, '') || 'Photo',
+          category,
+          fileName: file.name,
+          fileType: 'image/jpeg',
+          fileSize: file.size,
+          storagePath,
+          downloadUrl,
+          uploadedAt: new Date().toISOString().slice(0, 10),
+          uploadedBy: auth.currentUser?.displayName || auth.currentUser?.email || undefined,
+          memberId: memberId || undefined,
+          contentHash: hash,
+        });
+        setStatus(i, 'done');
+      } catch (err: unknown) {
+        console.error('Bulk import: a photo failed', err);
+        setStatus(i, 'failed');
+        failCount++;
+      }
+    }
+    setImporting(false);
+    setDone(true);
+    // One Firestore write for the whole batch, not one per photo.
+    if (uploaded.length) onImport(uploaded);
+    if (failCount) {
+      setError(`${failCount} photo${failCount === 1 ? '' : 's'} couldn't be imported. The rest were saved.`);
+    }
+  };
+
+  const doneCount = items.filter(it => it.status === 'done').length;
+
+  return (
+    <div className="card p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="section-label flex items-center gap-1.5">
+          <ImagePlus className="w-3.5 h-3.5" /> Import photos
+        </h3>
+        <button onClick={onCancel} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Close">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <p className="text-[13px] text-ink-500">
+        Choose several photos at once from your camera roll — each is saved as its own document in the vault.
+      </p>
+
+      {error && (
+        <div className="p-3 bg-honey-50 border border-honey-200 rounded-2xl text-[13px] text-honey-900 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-honey-700" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {done && (
+        <div className="p-3 bg-sage-50 border border-sage-200 rounded-2xl text-[13px] text-sage-700 flex items-start gap-2">
+          <Check className="w-4 h-4 mt-0.5 shrink-0 text-sage-600" />
+          <span>{doneCount} photo{doneCount === 1 ? '' : 's'} added to the vault.</span>
+        </div>
+      )}
+
+      {!items.length ? (
+        <div
+          className="border-2 border-dashed border-cream-300 rounded-2xl p-5 text-center cursor-pointer hover:border-clay-300 hover:bg-cream-50 transition-colors"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <div className="flex flex-col items-center gap-1.5">
+            <ImagePlus className="w-5 h-5 text-ink-400" />
+            <p className="text-[13px] text-ink-500">Tap to choose photos <span className="text-ink-400">(up to {BULK_IMPORT_CAP} at once)</span></p>
+          </div>
+        </div>
+      ) : (
+        <div className="max-h-56 overflow-y-auto space-y-1.5 border border-cream-200 rounded-2xl p-2">
+          {items.map((it, i) => (
+            <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-xl bg-cream-50">
+              <span className="text-[12px] text-ink-700 truncate flex-1">{it.file.name}</span>
+              {it.status === 'queued' && <span className="text-[11px] text-ink-400">Waiting…</span>}
+              {(it.status === 'compressing' || it.status === 'uploading') && <Loader2 className="w-3.5 h-3.5 animate-spin text-clay-500" />}
+              {it.status === 'done' && <Check className="w-3.5 h-3.5 text-sage-600" />}
+              {it.status === 'failed' && <AlertCircle className="w-3.5 h-3.5 text-rosa-500" />}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleFileChange}
+        accept="image/*"
+        multiple
+      />
+
+      {items.length > 0 && !done && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="field-label">Category</label>
+            <select className="field" value={category} disabled={importing} onChange={e => setCategory(e.target.value as VaultCategory)}>
+              {categories.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="field-label">Belongs to</label>
+            <select className="field" value={memberId} disabled={importing} onChange={e => setMemberId(e.target.value)}>
+              <option value="">Whole family</option>
+              {members.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onCancel} className="btn-quiet text-sm px-4 py-2">
+          <X className="w-3.5 h-3.5" /> {done ? 'Close' : 'Cancel'}
+        </button>
+        {items.length > 0 && !done && (
+          <button
+            onClick={handleImport}
+            disabled={importing}
+            className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
+          >
+            {importing ? (
+              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Importing {doneCount}/{items.length}…</>
+            ) : (
+              <><Check className="w-3.5 h-3.5" /> Import {items.length} photo{items.length === 1 ? '' : 's'}</>
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Category filter pill row                                             */
 /* ------------------------------------------------------------------ */
 
@@ -325,6 +546,7 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
   const [showUpload, setShowUpload] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [filterCat, setFilterCat] = useState<VaultCategory | 'All'>('All');
   const [search, setSearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -351,6 +573,14 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
     setDocs(next);
     const ok = await saveDocuments(next);
     setCloudSynced(ok);
+  };
+
+  // Bulk import hands back the whole successful batch at once — one Firestore
+  // write for N photos, not N writes. Prepended newest-first, same as a
+  // single upload.
+  const handleBulkImport = async (newDocs: VaultDocument[]) => {
+    const next = [...newDocs, ...docs];
+    await persist(next);
   };
 
   const handleUpload = async (doc: VaultDocument, replaceId?: string) => {
@@ -387,6 +617,7 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
     setSelectMode(v => !v);
     setSelectedIds(new Set());
     setShowUpload(false);
+    setShowBulkImport(false);
   };
 
   const toggleSelected = (id: string) => {
@@ -494,7 +725,14 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
               </button>
             )}
             <button
-              onClick={() => { setShowUpload(v => !v); setSelectMode(false); }}
+              onClick={() => { setShowBulkImport(v => !v); setShowUpload(false); setSelectMode(false); }}
+              className="btn-quiet shrink-0"
+            >
+              {showBulkImport ? <X className="w-4 h-4" /> : <ImagePlus className="w-4 h-4" />}
+              {showBulkImport ? 'Cancel' : 'Import photos'}
+            </button>
+            <button
+              onClick={() => { setShowUpload(v => !v); setShowBulkImport(false); setSelectMode(false); }}
               className="btn-primary shrink-0"
             >
               {showUpload ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
@@ -557,6 +795,16 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
         />
       )}
 
+      {/* Bulk photo import panel (inline, collapsible) */}
+      {showBulkImport && (
+        <BulkPhotoImportPanel
+          members={members}
+          categories={categories}
+          onImport={handleBulkImport}
+          onCancel={() => setShowBulkImport(false)}
+        />
+      )}
+
       {/* Filter + search bar */}
       <div className="card p-4 sm:p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -591,9 +839,14 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
             </p>
           </div>
           {docs.length === 0 && (
-            <button className="btn-primary text-sm mt-1" onClick={() => setShowUpload(true)}>
-              <Plus className="w-3.5 h-3.5" /> Upload document
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+              <button className="btn-primary text-sm" onClick={() => setShowUpload(true)}>
+                <Plus className="w-3.5 h-3.5" /> Upload document
+              </button>
+              <button className="btn-quiet text-sm" onClick={() => setShowBulkImport(true)}>
+                <ImagePlus className="w-3.5 h-3.5" /> Import photos
+              </button>
+            </div>
           )}
         </div>
       ) : (
