@@ -483,7 +483,15 @@ export default function DocumentScannerModal({
             </div>
           ) : adjustMode ? (
             <div className="space-y-3">
-              <div className="relative rounded-2xl overflow-hidden bg-black border border-cream-200 max-h-[55vh] flex items-center justify-center">
+              {/* No max-h/overflow-hidden here: scanic sizes its own editor
+                  container (up to 70% of the viewport height, via a min-height
+                  it sets on cornerEditorHostRef directly) to fit the photo's
+                  aspect ratio, and positions its Apply/Cancel toolbar relative
+                  to THAT box. A tighter cap here than scanic's own would clip
+                  the toolbar out of view for a tall/portrait photo — happened
+                  live at max-h-[55vh] vs scanic's 70vh. Let it size itself;
+                  the modal body around this is already scrollable. */}
+              <div className="relative rounded-2xl overflow-hidden bg-black border border-cream-200">
                 <div ref={cornerEditorHostRef} className="w-full" />
                 {isScanning && (
                   <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">

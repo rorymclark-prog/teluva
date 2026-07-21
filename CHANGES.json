@@ -1,6 +1,6 @@
 {
-  "label": "v116",
+  "label": "v117",
   "changes": [
-    "Fixed: the scanner could accept a bad crop (background instead of the card) on busy surfaces like a wooden desk — now it drops to manual corner adjustment instead of guessing wrong"
+    "Fixed: the scanner's manual corner-adjustment screen was missing its Apply button on tall/portrait photos — it was there, just scrolled out of view"
   ]
 }
