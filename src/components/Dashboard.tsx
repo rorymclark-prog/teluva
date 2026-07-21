@@ -371,7 +371,13 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const data = await loadFamilyMembers();
       if (data && data.length > 0) {
         setMembers(data);
-        setSelectedMemberId(data[0].id);
+        // Only default to the first member when there's no valid selection yet —
+        // this effect re-runs whenever `currentUser` gets a new object reference
+        // (Firebase's onAuthStateChanged can refire that on a silent token
+        // refresh, e.g. after a backgrounded mobile tab regains focus), and
+        // unconditionally resetting here used to snap an already-open profile
+        // straight back to the first member on every such refire.
+        setSelectedMemberId((prev) => (prev && data.some((m) => m.id === prev)) ? prev : data[0].id);
       } else {
         setMembers([]);
       }

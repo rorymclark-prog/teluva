@@ -1,6 +1,6 @@
 {
-  "label": "v113",
+  "label": "v114",
   "changes": [
-    "Fixed: scanned documents (like a wide ID card) showed black bars above and below in the review screen instead of filling the frame"
+    "Fixed: an open profile could silently snap back to the first family member (undoing the collapsed list) after the app refreshed your sign-in in the background"
   ]
 }
