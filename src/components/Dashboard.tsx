@@ -65,6 +65,7 @@ import HouseholdView from './HouseholdView';
 import FinancesView from './FinancesView';
 import InsuranceView from './InsuranceView';
 import MemberSayings from './MemberSayings';
+import MemberFavoriteQuotes from './MemberFavoriteQuotes';
 import FamilyWordsView from './FamilyWordsView';
 import VehiclesView from './VehiclesView';
 import SpaceSwitcher from './SpaceSwitcher';
@@ -1422,7 +1423,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                 <MemberPreferences member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
                               {activeTab === 'sayings' && (
-                                <MemberSayings member={selectedMember} onUpdateMember={handleUpdateMember} canEdit={demo || canWrite} />
+                                <>
+                                  <MemberSayings member={selectedMember} onUpdateMember={handleUpdateMember} canEdit={demo || canWrite} />
+                                  <div className="border-t border-cream-200 my-2" />
+                                  <MemberFavoriteQuotes member={selectedMember} onUpdateMember={handleUpdateMember} canEdit={demo || canWrite} />
+                                </>
                               )}
                               {activeTab === 'documents' && (
                                 <MemberDocuments
