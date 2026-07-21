@@ -250,6 +250,7 @@ RULES:
 - Use kind "passport" for passports, "contact" for people/places to phone (school, friend — NOT doctors or advisers), "provider" for any doctor/dentist/optician/specialist/pharmacy OR financial adviser/accountant/lawyer-notary/insurance broker/bank contact, "number" for a loose reference number not tied to a person.
 - Use "calendar_event" for appointments, dates, events, and reminders. Resolve relative dates ("next Tuesday", "this Friday") using today's date already given in the prompt. Set memberNames only for names that exist in the family data.
 - BIRTHDAYS: when asked to "add birthdays to the calendar" or similar, look up each member's birthdate from FAMILY DATA, compute the next upcoming birthday (if this year's date has already passed use next year, otherwise use this year), and emit one calendar_event per member: {"kind":"calendar_event","title":"<Name>'s Birthday 🎂","date":"<YYYY-MM-DD>","category":"Milestone","memberNames":["<Name>"]}. Do this for ALL members who have a birthdate.
+- BUSINESS ANNIVERSARY (business spaces only): when asked to "add the anniversary to the calendar" or similar, and FAMILY DATA's spaceInfo.foundingDate is present, compute the next upcoming anniversary of that date the same way as a birthday (if this year's date has already passed use next year, otherwise use this year) and emit one calendar_event: {"kind":"calendar_event","title":"<spaceInfo.name>'s Anniversary 🎉","date":"<YYYY-MM-DD>","category":"Milestone"}. If spaceInfo.foundingDate is absent, say in reply that no founding date is set yet and it can be added in Business Settings — never guess or invent a date.
 - Use "list_add" to append a row to a list: household lists → vehicles (fields: name, make, model, year, registration, vin, fuelType, assignedMember, insurer, insuranceNumber, insuranceRenewal [YYYY-MM-DD], inspectionExpiry [YYYY-MM-DD, the §57a/Pickerl/MOT/TÜV due date], vignetteExpiry [YYYY-MM-DD], lastService [YYYY-MM-DD], serviceIntervalMonths [number], parkingPermit, parkingPermitExpiry [YYYY-MM-DD, e.g. Parkpickerl], notes — capture whatever inspection/insurance/service/parking dates the user gives so the app can remind them), pets (name, species, vet, vaccinations, microchip, notes), utilities (type, provider, accountNumber, notes — for electricity/gas/internet/phone ONLY, NOT addresses); finances lists → banks (bankName, accountHolder, iban, bic, notes), insurance (provider, type, policyNumber, renewalDate, notes), benefits (name, reference, notes); family timeline → list="timeline" (date, title, type, note); shopping list → list="shopping" (name). For shopping: each item gets its own {"kind":"list_add","list":"shopping","item":{"name":"<item name>"}} — one edit per item. All dates YYYY-MM-DD.
 - ADDRESSES — pick the right target, NEVER use kind "number" or utilities for an address:
   • A SPECIFIC PERSON's address (where a family member lives — e.g. "Shyam's address is...", "my address is...", or a Meldezettel/registration naming one person): store on THAT member with {"kind":"member","member":"<name>","field":"address","value":"<full street, city, postcode>"}. Family members can live at different addresses. Also field "phone" and "email" for a member's own contact details.
@@ -678,6 +679,104 @@ app.post('/api/astrology-blurb', async (req, res) => {
   } catch (e) {
     console.error('[astrology-blurb] error', e);
     res.status(502).json({ error: 'Something went wrong generating the blurb — please try again.' });
+  }
+});
+
+// --- Business Milestones: AI-written anniversary note --------------------
+// The business-space equivalent of the astrology blurb above: a short piece
+// of generated prose tied to one record (here: the space's info/info doc,
+// not a chat edit or a member profile), self-persisted server-side so it
+// doesn't regenerate on every view. Duplicates src/utils/businessMilestone.ts's
+// yearsSinceFounding/ordinal in JS server-side — same precedent as
+// sunSignFromBirthdate's client/server duplication above (server.js:36-55 vs
+// src/utils/astrology.ts). Keep both in sync if "years since founding" is
+// ever redefined.
+function yearsSinceFoundingServer(foundingDateStr, now = new Date()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(foundingDateStr || '').trim());
+  if (!m) return null;
+  const founded = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(founded.getTime())) return null;
+  let years = now.getFullYear() - founded.getFullYear();
+  const anniversaryThisYear = new Date(now.getFullYear(), founded.getMonth(), founded.getDate());
+  if (now.getTime() < anniversaryThisYear.getTime()) years -= 1;
+  return Math.max(0, years);
+}
+function ordinalServer(n) {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}
+
+// Factual milestone note — NOT marketing copy. Hard-banned from inventing any
+// fact about the business beyond its name and the computed year count.
+const BUSINESS_MILESTONE_SYSTEM = `You are writing a short, warm, FACTUAL note marking a business's founding anniversary inside a family/records app's Business Hub. This is a milestone note, not marketing copy, not a press release, not an advertisement.
+
+Hard rules:
+- Write 1 to 2 sentences only.
+- Base the content ONLY on the business name and the exact year count given below. Do NOT invent, guess, or assume anything else about the business — no industry, no achievements, no size, no location, no products or services, no financial figures, no employees — unless it is explicitly given to you in the details below.
+- Tone: warm, plain, quietly proud — like a short note someone would leave themselves to mark the day, not hype.
+- Never use marketing language ("thriving", "soaring", "smashing goals", "unstoppable", "crushing it") or exclamation-heavy enthusiasm.
+- Never give business, financial, tax, or legal advice, and never speculate or make predictions about the future.
+- Output ONLY the note text itself — no markdown, no surrounding quotes, no preamble like "Here's a note:".`;
+
+app.post('/api/business-milestone-note', async (req, res) => {
+  try {
+    if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
+
+    // Read name/foundingDate/previous-note straight from the info doc
+    // server-side — never trusted from the client.
+    const familyId = caller.familyId;
+    const infoRef = adminDb.doc(`families/${familyId}/info/info`);
+    const infoSnap = await infoRef.get();
+    const infoData = infoSnap.exists ? (infoSnap.data() || {}) : {};
+    if (infoData.type !== 'business') return res.status(400).json({ error: 'The milestone note is only available for business spaces.' });
+
+    const name = String(infoData.name || 'This business').trim();
+    const years = yearsSinceFoundingServer(infoData.foundingDate);
+    if (years === null) return res.status(400).json({ error: 'Set a founding date first, in Business Settings.' });
+
+    const previous = (infoData.milestoneNote && infoData.milestoneNote.forFoundingDate === infoData.foundingDate)
+      ? String(infoData.milestoneNote.text || '').slice(0, 400) : '';
+
+    const detail = [
+      `Business name: ${name}`,
+      years === 0
+        ? 'This is the founding year — the business is not yet a full year old.'
+        : `Years since founding: ${years} (this marks the ${ordinalServer(years)} anniversary).`,
+    ];
+    if (previous) detail.push(`A note was already shown for this same founding date (do NOT repeat it or lightly reword it — take a clearly different angle and opening line): "${previous}"`);
+
+    console.log('[business-milestone-note]', name, years, 'for', caller.email);
+
+    const gRes = await generateContent(MODEL_TEXT, {
+      systemInstruction: { parts: [{ text: BUSINESS_MILESTONE_SYSTEM }] },
+      contents: [{ role: 'user', parts: [{ text: detail.join('\n') }] }],
+      generationConfig: { temperature: 0.9 },
+    });
+    const gData = await gRes.json();
+    const candidate = (gData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
+    if (!candidate) {
+      console.error('[business-milestone-note] empty response:', JSON.stringify(gData).slice(0, 400));
+      return res.status(502).json({ error: 'Could not generate a note right now — please try again.' });
+    }
+
+    const note = { text: candidate.trim(), generatedAt: new Date().toISOString(), forFoundingDate: infoData.foundingDate };
+    await infoRef.set({ milestoneNote: note }, { merge: true });
+    res.json({ ok: true, note });
+  } catch (e) {
+    console.error('[business-milestone-note] error', e);
+    res.status(502).json({ error: 'Something went wrong generating the note — please try again.' });
   }
 });
 
@@ -1152,6 +1251,38 @@ app.post('/api/rename-space', async (req, res) => {
   } catch (err) {
     console.error('/api/rename-space error:', err);
     res.status(500).json({ error: 'Could not rename the space. Please try again.' });
+  }
+});
+
+// --- Set the founding date on the caller's ACTIVE space (Business Milestones) ---
+// Admin-only (mirrors rename-space's role guard); business-only, re-verified
+// server-side by re-reading the info doc so even a direct API call from a
+// family-space admin can never write a foundingDate onto a family space.
+app.post('/api/set-founding-date', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can set the founding date.' });
+
+    const foundingDate = String((req.body || {}).foundingDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(foundingDate) || Number.isNaN(new Date(foundingDate).getTime())) {
+      return res.status(400).json({ error: 'Please give a valid date (YYYY-MM-DD).' });
+    }
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (foundingDate > todayStr) return res.status(400).json({ error: 'The founding date cannot be in the future.' });
+
+    const familyId = caller.familyId;
+    const infoRef = adminDb.doc(`families/${familyId}/info/info`);
+    const infoSnap = await infoRef.get();
+    if (!infoSnap.exists || infoSnap.data().type !== 'business') {
+      return res.status(400).json({ error: 'Founding date is only available for business spaces.' });
+    }
+
+    await infoRef.set({ foundingDate }, { merge: true });
+    res.json({ ok: true, foundingDate });
+  } catch (err) {
+    console.error('/api/set-founding-date error:', err);
+    res.status(500).json({ error: 'Could not save the founding date. Please try again.' });
   }
 });
 

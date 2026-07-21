@@ -1,10 +1,11 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award } from 'lucide-react';
-import { FamilyMember, AssetItem, Vehicle, ContactEntry } from '../types';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper } from 'lucide-react';
+import { FamilyMember, AssetItem, Vehicle, ContactEntry, FamilyInfoDoc } from '../types';
 import { careNextDue } from '../utils/care';
-import { loadAssets, loadHousehold } from '../utils/db';
+import { loadAssets, loadHousehold, loadSpaceInfo } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel } from '../utils/vehicle';
 import { birthdayPhotoNudge } from '../utils/birthday';
+import { nextAnniversary } from '../utils/businessMilestone';
 
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
@@ -113,6 +114,30 @@ function computeContactNudges(contacts: ContactEntry[]): Nudge[] {
     }
   }
   return out;
+}
+
+// Business anniversary — same "within 21 days" window as a family member's
+// birthday nudge below. NeedsAttention has no isBusinessSpace prop today, so
+// this gates on the self-loaded spaceInfo's own `type` field instead —
+// semantically the same gate as a prop would give, no prop plumbing added.
+function computeBusinessAnniversaryNudge(spaceInfo: FamilyInfoDoc | null): Nudge[] {
+  if (!spaceInfo || spaceInfo.type !== 'business' || !spaceInfo.foundingDate) return [];
+  const next = nextAnniversary(spaceInfo.foundingDate);
+  if (!next) return [];
+  const days = Math.round((next.date.getTime() - Date.now()) / DAY);
+  if (days > 21) return [];
+  const name = spaceInfo.name || 'The business';
+  return [{
+    key: `biz-anniversary-${next.years}`,
+    memberId: '',
+    icon: PartyPopper,
+    tone: 'info',
+    text: days <= 0 ? `${name}'s anniversary is today! 🎉` : `${name}'s anniversary in ${days} day${days !== 1 ? 's' : ''}`,
+    tab: 'info',
+    view: 'info',
+    date: toISODate(next.date),
+    days,
+  }];
 }
 
 // Deterministic, data-derived nudges — no AI, no cost, no new fields.
@@ -268,6 +293,7 @@ export default function NeedsAttention(
 ) {
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [spaceInfo, setSpaceInfo] = useState<FamilyInfoDoc | null>(null);
   useEffect(() => {
     let cancelled = false;
     loadAssets()
@@ -276,13 +302,16 @@ export default function NeedsAttention(
     loadHousehold()
       .then((h) => { if (!cancelled) setVehicles(h?.vehicles || []); })
       .catch(() => { if (!cancelled) setVehicles([]); });
+    loadSpaceInfo()
+      .then((s) => { if (!cancelled) setSpaceInfo(s); })
+      .catch(() => { if (!cancelled) setSpaceInfo(null); });
     return () => { cancelled = true; };
   }, []);
 
   const [showAll, setShowAll] = useState(false);
 
   const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
-  const all = [...computeNudges(members), ...computeContactNudges(contacts || []), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets)]
+  const all = [...computeNudges(members), ...computeContactNudges(contacts || []), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets), ...computeBusinessAnniversaryNudge(spaceInfo)]
     .sort((a, b) => order[a.tone] - order[b.tone]);
   if (all.length === 0) return null;
   const COLLAPSED = 6;
