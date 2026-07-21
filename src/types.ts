@@ -742,4 +742,62 @@ export interface Recipe {
   createdAt: string;       // ISO date
 }
 
+// --- In Memory: an archive for deceased parents/grandparents' documents and a
+// few remembered things. Deliberately a SEPARATE type from FamilyMember, not a
+// `deceased` flag on it — FamilyMember drives living-person logistics
+// (clothing sizes, care schedules, growth tracking, birthday timelapses,
+// wishlists) and none of that machinery is deceased-aware. Keeping this a
+// disjoint type makes it structurally impossible for a nudge, reminder, or
+// "no medical info yet" prompt to ever reference someone who has died — those
+// pipelines only ever accept FamilyMember[]/ContactEntry[], and DepartedRelative
+// can't silently pass through a signature it was never added to.
+// `born`/`died` are intentionally free text (not ISO dates) so no date-math
+// helper (age calculators, "days until", nudges) is ever accidentally wireable
+// to them — this record is read-only remembrance, never a countdown.
+export type DepartedDocCategory =
+  | 'Death certificate'
+  | 'Birth certificate'
+  | 'Marriage certificate'
+  | 'Citizenship papers'
+  | 'Estate & probate papers'
+  | 'Other';
+
+export interface DepartedDocument {
+  id: string;
+  name: string;
+  category: DepartedDocCategory;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  storagePath: string;   // path within the Firebase Storage bucket
+  downloadUrl: string;
+  uploadedAt: string;    // YYYY-MM-DD
+  notes?: string;
+}
+
+// A short remembered thing — a saying, a favourite recipe, a habit, a story.
+// Free text and undated on purpose; this is memory-keeping, not a record with
+// deadlines.
+export interface RememberedNote {
+  id: string;
+  text: string;
+}
+
+export interface DepartedRelative {
+  id: string;
+  name: string;
+  relation: string;      // e.g. "Oma", "Grandfather", "Mother" — free text
+  born?: string;          // free text, e.g. "1938" or "12 March 1938" — not a date field
+  died?: string;           // free text, e.g. "2019" or "March 2019" — not a date field
+  photoUrl?: string;      // Storage download URL of a portrait
+  photoStoragePath?: string;
+  documents: DepartedDocument[];
+  notes: RememberedNote[]; // a few remembered things — stories, sayings, habits
+  createdAt: string;       // ISO date this record was added to the archive
+}
+
+export interface InMemoryDoc {
+  people: DepartedRelative[];
+}
+
 export interface RecipeBookDoc { recipes: Recipe[]; }
