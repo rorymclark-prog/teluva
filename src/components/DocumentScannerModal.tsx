@@ -169,14 +169,25 @@ export default function DocumentScannerModal({
     setIsScanning(true);
     try {
       const result = await scanDocument(canvas, { mode: 'extract', output: 'dataurl' });
-      if (result.success && typeof result.output === 'string') {
+      // scanic reports success as soon as it finds ANY roughly-4-sided contour,
+      // even a low-confidence one — it only uses confidence internally to
+      // decide whether to retry with different edge-detection parameters (its
+      // own threshold for that is 0.68). A busy/textured background (wood
+      // grain, patterned countertop) reliably produces exactly this: a
+      // technically-"successful" but wrong crop. Apply that same 0.68 bar
+      // ourselves before trusting the result, since scanic won't do it for us.
+      const MIN_CONFIDENCE = 0.68;
+      const confident = result.confidence == null || result.confidence >= MIN_CONFIDENCE;
+      if (result.success && typeof result.output === 'string' && confident) {
         setCapturedPhoto(result.output);
         setDetectedCorners(result.corners);
       } else {
-        // Could not find the document's edges with confidence — go straight
-        // to manual corner adjustment instead of silently saving an
-        // uncropped photo (or worse, a badly-cropped guess).
-        setDetectedCorners(null);
+        // Low-confidence or outright failed — go straight to manual corner
+        // adjustment instead of silently keeping a wrong crop. Keep whatever
+        // corners scanic DID find (even low-confidence) as the editor's
+        // starting point rather than the default inset guess, since a rough
+        // detection is still a better starting point than none.
+        setDetectedCorners(result.corners ?? null);
         setAdjustMode(true);
       }
     } catch (err) {
