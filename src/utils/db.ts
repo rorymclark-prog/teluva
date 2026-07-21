@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -348,6 +348,12 @@ export const loadTravelTimeline = () => loadReferenceDoc<TravelTimelineDoc>('tra
 export const saveSettings = (s: HubSettings) => saveReferenceDoc('settings', s, 'family_settings');
 export const loadSettings = () => loadReferenceDoc<HubSettings>('settings', 'family_settings');
 
+// In Memory: an archive of deceased parents/grandparents — their documents and
+// a few remembered things. Family-level, one shared reference doc like every
+// other feature here.
+export const saveInMemory = (v: InMemoryDoc) => saveReferenceDoc('inMemory', v, 'family_in_memory');
+export const loadInMemory = () => loadReferenceDoc<InMemoryDoc>('inMemory', 'family_in_memory');
+
 // --- Asset photos: extra photos live in Firebase Storage (NOT inline base64) so
 // an asset can hold many pictures without hitting Firestore's ~1 MiB per-doc
 // limit. Takes a (compressed) data URL, returns the download URL to store in
@@ -424,6 +430,28 @@ export async function deleteTravelPhoto(storagePath: string): Promise<void> {
     await deleteObject(ref(storage, storagePath));
   } catch (e) {
     console.error('Travel photo delete failed (entry will still be removed):', e);
+  }
+}
+
+// --- In Memory portraits: real Storage files, only the URL lives in the
+// shared inMemory reference doc — same reasoning as uploadTravelPhoto (many
+// people share ONE Firestore doc, so no inline base64). Documents for a
+// departed relative reuse uploadVaultFile/deleteVaultFile unmodified.
+export async function uploadInMemoryPhoto(dataUrl: string, personId: string): Promise<{ storagePath: string; downloadUrl: string }> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const storagePath = `families/${FAMILY_ID}/in-memory-photos/${personId}.jpg`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
+  const downloadUrl = await getDownloadURL(r);
+  return { storagePath, downloadUrl };
+}
+
+export async function deleteInMemoryPhoto(storagePath: string): Promise<void> {
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (e) {
+    console.error('In Memory photo delete failed (entry will still be removed):', e);
   }
 }
 
