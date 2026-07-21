@@ -58,6 +58,7 @@ import EmergencyView from './EmergencyView';
 import HouseholdView from './HouseholdView';
 import FinancesView from './FinancesView';
 import TimelineView from './TimelineView';
+import TravelTimelineView from './TravelTimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
 import FamilyPasswords from './FamilyPasswords';
@@ -66,7 +67,7 @@ import {
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
-  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope
+  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, Globe2
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -92,7 +93,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -116,6 +117,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'household', icon: Home },
   { id: 'finances', icon: Landmark },
   { id: 'timeline', icon: CalendarHeart },
+  { id: 'travelTimeline', icon: Globe2 },
   { id: 'vault', icon: FolderArchive },
   { id: 'assets', icon: Package },
   { id: 'shopping', icon: ShoppingCart },
@@ -133,6 +135,7 @@ function viewLabel(id: ViewId, t: Strings): string {
     household: t.nav_household,
     finances: t.nav_finances,
     timeline: t.nav_timeline,
+    travelTimeline: 'Travel timeline',
     vault: t.nav_documents,
     assets: t.nav_assets,
     passwords: t.nav_passwords,
@@ -838,6 +841,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         {mainView === 'finances' && <FinancesView key={aiDataVersion} />}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
+
+        {mainView === 'travelTimeline' && (
+          demo ? <DemoUnavailable label="The travel timeline" /> : <TravelTimelineView key={aiDataVersion} />
+        )}
 
         {mainView === 'vault' && (
           demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} />

@@ -336,6 +336,27 @@ export interface FamilyTimeline {
   entries: TimelineEntry[];
 }
 
+// --- Travel timeline (family-wide): countries visited, chronologically ---
+// Built from photos with embedded GPS EXIF (auto-tagged, source: 'exif') or
+// typed in by hand when a photo has no location data (source: 'manual').
+export interface TravelTimelineEntry {
+  id: string;
+  country: string;              // display name, e.g. "Austria"
+  countryCode?: string;         // ISO 3166-1 alpha-2, e.g. "AT" (offline-resolved)
+  place?: string;                // optional free-text city/region, e.g. "Vienna"
+  date: string;                  // YYYY-MM-DD
+  photoUrl?: string;             // Firebase Storage download URL (compressed)
+  photoStoragePath?: string;     // Storage path, so the file can be cleaned up on delete
+  lat?: number;
+  lng?: number;
+  source: 'exif' | 'manual';
+  notes?: string;
+}
+
+export interface TravelTimelineDoc {
+  entries: TravelTimelineEntry[];
+}
+
 // --- Hub settings (shared): the family's name for their hub + a family photo ---
 export interface HubSettings {
   hubName?: string;
