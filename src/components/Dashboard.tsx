@@ -69,6 +69,7 @@ import VehiclesView from './VehiclesView';
 import SpaceSwitcher from './SpaceSwitcher';
 import { switchSpace, createSpace, renameSpace, NewBusinessExtra } from '../utils/db';
 import TimelineView from './TimelineView';
+import TravelTimelineView from './TravelTimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
 import FamilyPasswords from './FamilyPasswords';
@@ -90,7 +91,7 @@ import {
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
-  Quote, BookHeart, Car, ChefHat
+  Quote, BookHeart, Car, ChefHat, Globe2
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -116,7 +117,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -144,7 +145,7 @@ const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sa
 // 'emergency' is a medical/allergy/blood-type card — no business equivalent
 // exists yet (a real workplace-incident log would be a distinct feature, not
 // a relabel of this one) so it's hidden rather than mislabeled.
-const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes'];
+const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline'];
 
 // A persisted astrology blurb older than this is treated as stale and quietly
 // regenerated next time that member's Overview is viewed — keeps the card
@@ -161,6 +162,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'insurance', icon: ShieldCheck },
   { id: 'vehicles', icon: Car },
   { id: 'timeline', icon: CalendarHeart },
+  { id: 'travelTimeline', icon: Globe2 },
   { id: 'vault', icon: FolderArchive },
   { id: 'assets', icon: Package },
   { id: 'recipes', icon: ChefHat },
@@ -180,6 +182,7 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     household: isBusinessSpace ? 'Locations' : t.nav_household,
     finances: t.nav_finances,
     timeline: t.nav_timeline,
+    travelTimeline: 'Travel timeline',
     vault: t.nav_documents,
     assets: t.nav_assets,
     passwords: t.nav_passwords,
@@ -1107,6 +1110,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
+
+        {mainView === 'travelTimeline' && (
+          demo ? <DemoUnavailable label="The travel timeline" /> : <TravelTimelineView key={aiDataVersion} />
+        )}
 
         {mainView === 'vault' && (
           demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} />

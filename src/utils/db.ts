@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -342,6 +342,9 @@ export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', '
 export const saveFamilyWords = (w: FamilyWordsDoc) => saveReferenceDoc('familyWords', w, 'family_words');
 export const loadFamilyWords = () => loadReferenceDoc<FamilyWordsDoc>('familyWords', 'family_words');
 
+export const saveTravelTimeline = (t: TravelTimelineDoc) => saveReferenceDoc('travelTimeline', t, 'family_travel_timeline');
+export const loadTravelTimeline = () => loadReferenceDoc<TravelTimelineDoc>('travelTimeline', 'family_travel_timeline');
+
 export const saveSettings = (s: HubSettings) => saveReferenceDoc('settings', s, 'family_settings');
 export const loadSettings = () => loadReferenceDoc<HubSettings>('settings', 'family_settings');
 
@@ -398,6 +401,29 @@ export async function deleteVaultFile(storagePath: string): Promise<void> {
     await deleteObject(ref(storage, storagePath));
   } catch (e) {
     console.error('Vault file delete failed (metadata will still be removed):', e);
+  }
+}
+
+// --- Travel timeline photos: real Storage files, only the URL lives in the
+// shared travelTimeline reference doc (all entries share ONE Firestore doc —
+// inlining base64 there like Assets does would blow the ~1MB doc cap after a
+// handful of photos). Takes a compressed data URL (post-EXIF-parse, see
+// utils/travelGeo.ts) and uploads it, mirroring uploadVaultFile exactly.
+export async function uploadTravelPhoto(dataUrl: string, entryId: string): Promise<{ storagePath: string; downloadUrl: string }> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const storagePath = `families/${FAMILY_ID}/travel-photos/${entryId}.jpg`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
+  const downloadUrl = await getDownloadURL(r);
+  return { storagePath, downloadUrl };
+}
+
+export async function deleteTravelPhoto(storagePath: string): Promise<void> {
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (e) {
+    console.error('Travel photo delete failed (entry will still be removed):', e);
   }
 }
 
