@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -1038,4 +1038,143 @@ export async function savePassword(entry: PasswordEntry): Promise<void> {
 
 export async function deletePassword(id: string): Promise<void> {
   await deleteDoc(doc(db, 'families', FAMILY_ID, 'passwords', id));
+}
+
+// ── Delete a document EVERYWHERE ──────────────────────────────────────────
+// A document can exist in two stores that historically knew nothing about each
+// other: the shared vault (families/{FAMILY_ID}/reference/documents) and the
+// per-member copy on member.documents. Deleting from one screen only ever
+// cleaned up that screen's store, so a scan the user deleted from a profile
+// survived in the vault — and the AI's duplicate check (checkDocDuplicates in
+// AIChatbot.tsx) reads THE VAULT, so re-adding a fresh copy was refused as a
+// "duplicate" of a document the user was certain they had deleted. That is a
+// trust bug, so both delete paths now go through this ONE function; keeping the
+// logic in two places is exactly how the two stores drifted apart originally.
+
+// Is this per-member document the same real-world file as this vault document?
+// Ordered strongest-signal-first, and deliberately conservative: deletion is
+// irreversible and spans two stores, so a false positive would destroy a
+// document the user never asked to remove.
+function linksToVaultDoc(memberDoc: FamilyDocument, vaultDoc: VaultDocument): boolean {
+  // 1. Provenance: fileScans() in AIChatbot.tsx mints the member copy's id as
+  //    'doc-' + the vault id, so this pair is certain when it matches.
+  if (memberDoc.id === 'doc-' + vaultDoc.id) return true;
+  // 2. The member copy points straight at the vault file's download URL
+  //    (fileScans stores the URL, not base64, to keep the member doc small).
+  if (memberDoc.fileData && memberDoc.fileData === vaultDoc.downloadUrl) return true;
+  // 3. Identical bytes. Both hashes must be present — an absent hash is not a
+  //    match, it's an unknown (documents saved before contentHash existed).
+  if (memberDoc.contentHash && vaultDoc.contentHash && memberDoc.contentHash === vaultDoc.contentHash) return true;
+  // 4. Last resort for that pre-contentHash legacy data only: same filename and
+  //    same exact byte count. Never used when either side HAS a hash, because
+  //    then a hash mismatch has already told us they are different files.
+  if (!memberDoc.contentHash && !vaultDoc.contentHash
+    && memberDoc.fileName && memberDoc.fileName === vaultDoc.fileName
+    && memberDoc.fileSize === vaultDoc.fileSize) return true;
+  return false;
+}
+
+export interface DeleteEverywhereResult {
+  /** The members array with every matched copy stripped. Callers must persist it. */
+  members: FamilyMember[];
+  membersChanged: boolean;
+  vaultRemoved: number;       // vault rows removed
+  memberDocsRemoved: number;  // per-member copies removed (across all members)
+  /** true when the vault metadata write failed — the file is gone locally but the cloud still lists it. */
+  vaultSaveFailed: boolean;
+  /** Human-readable notes for anything that could NOT be cleaned up, so a caller never fails silently. */
+  notes: string[];
+}
+
+/**
+ * Remove a document from the vault, from every member profile that holds a copy,
+ * and from Firebase Storage — no matter which screen the delete was started on.
+ * Pass whichever record the caller has (`vaultDoc` from the Document Vault,
+ * `memberDoc` + `memberId` from a member's Documents tab); the counterpart in
+ * the other store is found via linksToVaultDoc().
+ *
+ * A document that has no counterpart is normal, not an error — documents
+ * uploaded in MemberDocuments.tsx are base64 on the member record and never
+ * enter the vault at all. In that case we delete what we can and say so in
+ * `notes`; the caller decides whether that is worth surfacing.
+ */
+export async function deleteDocumentEverywhere(opts: {
+  vaultDoc?: VaultDocument;
+  memberDoc?: FamilyDocument;
+  memberId?: string;
+  members: FamilyMember[];
+}): Promise<DeleteEverywhereResult> {
+  const { vaultDoc, memberDoc, memberId, members } = opts;
+  const notes: string[] = [];
+
+  let vault: VaultDocument[] = [];
+  let vaultReadable = true;
+  try {
+    vault = await loadDocuments();
+  } catch (e) {
+    // A vault we cannot read is a vault we must not rewrite — saving here would
+    // persist an empty list over everyone's documents.
+    vaultReadable = false;
+    console.error('Vault read failed during delete (member copy will still be removed):', e);
+    notes.push("Couldn't reach the shared vault — its copy may still be there.");
+  }
+
+  const vaultTargets = vault.filter(v =>
+    (vaultDoc && v.id === vaultDoc.id) || (memberDoc ? linksToVaultDoc(memberDoc, v) : false),
+  );
+  if (vaultReadable && vaultDoc && !vaultTargets.some(v => v.id === vaultDoc.id)) {
+    // The row was already gone from the stored list (another device deleted it,
+    // or this view is stale) — still delete its Storage object below.
+    notes.push('That vault entry had already been removed.');
+  }
+
+  // Best-effort Storage cleanup. deleteVaultFile already swallows its own
+  // errors on purpose: a missing or permission-denied object must never block
+  // removing the metadata, otherwise the user is stuck with an undeletable row.
+  const storagePaths = new Set<string>(vaultTargets.map(v => v.storagePath).filter(Boolean));
+  if (vaultDoc?.storagePath) storagePaths.add(vaultDoc.storagePath);
+  for (const path of storagePaths) await deleteVaultFile(path);
+
+  // Match member copies against whatever we know about the vault side. When the
+  // vault row is already gone (or unreadable) fall back to the caller's own copy
+  // of it, so a stale list can't strand the member copies.
+  const matchAgainst: VaultDocument[] = vaultTargets.length ? vaultTargets : (vaultDoc ? [vaultDoc] : []);
+  let memberDocsRemoved = 0;
+  const nextMembers = members.map(m => {
+    const docs = m.documents || [];
+    const keep = docs.filter(d => {
+      const isTheClickedOne = !!memberDoc && m.id === memberId && d.id === memberDoc.id;
+      // Strip the copy from EVERY member, not just the one being viewed: the
+      // underlying Storage object is gone now, so any other profile holding it
+      // would be left pointing at a broken file.
+      const isCounterpart = matchAgainst.some(v => linksToVaultDoc(d, v));
+      return !(isTheClickedOne || isCounterpart);
+    });
+    if (keep.length !== docs.length) {
+      memberDocsRemoved += docs.length - keep.length;
+      return { ...m, documents: keep };
+    }
+    return m;
+  });
+
+  let vaultSaveFailed = false;
+  if (vaultTargets.length) {
+    const removedIds = new Set(vaultTargets.map(v => v.id));
+    const ok = await saveDocuments(vault.filter(v => !removedIds.has(v.id)));
+    if (!ok) {
+      vaultSaveFailed = true;
+      notes.push("Removed here, but the shared vault couldn't be updated in the cloud.");
+    }
+  } else if (memberDoc && vaultReadable) {
+    notes.push('No copy of this document was found in the shared vault.');
+  }
+
+  return {
+    members: nextMembers,
+    membersChanged: memberDocsRemoved > 0,
+    vaultRemoved: vaultTargets.length,
+    memberDocsRemoved,
+    vaultSaveFailed,
+    notes,
+  };
 }

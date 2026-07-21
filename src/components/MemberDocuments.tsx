@@ -16,7 +16,9 @@ import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 interface MemberDocumentsProps {
   member: FamilyMember;
   onAddDocument: (id: string, document: FamilyDocument) => void;
-  onDeleteDocument: (memberId: string, documentId: string) => void;
+  // Returns a promise now: deleting also clears the shared vault copy and the
+  // stored file, so callers that save straight afterwards must be able to wait.
+  onDeleteDocument: (memberId: string, documentId: string) => void | Promise<void>;
   onViewDocument: (doc: FamilyDocument, memberName: string) => void;
   isBusinessSpace?: boolean;
 }
@@ -80,6 +82,12 @@ export default function MemberDocuments({
   const [exporting, setExporting] = useState<'share' | 'zip' | null>(null);
   const [isPdfCompiling, setIsPdfCompiling] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // The archive list's OWN filter. It is deliberately separate state from
+  // `category` above: those chips set the category of the document being
+  // uploaded, but they read like a filter, so picking "Health" and still
+  // seeing a marriage certificate below looked broken. The two controls are
+  // now separated, labelled and styled differently so they can't be confused.
+  const [archiveFilter, setArchiveFilter] = useState<'All' | FamilyDocument['category']>('All');
 
   const handleScannerResult = (file: ScannedFile) => {
     setPendingFileData({ data: file.data, name: file.name, type: file.type, size: file.size });
@@ -239,9 +247,18 @@ export default function MemberDocuments({
     }
   };
 
-  const resolveDuplicateReplace = () => {
+  // MUST await the delete before saving the replacement. The delete is now a
+  // multi-store operation (member record + vault + Storage), so firing it and
+  // immediately adding the new document would let the delete's member-record
+  // write land LAST and take the replacement down with it.
+  const resolveDuplicateReplace = async () => {
     if (!duplicateMatch) return;
-    onDeleteDocument(member.id, duplicateMatch.doc.id);
+    setCheckingDuplicate(true);
+    try {
+      await onDeleteDocument(member.id, duplicateMatch.doc.id);
+    } finally {
+      setCheckingDuplicate(false);
+    }
     saveNewDoc(pendingHash);
   };
 
@@ -288,7 +305,23 @@ export default function MemberDocuments({
     });
   };
 
-  const selectedDocs = (member.documents || []).filter(d => selectedIds.has(d.id));
+  const allDocs = member.documents || [];
+  const countInCategory = (cat: FamilyDocument['category']) => allDocs.filter(d => d.category === cat).length;
+  // Offer every category this space uses, plus any category that legacy
+  // documents actually sit in (a Health scan filed before this became a
+  // Business space, say) — otherwise those documents would be unreachable
+  // from the filter, which is exactly the silent-hiding this fix is about.
+  const filterOptions: ('All' | FamilyDocument['category'])[] = [
+    'All',
+    ...categories,
+    ...CATEGORIES.filter(c => !categories.includes(c) && countInCategory(c) > 0),
+  ];
+  const visibleDocs = archiveFilter === 'All' ? allDocs : allDocs.filter(d => d.category === archiveFilter);
+  const hiddenCount = allDocs.length - visibleDocs.length;
+
+  // Selection is scoped to what's on screen — sharing or zipping a document the
+  // filter is hiding would be a surprise.
+  const selectedDocs = visibleDocs.filter(d => selectedIds.has(d.id));
 
   const handleShareSelected = async () => {
     if (!selectedDocs.length) return;
@@ -470,11 +503,16 @@ export default function MemberDocuments({
                   {duplicateMatch.confidence === 'probable-type' && ' Looks like the same kind of document, just under a different name.'}
                 </span>
               </p>
+              {/* "Replace" deletes the old copy through the same
+                  everywhere-delete path, so say so — it clears the vault copy
+                  too, which is precisely what stops the AI from later
+                  refusing this new scan as a duplicate of the old one. */}
+              <p className="text-[12px] leading-snug">Replacing deletes the old copy everywhere, including the shared Document Vault.</p>
               <div className="flex gap-2">
-                <button type="button" onClick={resolveDuplicateReplace} className="btn-primary text-xs px-3 py-1.5 flex-1 justify-center">
-                  Replace existing
+                <button type="button" onClick={resolveDuplicateReplace} disabled={checkingDuplicate} className="btn-primary text-xs px-3 py-1.5 flex-1 justify-center disabled:opacity-50">
+                  {checkingDuplicate ? 'Replacing…' : 'Replace existing'}
                 </button>
-                <button type="button" onClick={resolveDuplicateKeepBoth} className="btn-quiet text-xs px-3 py-1.5 flex-1 justify-center">
+                <button type="button" onClick={resolveDuplicateKeepBoth} disabled={checkingDuplicate} className="btn-quiet text-xs px-3 py-1.5 flex-1 justify-center disabled:opacity-50">
                   Keep both
                 </button>
               </div>
@@ -499,10 +537,10 @@ export default function MemberDocuments({
         <div className="lg:col-span-12 xl:col-span-8 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <h4 className="text-[13px] font-semibold text-ink-600">
-              Archives ({member.documents?.length || 0})
+              Archives ({archiveFilter === 'All' ? allDocs.length : `${visibleDocs.length} of ${allDocs.length}`})
             </h4>
             <div className="flex items-center gap-2">
-              {(member.documents?.length || 0) > 0 && (
+              {allDocs.length > 0 && (
                 <button
                   type="button"
                   onClick={toggleSelectMode}
@@ -520,21 +558,51 @@ export default function MemberDocuments({
             </div>
           </div>
 
+          {/* Archive filter — underline tabs, deliberately NOT the solid pills
+              the upload form uses for its Category picker, so the two controls
+              can never be mistaken for each other again. */}
+          {allDocs.length > 0 && (
+            <div className="border-b border-cream-200">
+              <p className="text-[12px] font-semibold text-ink-400 uppercase tracking-wide mb-1">Filter archives</p>
+              <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+                {filterOptions.map((opt) => {
+                  const count = opt === 'All' ? allDocs.length : countInCategory(opt);
+                  const active = archiveFilter === opt;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => setArchiveFilter(opt)}
+                      className={`px-2.5 py-1.5 -mb-px text-[13px] font-semibold border-b-2 transition-colors cursor-pointer ${
+                        active
+                          ? 'border-clay-500 text-clay-700'
+                          : 'border-transparent text-ink-500 hover:text-ink-800'
+                      }`}
+                    >
+                      {opt} <span className="font-normal text-ink-400 tabular-nums">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {selectMode && (
             <div className="p-3.5 rounded-2xl bg-clay-50 border border-clay-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <p className="text-[13px] font-semibold text-clay-900">
-                  {selectedIds.size === 0 ? 'Tap documents to select them' : `${selectedIds.size} selected`}
-                  {selectedIds.size > 0 && (
+                  {selectedDocs.length === 0 ? 'Tap documents to select them' : `${selectedDocs.length} selected`}
+                  {selectedDocs.length > 0 && (
                     <span className="text-clay-600 font-normal"> · {formatBytes(selectedDocs.reduce((sum, d) => sum + (d.fileSize || 0), 0))}</span>
                   )}
                 </p>
+                {/* "All" here means all VISIBLE documents — the filter is in charge. */}
                 <button
                   type="button"
-                  onClick={() => setSelectedIds(selectedIds.size === (member.documents?.length || 0) ? new Set() : new Set((member.documents || []).map(d => d.id)))}
+                  onClick={() => setSelectedIds(selectedDocs.length === visibleDocs.length ? new Set() : new Set(visibleDocs.map(d => d.id)))}
                   className="text-[12px] font-semibold text-clay-700 hover:text-clay-900 underline underline-offset-2"
                 >
-                  {selectedIds.size === (member.documents?.length || 0) ? 'Clear all' : `Select all ${member.documents?.length || 0}`}
+                  {selectedDocs.length === visibleDocs.length ? 'Clear all' : `Select all ${visibleDocs.length}`}
                 </button>
               </div>
               <div className="flex items-center gap-2">
@@ -562,7 +630,7 @@ export default function MemberDocuments({
             </div>
           )}
 
-          {(!member.documents || member.documents.length === 0) ? (
+          {allDocs.length === 0 ? (
             <div className="text-center py-16 px-4 rounded-2xl border border-dashed border-cream-300 bg-clay-50">
               <div className="w-12 h-12 bg-clay-100 text-clay-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
                 <FileImage className="w-6 h-6" />
@@ -572,9 +640,28 @@ export default function MemberDocuments({
                 Upload a scan, photo, or certificate to organise {member.name}'s records.
               </p>
             </div>
+          ) : visibleDocs.length === 0 ? (
+            /* Never hide documents silently: say which filter is on and how
+               many documents it is holding back. */
+            <div className="text-center py-16 px-4 rounded-2xl border border-dashed border-cream-300 bg-cream-50">
+              <div className="w-12 h-12 bg-cream-200 text-ink-500 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <FileImage className="w-6 h-6" />
+              </div>
+              <p className="text-[13px] font-semibold text-ink-900">Nothing filed under “{archiveFilter}”</p>
+              <p className="text-[13px] text-ink-500 mt-1">
+                {hiddenCount} other {hiddenCount === 1 ? 'document is' : 'documents are'} hidden by this filter.
+              </p>
+              <button
+                type="button"
+                onClick={() => setArchiveFilter('All')}
+                className="btn-quiet text-xs px-3 py-1.5 mt-3 mx-auto"
+              >
+                Show all {allDocs.length}
+              </button>
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {member.documents.map((doc) => {
+              {visibleDocs.map((doc) => {
                 const isSelected = selectedIds.has(doc.id);
                 return (
                 <div
@@ -657,7 +744,10 @@ export default function MemberDocuments({
                       <button
                         type="button"
                         onClick={() => {
-                          if (window.confirm(`Delete "${doc.name}"? This permanently removes the document. This can't be undone.`)) {
+                          // Honest copy: this really does remove it everywhere
+                          // now — the profile, the shared Document Vault and
+                          // the stored file itself (see deleteDocumentEverywhere).
+                          if (window.confirm(`Delete "${doc.name}" everywhere? This permanently removes it from ${member.name}'s profile and from the shared Document Vault. This can't be undone.`)) {
                             onDeleteDocument(member.id, doc.id);
                           }
                         }}
