@@ -427,6 +427,34 @@ export async function deleteTravelPhoto(storagePath: string): Promise<void> {
   }
 }
 
+// --- Birthday photos (growing-up timelapse): image bytes in Storage, only the
+// download URL + metadata on the member record. Modeled on uploadVaultFile so it
+// shares the same families/{FAMILY_ID}/… path convention and 20MB rules cap. ---
+export async function uploadBirthdayPhoto(
+  dataUrl: string,
+  memberId: string,
+  year: number,
+): Promise<{ url: string; storagePath: string }> {
+  // Turn the compressed base64 data URL into a Blob for a compact binary upload.
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const rand = Math.random().toString(36).slice(2, 8);
+  const storagePath = `families/${FAMILY_ID}/birthday-photos/${memberId}/${year}-${rand}.jpg`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
+  const url = await getDownloadURL(r);
+  return { url, storagePath };
+}
+
+export async function deleteBirthdayPhoto(storagePath: string): Promise<void> {
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (e) {
+    // Best-effort: a missing/denied object must not block removing the metadata.
+    console.error('Birthday photo delete failed (metadata will still be removed):', e);
+  }
+}
+
 export const saveDocuments = (docs: VaultDocument[]) => saveReferenceDoc('documents', { docs }, 'family_documents');
 export async function loadDocuments(): Promise<VaultDocument[]> {
   const data = await loadReferenceDoc<{ docs: VaultDocument[] }>('documents', 'family_documents');

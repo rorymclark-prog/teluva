@@ -50,6 +50,20 @@ export interface GrowthLog {
   notes?: string;
 }
 
+// --- Yearly birthday photo (growing-up timelapse) ---
+// One tagged photo per member per calendar year. The actual image bytes live in
+// Firebase Storage (families/{FAMILY_ID}/birthday-photos/…) so the member record
+// stays small even after many years; only the download URL + light metadata are
+// stored here. In demo mode `url` is a base64 data URL (no Storage round-trip).
+export interface BirthdayPhoto {
+  id: string;
+  year: number;        // calendar year this photo represents (one per member per year)
+  url: string;         // Storage download URL (or a base64 data URL in demo mode)
+  storagePath?: string; // Storage object path, for deletion (absent in demo)
+  ageYears?: number;   // age at capture, derived from birthdate (display only)
+  addedAt: string;     // ISO timestamp
+}
+
 export interface DigitalAccount {
   id: string;
   serviceName: string;
@@ -151,6 +165,7 @@ export interface FamilyMember {
   favorites?: FavoriteItem[];
   careSchedule?: CareSchedule[];    // recurring health/admin appointments (dentist, yearly check-up …)
   sayings?: Saying[];               // keepsake: funny/wise things they said, age derived from birthdate
+  birthdayPhotos?: BirthdayPhoto[]; // one photo per year → growing-up timelapse
 }
 
 // A quote a family member said — captured with the date so their AGE at the time

@@ -17,7 +17,7 @@ interface Props {
 // (birthday, growth, care check-ups) that a business-space team member's
 // profile already hides in the tab strip. Kept as a local constant rather
 // than importing from Dashboard.tsx to avoid a circular import.
-const HIDDEN_TABS_IN_BUSINESS = new Set(['care', 'sizes', 'favorites', 'growth', 'sayings']);
+const HIDDEN_TABS_IN_BUSINESS = new Set(['care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse']);
 
 const TONE_STYLE: Record<Tone, string> = {
   urgent: 'bg-rosa-100 text-rosa-700',
