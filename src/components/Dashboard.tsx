@@ -88,13 +88,14 @@ import MemberCalendarDates from './MemberCalendarDates';
 import { sunSign, isSameLocalDay } from '../utils/astrology';
 import RecipeBook from './RecipeBook';
 import InMemoryView from './InMemoryView';
+import MemberCV from './MemberCV';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
-  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2
+  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -119,7 +120,7 @@ export function calculateAge(birthdate?: string): string | null {
   return `${age} yrs`;
 }
 
-type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings';
+type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv';
 type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -136,10 +137,14 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'sayings', label: 'Sayings', icon: Quote },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'secrets', label: 'Secrets', icon: Key },
+  { id: 'cv', label: 'CV', icon: Briefcase },
 ];
 
 // Kid/family-specific tabs that make no sense for an employee in a business space.
 const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse'];
+// Mirror image: tabs that only make sense for an employee in a business space
+// (a CV/résumé — career history, qualifications) have no family equivalent.
+const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
 // Same idea, one level up — top-level nav sections that are family-only (the
 // keepsake dictionary, the family memory timeline, a personal shopping list —
 // no small-business equivalent researched). Insurance/Vehicles/Household/
@@ -1381,7 +1386,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                         </div>
 
                         <div className="flex flex-wrap gap-1 bg-cream-200 p-1 rounded-2xl w-fit self-start md:self-auto select-none">
-                          {TABS.filter(tab => (tab.id !== 'growth' || selectedMember.role === 'Child') && !(isBusinessSpace && HIDDEN_IN_BUSINESS.includes(tab.id))).map(tab => (
+                          {TABS.filter(tab => (tab.id !== 'growth' || selectedMember.role === 'Child') && !(isBusinessSpace && HIDDEN_IN_BUSINESS.includes(tab.id)) && !(!isBusinessSpace && HIDDEN_IN_FAMILY.includes(tab.id))).map(tab => (
                             <button
                               key={tab.id}
                               type="button"
@@ -1460,6 +1465,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               )}
                               {activeTab === 'secrets' && (
                                 <SecureSecrets member={selectedMember} onUpdateMember={handleUpdateMember} />
+                              )}
+                              {activeTab === 'cv' && (
+                                <MemberCV
+                                  member={selectedMember}
+                                  onUpdate={handlePatchSelectedMember}
+                                  onViewDocument={handleViewDocument}
+                                  canEdit={demo || canWrite}
+                                />
                               )}
                             </>
                           </motion.div>
