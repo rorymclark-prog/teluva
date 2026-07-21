@@ -529,17 +529,17 @@ export async function loadRecipes(): Promise<Recipe[]> {
 // Recipe photo (the original card/page): uploaded to Firebase Storage rather
 // than embedded as base64, so a growing recipe collection never risks the
 // 1MiB Firestore document cap the way a base64-per-recipe doc would.
+// Takes EITHER a base64 data: URL (fresh attachment) or an https Storage
+// download URL (a chat attachment that was already uploaded on send, which is
+// what an Apply after a reload hands us). fetch() handles both; the previous
+// atob(dataUrl.split(',')[1]) decoded an https URL to an EMPTY string and
+// silently uploaded a zero-byte recipe photo.
 export async function uploadRecipePhoto(dataUrl: string): Promise<string> {
   const id = Date.now().toString() + Math.floor(Math.random() * 1000);
-  const [head, b64] = dataUrl.split(',');
-  const mime = (head.match(/data:(.*?);base64/) || [])[1] || 'image/jpeg';
-  const bin = atob(b64 || '');
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  const blob = new Blob([arr], { type: mime });
+  const blob = await (await fetch(dataUrl)).blob();
   const storagePath = `families/${FAMILY_ID}/recipe-photos/${id}.jpg`;
   const r = ref(storage, storagePath);
-  await uploadBytes(r, blob, { contentType: mime });
+  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
   return await getDownloadURL(r);
 }
 
@@ -1038,4 +1038,23 @@ export async function savePassword(entry: PasswordEntry): Promise<void> {
 
 export async function deletePassword(id: string): Promise<void> {
   await deleteDoc(doc(db, 'families', FAMILY_ID, 'passwords', id));
+}
+
+// Same upload as uploadChatAttachment above, but ALSO returns the storage path.
+// Filing a scanned document used to depend on the chat message still holding a
+// usable image at Apply time — a chain (optimistic render -> upload -> setMessages
+// patch -> localStorage -> Firestore -> reload -> 50-message truncation) where any
+// broken link lost the ability to file at all. The path lets the caller stamp a
+// permanent Storage reference onto the document EDIT itself, so Apply needs
+// nothing from chat history. Kept as a separate export rather than changing
+// uploadChatAttachment's return type, so existing callers are untouched.
+export async function uploadChatAttachmentWithPath(
+  dataUrl: string, mimeType: string, uid: string,
+): Promise<{ url: string; storagePath: string }> {
+  const blob = await (await fetch(dataUrl)).blob();
+  const storagePath = `families/${FAMILY_ID}/chat-attachments/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: mimeType || blob.type || 'application/octet-stream' });
+  const url = await getDownloadURL(r);
+  return { url, storagePath };
 }
