@@ -1,6 +1,10 @@
 {
-  "label": "v114",
+  "label": "v115",
   "changes": [
-    "Fixed: an open profile could silently snap back to the first family member (undoing the collapsed list) after the app refreshed your sign-in in the background"
+    "New: Family Recipe Book — snap a photo of a recipe card (or dictate it in chat) and it's filed automatically, or add one by hand",
+    "New: Travel Timeline — add a travel photo and it auto-detects the country from the photo's location and builds a trip timeline",
+    "New: Birthday Timelapse — add one photo per birthday and watch a growing-up video, built right in your browser",
+    "New: tap the calendar icon on a profile to see that person's own upcoming dates (passport expiry, check-ups, and more) in one list",
+    "Creating a business now offers to pre-fill the name and details it can find from your existing chat, instead of a blank form"
   ]
 }
