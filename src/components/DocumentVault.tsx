@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { VaultDocument, VaultCategory, FamilyMember, FamilyDocument } from '../types';
-import { loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, uploadVaultPhoto } from '../utils/db';
+import { loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, uploadVaultPhoto, deleteDocumentEverywhere } from '../utils/db';
 import { auth } from '../lib/firebase';
 import DocumentViewer from './DocumentViewer';
 import {
@@ -550,7 +550,7 @@ function FilterBar({ active, counts, categories, onChange }: FilterBarProps) {
 /* Main component                                                       */
 /* ------------------------------------------------------------------ */
 
-export default function DocumentVault({ members, isBusinessSpace }: { members: FamilyMember[]; isBusinessSpace?: boolean }) {
+export default function DocumentVault({ members, isBusinessSpace, onMembersChange }: { members: FamilyMember[]; isBusinessSpace?: boolean; onMembersChange?: (members: FamilyMember[]) => Promise<void> | void }) {
   const [docs, setDocs] = useState<VaultDocument[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -606,19 +606,24 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
     setShowUpload(false);
   };
 
+  // Deletes the vault row, the Storage file AND any copy of the same document
+  // filed on a family member's profile — the two stores used to be cleaned up
+  // independently, which left the other one holding a ghost of a document the
+  // user was sure they had deleted. deleteDocumentEverywhere() is the single
+  // shared implementation (MemberDocuments' delete goes through it too).
   const handleDelete = async (doc: VaultDocument) => {
     const confirmed = window.confirm(
-      `Remove "${doc.name}" from the vault? The file will be permanently deleted.`
+      `Remove "${doc.name}" everywhere? This permanently deletes the file from the vault and from any family member's profile it was filed on. This can't be undone.`
     );
     if (!confirmed) return;
     setDeletingId(doc.id);
-    try {
-      await deleteVaultFile(doc.storagePath);
-    } catch (e) {
-      console.error('File delete failed (removing metadata anyway):', e);
-    }
-    const next = docs.filter(d => d.id !== doc.id);
-    await persist(next);
+    const result = await deleteDocumentEverywhere({ vaultDoc: doc, members });
+    if (result.membersChanged) await onMembersChange?.(result.members);
+    if (result.notes.length) console.warn('Document delete:', result.notes.join(' '));
+    // deleteDocumentEverywhere has already written the trimmed vault list to
+    // Firestore; this only brings THIS view's local copy in line with it.
+    setDocs(docs.filter(d => d.id !== doc.id));
+    setCloudSynced(!result.vaultSaveFailed);
     setDeletingId(null);
   };
 

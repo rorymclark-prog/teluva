@@ -18,6 +18,7 @@ import {
   loadFamilyWords, saveFamilyWords,
   loadWillsEstate, saveWillsEstate,
   loadSlips, saveSlips,
+  deleteDocumentEverywhere,
 } from '../utils/db';
 import {
   applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
@@ -802,8 +803,20 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     await persistChanges(membersRef.current.map(m => (m.id === memberId ? { ...m, documents: [...(m.documents || []), docToAdd] } : m)));
   };
 
+  // Deleting from a profile must ALSO clear the shared vault copy and the file
+  // in Storage. It used to only filter member.documents, so the vault kept a
+  // ghost — and the AI's duplicate check reads the vault, so re-uploading a
+  // fresh scan of the same document was refused as a duplicate of something
+  // the user had already deleted. deleteDocumentEverywhere() owns that logic
+  // for BOTH delete screens so the two stores can't drift apart again.
   const handleDeleteDocument = async (memberId: string, docId: string) => {
-    await persistChanges(members.map(m => (m.id === memberId ? { ...m, documents: m.documents.filter(d => d.id !== docId) } : m)));
+    const current = membersRef.current;
+    const memberDoc = current.find(m => m.id === memberId)?.documents?.find(d => d.id === docId);
+    if (!memberDoc) return;
+    const result = await deleteDocumentEverywhere({ memberDoc, memberId, members: current });
+    await persistChanges(result.members);
+    if (result.notes.length) console.warn('Document delete:', result.notes.join(' '));
+    if (result.vaultSaveFailed) showToast("Deleted here, but the shared vault couldn't be updated. Check your connection.");
   };
 
   const handleUpdateMember = async (updatedMember: FamilyMember) => {
@@ -1158,7 +1171,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         )}
 
         {mainView === 'vault' && (
-          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} />
+          // onMembersChange lets a vault delete also strip the per-member copy
+          // of the same document — the vault component has no other way to
+          // persist member records (Dashboard owns that write).
+          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} onMembersChange={persistChanges} />
         )}
 
         {mainView === 'shopping' && (
