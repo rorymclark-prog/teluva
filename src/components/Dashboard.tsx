@@ -65,7 +65,7 @@ import MemberSayings from './MemberSayings';
 import FamilyWordsView from './FamilyWordsView';
 import VehiclesView from './VehiclesView';
 import SpaceSwitcher from './SpaceSwitcher';
-import { switchSpace, createSpace, renameSpace } from '../utils/db';
+import { switchSpace, createSpace, renameSpace, NewBusinessExtra } from '../utils/db';
 import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
@@ -235,8 +235,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     await switchSpace(spaceId);
     window.location.reload();
   };
-  const handleCreateSpace = async (name: string) => {
-    await createSpace(name, 'business');
+  const handleCreateSpace = async (name: string, extra?: NewBusinessExtra) => {
+    await createSpace(name, 'business', extra);
 
     // Seed the new business with a profile for its creator — otherwise they
     // land on a blank "Add Team Member" prompt for themselves, the obvious

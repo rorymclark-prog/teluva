@@ -472,7 +472,13 @@ export async function createFamily(familyName: string): Promise<string> {
  * a different `type`, so every existing view (Vehicles, Documents, Insurance,
  * Passwords, members-as-team) works inside it unmodified.
  */
-export async function createSpace(name: string, type: 'business' | 'personal' = 'business'): Promise<string> {
+export interface NewBusinessExtra {
+  address?: string;
+  registrationNumber?: string;
+  industry?: string;
+}
+
+export async function createSpace(name: string, type: 'business' | 'personal' = 'business', extra?: NewBusinessExtra): Promise<string> {
   const user = auth.currentUser;
   if (!user) throw new Error('Must be signed in to create a space');
 
@@ -480,7 +486,7 @@ export async function createSpace(name: string, type: 'business' | 'personal' = 
   const res = await fetch('/api/create-space', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ name: name.trim(), type }),
+    body: JSON.stringify({ name: name.trim(), type, ...extra }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Could not create the space. Please try again.');
@@ -488,6 +494,31 @@ export async function createSpace(name: string, type: 'business' | 'personal' = 
   await user.getIdToken(true); // pick up the new familyId custom claim for Storage
   setFamilyId(data.spaceId);
   return data.spaceId;
+}
+
+// Best-effort prefill for the "create a business" form: asks the server to
+// scan the caller's CURRENT space (chat history + family-member records) for
+// an explicitly-mentioned business name/address/registration-or-VAT number/
+// industry. Deliberately NEVER throws — every caller treats this as pure
+// enhancement, so any failure (signed out, network, rate-limited, AI not
+// configured, nothing found) just means "no suggestion", not an error the
+// create-business flow has to handle.
+export async function suggestBusinessInfo(): Promise<NewBusinessExtra & { name?: string }> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return {};
+    const token = await user.getIdToken();
+    const res = await fetch('/api/suggest-business-info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) return {};
+    const data = await res.json().catch(() => ({}));
+    return (data && typeof data.suggestion === 'object' && data.suggestion) || {};
+  } catch {
+    return {};
+  }
 }
 
 // --- Babysitter / carer share links ---

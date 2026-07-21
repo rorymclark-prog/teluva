@@ -630,6 +630,12 @@ export interface FamilyInfoDoc {
   createdAt: string;
   adminUid: string;
   type?: SpaceType; // undefined = 'family' (back-compat default)
+  // Business-only — undefined for family/personal spaces. Captured at
+  // creation time (optionally AI-suggested from the creator's other space,
+  // see suggestBusinessInfo in db.ts) with no dedicated edit UI yet.
+  address?: string;
+  registrationNumber?: string;
+  industry?: string;
 }
 
 export interface FamilyMemberRole {

@@ -666,6 +666,99 @@ app.post('/api/astrology-blurb', async (req, res) => {
   }
 });
 
+// Best-effort prefill for the "Create a business" form. Reads the CALLER'S
+// CURRENT space (the endpoint runs before the new space exists, so there's
+// nothing else to read from yet) — recent chat messages plus a handful of
+// family-member records that sometimes carry a workplace address — and asks
+// Gemini to pull out any business name/address/registration-or-VAT number/
+// industry that was EXPLICITLY mentioned. This must never make manual
+// business creation worse: any AI-side failure (not configured, empty or
+// malformed model output, an exception) degrades to 200 with an empty
+// suggestion rather than a blocking error, and the model is instructed to
+// never invent a value. Auth/consent guard failures still return their normal
+// status codes, same as every other AI endpoint — the CLIENT (suggestBusinessInfo
+// in db.ts) is what swallows those into a silent empty result.
+const SUGGEST_BUSINESS_INFO_SYSTEM = `You help prefill a "create a business" form by finding facts the user ALREADY mentioned elsewhere in a family/records app. You will be given recent chat messages and some family-member records from the user's OTHER (currently active) space.
+
+Extract ONLY these fields, and ONLY when explicitly and unambiguously stated in the material given:
+- name: a business/company name
+- address: a business/registered address (NOT a person's home address, unless it is clearly also described as the business address)
+- registrationNumber: a company registration number, VAT number, or tax/business ID
+- industry: a short industry/business type (e.g. "Care work", "Retail", "Consulting") — only if stated or extremely obvious from an explicit business description, never guessed from a single person's job title alone
+
+Rules:
+- NEVER invent, guess, or infer from weak signals. If a field is not clearly and explicitly present, leave it as an empty string "".
+- Do not use a family member's personal home address, personal phone/email, or personal job title as a substitute for a business field.
+- Output ONLY valid JSON, no markdown: {"name":"","address":"","registrationNumber":"","industry":""}`;
+
+app.post('/api/suggest-business-info', async (req, res) => {
+  try {
+    if (!AI_READY) return res.json({ suggestion: {} });
+
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
+
+    const sourceParts = [];
+
+    try {
+      const chatSnap = await adminDb.doc(`families/${caller.familyId}/chat/${caller.uid}`).get();
+      const messages = chatSnap.exists && Array.isArray(chatSnap.data().messages) ? chatSnap.data().messages : [];
+      const recent = messages.slice(-40)
+        .filter((m) => m && typeof m.text === 'string' && m.text.trim())
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text.trim().slice(0, 1000)}`);
+      if (recent.length) sourceParts.push(`RECENT CHAT MESSAGES:\n${recent.join('\n')}`);
+    } catch (e) {
+      console.error('[suggest-business-info] chat read failed', e);
+    }
+
+    try {
+      const membersSnap = await adminDb.collection(`families/${caller.familyId}/family_members`).limit(20).get();
+      const memberLines = membersSnap.docs
+        .map((d) => d.data())
+        .filter((m) => m && (m.employer || m.workAddress || m.jobTitle))
+        .map((m) => `- ${m.name || 'A family member'}: employer="${m.employer || ''}", workAddress="${m.workAddress || ''}", jobTitle="${m.jobTitle || ''}"`);
+      if (memberLines.length) sourceParts.push(`FAMILY MEMBER RECORDS (employer/workplace fields only):\n${memberLines.join('\n')}`);
+    } catch (e) {
+      console.error('[suggest-business-info] members read failed', e);
+    }
+
+    if (!sourceParts.length) return res.json({ suggestion: {} }); // nothing to extract from — skip the AI call entirely
+
+    const gRes = await generateContent(MODEL_TEXT, {
+      systemInstruction: { parts: [{ text: SUGGEST_BUSINESS_INFO_SYSTEM }] },
+      contents: [{ role: 'user', parts: [{ text: sourceParts.join('\n\n').slice(0, 20000) }] }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
+    });
+    const gData = await gRes.json();
+    const text = (gData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
+    if (!text) {
+      console.error('[suggest-business-info] empty response:', JSON.stringify(gData).slice(0, 400));
+      return res.json({ suggestion: {} });
+    }
+
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { return res.json({ suggestion: {} }); }
+    if (!parsed || typeof parsed !== 'object') return res.json({ suggestion: {} });
+
+    const clean = (v, max) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
+    const suggestion = {
+      name: clean(parsed.name, 120),
+      address: clean(parsed.address, 300),
+      registrationNumber: clean(parsed.registrationNumber, 100),
+      industry: clean(parsed.industry, 80),
+    };
+    Object.keys(suggestion).forEach((k) => suggestion[k] === undefined && delete suggestion[k]);
+
+    res.json({ suggestion });
+  } catch (e) {
+    console.error('[suggest-business-info] error', e);
+    res.json({ suggestion: {} }); // never block manual entry
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Secrets-vault encryption (passwords / wifi / door codes). The key lives in
 // Secret Manager and only the server holds it, so the ciphertext stored in
@@ -853,10 +946,23 @@ app.post('/api/create-space', async (req, res) => {
     const type = ['business', 'personal'].includes(rawType) ? rawType : 'business';
     const name = String((req.body || {}).name || '').trim() || (type === 'business' ? 'My Business' : 'My Space');
 
+    // Optional business-only fields — either typed by the user or accepted
+    // from the "suggested from your chat" prefill (SpaceSwitcher.tsx). Only
+    // ever persisted for a 'business' space; trimmed and length-capped same
+    // as the AI suggestion endpoint's own sanitising.
+    const infoDoc = { name, type, createdAt: new Date().toISOString().slice(0, 10), adminUid: caller.uid };
+    if (type === 'business') {
+      const body = req.body || {};
+      const address = typeof body.address === 'string' ? body.address.trim().slice(0, 300) : '';
+      const registrationNumber = typeof body.registrationNumber === 'string' ? body.registrationNumber.trim().slice(0, 100) : '';
+      const industry = typeof body.industry === 'string' ? body.industry.trim().slice(0, 80) : '';
+      if (address) infoDoc.address = address;
+      if (registrationNumber) infoDoc.registrationNumber = registrationNumber;
+      if (industry) infoDoc.industry = industry;
+    }
+
     const spaceId = crypto.randomUUID();
-    await adminDb.doc(`families/${spaceId}/info/info`).set({
-      name, type, createdAt: new Date().toISOString().slice(0, 10), adminUid: caller.uid,
-    });
+    await adminDb.doc(`families/${spaceId}/info/info`).set(infoDoc);
     await grantMembership(caller.uid, caller.email, caller.displayName, spaceId, 'admin', type, name);
     res.json({ ok: true, spaceId, type });
   } catch (err) {
