@@ -665,8 +665,22 @@ export async function setFamilyMemberRole(
 
 // --- Chat history (stored on the user doc) ---
 // Keep edits + applied so an already-applied card stays "Applied" after a reload
-// or on a second device. NEVER persist image/sourceImage (base64 — bloats the doc).
-type StoredChatMessage = { role: string; text: string; edits?: unknown[]; applied?: boolean };
+// or on a second device. images/sourceImages are Storage download URLs by the
+// time this is called (AIChatbot.tsx's slimForCloud already stripped anything
+// still a raw base64 data: URL) — small strings, safe to persist. This used to
+// hard-drop them unconditionally, which silently undid that upstream fix: this
+// function's own stripped copy would load on next mount and overwrite the
+// richer localStorage copy, so a scan still didn't survive a reload in
+// practice for anyone synced through Firestore (the normal case).
+type StoredAttachment = { name: string; mimeType: string; dataUrl: string };
+type StoredChatMessage = {
+  role: string;
+  text: string;
+  edits?: unknown[];
+  applied?: boolean;
+  images?: string[];
+  sourceImages?: StoredAttachment[];
+};
 
 export async function loadChatHistory(uid: string): Promise<StoredChatMessage[]> {
   try {
@@ -685,11 +699,12 @@ export async function saveChatHistory(
   uid: string,
   messages: StoredChatMessage[],
 ): Promise<void> {
-  // Defensive: strip any heavy/base64 fields before they reach Firestore.
-  const slim = messages.slice(-50).map(({ role, text, edits, applied }) => {
+  const slim = messages.slice(-50).map(({ role, text, edits, applied, images, sourceImages }) => {
     const m: StoredChatMessage = { role, text };
     if (edits) m.edits = edits;
     if (applied) m.applied = applied;
+    if (images) m.images = images;
+    if (sourceImages) m.sourceImages = sourceImages;
     return m;
   });
   await setDoc(doc(db, 'users', uid), { chatHistory: slim }, { merge: true });
