@@ -173,7 +173,7 @@ export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace
                   <UserPlus className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-display text-xl font-semibold text-ink-900">Add Family Member</h3>
+                  <h3 className="font-display text-xl font-semibold text-ink-900">{isBusinessSpace ? 'Add Team Member' : 'Add Family Member'}</h3>
                   <p className="text-[13px] font-semibold text-ink-500">Create a profile for clothes sizes, passports, and secure files.</p>
                 </div>
               </div>

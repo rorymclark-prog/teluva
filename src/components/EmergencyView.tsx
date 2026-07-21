@@ -4,7 +4,7 @@ import { calculateAge } from './Dashboard';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import {
   Phone, Heart, AlertTriangle, Pill, Activity,
-  UserCheck, CreditCard, Leaf, Users
+  UserCheck, CreditCard, Leaf, Users, Briefcase
 } from 'lucide-react';
 
 interface EmergencyViewProps {
@@ -66,6 +66,7 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
   const hasSv = !!(identity?.svNumber);
   const hasEcard = !!(identity?.eCardNumber);
   const hasIdentity = hasSv || hasEcard;
+  const hasEmployer = !!(member.employer || member.jobTitle || member.workPhone || member.workAddress);
 
   return (
     <div className="card p-5 sm:p-6 space-y-5">
@@ -181,6 +182,33 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
         </div>
       )}
 
+      {/* ── Employer / workplace ── */}
+      {hasEmployer && (
+        <div className="p-4 rounded-2xl bg-cream-100 border border-cream-200">
+          <p className="section-label flex items-center gap-1 mb-2">
+            <Briefcase className="w-3.5 h-3.5" /> Employer / workplace
+          </p>
+          {member.employer && (
+            <p className="text-[15px] font-semibold text-ink-900">{member.employer}</p>
+          )}
+          {member.jobTitle && (
+            <p className="text-[13px] font-medium text-ink-500">{member.jobTitle}</p>
+          )}
+          {member.workPhone && (
+            <a
+              href={`tel:${member.workPhone.replace(/\s+/g, '')}`}
+              className="inline-flex items-center gap-2 mt-1 text-[15px] font-mono tabular-nums font-semibold text-sage-700 hover:underline"
+            >
+              <Phone className="w-4 h-4 shrink-0" />
+              {member.workPhone}
+            </a>
+          )}
+          {member.workAddress && (
+            <p className="text-[13px] font-medium text-ink-500 mt-1">{member.workAddress}</p>
+          )}
+        </div>
+      )}
+
       {/* ── Insurance / SV numbers ── */}
       {hasIdentity && (
         <div className="p-4 rounded-2xl bg-dusk-50 border border-dusk-100/60">
@@ -216,6 +244,7 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
         !med?.emergencyMedication &&
         med?.organDonor !== true &&
         !hasContact &&
+        !hasEmployer &&
         !hasIdentity && (
           <div className="flex flex-col items-center gap-2 text-[13px] text-ink-400 py-3 px-3 rounded-2xl bg-cream-50">
             <UserCheck className="w-4 h-4 shrink-0" />

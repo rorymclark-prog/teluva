@@ -1,7 +1,11 @@
 {
-  "label": "v110",
+  "label": "v111",
   "changes": [
-    "The scanner's viewfinder frame now actually crops the photo to what's inside it, instead of saving the whole camera view including the background",
-    "Photos and scans you send in AI chat now stay available even after the app reloads, so you can still act on them later"
+    "Fixed: AI chat conversation could carry over between your Family and Business spaces — each space now has its own separate chat",
+    "Tapping the family photo or business logo now opens it full-size instead of only opening settings",
+    "Business Document Vault now only shows business-relevant categories, not family-only ones like Education",
+    "Added employer/workplace details to a member's profile, surfaced on the Emergency card",
+    "The family/team list now collapses everyone except the person you've selected, so the list takes up less space",
+    "Creating a new business now automatically adds you as its first team member instead of showing a blank form"
   ]
 }

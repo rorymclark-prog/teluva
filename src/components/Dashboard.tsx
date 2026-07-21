@@ -36,7 +36,7 @@ import { HubSettings } from '../types';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { DEMO_MEMBERS, DEMO_EVENTS, DEMO_CONTACTS, isDemoMode } from '../utils/demoData';
-import { warmAvatarColor } from '../utils/avatarPalette';
+import { warmAvatarColor, AVATAR_COLORS } from '../utils/avatarPalette';
 import AddMemberModal from './AddMemberModal';
 import EditMemberModal from './EditMemberModal';
 import MemberSizing from './MemberSizing';
@@ -237,6 +237,27 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   };
   const handleCreateSpace = async (name: string) => {
     await createSpace(name, 'business');
+
+    // Seed the new business with a profile for its creator — otherwise they
+    // land on a blank "Add Team Member" prompt for themselves, the obvious
+    // first team member. createSpace() already switched FAMILY_ID to the new
+    // space before resolving, so this save lands in the right place.
+    const user = auth.currentUser;
+    if (user) {
+      const ownerMember: FamilyMember = {
+        id: Date.now().toString(),
+        name: user.displayName || user.email?.split('@')[0] || 'Me',
+        role: 'Owner',
+        email: user.email || undefined,
+        avatarColor: AVATAR_COLORS[0],
+        avatarUrl: user.photoURL || undefined,
+        isOnline: true,
+        clothingSizes: {},
+        documents: [],
+      };
+      await saveFamilyMembers([ownerMember]);
+    }
+
     window.location.reload();
   };
   // AI is opt-in and OFF by default. Demo mode always shows it (no real data);
@@ -413,7 +434,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   };
 
   const cardClass = (member: FamilyMember) =>
-    `w-full text-left p-3.5 rounded-2xl border transition-all flex items-center justify-between ${
+    `w-full text-left rounded-2xl border transition-all flex items-center justify-between ${
+      selectedMemberId === member.id ? 'p-3.5' : 'py-2 px-3'
+    } ${
       selectedMemberId === member.id
         ? 'border-clay-300 bg-clay-50 ring-1 ring-clay-200'
         : 'border-cream-200 bg-white hover:bg-cream-100 hover:border-cream-300'
@@ -421,80 +444,108 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
   // Inner content of a family-list card. `grip` (when provided) is the drag
   // handle node — only it starts a drag, so tapping/scrolling the card is safe.
-  const memberCardInner = (member: FamilyMember, grip?: React.ReactNode) => (
-    <>
-      <div className="flex items-center gap-2 min-w-0">
-        {grip}
-        {member.avatarUrl ? (
-          <div className="avatar-ring shrink-0">
-            <div
-              onClick={(e) => { e.stopPropagation(); setLightboxImage(member.avatarUrl!); }}
-              onPointerDownCapture={(e) => e.stopPropagation()}
-              className="w-14 h-14 rounded-full overflow-hidden cursor-zoom-in"
-              title="View photo"
-            >
-              <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
-            </div>
-          </div>
-        ) : (
-          <div className="avatar-ring shrink-0">
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-lg text-white uppercase ${warmAvatarColor(member.avatarColor)}`}>
-              {member.name.charAt(0).toUpperCase()}
-            </div>
-          </div>
-        )}
-        <div className="min-w-0">
-          <h4 className="text-sm font-semibold text-ink-900 truncate flex items-center gap-1.5 flex-wrap">
-            <span>{memberName(member)}</span>
-            <span className="chip bg-cream-200 text-ink-600">{member.role}</span>
-            {member.birthdate && (
-              <span className="chip bg-dusk-100 text-dusk-700 tabular-nums">{calculateAge(member.birthdate)}</span>
-            )}
-          </h4>
-          {(() => {
-            const parts: string[] = [];
-            if (member.medical?.bloodGroup) parts.push(member.medical.bloodGroup);
-            if (member.role === 'Child' && member.education?.schoolName) parts.push(member.education.schoolName);
-            if (member.medical?.allergies) parts.push(`⚠ ${member.medical.allergies}`);
-            const docCount = member.documents?.length || 0;
-            if (docCount > 0 && parts.length < 2) parts.push(`${docCount} doc${docCount !== 1 ? 's' : ''}`);
-            return parts.length > 0 ? (
-              <p className="text-[11px] text-ink-400 font-medium truncate mt-0.5 tabular-nums">{parts.join(' · ')}</p>
-            ) : null;
-          })()}
-        </div>
-      </div>
+  // Non-selected members render as a compact single row (avatar + name only);
+  // the selected member keeps the full detail rendering (chips, subtitle, delete).
+  const memberCardInner = (member: FamilyMember, grip?: React.ReactNode) => {
+    const isSelected = selectedMemberId === member.id;
 
-      {selectedMemberId === member.id && isAdmin && (
-        <div onClick={(e) => e.stopPropagation()} onPointerDownCapture={(e) => e.stopPropagation()} className="relative flex items-center shrink-0">
-          {deleteConfirmMemberId === member.id ? (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => handleDeleteMember(member.id)}
-                className="px-2.5 py-1.5 bg-rosa-500 hover:bg-rosa-700 text-white rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
-              >
-                Remove
-              </button>
-              <button
-                onClick={() => setDeleteConfirmMemberId(null)}
-                className="px-2 py-1.5 border border-cream-300 text-ink-500 rounded-lg bg-white hover:bg-cream-100 text-[11px] font-semibold cursor-pointer"
-              >
-                Keep
-              </button>
+    if (!isSelected) {
+      return (
+        <div className="flex items-center gap-2 min-w-0">
+          {grip}
+          {member.avatarUrl ? (
+            <div className="avatar-ring shrink-0">
+              <div className="w-9 h-9 rounded-full overflow-hidden">
+                <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
+              </div>
             </div>
           ) : (
-            <button
-              onClick={() => setDeleteConfirmMemberId(member.id)}
-              className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg transition-colors cursor-pointer"
-              title="Remove member"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            <div className="avatar-ring shrink-0">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs text-white uppercase ${warmAvatarColor(member.avatarColor)}`}>
+                {member.name.charAt(0).toUpperCase()}
+              </div>
+            </div>
           )}
+          <span className="text-sm font-semibold text-ink-900 truncate">{memberName(member)}</span>
         </div>
-      )}
-    </>
-  );
+      );
+    }
+
+    return (
+      <>
+        <div className="flex items-center gap-2 min-w-0">
+          {grip}
+          {member.avatarUrl ? (
+            <div className="avatar-ring shrink-0">
+              <div
+                onClick={(e) => { e.stopPropagation(); setLightboxImage(member.avatarUrl!); }}
+                onPointerDownCapture={(e) => e.stopPropagation()}
+                className="w-14 h-14 rounded-full overflow-hidden cursor-zoom-in"
+                title="View photo"
+              >
+                <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" />
+              </div>
+            </div>
+          ) : (
+            <div className="avatar-ring shrink-0">
+              <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-lg text-white uppercase ${warmAvatarColor(member.avatarColor)}`}>
+                {member.name.charAt(0).toUpperCase()}
+              </div>
+            </div>
+          )}
+          <div className="min-w-0">
+            <h4 className="text-sm font-semibold text-ink-900 truncate flex items-center gap-1.5 flex-wrap">
+              <span>{memberName(member)}</span>
+              <span className="chip bg-cream-200 text-ink-600">{member.role}</span>
+              {member.birthdate && (
+                <span className="chip bg-dusk-100 text-dusk-700 tabular-nums">{calculateAge(member.birthdate)}</span>
+              )}
+            </h4>
+            {(() => {
+              const parts: string[] = [];
+              if (member.medical?.bloodGroup) parts.push(member.medical.bloodGroup);
+              if (member.role === 'Child' && member.education?.schoolName) parts.push(member.education.schoolName);
+              if (member.medical?.allergies) parts.push(`⚠ ${member.medical.allergies}`);
+              const docCount = member.documents?.length || 0;
+              if (docCount > 0 && parts.length < 2) parts.push(`${docCount} doc${docCount !== 1 ? 's' : ''}`);
+              return parts.length > 0 ? (
+                <p className="text-[11px] text-ink-400 font-medium truncate mt-0.5 tabular-nums">{parts.join(' · ')}</p>
+              ) : null;
+            })()}
+          </div>
+        </div>
+
+        {isAdmin && (
+          <div onClick={(e) => e.stopPropagation()} onPointerDownCapture={(e) => e.stopPropagation()} className="relative flex items-center shrink-0">
+            {deleteConfirmMemberId === member.id ? (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleDeleteMember(member.id)}
+                  className="px-2.5 py-1.5 bg-rosa-500 hover:bg-rosa-700 text-white rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                >
+                  Remove
+                </button>
+                <button
+                  onClick={() => setDeleteConfirmMemberId(null)}
+                  className="px-2 py-1.5 border border-cream-300 text-ink-500 rounded-lg bg-white hover:bg-cream-100 text-[11px] font-semibold cursor-pointer"
+                >
+                  Keep
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setDeleteConfirmMemberId(member.id)}
+                className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg transition-colors cursor-pointer"
+                title="Remove member"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
+      </>
+    );
+  };
 
   const persistChanges = async (updated: FamilyMember[]) => {
     membersRef.current = updated; // keep the ref fresh NOW so a following write in
@@ -940,26 +991,36 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       {/* Header */}
       <header className="bg-cream-50/90 backdrop-blur border-b border-cream-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => !demo && setIsSettingsOpen(true)}
-            className={`flex items-center gap-3 text-left rounded-2xl -m-1 p-1 transition-colors ${demo ? '' : 'hover:bg-cream-200/60 cursor-pointer'}`}
-            title={demo ? undefined : 'Hub settings — name &amp; family photo'}
-          >
+          <div className="flex items-center gap-3">
             {settings.familyPhotoUrl ? (
-              <div className="w-9 h-9 rounded-2xl overflow-hidden shrink-0 border border-cream-300 shadow-soft">
+              <button
+                type="button"
+                onClick={() => setLightboxImage(settings.familyPhotoUrl!)}
+                className="w-9 h-9 rounded-2xl overflow-hidden shrink-0 border border-cream-300 shadow-soft cursor-zoom-in"
+                title="View family photo"
+              >
                 <img src={settings.familyPhotoUrl} alt="Family" className="w-full h-full object-cover" />
-              </div>
+              </button>
             ) : (
-              <div className="w-9 h-9 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0">
+              <button
+                type="button"
+                onClick={() => !demo && setIsSettingsOpen(true)}
+                className={`w-9 h-9 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0 transition-colors ${demo ? '' : 'hover:bg-sage-200 cursor-pointer'}`}
+                title={demo ? undefined : 'Hub settings — add a family photo'}
+              >
                 <ShieldCheck className="w-5 h-5 text-sage-600" />
-              </div>
+              </button>
             )}
-            <div>
+            <button
+              type="button"
+              onClick={() => !demo && setIsSettingsOpen(true)}
+              className={`text-left rounded-2xl -m-1 p-1 transition-colors ${demo ? '' : 'hover:bg-cream-200/60 cursor-pointer'}`}
+              title={demo ? undefined : 'Hub settings — name &amp; family photo'}
+            >
               <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight">{hubName}</h1>
               <p className="hidden sm:block text-[11px] text-ink-400 font-medium leading-tight">{isBusinessSpace ? 'Everything for the business, in one place' : 'Everything for the family, in one place'}</p>
-            </div>
-          </button>
+            </button>
+          </div>
 
           {/* Space switcher (Family / Business / Personal) — renders nothing
               until an account belongs to more than one space. Not shown in demo
@@ -1327,6 +1388,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                   onAddDocument={handleAddDocument}
                                   onDeleteDocument={handleDeleteDocument}
                                   onViewDocument={handleViewDocument}
+                                  isBusinessSpace={isBusinessSpace}
                                 />
                               )}
                               {activeTab === 'secrets' && (

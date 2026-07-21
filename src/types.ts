@@ -123,6 +123,11 @@ export interface FamilyMember {
   address?: string;
   phone?: string;
   email?: string;
+  // Employer/workplace details — useful in an emergency (who to call, where someone works).
+  employer?: string;
+  jobTitle?: string;
+  workPhone?: string;
+  workAddress?: string;
   avatarColor: string; // e.g., 'bg-blue-500'
   avatarUrl?: string;  // Base64 representation of uploaded / captured photo
   avatarOriginalUrl?: string; // Real photo kept when an AI-restyled avatar is applied, so "reset to photo" works

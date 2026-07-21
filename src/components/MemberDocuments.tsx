@@ -18,11 +18,16 @@ interface MemberDocumentsProps {
   onAddDocument: (id: string, document: FamilyDocument) => void;
   onDeleteDocument: (memberId: string, documentId: string) => void;
   onViewDocument: (doc: FamilyDocument, memberName: string) => void;
+  isBusinessSpace?: boolean;
 }
 
 const CATEGORIES: ('ID' | 'Health' | 'Education' | 'Travel' | 'Other')[] = [
   'ID', 'Health', 'Education', 'Travel', 'Other'
 ];
+
+// Family-oriented categories that don't make sense inside a Business space
+// (mirrors the HIDDEN_IN_BUSINESS pattern in Dashboard.tsx).
+const HIDDEN_IN_BUSINESS: ('ID' | 'Health' | 'Education' | 'Travel' | 'Other')[] = ['Health', 'Education'];
 
 // BUG FIX #1: uploadedAt was using new Date().toISOString().split('T')[0] which
 // produces a UTC date that can be one day behind in local timezones after midnight.
@@ -49,8 +54,10 @@ export default function MemberDocuments({
   member,
   onAddDocument,
   onDeleteDocument,
-  onViewDocument
+  onViewDocument,
+  isBusinessSpace
 }: MemberDocumentsProps) {
+  const categories = isBusinessSpace ? CATEGORIES.filter(c => !HIDDEN_IN_BUSINESS.includes(c)) : CATEGORIES;
   const [docName, setDocName] = useState('');
   const [category, setCategory] = useState<'ID' | 'Health' | 'Education' | 'Travel' | 'Other'>('ID');
   const [notes, setNotes] = useState('');
@@ -344,7 +351,7 @@ export default function MemberDocuments({
           <div>
             <label className="field-label">Category</label>
             <div className="flex flex-wrap gap-1.5">
-              {CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <button
                   key={cat}
                   type="button"

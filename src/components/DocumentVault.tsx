@@ -14,6 +14,10 @@ import PdfThumbnail from './PdfThumbnail';
 
 const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
 
+// Family-oriented categories that don't make sense inside a Business space
+// (mirrors the HIDDEN_IN_BUSINESS pattern in Dashboard.tsx).
+const HIDDEN_IN_BUSINESS: VaultCategory[] = ['Education', 'Medical'];
+
 const CATEGORY_CHIP: Record<VaultCategory, string> = {
   Identity: 'bg-dusk-100 text-dusk-700',
   Education: 'bg-sage-100 text-sage-700',
@@ -43,11 +47,12 @@ function formatBytes(bytes: number): string {
 interface UploadPanelProps {
   members: FamilyMember[];
   existingDocs: VaultDocument[];
+  categories: VaultCategory[];
   onUpload: (doc: VaultDocument, replaceId?: string) => void;
   onCancel: () => void;
 }
 
-function UploadPanel({ members, existingDocs, onUpload, onCancel }: UploadPanelProps) {
+function UploadPanel({ members, existingDocs, categories, onUpload, onCancel }: UploadPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState('');
@@ -198,7 +203,7 @@ function UploadPanel({ members, existingDocs, onUpload, onCancel }: UploadPanelP
             value={category}
             onChange={e => setCategory(e.target.value as VaultCategory)}
           >
-            {CATEGORIES.map(c => (
+            {categories.map(c => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
@@ -279,11 +284,12 @@ function UploadPanel({ members, existingDocs, onUpload, onCancel }: UploadPanelP
 interface FilterBarProps {
   active: VaultCategory | 'All';
   counts: Record<string, number>;
+  categories: VaultCategory[];
   onChange: (c: VaultCategory | 'All') => void;
 }
 
-function FilterBar({ active, counts, onChange }: FilterBarProps) {
-  const all = ['All', ...CATEGORIES] as const;
+function FilterBar({ active, counts, categories, onChange }: FilterBarProps) {
+  const all = ['All', ...categories] as const;
   return (
     <div className="flex flex-wrap gap-2">
       {all.map(cat => {
@@ -325,6 +331,9 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState<'share' | 'zip' | null>(null);
+
+  // Business spaces don't need family-oriented categories like Education/Medical.
+  const categories = isBusinessSpace ? CATEGORIES.filter(c => !HIDDEN_IN_BUSINESS.includes(c)) : CATEGORIES;
 
   useEffect(() => {
     let active = true;
@@ -542,6 +551,7 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
         <UploadPanel
           members={members}
           existingDocs={docs}
+          categories={categories}
           onUpload={handleUpload}
           onCancel={() => setShowUpload(false)}
         />
@@ -550,7 +560,7 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
       {/* Filter + search bar */}
       <div className="card p-4 sm:p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <FilterBar active={filterCat} counts={counts} onChange={setFilterCat} />
+          <FilterBar active={filterCat} counts={counts} categories={categories} onChange={setFilterCat} />
           <div className="relative w-full sm:w-60">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
             <input

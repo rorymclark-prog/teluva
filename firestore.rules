@@ -40,11 +40,18 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
       // Self-update of harmless self-owned fields only — never familyId or role.
-      // chatHistory is the user's own AI-assistant transcript (their data alone).
       // aiConsent is the user's own AI opt-in record (they own their consent).
+      // AI-assistant chat history does NOT live here — see families/{familyId}/chat/{uid}
+      // below. It used to be stored here (a single unscoped chatHistory field),
+      // which meant it was shared across every space a login belonged to
+      // (Family + any Business spaces) instead of being scoped per space —
+      // switching spaces reused the SAME transcript, leaking the previous
+      // space's conversation (and any AI edit cards referencing its members/
+      // documents) into the new one. Legacy chatHistory fields on old docs are
+      // simply orphaned now, not migrated.
       allow update: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email', 'chatHistory', 'aiConsent']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email', 'aiConsent']);
       // Admins can update the 'role' field on another member's profile
       allow update: if signedIn()
         && request.auth.uid != uid
@@ -139,6 +146,16 @@ service cloud.firestore {
       match /sharedDriveDocs/{docId} {
         allow read:  if isMemberOf(familyId);
         allow write: if canWriteIn(familyId);
+      }
+
+      // AI-assistant chat history — one doc per member (doc id == their own
+      // uid), scoped to THIS space so a Family-space conversation never
+      // leaks into a Business space (or vice versa) for a login that belongs
+      // to both. Distinct from /messages above, which is the shared family
+      // chat feature — this is each member's own private AI transcript, so
+      // only that member (not the whole family) may read or write their doc.
+      match /chat/{uid} {
+        allow read, write: if isMemberOf(familyId) && request.auth.uid == uid;
       }
     }
   }

@@ -29,6 +29,10 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [employer, setEmployer] = useState('');
+  const [jobTitle, setJobTitle] = useState('');
+  const [workPhone, setWorkPhone] = useState('');
+  const [workAddress, setWorkAddress] = useState('');
   const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
   const [isOnline, setIsOnline] = useState(false);
 
@@ -70,6 +74,10 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setAddress(member.address || '');
       setPhone(member.phone || '');
       setEmail(member.email || '');
+      setEmployer(member.employer || '');
+      setJobTitle(member.jobTitle || '');
+      setWorkPhone(member.workPhone || '');
+      setWorkAddress(member.workAddress || '');
       setSelectedColor(warmAvatarColor(member.avatarColor));
       setIsOnline(member.isOnline ?? false);
       if (member.avatarUrl) {
@@ -192,6 +200,10 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       address: address.trim() || undefined,
       phone: phone.trim() || undefined,
       email: email.trim() || undefined,
+      employer: employer.trim() || undefined,
+      jobTitle: jobTitle.trim() || undefined,
+      workPhone: workPhone.trim() || undefined,
+      workAddress: workAddress.trim() || undefined,
       avatarColor: selectedColor,
       avatarUrl: finalAvatarUrl,
       isOnline
@@ -376,6 +388,53 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                     placeholder="name@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    className="field"
+                  />
+                </div>
+              </div>
+
+              {/* Employer / workplace — useful in an emergency (who to call, where someone works). */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="field-label">Employer</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Acme GmbH"
+                    value={employer}
+                    onChange={(e) => setEmployer(e.target.value)}
+                    className="field"
+                  />
+                </div>
+                <div>
+                  <label className="field-label">Job title</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Software Engineer"
+                    value={jobTitle}
+                    onChange={(e) => setJobTitle(e.target.value)}
+                    className="field"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="field-label">Work phone</label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. +43 1 2345678"
+                    value={workPhone}
+                    onChange={(e) => setWorkPhone(e.target.value)}
+                    className="field"
+                  />
+                </div>
+                <div>
+                  <label className="field-label">Work address</label>
+                  <input
+                    type="text"
+                    placeholder="Street, city, postcode"
+                    value={workAddress}
+                    onChange={(e) => setWorkAddress(e.target.value)}
                     className="field"
                   />
                 </div>

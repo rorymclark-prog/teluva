@@ -663,15 +663,21 @@ export async function setFamilyMemberRole(
   await batch.commit();
 }
 
-// --- Chat history (stored on the user doc) ---
+// --- Chat history (stored per-space: families/{FAMILY_ID}/chat/{uid}) ---
+// Scoped by FAMILY_ID — same convention as every other per-space collection
+// above — so a login's AI conversation in the Family space and in any
+// Business space(s) it also belongs to (Business Hub) never mix. This used
+// to live at users/{uid}.chatHistory, the one data domain that broke the
+// families/{FAMILY_ID}/... scoping pattern: because it was keyed only by
+// uid, switching the active space (a full page reload) re-hydrated the SAME
+// transcript regardless of which space was now active, leaking a previous
+// space's conversation — including AI edit cards referencing that space's
+// own members/documents — verbatim into the new one. Old unscoped data at
+// users/{uid}.chatHistory is deliberately left orphaned, not migrated.
 // Keep edits + applied so an already-applied card stays "Applied" after a reload
 // or on a second device. images/sourceImages are Storage download URLs by the
 // time this is called (AIChatbot.tsx's slimForCloud already stripped anything
-// still a raw base64 data: URL) — small strings, safe to persist. This used to
-// hard-drop them unconditionally, which silently undid that upstream fix: this
-// function's own stripped copy would load on next mount and overwrite the
-// richer localStorage copy, so a scan still didn't survive a reload in
-// practice for anyone synced through Firestore (the normal case).
+// still a raw base64 data: URL) — small strings, safe to persist.
 type StoredAttachment = { name: string; mimeType: string; dataUrl: string };
 type StoredChatMessage = {
   role: string;
@@ -684,9 +690,9 @@ type StoredChatMessage = {
 
 export async function loadChatHistory(uid: string): Promise<StoredChatMessage[]> {
   try {
-    const snap = await getDoc(doc(db, 'users', uid));
+    const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'chat', uid));
     if (snap.exists()) {
-      return (snap.data().chatHistory as StoredChatMessage[]) || [];
+      return (snap.data().messages as StoredChatMessage[]) || [];
     }
     return [];
   } catch (error) {
@@ -707,7 +713,7 @@ export async function saveChatHistory(
     if (sourceImages) m.sourceImages = sourceImages;
     return m;
   });
-  await setDoc(doc(db, 'users', uid), { chatHistory: slim }, { merge: true });
+  await setDoc(doc(db, 'families', FAMILY_ID, 'chat', uid), { messages: slim }, { merge: true });
 }
 
 // ── Assets ──

@@ -23,7 +23,13 @@ const SR: any = (typeof window !== 'undefined')
   ? ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
   : undefined;
 
-const CHAT_KEY = 'assistant_chat_v1';
+// Space-scoped localStorage key — same reasoning as membersKey()/calendarKey()/
+// infoKey() in utils/db.ts: a fixed key is shared by every space a browser has
+// ever viewed, so a Business Hub login switching spaces (Family <-> Business)
+// would re-hydrate the PREVIOUS space's cached conversation — including AI
+// edit cards referencing that space's own members/documents — into the new
+// one. 'none' is the bucket used while familyId hasn't resolved yet.
+const chatKey = (familyId: string | null) => `assistant_chat_v1_${familyId || 'none'}`;
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
 export type AiEdit =
@@ -64,7 +70,7 @@ interface ChatMessage {
   edits?: AiEdit[];
   applied?: boolean;
   image?: string;             // legacy single dataUrl preview — kept for messages persisted before multi-attach
-  images?: string[];          // dataUrl previews on a user message (stripped from storage)
+  images?: string[];          // dataUrl previews on a user message — swapped to Storage URLs once uploaded, see send()
   sourceImage?: Attachment;   // legacy single source — kept for messages persisted before multi-attach
   sourceImages?: Attachment[]; // carried on the assistant message so 'document' edits can file the right scan
   warnings?: string[];        // client-side safety-net notices (e.g. a likely-missed passport record) — display only, never persisted server-side
@@ -152,12 +158,12 @@ function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): s
 }
 
 export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBusinessSpace, onOpenFunAvatar }: Props) {
-  const { uid } = useFamilyCtx();
+  const { uid, familyId } = useFamilyCtx();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
-      const raw = localStorage.getItem(CHAT_KEY);
+      const raw = localStorage.getItem(chatKey(familyId));
       return raw ? JSON.parse(raw) : [];
     } catch { return []; }
   });
@@ -220,7 +226,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     loadChatHistory(uid).then(history => {
       if (history.length > 0) setMessages(history);
     });
-  }, [uid]);
+  }, [uid, familyId]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -245,9 +251,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   useEffect(() => {
     try {
       const slim = slimForCloud(messages.slice(-60));
-      localStorage.setItem(CHAT_KEY, JSON.stringify(slim));
+      localStorage.setItem(chatKey(familyId), JSON.stringify(slim));
     } catch { /* ignore */ }
-  }, [messages]);
+  }, [messages, familyId]);
 
   const startNewChat = () => {
     stopStreaming();
@@ -255,7 +261,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     setError(null);
     setInput('');
     setAttachments([]);
-    try { localStorage.removeItem(CHAT_KEY); } catch { /* ignore */ }
+    try { localStorage.removeItem(chatKey(familyId)); } catch { /* ignore */ }
     if (uid) saveChatHistory(uid, []);
   };
 
