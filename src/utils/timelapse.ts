@@ -10,6 +10,8 @@
 // than a crossfade), a bounded 1280×720 output, ~1.8s per photo, and a small
 // year label overlay.
 
+import fixWebmDuration from 'fix-webm-duration';
+
 export interface TimelapsePhoto {
   /** Storage download URL, or a base64 data URL. */
   url: string;
@@ -187,7 +189,16 @@ export async function buildTimelapseVideo(
     }
   };
 
-  const stream = canvas.captureStream(fps);
+  // fps=0 puts the track in "manual" mode — WE decide exactly when a frame is
+  // captured via track.requestFrame(), rather than relying on the browser's own
+  // automatic periodic sampling. The automatic (fixed-fps) mode has proven
+  // unreliable for a detached, off-DOM canvas in some environments — it can
+  // silently produce a recording whose own internal duration comes out as ~1ms
+  // even after several real seconds of drawing, because frame capture ends up
+  // tied to actual compositor/vsync activity rather than real elapsed time.
+  // Explicit requestFrame() calls sidestep that entirely.
+  const stream = canvas.captureStream(0);
+  const track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
   let recorder: MediaRecorder;
   try {
     recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2_500_000 });
@@ -225,8 +236,9 @@ export async function buildTimelapseVideo(
     };
 
     // Paint the first frame before recording starts so frame 0 is never blank,
-    // then let captureStream(fps) sample the canvas over real (wall-clock) time.
+    // then explicitly push it into the manual-mode track before anything else.
     drawFrame(0);
+    track.requestFrame();
     try {
       recorder.start();
     } catch (e) {
@@ -239,11 +251,13 @@ export async function buildTimelapseVideo(
       const elapsed = performance.now() - startTime;
       if (elapsed >= totalMs) {
         drawFrame(ordered.length - 1); // ensure the last frame is the final paint
+        track.requestFrame();
         finish();
         return;
       }
       const index = Math.min(ordered.length - 1, Math.floor(elapsed / msPerPhoto));
       drawFrame(index);
+      track.requestFrame();
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
@@ -252,10 +266,21 @@ export async function buildTimelapseVideo(
     setTimeout(finish, totalMs + 5000);
   });
 
-  const blob = new Blob(chunks, { type: mimeType });
-  if (blob.size === 0) {
+  const rawBlob = new Blob(chunks, { type: mimeType });
+  if (rawBlob.size === 0) {
     throw new Error("The video came out empty. Please try again.");
   }
+
+  // MediaRecorder + canvas.captureStream() writes WebM files with no duration
+  // in the container header (a well-known Chrome limitation) — without this,
+  // the <video> element treats playback as ending almost instantly and the
+  // seek bar never works, even though every frame's pixel data is genuinely
+  // there. Patches the missing EBML duration element into the blob in place;
+  // a no-op (returns the blob unchanged) for mp4 output or if duration is
+  // already present, so this is safe to always call.
+  const blob = mimeType.includes('webm')
+    ? await fixWebmDuration(rawBlob, totalMs, { logger: false })
+    : rawBlob;
 
   return { blob, mimeType, durationMs: totalMs, width, height };
 }
