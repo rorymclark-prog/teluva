@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { AVATAR_COLORS } from './avatarPalette';
 
@@ -437,4 +437,31 @@ export function applyFamilyWordsEdits(words: FamilyWord[], edits: AiEdit[]): Fam
     });
   }
   return [...words, ...added];
+}
+
+// Wills & estate — capture ONLY what the user states (which document, whose,
+// where the signed original is, who to call, when last reviewed). Never the
+// document's legal content; see server.js's system prompt for that boundary.
+export const hasEstateEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'estate_record');
+
+export function applyEstateEdits(records: EstateRecord[], edits: AiEdit[]): EstateRecord[] {
+  const added: EstateRecord[] = [];
+  for (const e of edits) {
+    if (e.kind !== 'estate_record') continue;
+    const docKind = (e.docKind || '').trim();
+    if (!docKind) continue;
+    added.push({
+      id: newId(),
+      kind: docKind,
+      forMember: e.forMember?.trim() || undefined,
+      originalLocation: e.originalLocation?.trim() || undefined,
+      heldBy: e.heldBy?.trim() || undefined,
+      notaryName: e.notaryName?.trim() || undefined,
+      notaryPhone: e.notaryPhone?.trim() || undefined,
+      executor: e.executor?.trim() || undefined,
+      lastReviewed: (e.lastReviewed && /^\d{4}-\d{2}-\d{2}$/.test(e.lastReviewed)) ? e.lastReviewed : undefined,
+      notes: e.notes?.trim() || undefined,
+    });
+  }
+  return [...records, ...added];
 }

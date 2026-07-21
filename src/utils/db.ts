@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -341,6 +341,10 @@ export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', '
 // Family Dictionary (invented/mangled words the family adopted) — family-level.
 export const saveFamilyWords = (w: FamilyWordsDoc) => saveReferenceDoc('familyWords', w, 'family_words');
 export const loadFamilyWords = () => loadReferenceDoc<FamilyWordsDoc>('familyWords', 'family_words');
+
+// Wills & estate — family-wide, store-and-recall only (see WillsEstateView).
+export const saveWillsEstate = (w: WillsEstateDoc) => saveReferenceDoc('willsEstate', w, 'family_wills_estate');
+export const loadWillsEstate = () => loadReferenceDoc<WillsEstateDoc>('willsEstate', 'family_wills_estate');
 
 export const saveTravelTimeline = (t: TravelTimelineDoc) => saveReferenceDoc('travelTimeline', t, 'family_travel_timeline');
 export const loadTravelTimeline = () => loadReferenceDoc<TravelTimelineDoc>('travelTimeline', 'family_travel_timeline');

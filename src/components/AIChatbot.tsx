@@ -57,7 +57,8 @@ export type AiEdit =
       qualifications?: { name: string; issuer?: string; issueDate?: string; expiryDate?: string; notes?: string }[];
       skills?: string[]; languages?: string[];
       fileDocumentId?: string; // client-only — stamped after the attached CV photo/PDF is filed; the model never supplies this
-    };
+    }
+  | { kind: 'estate_record'; docKind: string; forMember?: string; originalLocation?: string; heldBy?: string; notaryName?: string; notaryPhone?: string; executor?: string; lastReviewed?: string; notes?: string };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
@@ -1143,5 +1144,6 @@ function describeEdit(e: AiEdit): string {
     ].filter(Boolean).join(', ');
     return `${e.member}: update CV${parts ? ` — ${parts}` : ''}`;
   }
+  if (e.kind === 'estate_record') return `Save ${e.docKind}${e.forMember ? ` for ${e.forMember}` : ''}${e.originalLocation ? ` — original at ${e.originalLocation}` : ''}`;
   return JSON.stringify(e);
 }

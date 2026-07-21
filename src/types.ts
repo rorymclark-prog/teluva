@@ -871,3 +871,25 @@ export interface MemberCv {
   languages?: string[];
   fileDocumentId?: string; // points at the FamilyDocument (in member.documents) holding the filed CV file
 }
+// --- Wills & Estate (family-wide): store-and-recall only, never advice. The
+// signed ORIGINAL document is the legal instrument — a scan is just a copy —
+// so the record centres on WHERE the original physically is and WHO to call,
+// not on the document's content. Jurisdiction-neutral; the UI adds Austrian
+// (Vorsorgevollmacht / Patientenverfügung) hints without hard-coding them here.
+export type EstateDocKind = 'Will' | 'Codicil' | 'Power of attorney' | 'Advance healthcare directive' | 'Funeral wishes' | 'Other';
+
+export interface EstateRecord {
+  id: string;
+  kind: EstateDocKind | string;
+  forMember?: string;        // whose document this is (free text — may not be an app member, e.g. a grandparent)
+  originalLocation?: string; // where the signed original physically lives — the core value
+  heldBy?: string;           // named person/institution holding it (notary, bank, a named family member)
+  notaryName?: string;
+  notaryPhone?: string;
+  executor?: string;
+  lastReviewed?: string;     // YYYY-MM-DD — drives the staleness nudge
+  linkedDocIds?: string[];   // ids into the shared Document Vault (VaultDocument), category 'Legal'
+  notes?: string;
+}
+
+export interface WillsEstateDoc { records: EstateRecord[]; }

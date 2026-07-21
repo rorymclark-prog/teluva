@@ -16,6 +16,7 @@ import {
   loadRecipes, saveRecipes,
   saveAsset,
   loadFamilyWords, saveFamilyWords,
+  loadWillsEstate, saveWillsEstate,
 } from '../utils/db';
 import {
   applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
@@ -24,6 +25,7 @@ import {
   hasShoppingEdits, applyShoppingEdits, hasAssetEdits,
   hasFamilyWordsEdits, applyFamilyWordsEdits,
   hasRecipeEdits, applyRecipeEdits,
+  hasEstateEdits, applyEstateEdits,
 } from '../utils/aiApply';
 import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
@@ -89,13 +91,14 @@ import { sunSign, isSameLocalDay } from '../utils/astrology';
 import RecipeBook from './RecipeBook';
 import InMemoryView from './InMemoryView';
 import MemberCV from './MemberCV';
+import WillsEstateView from './WillsEstateView';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
-  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase
+  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -121,7 +124,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -154,7 +157,7 @@ const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
 // 'emergency' is a medical/allergy/blood-type card — no business equivalent
 // exists yet (a real workplace-incident log would be a distinct feature, not
 // a relabel of this one) so it's hidden rather than mislabeled.
-const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory'];
+const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate'];
 
 // A persisted astrology blurb older than this is treated as stale and quietly
 // regenerated next time that member's Overview is viewed — keeps the card
@@ -175,6 +178,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'vault', icon: FolderArchive },
   { id: 'assets', icon: Package },
   { id: 'recipes', icon: ChefHat },
+  { id: 'willsEstate', icon: ScrollText },
   { id: 'shopping', icon: ShoppingCart },
   { id: 'passwords', icon: KeyRound },
   { id: 'familyWords', icon: BookHeart },
@@ -198,6 +202,7 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     passwords: t.nav_passwords,
     familyWords: 'Family Words',
     inMemory: 'In Memory',
+    willsEstate: 'Wills & Estate',
   };
   return map[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 }
@@ -763,13 +768,18 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const ok = await saveRecipes(applyRecipeEdits(current, edits));
       if (!ok) failures.push('recipes');
     }
+    if (hasEstateEdits(edits)) {
+      const doc = (await loadWillsEstate()) || { records: [] };
+      const ok = await saveWillsEstate({ records: applyEstateEdits(doc.records || [], edits) });
+      if (!ok) failures.push('wills & estate');
+    }
 
     // Remount the self-loading views so an applied change shows immediately
     // (these views load their data once on mount and take no props).
     if (
       hasInfoEdits(edits) || hasHouseholdEdits(edits) || hasFinancesEdits(edits) ||
       hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
-      hasFamilyWordsEdits(edits) || hasRecipeEdits(edits)
+      hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasEstateEdits(edits)
     ) {
       setAiDataVersion(v => v + 1);
     }
@@ -1168,6 +1178,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'inMemory' && (
           demo ? <DemoUnavailable label="In Memory" /> : <InMemoryView key={aiDataVersion} />
+        )}
+
+        {mainView === 'willsEstate' && (
+          demo ? <DemoUnavailable label="Wills & estate" /> : <WillsEstateView refreshKey={aiDataVersion} members={members} />
         )}
 
         {mainView === 'passwords' && (
