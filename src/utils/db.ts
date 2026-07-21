@@ -686,6 +686,49 @@ export async function renameSpace(name: string): Promise<void> {
   if (!res.ok) throw new Error(data.error || 'Could not rename the space. Please try again.');
 }
 
+/**
+ * Read the caller's ACTIVE space's info doc (families/{id}/info/info) directly
+ * — name/type/address/registrationNumber/industry/foundingDate/milestoneNote.
+ * Distinct from loadFamilyInfo() above, which reads families/{id}/reference/info
+ * (the unrelated FamilyInfo numbers/contacts/providers doc — same "info" word,
+ * different collection). Read-only: every writer of this doc is a server
+ * endpoint (create-family/create-space/rename-space/set-founding-date/
+ * business-milestone-note) going through the Admin SDK; firestore.rules only
+ * needs to allow the read here (`allow read: if signedIn()` at info/{doc}).
+ */
+export async function loadSpaceInfo(): Promise<FamilyInfoDoc | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  try {
+    const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'info', 'info'));
+    return snap.exists() ? (snap.data() as FamilyInfoDoc) : null;
+  } catch (error) {
+    console.error('Error loading space info:', error);
+    return null;
+  }
+}
+
+/**
+ * Set the founding date on the caller's ACTIVE space (Business Milestones).
+ * Admin-only and business-only, both re-verified server-side — mirrors
+ * renameSpace's fetch/error-handling exactly.
+ */
+export async function saveFoundingDate(foundingDate: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to set a founding date');
+  const trimmed = foundingDate.trim();
+  if (!trimmed) throw new Error('Missing founding date');
+
+  const token = await user.getIdToken();
+  const res = await fetch('/api/set-founding-date', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ foundingDate: trimmed }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save the founding date. Please try again.');
+}
+
 // Ask the server to (re)stamp the familyId/familyIds custom claims, then
 // refresh the local token so Storage rules see them. No-op if it fails — AI
 // calls backfill too.

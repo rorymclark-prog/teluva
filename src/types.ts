@@ -672,6 +672,13 @@ export interface FamilyInfoDoc {
   address?: string;
   registrationNumber?: string;
   industry?: string;
+  // Business Milestones — also business-only. foundingDate is admin-settable
+  // (Business Settings); milestoneNote is server-generated (mirrors the
+  // astrology-blurb pattern) and self-persisted so it doesn't regenerate on
+  // every view. forFoundingDate lets a reader tell if it's stale after an
+  // admin changes the founding date.
+  foundingDate?: string; // YYYY-MM-DD
+  milestoneNote?: { text: string; generatedAt: string; forFoundingDate: string };
 }
 
 export interface FamilyMemberRole {

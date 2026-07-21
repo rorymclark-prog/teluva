@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe } from 'lucide-react';
+import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { loadFamilyRoles, setFamilyMemberRole, loadSettings, saveSettings } from '../utils/db';
+import { loadFamilyRoles, setFamilyMemberRole, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate } from '../utils/db';
 import { FamilyRole, FamilyMemberRole, IdCountry } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 
@@ -41,6 +41,30 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
       await saveSettings({ ...current, country: value });
     } finally {
       setCountrySaving(false);
+    }
+  };
+
+  // --- Founding date (Business Milestones) — business-only. The whole panel
+  // is already admin-gated by the parent (Dashboard renders FamilySettings
+  // for admins only), same as the Country field above needs no extra check.
+  const [foundingDate, setFoundingDate] = useState('');
+  const [foundingSaving, setFoundingSaving] = useState(false);
+  const [foundingError, setFoundingError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isBusinessSpace) return;
+    loadSpaceInfo().then((info) => { if (info?.foundingDate) setFoundingDate(info.foundingDate); });
+  }, [familyId, isBusinessSpace]);
+  const handleFoundingDateChange = async (value: string) => {
+    setFoundingDate(value);
+    setFoundingError(null);
+    if (!value) return;
+    setFoundingSaving(true);
+    try {
+      await saveFoundingDate(value);
+    } catch (err: any) {
+      setFoundingError(err?.message ?? 'Could not save the founding date');
+    } finally {
+      setFoundingSaving(false);
     }
   };
 
@@ -199,6 +223,30 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
               ))}
             </select>
           </div>
+
+          {/* Section 0b: Founding date (Business Milestones) — business-only */}
+          {isBusinessSpace && (
+            <div className="card p-5 space-y-2">
+              <h3 className="section-label flex items-center gap-2">
+                <PartyPopper size={14} />
+                Founding date
+              </h3>
+              <p className="text-[13px] text-ink-500">
+                When this business was founded or registered. Shows an anniversary reminder each year and lets the assistant add it to the calendar.
+              </p>
+              <input
+                type="date"
+                value={foundingDate}
+                onChange={(e) => handleFoundingDateChange(e.target.value)}
+                disabled={foundingSaving}
+                max={new Date().toISOString().slice(0, 10)}
+                className="field disabled:opacity-60"
+              />
+              {foundingError && (
+                <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{foundingError}</p>
+              )}
+            </div>
+          )}
 
           {/* Section 1: Invite codes */}
           <div className="card p-5 space-y-3">

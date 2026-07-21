@@ -4,7 +4,7 @@ import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
-  loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto,
+  loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto, loadSpaceInfo,
 } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
@@ -267,11 +267,15 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   };
 
   const buildContext = async () => {
-    const [info, household, finances, timeline, docs, events] = await Promise.all([
-      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(),
+    const [info, household, finances, timeline, docs, events, spaceInfo] = await Promise.all([
+      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(),
     ]);
     const documents = (docs || []).map(d => ({ name: d.name, category: d.category, memberId: d.memberId, uploadedAt: d.uploadedAt }));
-    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace };
+    // Business Milestones: only surface name+foundingDate (never address/
+    // registrationNumber/industry) and only when a founding date is actually
+    // set — keeps the AI's BUSINESS ANNIVERSARY instruction a no-op until then.
+    const spaceInfoCtx = (spaceInfo && spaceInfo.foundingDate) ? { name: spaceInfo.name, foundingDate: spaceInfo.foundingDate } : undefined;
+    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {

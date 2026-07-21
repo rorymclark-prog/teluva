@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType } from '../types';
-import { loadFamilyInfo, saveFamilyInfo } from '../utils/db';
+import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType, FamilyInfoDoc } from '../types';
+import { loadFamilyInfo, saveFamilyInfo, loadSpaceInfo } from '../utils/db';
+import { auth } from '../lib/firebase';
+import { yearsSinceFounding, ordinal } from '../utils/businessMilestone';
 import {
   Hash, Phone, Mail, Plus, Trash2, Pencil, Check, X,
-  IdCard, Users, Search, Cloud, CloudOff, Stethoscope, Star
+  IdCard, Users, Search, Cloud, CloudOff, Stethoscope, Star, PartyPopper, Dices, Loader2
 } from 'lucide-react';
 
 const EMPTY: FamilyInfo = { numbers: [], contacts: [], providers: [] };
@@ -44,6 +46,47 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
     const ok = await saveFamilyInfo(next);
     setCloudSynced(ok);
     onContactsChange?.(next.contacts);
+  };
+
+  // --- Business Milestones: founding date + AI-written anniversary note.
+  // Reads families/{id}/info/info directly (distinct doc from the FamilyInfo
+  // above). The note is generated+persisted server-side by
+  // /api/business-milestone-note (mirrors the astrology-blurb pattern) — this
+  // component only triggers it and shows the result, same as MemberOverview's
+  // "shuffle" dice button does for astrology.
+  const [spaceInfo, setSpaceInfo] = useState<FamilyInfoDoc | null>(null);
+  const [spaceInfoLoaded, setSpaceInfoLoaded] = useState(false);
+  const [noteLoading, setNoteLoading] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!isBusinessSpace) { setSpaceInfo(null); setSpaceInfoLoaded(false); return; }
+    setSpaceInfoLoaded(false);
+    loadSpaceInfo().then((s) => { if (active) { setSpaceInfo(s); setSpaceInfoLoaded(true); } });
+    return () => { active = false; };
+  }, [refreshKey, isBusinessSpace]);
+
+  const handleGenerateMilestoneNote = async () => {
+    setNoteLoading(true);
+    setNoteError(null);
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Please sign in first.');
+      const token = await user.getIdToken();
+      const res = await fetch('/api/business-milestone-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not generate a note right now.');
+      setSpaceInfo((prev) => (prev ? { ...prev, milestoneNote: data.note } : prev));
+    } catch (e: any) {
+      setNoteError(e?.message || 'Could not generate a note right now.');
+    } finally {
+      setNoteLoading(false);
+    }
   };
 
   const q = search.trim().toLowerCase();
@@ -95,6 +138,15 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
         </div>
       </div>
 
+      {isBusinessSpace && spaceInfoLoaded && (
+        <MilestoneSection
+          spaceInfo={spaceInfo}
+          noteLoading={noteLoading}
+          noteError={noteError}
+          onGenerateNote={handleGenerateMilestoneNote}
+        />
+      )}
+
       {!isBusinessSpace && (
         <ProvidersSection
           entries={providers}
@@ -131,6 +183,60 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
         </div>
       </div>
     </div>
+  );
+}
+
+/* ---------------- Business Milestones ---------------- */
+
+function MilestoneSection({ spaceInfo, noteLoading, noteError, onGenerateNote }: {
+  spaceInfo: FamilyInfoDoc | null;
+  noteLoading: boolean;
+  noteError: string | null;
+  onGenerateNote: () => void;
+}) {
+  const foundingDate = spaceInfo?.foundingDate;
+  const years = foundingDate ? yearsSinceFounding(foundingDate) : null;
+  // Only trust a stored note if it was generated for the CURRENT founding
+  // date — an admin can change the date, which should clear the old note
+  // from view rather than show a now-mismatched year count.
+  const note = spaceInfo?.milestoneNote?.forFoundingDate === foundingDate ? spaceInfo?.milestoneNote : undefined;
+
+  return (
+    <section className="card p-5 space-y-3">
+      <h3 className="section-label flex items-center gap-1.5"><PartyPopper className="w-3.5 h-3.5" /> Milestone</h3>
+
+      {!foundingDate ? (
+        <p className="text-[13px] text-ink-400">
+          No founding date set yet — add one in Business Settings to see your anniversary here and on the calendar.
+        </p>
+      ) : (
+        <>
+          <p className="text-[13px] text-ink-500">
+            {spaceInfo?.name || 'This business'} was founded{' '}
+            <span className="font-semibold text-ink-800">
+              {new Date(foundingDate).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+            </span>
+            {years !== null && years > 0 ? ` — coming up on its ${ordinal(years)} anniversary.` : ' — not yet a year old.'}
+          </p>
+          <div className="p-3.5 rounded-2xl border border-cream-200 bg-white space-y-2">
+            {note?.text ? (
+              <p className="text-[13.5px] text-ink-800 leading-relaxed">{note.text}</p>
+            ) : (
+              <p className="text-[13px] text-ink-400">No milestone note yet — write a short AI note for this anniversary.</p>
+            )}
+            {noteError && <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{noteError}</p>}
+            <button
+              onClick={onGenerateNote}
+              disabled={noteLoading}
+              className="btn-quiet text-xs px-3 py-1.5 disabled:opacity-50"
+            >
+              {noteLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Dices className="w-3.5 h-3.5" />}
+              {note?.text ? 'Write a new one' : 'Write a note'}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
