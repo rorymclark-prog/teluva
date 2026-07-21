@@ -499,8 +499,11 @@ export default function DocumentScannerModal({
             </div>
           ) : capturedPhoto ? (
             <div className="space-y-4">
-              <div className="relative aspect-4/3 rounded-2xl overflow-hidden bg-black border border-cream-200 shadow-inner">
-                <img src={capturedPhoto} alt="Captured document scan" className="w-full h-full object-contain" />
+              {/* No fixed aspect ratio here — scanic crops tightly to the document's own
+                  shape (e.g. a card back is much wider than tall), and forcing that into a
+                  4:3 box via object-contain just letterboxed it with black bars. */}
+              <div className="relative rounded-2xl overflow-hidden bg-black border border-cream-200 shadow-inner flex items-center justify-center">
+                <img src={capturedPhoto} alt="Captured document scan" className="max-w-full max-h-[55vh] w-auto h-auto" />
                 <div className="absolute top-3 left-3 chip bg-sage-700/80 text-sage-100 border border-sage-600/50">
                   {requireBothSides ? `${side === 'front' ? 'Front' : 'Back'} captured` : 'Captured'}
                 </div>
