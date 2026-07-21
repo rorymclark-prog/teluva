@@ -48,6 +48,7 @@ export type AiEdit =
   | { kind: 'transit_pass'; member: string; name: string; operator?: string; cardNumber?: string; zone?: string; validFrom?: string; validUntil?: string; notes?: string }
   | { kind: 'care_schedule'; member: string; careKind: string; provider?: string; lastVisit?: string; intervalMonths?: number; nextDue?: string; notes?: string }
   | { kind: 'saying'; member: string; text: string; said?: string; context?: string }
+  | { kind: 'favorite_quote'; member: string; text: string; source?: string; note?: string }
   | { kind: 'family_word'; word: string; meaning: string; coinedBy?: string; approxDate?: string };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
@@ -1082,6 +1083,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'transit_pass') return `${e.member}: add travel pass “${e.name}”${e.validUntil ? ` (valid to ${e.validUntil})` : ''}`;
   if (e.kind === 'care_schedule') return `${e.member}: add ${e.careKind}${e.intervalMonths ? ` every ${e.intervalMonths} mo` : ''}${e.lastVisit ? ` (last ${e.lastVisit})` : ''}`;
   if (e.kind === 'saying') return `${e.member}: save a saying — “${e.text}”${e.said ? ` (${e.said})` : ''}`;
+  if (e.kind === 'favorite_quote') return `${e.member}: save a favorite quote — “${e.text}”${e.source ? ` — ${e.source}` : ''}`;
   if (e.kind === 'family_word') return `Add family word: “${e.word}” — ${e.meaning}${e.coinedBy ? ` (${e.coinedBy})` : ''}`;
   return JSON.stringify(e);
 }

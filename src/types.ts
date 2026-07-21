@@ -165,6 +165,7 @@ export interface FamilyMember {
   favorites?: FavoriteItem[];
   careSchedule?: CareSchedule[];    // recurring health/admin appointments (dentist, yearly check-up …)
   sayings?: Saying[];               // keepsake: funny/wise things they said, age derived from birthdate
+  favoriteQuotes?: FavoriteQuote[]; // quotes THEY love from someone/something else — a book, song, grandparent, film — the OPPOSITE direction from sayings (their own words)
   birthdayPhotos?: BirthdayPhoto[]; // one photo per year → growing-up timelapse
 }
 
@@ -176,6 +177,18 @@ export interface Saying {
   said: string;         // ISO date (YYYY-MM-DD) it was said
   context?: string;     // what prompted it / where
   milestone?: boolean;  // star a specially treasured one
+}
+
+// A quote a family member LOVES from someone/something ELSE — a book, a song,
+// a grandparent, a film. The OPPOSITE of Saying (which is their OWN words).
+// "source" is what distinguishes it: who said/wrote it, or where it's from.
+// addedAt is bookkeeping/sort order only — it is NOT a "when said" claim.
+export interface FavoriteQuote {
+  id: string;
+  text: string;      // the quote, verbatim
+  source?: string;    // who said/wrote it, or where it's from (person, author, book, film, song)
+  note?: string;      // optional — why it matters to this person
+  addedAt: string;    // ISO date (YYYY-MM-DD) it was recorded, for sort order only
 }
 
 // A word a child invented or mangled that the family adopted ("boo-blerries").

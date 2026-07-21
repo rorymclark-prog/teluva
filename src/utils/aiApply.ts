@@ -186,6 +186,17 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
         context: e.context?.trim() || undefined,
       };
       next = next.map(m => (m.id === target.id ? { ...m, sayings: [...(m.sayings || []), rec] } : m));
+    } else if (e.kind === 'favorite_quote') {
+      const target = resolveMember(next, e.member);
+      if (!target || !e.text || !e.text.trim()) continue;
+      const rec = {
+        id: newId(),
+        text: e.text.trim(),
+        source: e.source?.trim() || undefined,
+        note: e.note?.trim() || undefined,
+        addedAt: new Date().toLocaleDateString('en-CA'),
+      };
+      next = next.map(m => (m.id === target.id ? { ...m, favoriteQuotes: [...(m.favoriteQuotes || []), rec] } : m));
     }
   }
   return next;
@@ -231,7 +242,7 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   return { numbers, contacts, providers };
 }
 
-export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying');
+export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number' || e.kind === 'provider');
 
 const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;
