@@ -588,7 +588,8 @@ export interface ContactEntry {
 // shared practice, not a per-member fact); `forMember` optionally tags an
 // entry to one person (e.g. "Mia's allergist") without needing a separate
 // per-member list.
-export type ProviderType = 'GP practice' | 'Dentist' | 'Optician' | 'Specialist' | 'Pharmacy' | 'Other';
+export type ProviderType = 'GP practice' | 'Dentist' | 'Optician' | 'Specialist' | 'Pharmacy' | 'Other' | 'Financial advisor' | 'Accountant' | 'Lawyer / Notary' | 'Insurance broker' | 'Bank contact';
+// Also used for professional/financial contacts (adviser, accountant, lawyer, insurance broker, bank contact) — same list, alongside doctors.
 
 export interface HealthcareProvider {
   id: string;
