@@ -7,10 +7,17 @@ import { computeNudges, computeVehicleNudges, Nudge, Tone } from './NeedsAttenti
 
 interface Props {
   member: FamilyMember;
+  isBusinessSpace: boolean;
   onClose: () => void;
   onGoTab: (tab: string) => void;
   onGoView?: (view: string) => void;
 }
+
+// Mirrors Dashboard.tsx's HIDDEN_IN_BUSINESS tab list — family-only concepts
+// (birthday, growth, care check-ups) that a business-space team member's
+// profile already hides in the tab strip. Kept as a local constant rather
+// than importing from Dashboard.tsx to avoid a circular import.
+const HIDDEN_TABS_IN_BUSINESS = new Set(['care', 'sizes', 'favorites', 'growth', 'sayings']);
 
 const TONE_STYLE: Record<Tone, string> = {
   urgent: 'bg-rosa-100 text-rosa-700',
@@ -54,7 +61,7 @@ function relativeLabel(days: number): string {
 // deadlines), filtered to just this one person. Zero new deadline logic: it
 // calls computeNudges/computeVehicleNudges verbatim and only keeps entries
 // that carry a real date, sorted overdue-first then soonest-upcoming.
-export default function MemberCalendarDates({ member, onClose, onGoTab, onGoView }: Props) {
+export default function MemberCalendarDates({ member, isBusinessSpace, onClose, onGoTab, onGoView }: Props) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
   useEffect(() => {
@@ -79,6 +86,7 @@ export default function MemberCalendarDates({ member, onClose, onGoTab, onGoView
 
   const items = [...computeNudges([member]), ...computeVehicleNudges(memberVehicles)]
     .filter((n): n is Nudge & { date: string; days: number } => n.date != null && n.days != null)
+    .filter((n) => !(isBusinessSpace && HIDDEN_TABS_IN_BUSINESS.has(n.tab)))
     .sort((a, b) => a.days - b.days);
 
   return (

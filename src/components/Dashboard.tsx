@@ -1500,6 +1500,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       {showMemberCalendar && selectedMember && (
         <MemberCalendarDates
           member={selectedMember}
+          isBusinessSpace={isBusinessSpace}
           onClose={() => setShowMemberCalendar(false)}
           onGoTab={(tab) => { goToMemberTab(selectedMember.id, tab); setShowMemberCalendar(false); }}
           onGoView={(view) => { setMainView(view as ViewId); setShowMemberCalendar(false); }}
