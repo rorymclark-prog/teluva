@@ -60,14 +60,17 @@ function sunSignFromBirthdate(birthdateStr) {
 const ASTROLOGY_BLURB_SYSTEM = `You are writing a short, fun "just for fun" astrology-style blurb for a family app profile page. This is entertainment only — NOT a real astrological reading, NOT a horoscope, NOT a natal chart.
 
 Hard rules:
-- Write 2 to 4 sentences. No more, no less.
+- Normally write 2 to 3 sentences. If BOTH a birth time and a place of birth are given below, write 5 to 6 sentences instead — richer and more vivid, not just longer filler.
 - Tone: warm, playful, light-hearted — like a fun fact, not a fortune teller.
 - Make it clear, briefly and not preachy, that this is just for fun and not a real reading (e.g. "just for fun" or "no crystal ball required").
 - Base the content ONLY on the sun sign given below and its well-known, family-friendly personality traits (curious, warm, stubborn, adventurous, creative, etc.).
 - Do NOT predict or mention: health, illness, death, money, finances, career success/failure, or romance/dating/marriage/relationships. This profile may belong to a child.
 - Do NOT use dark, scary, violent, or adult themes.
-- If a birth time and/or place of birth are given below, use them ONLY as light color/atmosphere in a single descriptive phrase (e.g. "born under a golden autumn evening near Durban"). NEVER claim this lets you compute a moon sign, rising sign, ascendant, or any other real astrological placement — you only know the sun sign.
-- If no birth time or place is given, write the blurb from the sun sign alone — do not invent a time, weather, season, or location.
+- If a birth time AND a place of birth are BOTH given below, spend at least half the blurb painting a vivid, specific picture of that exact moment — the light, sky, or mood of that hour (dawn, golden afternoon, starry night, etc.) in that place — tied playfully back to the sign's traits.
+- If only a birth time OR only a place is given (not both), use it as one light descriptive phrase, as before (e.g. "born under a golden autumn evening near Durban").
+- If neither is given, write the blurb from the sun sign alone — do not invent a time, weather, season, or location.
+- NEVER claim any of the above lets you compute a moon sign, rising sign, ascendant, or any other real astrological placement — you only know the sun sign.
+- Each time you write this, take a distinctly different angle and opening line than a typical/generic response for this sign — vary structure and which traits you lead with, especially versus any previous blurb given below.
 - Do not mention you are an AI, do not mention Gemini, do not break character, no disclaimers beyond the brief "just for fun" note.
 - Output plain text only — the blurb itself, no headings, no markdown, no surrounding quotation marks.`;
 
@@ -606,17 +609,28 @@ app.post('/api/astrology-blurb', async (req, res) => {
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
 
-    const { birthdate, birthTime, placeOfBirth } = req.body || {};
+    const { birthdate, birthTime, placeOfBirth, previousBlurb } = req.body || {};
     const sign = sunSignFromBirthdate(birthdate);
     if (!sign) return res.status(400).json({ error: 'A valid birthdate is required.' });
 
     const time = typeof birthTime === 'string' ? birthTime.trim().slice(0, 20) : '';
     const place = typeof placeOfBirth === 'string' ? placeOfBirth.trim().slice(0, 80) : '';
+    const previous = typeof previousBlurb === 'string' ? previousBlurb.trim().slice(0, 600) : '';
 
+    // A random angle nonce keeps even a FIRST generation from always landing on
+    // the same "default" phrasing for a sign; the previous-blurb callback below
+    // is the stronger anti-repeat signal for actual re-shuffles.
+    const ANGLES = [
+      'as a tiny scene from their day', 'as a playful fun-fact', 'as a mini pep talk',
+      'as a nature/weather metaphor', 'as something a friend would tease them about',
+    ];
     const detail = [`Sun sign: ${sign} (already computed — do not recalculate or contradict it).`];
+    if (time && place) detail.push('Both birth time and place are known — write the longer, richer 5-6 sentence version and really lean into describing that moment and place.');
     if (time) detail.push(`Birth time (flavor only — NOT for computing rising/moon signs): ${time}`);
     if (place) detail.push(`Place of birth (flavor only): ${place}`);
     if (!time && !place) detail.push('No birth time or place given — write from the sun sign alone, do not invent any details.');
+    detail.push(`For this generation, lean into this angle: ${ANGLES[Math.floor(Math.random() * ANGLES.length)]}.`);
+    if (previous) detail.push(`Previous blurb shown to this user (do NOT repeat it or lightly reword it — take a clearly different angle, opening line, and which traits you highlight): "${previous}"`);
 
     console.log('[astrology-blurb]', sign, 'for', caller.email);
 
@@ -625,7 +639,7 @@ app.post('/api/astrology-blurb', async (req, res) => {
       const gRes = await generateContent(MODEL_TEXT, {
         systemInstruction: { parts: [{ text: ASTROLOGY_BLURB_SYSTEM }] },
         contents: [{ role: 'user', parts: [{ text: detail.join('\n') }] }],
-        generationConfig: { temperature: 0.6 },
+        generationConfig: { temperature: 1.0 },
       });
       const gData = await gRes.json();
       const candidate = (gData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;

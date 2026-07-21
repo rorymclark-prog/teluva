@@ -1,7 +1,11 @@
 {
-  "label": "v103",
+  "label": "v104",
   "changes": [
-    "Fixed: a scanned ID document sometimes didn't link up to its ID number field (e.g. a scan named \"Nomvula ID and Driver's License\" wasn't showing under National/SA ID number, even though it was saved in Documents)",
-    "A scan named for more than one thing (like a combined ID + driver's licence) now shows under all the fields it matches"
+    "Fixed: the AI-written star sign blurb kept repeating the same text on shuffle — now genuinely varies each time",
+    "The star sign blurb is now saved, so it's there next time you open the app instead of resetting every visit",
+    "Richer, longer star sign write-up when both a birth time and place are known",
+    "New: Family Word of the Day — resurfaces an entry from your family's private word glossary",
+    "New: Flashback — a shuffle button for a random memory from your family's full history, not just recent days",
+    "A one-time hint now points out the star sign shuffle dice, since it was easy to miss"
   ]
 }

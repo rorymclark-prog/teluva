@@ -1,10 +1,11 @@
 import {
   AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye, Lock, Stethoscope, Dices, RefreshCw,
 } from 'lucide-react';
-import type { ElementType } from 'react';
+import { useState, type ElementType } from 'react';
 import { FamilyMember, FamilyDocument } from '../types';
 import { soonestCare, careDueLabel } from '../utils/care';
 import { sunSign, elementTint } from '../utils/astrology';
+import { isHintSeen, markHintSeen } from '../utils/db';
 import MemberBelongings from './MemberBelongings';
 
 // Proof of address: an ID-category scan named like a Meldezettel / registration
@@ -59,6 +60,9 @@ export default function MemberOverview({
   onShuffleAstrology?: () => void;
   astrologyBlurb?: { text: string; loading: boolean; error: string | null };
 }) {
+  // First-time discovery nudge for the dice icon — dismissed for good the
+  // first time it's actually clicked, per device/space (isHintSeen/db.ts).
+  const [diceHintSeen, setDiceHintSeen] = useState(() => isHintSeen('astrology_dice'));
   const zodiac = showAstrology ? sunSign(member.birthdate) : null;
   const first = member.name.split(/\s+/)[0] || member.name;
   const med = member.medical || {};
@@ -177,12 +181,21 @@ export default function MemberOverview({
               {onShuffleAstrology && (
                 <button
                   type="button"
-                  onClick={onShuffleAstrology}
+                  onClick={() => {
+                    if (!diceHintSeen) { markHintSeen('astrology_dice'); setDiceHintSeen(true); }
+                    onShuffleAstrology();
+                  }}
                   disabled={astrologyBlurb?.loading}
-                  className="shrink-0 p-1 -m-1 text-clay-500 hover:text-clay-700 disabled:opacity-50 cursor-pointer"
+                  className="relative shrink-0 p-1 -m-1 text-clay-500 hover:text-clay-700 disabled:opacity-50 cursor-pointer"
                   title={astrologyBlurb?.text ? 'Shuffle for a new one' : 'Get an AI-written version'}
                 >
                   {astrologyBlurb?.loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Dices className="w-3.5 h-3.5" />}
+                  {!diceHintSeen && !astrologyBlurb?.loading && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2" aria-hidden="true">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-clay-400 opacity-75" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-clay-500" />
+                    </span>
+                  )}
                 </button>
               )}
             </div>
@@ -191,6 +204,9 @@ export default function MemberOverview({
               {astrologyBlurb?.text || `${zodiac.blurb}${member.birthTime ? ` Born ${member.birthTime}${member.placeOfBirth ? ` in ${member.placeOfBirth}` : ''}.` : ''}`}
             </p>
             {astrologyBlurb?.error && <p className="text-[11px] text-rosa-600 mt-0.5">{astrologyBlurb.error}</p>}
+            {onShuffleAstrology && !diceHintSeen && (
+              <p className="text-[11px] text-clay-600 mt-1">Tap the dice for a fresh AI-written version →</p>
+            )}
           </div>
         </div>
       )}

@@ -71,12 +71,15 @@ import DocumentVault from './DocumentVault';
 import Assets from './Assets';
 import FamilyPasswords from './FamilyPasswords';
 import OnThisDay from './OnThisDay';
+import FamilyWordOfDay from './FamilyWordOfDay';
+import FlashbackCard from './FlashbackCard';
 import EmergencyCard from './EmergencyCard';
 import BabysitterMode from './BabysitterMode';
 import TravelPack from './TravelPack';
 import FamilyStats from './FamilyStats';
 import FamilyQuiz from './FamilyQuiz';
 import HealthTimeline from './HealthTimeline';
+import { sunSign } from '../utils/astrology';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
@@ -138,6 +141,11 @@ const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sa
 // exists yet (a real workplace-incident log would be a distinct feature, not
 // a relabel of this one) so it's hidden rather than mislabeled.
 const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency'];
+
+// A persisted astrology blurb older than this is treated as stale and quietly
+// regenerated next time that member's Overview is viewed — keeps the card
+// feeling alive without the user having to remember to re-shuffle it.
+const STALE_ASTROLOGY_MS = 30 * 24 * 60 * 60 * 1000;
 
 const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'profiles', icon: Users },
@@ -509,13 +517,17 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     await persistChanges(updated);
   };
 
-  // Re-rolls the "Star sign" card's blurb via Gemini — deliberately NOT persisted
-  // (it's fun/ephemeral, not a record worth a write), so this just lives in local
-  // state keyed by member id for the session.
+  // Re-rolls the "Star sign" card's blurb via Gemini. Persisted onto the member
+  // (astrologyBlurb) so it survives a reload instead of reverting to the plain
+  // static fallback every session — the whole point of this card being a
+  // reason to come back. astroBlurb (component state) still exists too, for
+  // the in-flight loading/error UI, but the source of truth after a successful
+  // generation is the persisted member field.
   const shuffleAstrology = async (memberId: string) => {
-    const member = members.find((m) => m.id === memberId);
+    const member = membersRef.current.find((m) => m.id === memberId);
     if (!member) return;
-    setAstroBlurb((s) => ({ ...s, [memberId]: { text: s[memberId]?.text || '', loading: true, error: null } }));
+    const previousBlurb = member.astrologyBlurb?.text || astroBlurb[memberId]?.text || undefined;
+    setAstroBlurb((s) => ({ ...s, [memberId]: { text: s[memberId]?.text || previousBlurb || '', loading: true, error: null } }));
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('Please sign in again.');
@@ -523,11 +535,16 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const res = await fetch('/api/astrology-blurb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ birthdate: member.birthdate, birthTime: member.birthTime, placeOfBirth: member.placeOfBirth }),
+        body: JSON.stringify({
+          birthdate: member.birthdate, birthTime: member.birthTime, placeOfBirth: member.placeOfBirth, previousBlurb,
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.blurb) throw new Error(data.error || 'Could not generate a blurb.');
       setAstroBlurb((s) => ({ ...s, [memberId]: { text: data.blurb, loading: false, error: null } }));
+      const forInputs = `${member.birthdate || ''}|${member.birthTime || ''}|${member.placeOfBirth || ''}`;
+      const astrologyBlurb = { text: data.blurb, sign: data.sign, generatedAt: new Date().toISOString(), forInputs };
+      await persistChanges(membersRef.current.map((m) => (m.id === memberId ? { ...m, astrologyBlurb } : m)));
     } catch (e) {
       setAstroBlurb((s) => ({
         ...s,
@@ -792,6 +809,31 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
   const selectedMember = members.find(m => m.id === selectedMemberId);
 
+  // Auto-generate (lazily, once per stale/missing state) the first time a
+  // member with a birthdate is viewed, instead of requiring an explicit dice
+  // click before the card ever shows anything more than the plain fallback —
+  // also re-fires automatically if birthdate/birthTime/placeOfBirth changed
+  // since the stored blurb was generated (fixes a blurb going stale silently
+  // after an edit) or if it's over 30 days old (keeps the card feeling alive).
+  useEffect(() => {
+    if (!settings.astrology || !isAdmin || !canUseAI || !selectedMember) return;
+    const zodiac = sunSign(selectedMember.birthdate);
+    if (!zodiac) return;
+    if (astroBlurb[selectedMember.id]?.loading) return;
+    const forInputs = `${selectedMember.birthdate || ''}|${selectedMember.birthTime || ''}|${selectedMember.placeOfBirth || ''}`;
+    const stored = selectedMember.astrologyBlurb;
+    const isFresh = !!stored && stored.forInputs === forInputs
+      && Date.now() - new Date(stored.generatedAt).getTime() < STALE_ASTROLOGY_MS;
+    if (isFresh) {
+      if (astroBlurb[selectedMember.id]?.text !== stored!.text) {
+        setAstroBlurb((s) => ({ ...s, [selectedMember.id]: { text: stored!.text, loading: false, error: null } }));
+      }
+      return;
+    }
+    shuffleAstrology(selectedMember.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMember?.id, selectedMember?.birthdate, selectedMember?.birthTime, selectedMember?.placeOfBirth, settings.astrology, isAdmin, canUseAI]);
+
   // Open every member on their Overview summary (like iOS Contacts) — resets when
   // you switch members, so you no longer always land on the Medical form. A
   // pending-tab ref lets a "Needs attention" nudge deep-link to a specific tab.
@@ -1007,6 +1049,13 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             <NeedsAttention members={members} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
 
             <OnThisDay members={members} events={events} />
+
+            {!isBusinessSpace && (
+              <>
+                <FamilyWordOfDay demo={demo} onOpen={() => setMainView('familyWords')} />
+                <FlashbackCard members={members} events={events} />
+              </>
+            )}
 
             {/* Quick actions — one-tap entry into the full-screen feature modals (family-only) */}
             {!isBusinessSpace && (

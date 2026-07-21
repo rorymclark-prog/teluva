@@ -46,6 +46,17 @@ const membersKey = () => `family_members_v2_${FAMILY_ID}`;
 const calendarKey = () => `family_calendar_v2_${FAMILY_ID}`;
 const infoKey = () => `family_info_v2_${FAMILY_ID}`;
 const migratedFlagKey = (kind: string) => `family_migrated_v2_${kind}_${FAMILY_ID}`;
+const hintSeenKey = (hint: string) => `family_seen_hint_${hint}_v1_${FAMILY_ID}`;
+
+// One-time UI discovery hints (e.g. "tap the dice for an AI version") — per
+// device, per space, so a fresh device/space sees them again. Deliberately
+// plain localStorage (not synced data), same convention as the keys above.
+export const isHintSeen = (hint: string): boolean => {
+  try { return localStorage.getItem(hintSeenKey(hint)) === '1'; } catch { return false; }
+};
+export const markHintSeen = (hint: string): void => {
+  try { localStorage.setItem(hintSeenKey(hint), '1'); } catch { /* ignore */ }
+};
 
 // Returns true when the data reached Firestore, false when it only landed in
 // localStorage — callers surface that so silent sync failures are impossible.

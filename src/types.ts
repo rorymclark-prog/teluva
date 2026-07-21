@@ -107,6 +107,11 @@ export interface FamilyMember {
   birthdate?: string;
   birthTime?: string;        // HH:MM — optional, powers the fun astrology view
   placeOfBirth?: string;
+  // The "just for fun" AI-written star-sign blurb — persisted so it survives a
+  // reload instead of reverting to the plain static fallback every session.
+  // forInputs snapshots birthdate|birthTime|placeOfBirth so an edit to any of
+  // them is detected as stale and silently regenerated on next view.
+  astrologyBlurb?: { text: string; sign: string; generatedAt: string; forInputs: string };
   birthHospital?: string;
   taxNumber?: string;        // personal tax / social-security number — useful for a family member too, not business-only
   startDate?: string;        // YYYY-MM-DD — unused for a family member; an employee's start-of-employment date in a business space
