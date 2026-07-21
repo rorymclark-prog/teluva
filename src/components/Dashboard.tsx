@@ -1448,7 +1448,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                 />
                               )}
                               {activeTab === 'medical' && (
-                                <MemberMedical member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                                <MemberMedical member={selectedMember} onUpdate={handlePatchSelectedMember} country={settings.country || 'AT'} />
                               )}
                               {activeTab === 'care' && (
                                 <CareSchedule member={selectedMember} onUpdate={handlePatchSelectedMember} />

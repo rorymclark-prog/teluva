@@ -76,7 +76,9 @@ const IDENTITY_SCAN_PATTERNS: Partial<Record<keyof IdentityRecord, RegExp>> = {
   medicalAidNumber: /medical aid|health insurance/i,
 };
 
-function findIdentityScan(field: keyof IdentityRecord, docs?: FamilyDocument[]): FamilyDocument | undefined {
+// Exported so the Emergency essentials card can resolve the SAME scan for the
+// health-insurance number without a second, drifting copy of these rules.
+export function findIdentityScan(field: keyof IdentityRecord, docs?: FamilyDocument[]): FamilyDocument | undefined {
   const pattern = IDENTITY_SCAN_PATTERNS[field];
   if (!pattern) return undefined;
   const idDocs = (docs || []).filter(d => d.category === 'ID' && d.fileData);

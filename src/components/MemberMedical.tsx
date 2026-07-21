@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { FamilyMember, MedicalRecord, Vaccination } from '../types';
+import { FamilyMember, MedicalRecord, Vaccination, IdCountry } from '../types';
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react';
+import HealthInsuranceRow from './HealthInsuranceRow';
 
 interface MemberMedicalProps {
   member: FamilyMember;
   onUpdate: (patch: Partial<FamilyMember>) => void;
+  country?: IdCountry;
 }
 
 function newId() {
@@ -25,7 +27,7 @@ const initMedical = (member: FamilyMember): MedicalRecord => ({
   notes: member.medical?.notes || '',
 });
 
-export default function MemberMedical({ member, onUpdate }: MemberMedicalProps) {
+export default function MemberMedical({ member, onUpdate, country = 'AT' }: MemberMedicalProps) {
   const [medical, setMedical] = useState<MedicalRecord>(() => initMedical(member));
 
   // Reset local state when member.id changes
@@ -81,6 +83,11 @@ export default function MemberMedical({ member, onUpdate }: MemberMedicalProps) 
           Emergency essentials
         </h3>
         <div className="card p-5 space-y-4 border-l-4 border-l-honey-500">
+          {/* Health-insurance identifier FIRST — the number an ambulance crew or
+              admissions desk asks for before anything else. Country-driven, and
+              read-only here: it is edited on the ID & documents tab only. */}
+          <HealthInsuranceRow member={member} country={country} />
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="field-label">Blood group</label>
