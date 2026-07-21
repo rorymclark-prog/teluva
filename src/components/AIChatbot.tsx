@@ -14,8 +14,9 @@ import { looksLikePdf } from '../utils/fileType';
 import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch } from '../utils/documentDedup';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
-  Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle,
+  Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
 } from 'lucide-react';
+import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 
 // Web Speech API — may be undefined in unsupported browsers
 const SR: any = (typeof window !== 'undefined')
@@ -175,6 +176,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   // "not streaming" (either no reply yet, or the reveal has finished).
   const [streamWordCount, setStreamWordCount] = useState<number | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -310,6 +312,14 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       }
     }
     if (next.length) setAttachments(prev => [...prev, ...next]);
+  };
+
+  const onScanResult = (file: ScannedFile) => {
+    if (attachments.length >= MAX_ATTACHMENTS) {
+      setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`);
+      return;
+    }
+    setAttachments(prev => [...prev, { name: file.name, mimeType: file.type, dataUrl: file.data }]);
   };
 
   const toggleVoice = () => {
@@ -747,10 +757,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
               )}
             </div>
             <button
-              onClick={() => fileRef.current?.click()}
+              onClick={() => setScannerOpen(true)}
               className="btn-primary mt-1"
             >
-              <Paperclip className="w-4 h-4" />
+              <Camera className="w-4 h-4" />
               Scan a document
             </button>
           </div>
@@ -949,6 +959,15 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
           )}
           <button
             type="button"
+            onClick={() => setScannerOpen(true)}
+            disabled={loading || attachments.length >= MAX_ATTACHMENTS}
+            title="Scan a document with your camera"
+            className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
+          >
+            <Camera className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
             onClick={() => fileRef.current?.click()}
             disabled={loading || attachments.length >= MAX_ATTACHMENTS}
             title={`Attach up to ${MAX_ATTACHMENTS} photos, PDFs or files at once — or paste a screenshot with Ctrl+V / Cmd+V. For Google Drive files, open the file in Drive and use File → Download first.`}
@@ -979,6 +998,12 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       </div>
 
       <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} name="Chat attachment" />
+      <DocumentScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onUse={onScanResult}
+        title="Document Scanner"
+      />
     </div>
   );
 }

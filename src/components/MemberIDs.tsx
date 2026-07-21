@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyMember, PassportRecord, IdentityRecord, FamilyDocument, IdCountry } from '../types';
 import {
-  Plus, Pencil, Trash2, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye, Maximize2,
+  Plus, Pencil, Trash2, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye, Maximize2, Camera,
 } from 'lucide-react';
 import ImageLightbox from './ImageLightbox';
 import ShowCardModal from './ShowCardModal';
+import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 
 // Data needed to pop open the full-screen "show this to someone" card — a border
 // officer, receptionist, ticket inspector. Shared by the passport rows and the
@@ -88,6 +89,7 @@ function expiryChip(dateStr: string | undefined): React.ReactNode {
 interface MemberIDsProps {
   member: FamilyMember;
   onUpdate: (patch: Partial<FamilyMember>) => void;
+  onAddDocument: (memberId: string, doc: FamilyDocument) => void;
   country?: IdCountry;
 }
 
@@ -361,6 +363,7 @@ function IdentitySection({
   memberName,
   onShowCard,
   country,
+  onScanClick,
 }: {
   identity: IdentityRecord;
   onChange: (next: IdentityRecord) => void;
@@ -369,6 +372,7 @@ function IdentitySection({
   memberName: string;
   onShowCard: (data: ShowCardData) => void;
   country: IdCountry;
+  onScanClick: () => void;
 }) {
   const set = (k: keyof IdentityRecord) => (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -379,9 +383,15 @@ function IdentitySection({
   return (
     <section className="card p-5 space-y-6">
       {/* Section header */}
-      <div className="flex items-center gap-2 pb-3 border-b border-cream-200">
-        <ShieldCheck className="w-4 h-4 text-dusk-500" />
-        <h3 className="section-label">{COUNTRY_SECTION_TITLE[country]}</h3>
+      <div className="flex items-center justify-between gap-2 pb-3 border-b border-cream-200">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-dusk-500" />
+          <h3 className="section-label">{COUNTRY_SECTION_TITLE[country]}</h3>
+        </div>
+        <button type="button" onClick={onScanClick} className="btn-quiet text-xs px-3 py-1.5">
+          <Camera className="w-3.5 h-3.5" />
+          Scan an ID card
+        </button>
       </div>
 
       {country === 'ZA' && (
@@ -1115,11 +1125,25 @@ function foldPassports(member: FamilyMember): PassportRecord[] {
   return list;
 }
 
-export default function MemberIDs({ member, onUpdate, country = 'AT' }: MemberIDsProps) {
+export default function MemberIDs({ member, onUpdate, onAddDocument, country = 'AT' }: MemberIDsProps) {
   const [passports, setPassports] = useState<PassportRecord[]>(() => foldPassports(member));
   const [identity, setIdentity] = useState<IdentityRecord>(member.identity ?? {});
   const [viewScanSrc, setViewScanSrc] = useState<string | null>(null);
   const [showCard, setShowCard] = useState<ShowCardData | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  const handleScanResult = (file: ScannedFile) => {
+    onAddDocument(member.id, {
+      id: 'doc-' + Date.now().toString(),
+      name: `${member.name}'s ID scan`,
+      category: 'ID',
+      fileType: file.type,
+      fileName: file.name,
+      fileSize: file.size,
+      uploadedAt: new Date().toLocaleDateString('en-CA'),
+      fileData: file.data,
+    });
+  };
 
   // Reset when switching members
   useEffect(() => {
@@ -1157,6 +1181,14 @@ export default function MemberIDs({ member, onUpdate, country = 'AT' }: MemberID
         memberName={member.name}
         onShowCard={setShowCard}
         country={country}
+        onScanClick={() => setScannerOpen(true)}
+      />
+      <DocumentScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onUse={handleScanResult}
+        title="Scan ID card"
+        requireBothSides
       />
 
       <ShowCardModal

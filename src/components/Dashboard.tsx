@@ -1301,7 +1301,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                 <CareSchedule member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
                               {activeTab === 'ids' && (
-                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} country={settings.country || 'AT'} />
+                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} onAddDocument={handleAddDocument} country={settings.country || 'AT'} />
                               )}
                               {activeTab === 'sizes' && (
                                 <MemberSizing member={selectedMember} onUpdateSizes={handleUpdateSizes} />

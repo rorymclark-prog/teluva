@@ -1,7 +1,9 @@
 {
-  "label": "v106",
+  "label": "v107",
   "changes": [
-    "Google Calendar import now pulls in appointments from the past year, not just recent ones — including ones scheduled before you started using Family Hub",
-    "Birthdays can now be tracked for people without a full profile (e.g. Granny) — add a birthday in Contacts and it shows up as a reminder just like a family member's"
+    "Fixed: the document scanner could silently fail on detail-heavy photos like ID cards — it now compresses before saving instead of discarding the scan",
+    "The camera scanner is now available everywhere you'd expect it — the AI chat has its own camera button, and ID & Passports can now scan straight in",
+    "Scanning an ID card now asks for the back too, and saves both sides as one document",
+    "Document thumbnails in a member's Documents tab are now bigger and easier to see"
   ]
 }
