@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { Camera, X, RefreshCcw, AlertCircle, Sparkles, IdCard, BookOpen, FileText } from 'lucide-react';
+import { Camera, X, RefreshCcw, AlertCircle, Sparkles, IdCard, BookOpen, FileText, Crop } from 'lucide-react';
 import { motion } from 'motion/react';
+import { scanDocument, extractDocument, createCornerEditor, type CornerPoints, type CornerEditor } from 'scanic';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { compileImagesToPdf } from '../utils/pdfCompile';
 
@@ -36,9 +37,8 @@ const SCAN_TYPE_OPTIONS: { type: ScanType; label: string; hint: string; icon: ty
 // Auto-capture: sample the live video onto a tiny offscreen canvas a few times
 // a second and diff it against the previous sample. Once the view has held
 // still for a few consecutive checks, shoot automatically — no edge/rectangle
-// detection, just "it fires when you stop moving the phone", which is most of
-// what a scan app's "auto capture" actually feels like day to day. The manual
-// shutter button always still works too.
+// detection at this stage, just "it fires when you stop moving the phone".
+// The manual shutter button always still works too.
 const AUTO_CAPTURE_INTERVAL_MS = 280;
 const AUTO_CAPTURE_STILL_CHECKS = 3;
 const AUTO_CAPTURE_DIFF_THRESHOLD = 8;
@@ -46,6 +46,15 @@ const AUTO_CAPTURE_DIFF_THRESHOLD = 8;
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load the captured photo.'));
+    img.src = dataUrl;
+  });
 }
 
 export default function DocumentScannerModal({
@@ -58,10 +67,15 @@ export default function DocumentScannerModal({
   filePrefix,
 }: DocumentScannerModalProps) {
   const [pickedType, setPickedType] = useState<ScanType | null>(null);
-  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
-  const [activeDeviceId, setActiveDeviceId] = useState('');
+  // capturedPhoto is the (edge-detected + perspective-corrected) result shown
+  // for review; rawPhoto is the full uncropped capture kept around so "Adjust
+  // corners" has the original pixels to re-crop from.
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [rawPhoto, setRawPhoto] = useState<string | null>(null);
+  const [detectedCorners, setDetectedCorners] = useState<CornerPoints | null>(null);
+  const [adjustMode, setAdjustMode] = useState(false);
   const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [isScanning, setIsScanning] = useState(false); // edge-detection/extraction busy state
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -70,12 +84,12 @@ export default function DocumentScannerModal({
   const [isHolding, setIsHolding] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const guideRef = useRef<HTMLDivElement>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
   const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevSampleRef = useRef<Uint8ClampedArray | null>(null);
   const stillCountRef = useRef(0);
   const autoCaptureIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cornerEditorHostRef = useRef<HTMLDivElement>(null);
 
   const effectiveType = scanType ?? pickedType;
   const requireBothSides = effectiveType === 'id';
@@ -98,15 +112,28 @@ export default function DocumentScannerModal({
     }
   };
 
-  const startCamera = async (deviceId?: string) => {
+  // Deliberately no camera-device picker: phones routinely expose 3-4 separate
+  // rear lenses (wide/ultra-wide/telephoto) as distinct devices, which made a
+  // "Camera 1 / Camera 2 / ..." dropdown show up on nearly every real phone —
+  // facingMode alone reliably picks a sensible rear camera. Requesting a
+  // higher ideal resolution than the browser default (which can be as low as
+  // 640x480) is what was actually making captures look soft/blurry once
+  // cropped down to just the document.
+  const startCamera = async () => {
     setIsCameraLoading(true);
     setCameraError(null);
     setCapturedPhoto(null);
+    setRawPhoto(null);
+    setDetectedCorners(null);
     stopCamera();
 
     try {
       const constraints: MediaStreamConstraints = {
-        video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } },
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 2560 },
+          height: { ideal: 1440 },
+        },
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       activeStreamRef.current = stream;
@@ -114,17 +141,6 @@ export default function DocumentScannerModal({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play().catch((e) => console.error('Video activation error: ', e));
-      }
-
-      if (navigator.mediaDevices.enumerateDevices) {
-        const allDevices = await navigator.mediaDevices.enumerateDevices();
-        setCameraDevices(allDevices.filter((d) => d.kind === 'videoinput'));
-      }
-
-      const activeTrack = stream.getVideoTracks()[0];
-      if (activeTrack) {
-        const settings = activeTrack.getSettings();
-        if (settings.deviceId) setActiveDeviceId(settings.deviceId);
       }
     } catch (err) {
       console.error('Camera access failure:', err);
@@ -134,50 +150,42 @@ export default function DocumentScannerModal({
     }
   };
 
-  // Crops the capture to the viewfinder guide instead of saving the full,
-  // uncropped camera frame — previously the brackets were purely decorative,
-  // so a captured photo always included whatever background/table surrounded
-  // the document. The video renders via object-cover (scaled up and
-  // center-cropped to fill its box), so the guide's on-screen rectangle has
-  // to be mapped back through that same scale/offset to find the matching
-  // region in the video's own native pixel space.
-  const handleCapture = () => {
+  // Snapshots the full, uncropped video frame, then hands it to scanic for
+  // real edge detection + perspective correction — replaces the earlier
+  // approach of just cropping to the fixed viewfinder-guide rectangle, which
+  // only ever matched the document by coincidence.
+  const handleCapture = async () => {
     if (!videoRef.current) return;
     stopAutoCapture();
     const video = videoRef.current;
-    const vw = video.videoWidth || 1280;
-    const vh = video.videoHeight || 720;
-
-    let sx = 0, sy = 0, sw = vw, sh = vh;
-    const videoRect = video.getBoundingClientRect();
-    const guideRect = guideRef.current?.getBoundingClientRect();
-    if (guideRect && videoRect.width > 0 && videoRect.height > 0) {
-      const scale = Math.max(videoRect.width / vw, videoRect.height / vh);
-      const renderedW = vw * scale;
-      const renderedH = vh * scale;
-      const offsetX = (renderedW - videoRect.width) / 2;
-      const offsetY = (renderedH - videoRect.height) / 2;
-      const guideLeftInRendered = (guideRect.left - videoRect.left) + offsetX;
-      const guideTopInRendered = (guideRect.top - videoRect.top) + offsetY;
-      const cropX = Math.max(0, guideLeftInRendered / scale);
-      const cropY = Math.max(0, guideTopInRendered / scale);
-      const cropW = Math.min(vw - cropX, guideRect.width / scale);
-      const cropH = Math.min(vh - cropY, guideRect.height / scale);
-      if (cropW > 0 && cropH > 0) {
-        sx = cropX;
-        sy = cropY;
-        sw = cropW;
-        sh = cropH;
-      }
-    }
-
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(sw);
-    canvas.height = Math.round(sh);
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
     const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-      setCapturedPhoto(canvas.toDataURL('image/jpeg', 0.85));
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const raw = canvas.toDataURL('image/jpeg', 0.92);
+    setRawPhoto(raw);
+    setIsScanning(true);
+    try {
+      const result = await scanDocument(canvas, { mode: 'extract', output: 'dataurl' });
+      if (result.success && typeof result.output === 'string') {
+        setCapturedPhoto(result.output);
+        setDetectedCorners(result.corners);
+      } else {
+        // Could not find the document's edges with confidence — go straight
+        // to manual corner adjustment instead of silently saving an
+        // uncropped photo (or worse, a badly-cropped guess).
+        setDetectedCorners(null);
+        setAdjustMode(true);
+      }
+    } catch (err) {
+      console.error('Document edge detection failed:', err);
+      // Fall back to the raw, uncropped capture rather than losing the photo
+      // entirely — the user can still use it or adjust corners manually.
+      setCapturedPhoto(raw);
+    } finally {
+      setIsScanning(false);
     }
   };
 
@@ -229,6 +237,9 @@ export default function DocumentScannerModal({
       setSide('front');
       setFrontPhoto(null);
       setCapturedPhoto(null);
+      setRawPhoto(null);
+      setDetectedCorners(null);
+      setAdjustMode(false);
       setFileError(null);
     } else {
       stopCamera();
@@ -244,6 +255,58 @@ export default function DocumentScannerModal({
     if (open && effectiveType && !activeStreamRef.current) startCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, effectiveType]);
+
+  // Mounts scanic's manual corner-adjustment editor over the raw (uncropped)
+  // photo whenever adjustMode is entered — either the user tapped "Adjust
+  // corners" on a result they weren't happy with, or automatic detection
+  // failed outright and this is the only way forward.
+  useEffect(() => {
+    if (!adjustMode || !rawPhoto || !cornerEditorHostRef.current) return;
+    let cancelled = false;
+    let editor: CornerEditor | null = null;
+    loadImage(rawPhoto).then((img) => {
+      if (cancelled || !cornerEditorHostRef.current) return;
+      editor = createCornerEditor({
+        container: cornerEditorHostRef.current,
+        image: img,
+        corners: detectedCorners || undefined,
+        onConfirm: async (corners) => {
+          setDetectedCorners(corners);
+          setIsScanning(true);
+          try {
+            const result = await extractDocument(img, corners, { output: 'dataurl' });
+            if (result.success && typeof result.output === 'string') {
+              setCapturedPhoto(result.output);
+            } else {
+              setFileError('Could not crop to those corners — please try again.');
+            }
+          } catch (err) {
+            console.error('Manual crop extraction failed:', err);
+            setFileError('Could not crop to those corners — please try again.');
+          } finally {
+            setIsScanning(false);
+            setAdjustMode(false);
+          }
+        },
+        onCancel: () => {
+          setAdjustMode(false);
+          // If there was never a successfully detected photo to fall back to
+          // (i.e. auto-detection failed and this was the mandatory path),
+          // cancelling means going back to the camera, not showing nothing.
+          if (!capturedPhoto) startCamera();
+        },
+      });
+    }).catch((err) => {
+      console.error(err);
+      setFileError('Could not load the photo for adjustment.');
+      setAdjustMode(false);
+    });
+    return () => {
+      cancelled = true;
+      editor?.destroy();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adjustMode]);
 
   if (!open) return null;
 
@@ -261,10 +324,9 @@ export default function DocumentScannerModal({
     setIsCompiling(true);
     setFileError(null);
     try {
-      // A full-resolution camera capture of a detail-dense document (an ID
-      // card's fine print) can easily exceed the 700KB Firestore cap — every
-      // other capture path in the app compresses first; this one previously
-      // didn't, which is why real scans were silently failing.
+      // A full-resolution, edge-detected capture of a detail-dense document
+      // (an ID card's fine print) can still exceed the 700KB Firestore cap —
+      // every other capture path in the app compresses first.
       const compressed = await compressImageToAvatar(capturedPhoto, 1600, 0.82);
       const bytesCount = Math.round((compressed.length * 3) / 4);
       if (bytesCount > MAX_UPLOAD_BYTES) {
@@ -297,7 +359,7 @@ export default function DocumentScannerModal({
         setFrontPhoto(compressed);
         setCapturedPhoto(null);
         setSide('back');
-        await startCamera(activeDeviceId);
+        await startCamera();
         return;
       }
 
@@ -321,18 +383,19 @@ export default function DocumentScannerModal({
   };
 
   const handleRetake = () => {
-    setCapturedPhoto(null);
-    startCamera(activeDeviceId);
+    startCamera();
   };
 
   const showingBack = requireBothSides && side === 'back';
   const effectiveSubtitle = !effectiveType
     ? undefined
-    : capturedPhoto
+    : adjustMode
       ? undefined
-      : showingBack
-        ? 'Now flip it over — align the back in the frame'
-        : subtitle || (requireBothSides ? 'Align the front in the frame' : 'Align your page or ID card in the frame');
+      : capturedPhoto
+        ? undefined
+        : showingBack
+          ? 'Now flip it over — align the back in the frame'
+          : subtitle || (requireBothSides ? 'Align the front in the frame' : 'Align your page or ID card in the frame');
 
   return (
     <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm anim-fade flex items-center justify-center p-4 sm:p-0 sm:pb-4">
@@ -353,7 +416,7 @@ export default function DocumentScannerModal({
             </div>
             <div>
               <h3 className="text-[13px] font-semibold text-ink-900">
-                {title}{effectiveType && requireBothSides && !capturedPhoto ? ` — ${showingBack ? 'back' : 'front'}` : ''}
+                {adjustMode ? 'Adjust corners' : title}{effectiveType && requireBothSides && !capturedPhoto && !adjustMode ? ` — ${showingBack ? 'back' : 'front'}` : ''}
               </h3>
               {effectiveSubtitle && <p className="text-[12px] text-ink-400 mt-0.5">{effectiveSubtitle}</p>}
             </div>
@@ -399,12 +462,39 @@ export default function DocumentScannerModal({
                 </div>
               </div>
               <div className="flex items-center space-x-2 pt-1 justify-end">
-                <button type="button" onClick={() => startCamera(activeDeviceId)} className="btn-quiet text-[13px] px-3 py-1.5">
+                <button type="button" onClick={() => startCamera()} className="btn-quiet text-[13px] px-3 py-1.5">
                   Retry
                 </button>
                 <button type="button" onClick={handleClose} className="btn-danger text-[13px] px-3 py-1.5">
                   Close
                 </button>
+              </div>
+            </div>
+          ) : adjustMode ? (
+            <div className="space-y-3">
+              <div className="relative rounded-2xl overflow-hidden bg-black border border-cream-200 max-h-[55vh] flex items-center justify-center">
+                <div ref={cornerEditorHostRef} className="w-full" />
+                {isScanning && (
+                  <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                    <RefreshCcw className="w-6 h-6 animate-spin text-white" />
+                  </div>
+                )}
+              </div>
+              <p className="text-[12px] text-ink-400 text-center italic">
+                Drag the corners to match the document exactly, then tap Apply.
+              </p>
+              {fileError && (
+                <div className="p-3 rounded-xl bg-rosa-50 border border-rosa-100 text-[13px] text-rosa-700 flex items-start gap-2 leading-normal">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rosa-500" />
+                  <span>{fileError}</span>
+                </div>
+              )}
+            </div>
+          ) : isScanning ? (
+            <div className="relative aspect-4/3 rounded-2xl overflow-hidden bg-black border border-cream-200 shadow-inner flex items-center justify-center">
+              <div className="flex flex-col items-center gap-2 text-white">
+                <RefreshCcw className="w-6 h-6 animate-spin" />
+                <span className="text-[12px] font-semibold">Finding the edges…</span>
               </div>
             </div>
           ) : capturedPhoto ? (
@@ -434,11 +524,11 @@ export default function DocumentScannerModal({
                 </div>
               )}
               <video ref={videoRef} playsInline autoPlay muted onPlaying={startAutoCapture} className="w-full h-full object-cover" />
-              {/* Viewfinder bracket overlay — this rectangle is what actually gets
-                  captured (see handleCapture's guideRef math), so it isn't just
-                  decorative; brackets also warm up while holding still, ahead of
-                  auto-capture */}
-              <div ref={guideRef} className={`absolute inset-4 border pointer-events-none rounded-xl flex flex-col justify-between transition-colors ${isHolding ? 'border-clay-400/40' : 'border-white/20'}`}>
+              {/* Viewfinder bracket overlay — a framing aid only now; the actual
+                  crop comes from scanic's real edge detection after capture,
+                  not from this rectangle. Brackets warm up while holding
+                  still, ahead of auto-capture. */}
+              <div className={`absolute inset-4 border pointer-events-none rounded-xl flex flex-col justify-between transition-colors ${isHolding ? 'border-clay-400/40' : 'border-white/20'}`}>
                 <div className="flex justify-between p-2">
                   <div className={`w-6 h-6 border-t-2 border-l-2 rounded-tl transition-colors ${isHolding ? 'border-clay-400' : 'border-white/85'}`}></div>
                   <div className={`w-6 h-6 border-t-2 border-r-2 rounded-tr transition-colors ${isHolding ? 'border-clay-400' : 'border-white/85'}`}></div>
@@ -459,16 +549,29 @@ export default function DocumentScannerModal({
           )}
         </div>
 
-        {/* Modal Controls */}
-        {effectiveType && (
-          <div className="p-4 bg-cream-50 border-t border-cream-200 flex items-center justify-between gap-4">
+        {/* Modal Controls — hidden during manual corner adjustment, which has
+            its own built-in Reset/Cancel/Apply toolbar. */}
+        {effectiveType && !adjustMode && (
+          <div className="p-4 bg-cream-50 border-t border-cream-200 flex items-center justify-between gap-2">
             {!cameraError && (
               <>
                 {capturedPhoto ? (
-                  <div className="flex items-center justify-between w-full">
-                    <button type="button" onClick={handleRetake} className="btn-quiet text-[13px] px-4 py-2">
-                      Retake
-                    </button>
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button type="button" onClick={handleRetake} className="btn-quiet text-[13px] px-3 py-2">
+                        Retake
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAdjustMode(true)}
+                        disabled={!rawPhoto}
+                        className="btn-quiet text-[13px] px-3 py-2 disabled:opacity-40"
+                        title="Fine-tune the crop corners by hand"
+                      >
+                        <Crop className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Adjust</span>
+                      </button>
+                    </div>
                     <div className="flex items-center gap-2">
                       {!requireBothSides && (
                         <button type="button" onClick={handleUseJpg} disabled={isCompiling} className="btn-quiet text-[13px] px-3 py-2">
@@ -499,29 +602,13 @@ export default function DocumentScannerModal({
                   </div>
                 ) : (
                   <>
-                    {cameraDevices.length > 1 ? (
-                      <div className="flex items-center space-x-1.5 select-none shrink-0 max-w-[180px]">
-                        <select
-                          value={activeDeviceId}
-                          onChange={(e) => startCamera(e.target.value)}
-                          className="text-[13px] font-semibold px-2.5 py-1.5 bg-white border border-cream-300 hover:border-cream-400 rounded-xl cursor-pointer focus:outline-none focus:ring-2 focus:ring-clay-300"
-                        >
-                          {cameraDevices.map((dev, idx) => (
-                            <option key={dev.deviceId} value={dev.deviceId}>
-                              Camera {idx + 1}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ) : (
-                      <span className="text-[12px] font-semibold text-ink-400">Sensor active</span>
-                    )}
+                    <span className="text-[12px] font-semibold text-ink-400">Sensor active</span>
 
                     {/* Shutter button — manual override, auto-capture fires on its own too */}
                     <button
                       type="button"
                       onClick={handleCapture}
-                      disabled={isCameraLoading}
+                      disabled={isCameraLoading || isScanning}
                       className="p-3 bg-clay-500 hover:bg-clay-600 disabled:bg-cream-300 text-white rounded-full cursor-pointer border-4 border-white shadow-soft active:scale-95 transition-transform"
                       title="Capture photo now"
                     >

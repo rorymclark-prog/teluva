@@ -1,11 +1,9 @@
 {
-  "label": "v111",
+  "label": "v112",
   "changes": [
-    "Fixed: AI chat conversation could carry over between your Family and Business spaces — each space now has its own separate chat",
-    "Tapping the family photo or business logo now opens it full-size instead of only opening settings",
-    "Business Document Vault now only shows business-relevant categories, not family-only ones like Education",
-    "Added employer/workplace details to a member's profile, surfaced on the Emergency card",
-    "The family/team list now collapses everyone except the person you've selected, so the list takes up less space",
-    "Creating a new business now automatically adds you as its first team member instead of showing a blank form"
+    "Document scanner now uses real edge detection to find and crop to the document automatically, instead of a fixed guide box",
+    "Added an 'Adjust' step to drag the scan's corners by hand if the automatic crop isn't quite right",
+    "Raised the camera's requested resolution to fix blurry scans",
+    "Removed the multi-camera picker — the scanner now just uses your rear camera automatically"
   ]
 }
