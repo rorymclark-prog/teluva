@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, Recipe, RecipeBookDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -313,6 +313,31 @@ export const saveShopping = (items: ShoppingItem[]) => saveReferenceDoc('shoppin
 export async function loadShopping(): Promise<ShoppingItem[]> {
   const data = await loadReferenceDoc<{ items: ShoppingItem[] }>('shopping', 'family_shopping');
   return data?.items || [];
+}
+
+// --- Recipe Book: one shared doc for the whole household, same shape as
+// documents/shopping above. ---
+export const saveRecipes = (recipes: Recipe[]) => saveReferenceDoc('recipes', { recipes }, 'family_recipes');
+export async function loadRecipes(): Promise<Recipe[]> {
+  const data = await loadReferenceDoc<RecipeBookDoc>('recipes', 'family_recipes');
+  return data?.recipes || [];
+}
+
+// Recipe photo (the original card/page): uploaded to Firebase Storage rather
+// than embedded as base64, so a growing recipe collection never risks the
+// 1MiB Firestore document cap the way a base64-per-recipe doc would.
+export async function uploadRecipePhoto(dataUrl: string): Promise<string> {
+  const id = Date.now().toString() + Math.floor(Math.random() * 1000);
+  const [head, b64] = dataUrl.split(',');
+  const mime = (head.match(/data:(.*?);base64/) || [])[1] || 'image/jpeg';
+  const bin = atob(b64 || '');
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  const blob = new Blob([arr], { type: mime });
+  const storagePath = `families/${FAMILY_ID}/recipe-photos/${id}.jpg`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: mime });
+  return await getDownloadURL(r);
 }
 
 // --- User profile (users/{uid}) ---

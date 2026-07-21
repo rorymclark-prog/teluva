@@ -13,6 +13,7 @@ import {
   loadSettings, saveSettings,
   loadDocuments, saveDocuments,
   loadShopping, saveShopping,
+  loadRecipes, saveRecipes,
   saveAsset,
 } from '../utils/db';
 import {
@@ -20,6 +21,7 @@ import {
   applyCalendarEdits, applyHouseholdEdits, applyFinancesEdits, applyTimelineEdits,
   hasCalendarEdits, hasHouseholdEdits, hasFinancesEdits, hasTimelineEdits,
   hasShoppingEdits, applyShoppingEdits, hasAssetEdits,
+  hasRecipeEdits, applyRecipeEdits,
 } from '../utils/aiApply';
 import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
@@ -61,12 +63,13 @@ import TimelineView from './TimelineView';
 import DocumentVault from './DocumentVault';
 import Assets from './Assets';
 import FamilyPasswords from './FamilyPasswords';
+import RecipeBook from './RecipeBook';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
-  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope
+  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, ChefHat
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -92,7 +95,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'recipes';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -118,6 +121,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'timeline', icon: CalendarHeart },
   { id: 'vault', icon: FolderArchive },
   { id: 'assets', icon: Package },
+  { id: 'recipes', icon: ChefHat },
   { id: 'shopping', icon: ShoppingCart },
   { id: 'passwords', icon: KeyRound },
   { id: 'chat', icon: MessageCircle },
@@ -520,12 +524,18 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         if (!ok) failures.push('assets');
       }
     }
+    if (hasRecipeEdits(edits)) {
+      const current = await loadRecipes();
+      const ok = await saveRecipes(applyRecipeEdits(current, edits));
+      if (!ok) failures.push('recipes');
+    }
 
     // Remount the self-loading views so an applied change shows immediately
     // (these views load their data once on mount and take no props).
     if (
       hasInfoEdits(edits) || hasHouseholdEdits(edits) || hasFinancesEdits(edits) ||
-      hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits)
+      hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
+      hasRecipeEdits(edits)
     ) {
       setAiDataVersion(v => v + 1);
     }
@@ -861,6 +871,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'assets' && (
           demo ? <DemoUnavailable label="Family assets" /> : <Assets key={aiDataVersion} />
+        )}
+
+        {mainView === 'recipes' && (
+          demo ? <DemoUnavailable label="The recipe book" /> : <RecipeBook key={aiDataVersion} />
         )}
 
         {mainView === 'passwords' && (
