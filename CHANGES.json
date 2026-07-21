@@ -1,7 +1,7 @@
 {
-  "label": "v109",
+  "label": "v110",
   "changes": [
-    "The document scanner now asks what you're scanning first — ID card, Passport, or Document — and only asks for the back of an ID card, not a passport",
-    "The scanner now auto-captures once you hold the camera steady, instead of always needing a manual tap"
+    "The scanner's viewfinder frame now actually crops the photo to what's inside it, instead of saving the whole camera view including the background",
+    "Photos and scans you send in AI chat now stay available even after the app reloads, so you can still act on them later"
   ]
 }

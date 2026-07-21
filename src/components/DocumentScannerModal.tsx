@@ -70,6 +70,7 @@ export default function DocumentScannerModal({
   const [isHolding, setIsHolding] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const guideRef = useRef<HTMLDivElement>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
   const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevSampleRef = useRef<Uint8ClampedArray | null>(null);
@@ -133,16 +134,49 @@ export default function DocumentScannerModal({
     }
   };
 
+  // Crops the capture to the viewfinder guide instead of saving the full,
+  // uncropped camera frame — previously the brackets were purely decorative,
+  // so a captured photo always included whatever background/table surrounded
+  // the document. The video renders via object-cover (scaled up and
+  // center-cropped to fill its box), so the guide's on-screen rectangle has
+  // to be mapped back through that same scale/offset to find the matching
+  // region in the video's own native pixel space.
   const handleCapture = () => {
     if (!videoRef.current) return;
     stopAutoCapture();
     const video = videoRef.current;
+    const vw = video.videoWidth || 1280;
+    const vh = video.videoHeight || 720;
+
+    let sx = 0, sy = 0, sw = vw, sh = vh;
+    const videoRect = video.getBoundingClientRect();
+    const guideRect = guideRef.current?.getBoundingClientRect();
+    if (guideRect && videoRect.width > 0 && videoRect.height > 0) {
+      const scale = Math.max(videoRect.width / vw, videoRect.height / vh);
+      const renderedW = vw * scale;
+      const renderedH = vh * scale;
+      const offsetX = (renderedW - videoRect.width) / 2;
+      const offsetY = (renderedH - videoRect.height) / 2;
+      const guideLeftInRendered = (guideRect.left - videoRect.left) + offsetX;
+      const guideTopInRendered = (guideRect.top - videoRect.top) + offsetY;
+      const cropX = Math.max(0, guideLeftInRendered / scale);
+      const cropY = Math.max(0, guideTopInRendered / scale);
+      const cropW = Math.min(vw - cropX, guideRect.width / scale);
+      const cropH = Math.min(vh - cropY, guideRect.height / scale);
+      if (cropW > 0 && cropH > 0) {
+        sx = cropX;
+        sy = cropY;
+        sw = cropW;
+        sh = cropH;
+      }
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = Math.round(sw);
+    canvas.height = Math.round(sh);
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
       setCapturedPhoto(canvas.toDataURL('image/jpeg', 0.85));
     }
   };
@@ -400,8 +434,11 @@ export default function DocumentScannerModal({
                 </div>
               )}
               <video ref={videoRef} playsInline autoPlay muted onPlaying={startAutoCapture} className="w-full h-full object-cover" />
-              {/* Viewfinder bracket overlay — brackets warm up while holding still, ahead of auto-capture */}
-              <div className={`absolute inset-4 border pointer-events-none rounded-xl flex flex-col justify-between transition-colors ${isHolding ? 'border-clay-400/40' : 'border-white/20'}`}>
+              {/* Viewfinder bracket overlay — this rectangle is what actually gets
+                  captured (see handleCapture's guideRef math), so it isn't just
+                  decorative; brackets also warm up while holding still, ahead of
+                  auto-capture */}
+              <div ref={guideRef} className={`absolute inset-4 border pointer-events-none rounded-xl flex flex-col justify-between transition-colors ${isHolding ? 'border-clay-400/40' : 'border-white/20'}`}>
                 <div className="flex justify-between p-2">
                   <div className={`w-6 h-6 border-t-2 border-l-2 rounded-tl transition-colors ${isHolding ? 'border-clay-400' : 'border-white/85'}`}></div>
                   <div className={`w-6 h-6 border-t-2 border-r-2 rounded-tr transition-colors ${isHolding ? 'border-clay-400' : 'border-white/85'}`}></div>

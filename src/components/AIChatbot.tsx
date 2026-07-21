@@ -4,7 +4,7 @@ import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
-  loadChatHistory, saveChatHistory,
+  loadChatHistory, saveChatHistory, uploadChatAttachment,
 } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
@@ -226,10 +226,20 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading, streamWordCount]);
 
-  // Strip heavy/base64 fields (image(s), sourceImage(s)) before persisting;
-  // keep edits + applied so cards restore their applied state.
+  // Attachments are uploaded to Storage as soon as a message sends (see send()),
+  // so images/sourceImages normally hold small https download URLs by the time
+  // this runs — safe to persist. Only the raw base64 data: URLs are stripped
+  // (the legacy singular image/sourceImage fields are never written by current
+  // code, so those always drop). If an upload is still in flight or failed,
+  // its dataUrl is still `data:` and gets stripped here rather than bloating
+  // storage — that attachment just won't survive a reload, same as before.
+  const isRemoteUrl = (src: string) => /^https?:\/\//i.test(src);
   const slimForCloud = (msgs: ChatMessage[]) =>
-    msgs.map(({ image, images, sourceImage, sourceImages, ...m }) => m);
+    msgs.map(({ image, sourceImage, images, sourceImages, ...m }) => ({
+      ...m,
+      images: images?.every(isRemoteUrl) ? images : undefined,
+      sourceImages: sourceImages?.every((a) => isRemoteUrl(a.dataUrl)) ? sourceImages : undefined,
+    }));
 
   // Persist the conversation (minus heavy image data) on this device.
   useEffect(() => {
@@ -370,7 +380,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
 
     const history = messages.map(m => ({ role: m.role, text: m.text }));
     const fallbackText = atts.length === 1 ? `📎 ${atts[0].name}` : `📎 ${atts.length} files`;
-    setMessages(prev => [...prev, { role: 'user', text: msg || fallbackText, images: atts.length ? atts.map(a => a.dataUrl) : undefined }]);
+    const userMsg: ChatMessage = { role: 'user', text: msg || fallbackText, images: atts.length ? atts.map(a => a.dataUrl) : undefined };
+    setMessages(prev => [...prev, userMsg]);
     setLoading(true);
 
     try {
@@ -382,11 +393,31 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       const body: any = { message: msg, context, history, lang };
       if (atts.length) body.images = atts.map(a => ({ mimeType: a.mimeType, data: a.dataUrl.split(',')[1] }));
 
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
-      });
+      // Upload each attachment to Storage in parallel with the AI request (not
+      // blocking it) so the persisted copy of this message can hold a small,
+      // durable https URL instead of the raw base64 — previously that image
+      // data was stripped before ever being saved, so an attached scan was
+      // silently gone from the chat the moment the app reloaded.
+      const uploadPromise: Promise<Attachment[]> = atts.length
+        ? Promise.all(atts.map(async (a) => {
+            try {
+              const url = await uploadChatAttachment(a.dataUrl, a.mimeType, user.uid);
+              return { ...a, dataUrl: url };
+            } catch (e) {
+              console.error('Chat attachment upload failed — it will not survive a reload:', e);
+              return a;
+            }
+          }))
+        : Promise.resolve([]);
+
+      const [res, persistedAtts] = await Promise.all([
+        fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(body),
+        }),
+        uploadPromise,
+      ]);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'The assistant is unavailable right now.');
 
@@ -415,11 +446,16 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         role: 'assistant',
         text: data.reply || '…',
         edits: edits.length ? edits : undefined,
-        sourceImages: atts.length ? atts : undefined,
+        sourceImages: persistedAtts.length ? persistedAtts : undefined,
         warnings: warnings.length ? warnings : undefined,
       };
       setMessages(prev => {
-        const updatedMessages = [...prev, assistantMsg];
+        // Patch the earlier optimistic user message's images to the uploaded
+        // Storage URLs too, so both sides of this exchange survive a reload.
+        const withUploadedImages = persistedAtts.length
+          ? prev.map(m => (m === userMsg ? { ...m, images: persistedAtts.map(a => a.dataUrl) } : m))
+          : prev;
+        const updatedMessages = [...withUploadedImages, assistantMsg];
         if (uid) saveChatHistory(uid, slimForCloud(updatedMessages));
         return updatedMessages;
       });

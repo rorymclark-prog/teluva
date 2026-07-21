@@ -357,6 +357,20 @@ export async function uploadAssetPhoto(dataUrl: string): Promise<string> {
   return getDownloadURL(r);
 }
 
+// --- Chat attachments: uploaded to Storage (not kept as inline base64 in chat
+// history) so a scan/photo a user attached stays available after a reload —
+// previously the raw dataURL was stripped from every persisted message
+// (localStorage AND Firestore) to avoid bloating storage, which meant an
+// attached scan was silently gone the moment the app reloaded, breaking any
+// "save it anyway" follow-up on an older message. ---
+export async function uploadChatAttachment(dataUrl: string, mimeType: string, uid: string): Promise<string> {
+  const blob = await (await fetch(dataUrl)).blob();
+  const storagePath = `families/${FAMILY_ID}/chat-attachments/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: mimeType || blob.type || 'application/octet-stream' });
+  return getDownloadURL(r);
+}
+
 // Best-effort delete of a Storage-backed asset photo by its download URL.
 // ref(storage, url) resolves an https download URL to its object. Legacy inline
 // base64 photos aren't in Storage, so they're skipped.
