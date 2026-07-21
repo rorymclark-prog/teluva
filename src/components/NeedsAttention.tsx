@@ -8,8 +8,18 @@ import { vehicleDeadlines, vehicleLabel } from '../utils/vehicle';
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
 
-type Tone = 'urgent' | 'warn' | 'info';
-interface Nudge {
+// Local-time YYYY-MM-DD formatter — avoids the off-by-one-day bug you get from
+// Date#toISOString() (which converts to UTC) when the user's timezone is ahead
+// of UTC, e.g. Vienna. Mirrors utils/vehicle.ts's toISO().
+function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export type Tone = 'urgent' | 'warn' | 'info';
+export interface Nudge {
   key: string;
   memberId: string;
   icon: ElementType;
@@ -17,6 +27,8 @@ interface Nudge {
   text: string;
   tab: string;
   view?: string; // if set, the nudge navigates to a top-level view (e.g. 'assets') instead of a member tab
+  date?: string; // YYYY-MM-DD, when this nudge is tied to a specific date — used by MemberCalendarDates
+  days?: number; // days until `date` (negative = overdue) — used by MemberCalendarDates for sorting
 }
 
 // Asset completeness nudges — surfaced from the family's belongings (loaded
@@ -57,16 +69,16 @@ function computeAssetNudges(assets: AssetItem[]): Nudge[] {
 
 // Vehicle deadline nudges — inspection (§57a/MOT), insurance renewal, service,
 // vignette. Overdue = urgent, due within 42 days = warn. One per due deadline.
-function computeVehicleNudges(vehicles: Vehicle[]): Nudge[] {
+export function computeVehicleNudges(vehicles: Vehicle[]): Nudge[] {
   const out: Nudge[] = [];
   for (const v of vehicles) {
     for (const d of vehicleDeadlines(v)) {
       if (d.days > 42) continue;
       const name = vehicleLabel(v);
       if (d.days < 0) {
-        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'urgent', text: `${name}: ${d.label} overdue`, tab: 'vehicles', view: 'vehicles' });
+        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'urgent', text: `${name}: ${d.label} overdue`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days });
       } else {
-        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles' });
+        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days });
       }
     }
   }
@@ -103,7 +115,7 @@ function computeContactNudges(contacts: ContactEntry[]): Nudge[] {
 }
 
 // Deterministic, data-derived nudges — no AI, no cost, no new fields.
-function computeNudges(members: FamilyMember[]): Nudge[] {
+export function computeNudges(members: FamilyMember[]): Nudge[] {
   const now = Date.now();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -124,9 +136,10 @@ function computeNudges(members: FamilyMember[]): Nudge[] {
       const t = new Date(p.expiryDate).getTime();
       if (isNaN(t)) continue;
       const months = (t - now) / MONTH;
+      const days = Math.round((t - now) / DAY);
       const label = `${p.country || ''} passport`.trim();
-      if (months < 0) out.push({ key: `exp-${m.id}-${p.number}`, memberId: m.id, icon: Bell, tone: 'urgent', text: `${first}'s ${label} has expired`, tab: 'ids' });
-      else if (months <= 9) out.push({ key: `exp-${m.id}-${p.number}`, memberId: m.id, icon: Bell, tone: 'warn', text: `${first}'s ${label} expires in ~${Math.max(1, Math.round(months))} months`, tab: 'ids' });
+      if (months < 0) out.push({ key: `exp-${m.id}-${p.number}`, memberId: m.id, icon: Bell, tone: 'urgent', text: `${first}'s ${label} has expired`, tab: 'ids', date: p.expiryDate, days });
+      else if (months <= 9) out.push({ key: `exp-${m.id}-${p.number}`, memberId: m.id, icon: Bell, tone: 'warn', text: `${first}'s ${label} expires in ~${Math.max(1, Math.round(months))} months`, tab: 'ids', date: p.expiryDate, days });
     }
 
     // Has a passport number but no scan filed
@@ -141,7 +154,7 @@ function computeNudges(members: FamilyMember[]): Nudge[] {
         const nb = new Date(today.getFullYear(), bd.getMonth(), bd.getDate());
         if (nb.getTime() < today.getTime()) nb.setFullYear(today.getFullYear() + 1);
         const days = Math.round((nb.getTime() - today.getTime()) / DAY);
-        if (days <= 21) out.push({ key: `bday-${m.id}`, memberId: m.id, icon: Cake, tone: 'info', text: days === 0 ? `It's ${first}'s birthday today! 🎂` : `${first}'s birthday in ${days} day${days !== 1 ? 's' : ''}`, tab: 'favorites' });
+        if (days <= 21) out.push({ key: `bday-${m.id}`, memberId: m.id, icon: Cake, tone: 'info', text: days === 0 ? `It's ${first}'s birthday today! 🎂` : `${first}'s birthday in ${days} day${days !== 1 ? 's' : ''}`, tab: 'favorites', date: toISODate(nb), days });
       }
     }
 
@@ -150,7 +163,22 @@ function computeNudges(members: FamilyMember[]): Nudge[] {
       const times = (m.growthHistory || []).map((l) => new Date(l.date).getTime()).filter((t) => !isNaN(t));
       const last = times.length ? Math.max(...times) : 0;
       const monthsSince = last ? (now - last) / MONTH : Infinity;
-      if (monthsSince > 6) out.push({ key: `grow-${m.id}`, memberId: m.id, icon: Ruler, tone: 'info', text: last ? `${first} was last measured ${Math.round(monthsSince)} months ago — measure again?` : `No growth checks for ${first} yet`, tab: 'growth' });
+      if (monthsSince > 6) {
+        // "Due" date for the calendar-dates view = 6 months after the last check —
+        // the same threshold that triggers this nudge, just expressed as a date.
+        // No `last` (never measured) → no natural date, left undefined.
+        const dueDate = last ? new Date(last + 6 * MONTH) : null;
+        out.push({
+          key: `grow-${m.id}`,
+          memberId: m.id,
+          icon: Ruler,
+          tone: 'info',
+          text: last ? `${first} was last measured ${Math.round(monthsSince)} months ago — measure again?` : `No growth checks for ${first} yet`,
+          tab: 'growth',
+          date: dueDate ? toISODate(dueDate) : undefined,
+          days: dueDate ? Math.round((dueDate.getTime() - now) / DAY) : undefined,
+        });
+      }
     }
 
     // Missing medical basics
@@ -160,8 +188,10 @@ function computeNudges(members: FamilyMember[]): Nudge[] {
     // Care schedule (dentist, check-ups, vaccinations …) due or overdue
     for (const item of m.careSchedule || []) {
       const due = careNextDue(item, now);
-      if (due.status === 'overdue') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'urgent', text: `${first}'s ${item.kind} is overdue`, tab: 'care' });
-      else if (due.status === 'due-soon') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'warn', text: `${first}'s ${item.kind} is due soon`, tab: 'care' });
+      const dueDate = due.date ? toISODate(due.date) : undefined;
+      const dueDays = due.date ? Math.round((due.date.getTime() - now) / DAY) : undefined;
+      if (due.status === 'overdue') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'urgent', text: `${first}'s ${item.kind} is overdue`, tab: 'care', date: dueDate, days: dueDays });
+      else if (due.status === 'due-soon') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'warn', text: `${first}'s ${item.kind} is due soon`, tab: 'care', date: dueDate, days: dueDays });
     }
 
     // Transit pass expiry (Jahreskarte, Klimaticket, rail passes …)
@@ -170,8 +200,9 @@ function computeNudges(members: FamilyMember[]): Nudge[] {
       const t = new Date(pass.validUntil).getTime();
       if (isNaN(t)) continue;
       const months = (t - now) / MONTH;
-      if (months < 0) out.push({ key: `pass-${m.id}-${pass.id}`, memberId: m.id, icon: TrainFront, tone: 'urgent', text: `${first}'s ${pass.name} has expired`, tab: 'travel' });
-      else if (months <= 1.5) out.push({ key: `pass-${m.id}-${pass.id}`, memberId: m.id, icon: TrainFront, tone: 'warn', text: `${first}'s ${pass.name} expires soon`, tab: 'travel' });
+      const days = Math.round((t - now) / DAY);
+      if (months < 0) out.push({ key: `pass-${m.id}-${pass.id}`, memberId: m.id, icon: TrainFront, tone: 'urgent', text: `${first}'s ${pass.name} has expired`, tab: 'travel', date: pass.validUntil, days });
+      else if (months <= 1.5) out.push({ key: `pass-${m.id}-${pass.id}`, memberId: m.id, icon: TrainFront, tone: 'warn', text: `${first}'s ${pass.name} expires soon`, tab: 'travel', date: pass.validUntil, days });
     }
 
     // Residence permit & driver's licence expiry
@@ -184,8 +215,9 @@ function computeNudges(members: FamilyMember[]): Nudge[] {
       const t = new Date(expiry).getTime();
       if (isNaN(t)) continue;
       const months = (t - now) / MONTH;
-      if (months < 0) out.push({ key: `id-${m.id}-${key}`, memberId: m.id, icon: IdCard, tone: 'urgent', text: `${first}'s ${label} has expired`, tab: 'ids' });
-      else if (months <= 2) out.push({ key: `id-${m.id}-${key}`, memberId: m.id, icon: IdCard, tone: 'warn', text: `${first}'s ${label} expires soon`, tab: 'ids' });
+      const days = Math.round((t - now) / DAY);
+      if (months < 0) out.push({ key: `id-${m.id}-${key}`, memberId: m.id, icon: IdCard, tone: 'urgent', text: `${first}'s ${label} has expired`, tab: 'ids', date: expiry, days });
+      else if (months <= 2) out.push({ key: `id-${m.id}-${key}`, memberId: m.id, icon: IdCard, tone: 'warn', text: `${first}'s ${label} expires soon`, tab: 'ids', date: expiry, days });
     }
 
     // Visa expiry
@@ -194,8 +226,9 @@ function computeNudges(members: FamilyMember[]): Nudge[] {
       const t = new Date(visa.expiryDate).getTime();
       if (isNaN(t)) continue;
       const months = (t - now) / MONTH;
-      if (months < 0) out.push({ key: `visa-${m.id}-${visa.id}`, memberId: m.id, icon: Bell, tone: 'urgent', text: `${first}'s ${visa.country} visa has expired`, tab: 'travel' });
-      else if (months <= 2) out.push({ key: `visa-${m.id}-${visa.id}`, memberId: m.id, icon: Bell, tone: 'warn', text: `${first}'s ${visa.country} visa expires soon`, tab: 'travel' });
+      const days = Math.round((t - now) / DAY);
+      if (months < 0) out.push({ key: `visa-${m.id}-${visa.id}`, memberId: m.id, icon: Bell, tone: 'urgent', text: `${first}'s ${visa.country} visa has expired`, tab: 'travel', date: visa.expiryDate, days });
+      else if (months <= 2) out.push({ key: `visa-${m.id}-${visa.id}`, memberId: m.id, icon: Bell, tone: 'warn', text: `${first}'s ${visa.country} visa expires soon`, tab: 'travel', date: visa.expiryDate, days });
     }
   }
 

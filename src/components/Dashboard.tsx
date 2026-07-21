@@ -79,6 +79,7 @@ import TravelPack from './TravelPack';
 import FamilyStats from './FamilyStats';
 import FamilyQuiz from './FamilyQuiz';
 import HealthTimeline from './HealthTimeline';
+import MemberCalendarDates from './MemberCalendarDates';
 import { sunSign } from '../utils/astrology';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
@@ -286,6 +287,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [showMemberCalendar, setShowMemberCalendar] = useState(false);
   const [settings, setSettings] = useState<HubSettings>({});
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -1253,6 +1255,15 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                           <div className="min-w-0">
                             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink-900 flex items-center gap-2.5 flex-wrap">
                               <span className="truncate">{memberName(selectedMember)}</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowMemberCalendar(true)}
+                                className="p-1.5 rounded-lg bg-cream-200 hover:bg-cream-300 text-ink-600 transition-colors cursor-pointer"
+                                title="Relevant dates"
+                                aria-label={`${selectedMember.name}'s relevant dates`}
+                              >
+                                <Calendar className="w-3.5 h-3.5" />
+                              </button>
                               {isAdmin && (
                                 <button
                                   type="button"
@@ -1485,6 +1496,15 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         onSave={handleUpdateMember}
         isBusinessSpace={isBusinessSpace}
       />
+
+      {showMemberCalendar && selectedMember && (
+        <MemberCalendarDates
+          member={selectedMember}
+          onClose={() => setShowMemberCalendar(false)}
+          onGoTab={(tab) => { goToMemberTab(selectedMember.id, tab); setShowMemberCalendar(false); }}
+          onGoView={(view) => { setMainView(view as ViewId); setShowMemberCalendar(false); }}
+        />
+      )}
 
       <HubSettingsModal
         isOpen={isSettingsOpen}
