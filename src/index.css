@@ -14,7 +14,15 @@
   --color-cream-300: #E5E2DB;  /* hairline border */
   --color-cream-400: #D6D2C8;  /* strong border */
 
-  /* Ink (warm near-black text) */
+  /* Ink (warm near-black text).
+     The light end of this ramp (50-300) was missing while ~50 places in the app
+     already used it — Tailwind v4 silently emits NO rule for an undefined token,
+     so `text-ink-300` on a faint icon just inherited its parent's dark colour and
+     looked wrong with nothing failing. Same warm-grey ramp continued upward. */
+  --color-ink-50: #FAFAF9;     /* barely-there tint */
+  --color-ink-100: #F5F5F4;    /* subtle fill */
+  --color-ink-200: #E7E5E4;    /* light divider */
+  --color-ink-300: #D6D3D1;    /* faint icon / disabled */
   --color-ink-400: #A8A29E;    /* faint / placeholder */
   --color-ink-500: #78716C;    /* muted */
   --color-ink-600: #57534E;    /* secondary */
@@ -60,6 +68,10 @@
   --color-rosa-50: #FDEDF1;
   --color-rosa-100: #FBDCE4;
   --color-rosa-500: #E11D48;
+  /* rosa-600 was used in ~50 places (mostly hover:text-rosa-600 on delete/danger
+     controls) but never defined, so those controls never actually turned red.
+     Sits between 500 and 700 so a 700-resting / 600-hover pair lightens on hover. */
+  --color-rosa-600: #CF1740;
   --color-rosa-700: #BE123C;
 
   /* Signature avatar ring: amber → ember → magenta (Instagram story-ring technique) */
