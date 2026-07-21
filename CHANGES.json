@@ -1,6 +1,6 @@
 {
-  "label": "v117",
+  "label": "v118",
   "changes": [
-    "Fixed: the scanner's manual corner-adjustment screen was missing its Apply button on tall/portrait photos — it was there, just scrolled out of view"
+    "Fixed a colour bug across the whole app: faint icons, dividers and delete buttons were quietly rendering in the wrong colour — delete controls now actually turn red, and muted text looks properly muted"
   ]
 }
