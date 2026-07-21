@@ -80,7 +80,7 @@ interface Props {
 // The first thing on the Emergency essentials card: the health-insurance number a
 // paramedic or admissions desk asks for before anything else, plus one tap to the
 // scan of the card itself. Read-only on purpose — the number is OWNED by the
-// ID & documents tab, so it is never editable in two places.
+// ID & Passports tab, so it is never editable in two places.
 export default function HealthInsuranceRow({ member, country }: Props) {
   const [showCard, setShowCard] = useState(false);
 
@@ -103,7 +103,10 @@ export default function HealthInsuranceRow({ member, country }: Props) {
   if (!number) {
     return (
       <p className="text-[13px] text-ink-500">
-        No {shape.label.toLowerCase()} on file — add it under <span className="font-semibold text-ink-600">ID &amp; documents</span>.
+        {/* Label kept verbatim, NOT lowercased — these are acronyms and product
+            names ("NHS number", "e-card · SV number"), and lowercasing them
+            produced "No nhs number on file". Tab name must match the real tab. */}
+        No {shape.label} on file — add it under <span className="font-semibold text-ink-600">ID &amp; Passports</span>.
       </p>
     );
   }
@@ -136,7 +139,7 @@ export default function HealthInsuranceRow({ member, country }: Props) {
         <button
           type="button"
           onClick={() => setShowCard(true)}
-          className="btn-primary text-xs px-3 py-2 shrink-0"
+          className="btn-primary text-xs px-3 py-2.5 min-h-[44px] shrink-0"
           title={scan ? 'Show the card scan full screen' : 'Show this number full screen'}
         >
           <Maximize2 className="w-3.5 h-3.5" />

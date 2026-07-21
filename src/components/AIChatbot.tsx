@@ -5,6 +5,7 @@ import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
   loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto, loadSpaceInfo, uploadSlipPhoto,
+  uploadChatAttachmentWithPath,
 } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
@@ -39,7 +40,11 @@ export type AiEdit =
   | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string; birthdate?: string }
   | { kind: 'provider'; name: string; type?: string; specialty?: string; practiceName?: string; phone?: string; afterHoursPhone?: string; email?: string; address?: string; forMember?: string }
   | { kind: 'number'; label: string; value: string }
-  | { kind: 'document'; name: string; category: VaultCategory; member?: string; imageIndex?: number }
+  // fileUrl/fileStoragePath/fileName/fileMimeType/fileSize/contentHash are stamped
+  // client-side the moment the attachment finishes uploading (see send()) — the
+  // model must NEVER supply them. They make the edit SELF-CONTAINED: Apply can
+  // file the scan from the edit alone, with nothing needed from chat history.
+  | { kind: 'document'; name: string; category: VaultCategory; member?: string; imageIndex?: number; fileUrl?: string; fileStoragePath?: string; fileName?: string; fileMimeType?: string; fileSize?: number; contentHash?: string }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
   | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string }
@@ -62,6 +67,15 @@ export type AiEdit =
   | { kind: 'estate_record'; docKind: string; forMember?: string; originalLocation?: string; heldBy?: string; notaryName?: string; notaryPhone?: string; executor?: string; lastReviewed?: string; notes?: string };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
+
+// An Attachment after its Storage upload resolved: dataUrl is now an https
+// download URL, and storagePath/fileSize/contentHash were captured from the
+// base64 before it was discarded. The extras are absent when the upload failed.
+interface PersistedAttachment extends Attachment {
+  storagePath?: string;
+  fileSize?: number;
+  contentHash?: string;
+}
 
 // A document edit that looks like it might already be saved — surfaced inline
 // so the user can pick Replace or Keep both before Apply actually files it.
@@ -130,6 +144,37 @@ function dataUrlToBlob(dataUrl: string): Blob {
   const arr = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   return new Blob([arr], { type: mime });
+}
+
+// dataUrlToBlob() only understands base64 data: URLs. Since attachments are
+// uploaded to Storage the moment a message sends, an Attachment's dataUrl is
+// normally an https download URL by the time Apply runs — and atob() on that
+// decoded to an EMPTY string, so the "blob" was ZERO BYTES: an empty file went
+// into the vault with no error, and every scan hashed identically so duplicate
+// detection misfired. Fetch remote URLs instead of pretending to decode them.
+async function attachmentToBlob(src: Attachment): Promise<Blob> {
+  if (/^https?:\/\//i.test(src.dataUrl)) {
+    const res = await fetch(src.dataUrl);
+    if (!res.ok) throw new Error("Couldn't read the attached photo back from storage.");
+    return res.blob();
+  }
+  return dataUrlToBlob(src.dataUrl);
+}
+
+// The original bytes of attachments uploaded in THIS session, keyed by their
+// Storage path. Lets Apply upload a proper full copy into the vault's own
+// documents/ prefix (exactly as before this change) without re-downloading,
+// while the stamped fileUrl on the edit remains the durable fallback for an
+// Apply that happens after a reload. Deliberately module-level and bounded —
+// it is a cache, never a source of truth, and losing it costs nothing.
+const sessionAttachmentBlobs = new Map<string, Blob>();
+const MAX_CACHED_ATTACHMENT_BLOBS = 12;
+function cacheAttachmentBlob(storagePath: string, blob: Blob) {
+  if (sessionAttachmentBlobs.size >= MAX_CACHED_ATTACHMENT_BLOBS) {
+    const oldest = sessionAttachmentBlobs.keys().next().value;
+    if (oldest) sessionAttachmentBlobs.delete(oldest);
+  }
+  sessionAttachmentBlobs.set(storagePath, blob);
 }
 
 const firstName = (m: FamilyMember): string => (m.nickname || m.name).trim().split(/\s+/)[0];
@@ -420,14 +465,23 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       // durable https URL instead of the raw base64 — previously that image
       // data was stripped before ever being saved, so an attached scan was
       // silently gone from the chat the moment the app reloaded.
-      const uploadPromise: Promise<Attachment[]> = atts.length
+      // Also computes the hash/size from the base64 while it is still in hand —
+      // after the upload resolves, `dataUrl` is an https URL and those bytes are
+      // gone from the message. Everything computed here is stamped onto the
+      // document edits below, which is what makes filing independent of chat.
+      const uploadFailures: string[] = [];
+      const uploadPromise: Promise<PersistedAttachment[]> = atts.length
         ? Promise.all(atts.map(async (a) => {
             try {
-              const url = await uploadChatAttachment(a.dataUrl, a.mimeType, user.uid);
-              return { ...a, dataUrl: url };
+              const blob = dataUrlToBlob(a.dataUrl);
+              const contentHash = await computeFileHash(blob);
+              const { url, storagePath } = await uploadChatAttachmentWithPath(a.dataUrl, a.mimeType, user.uid);
+              cacheAttachmentBlob(storagePath, blob);
+              return { ...a, dataUrl: url, storagePath, fileSize: blob.size, contentHash };
             } catch (e) {
               console.error('Chat attachment upload failed — it will not survive a reload:', e);
-              return a;
+              uploadFailures.push(a.name);
+              return { ...a };
             }
           }))
         : Promise.resolve([]);
@@ -449,7 +503,21 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       const edits: AiEdit[] = rawEdits.map(e => {
         if (e.kind !== 'document') return e;
         const owner = inferDocOwner(e, rawEdits);
-        return owner ? { ...e, member: owner.name } : e;
+        const withOwner = owner ? { ...e, member: owner.name } : e;
+        // Stamp the uploaded scan onto the edit itself. This is the whole point
+        // of the change: from here on, filing the document needs NOTHING from
+        // chat history — not the message, not sourceImages, not localStorage,
+        // not surviving the 50-message truncation in saveChatHistory. Skipped
+        // when the upload failed (no storagePath), so those cards keep today's
+        // behaviour rather than pointing at a URL that doesn't exist.
+        const src = persistedAtts[e.imageIndex ?? 0] || persistedAtts[0];
+        if (!src?.storagePath) return withOwner;
+        return {
+          ...withOwner,
+          fileUrl: src.dataUrl, fileStoragePath: src.storagePath,
+          fileName: src.name, fileMimeType: src.mimeType,
+          fileSize: src.fileSize, contentHash: src.contentHash,
+        };
       });
       // Safety net for a known failure mode: the model sometimes files a passport
       // scan as a plain document without the matching structured passport edit
@@ -482,6 +550,12 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         return updatedMessages;
       });
       startStreaming(assistantMsg.text);
+      // A failed attachment upload used to only console.error, so the user found
+      // out much later — when Apply mysteriously couldn't file the document.
+      // Say it now, while the photo is still on their screen to re-send.
+      if (uploadFailures.length) {
+        setError(`Couldn't save ${uploadFailures.join(', ')} to storage — the photo may not be available later. Send it again if the document doesn't file.`);
+      }
     } catch (e: any) {
       const raw = e?.message || 'Something went wrong.';
       // "Load failed" is Safari/iOS's fetch abort error — surface a clearer message
@@ -556,13 +630,26 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     const flags: DocDuplicateFlag[] = [];
     for (let i = 0; i < docEdits.length; i++) {
       const e = docEdits[i];
-      const src = srcs[e.imageIndex ?? 0] || srcs[0];
-      if (!src) continue;
-      const blob = dataUrlToBlob(src.dataUrl);
-      const hash = await computeFileHash(blob);
+      // Prefer the signature stamped onto the edit at upload time: it was
+      // computed from the real base64 and is always right. Deriving it from a
+      // chat attachment only works while the message still carries a usable
+      // image — and, before attachmentToBlob, silently hashed an EMPTY blob
+      // once the dataUrl had become an https URL, so every scan looked like a
+      // duplicate of every other.
+      let fileName = e.fileName;
+      let fileSize = e.fileSize;
+      let hash = e.contentHash;
+      if (!hash) {
+        const src = srcs[e.imageIndex ?? 0] || srcs[0];
+        if (!src) continue;
+        const blob = await attachmentToBlob(src);
+        fileName = src.name;
+        fileSize = blob.size;
+        hash = await computeFileHash(blob);
+      }
       const ownerId = resolveMemberByName(e.member)?.id;
       const sameSlot = existing.filter((d) => d.category === e.category && (d.memberId || '') === (ownerId || ''));
-      const match = findLikelyDuplicate({ fileName: src.name, fileSize: blob.size, contentHash: hash }, existing)
+      const match = findLikelyDuplicate({ fileName: fileName || '', fileSize: fileSize ?? 0, contentHash: hash }, existing)
         || findLikelyDuplicateByType(e.name, sameSlot);
       if (match) flags.push({ editIdx: i, name: e.name, match });
     }
@@ -578,18 +665,18 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   // carries the user's Replace/Keep-both choice for any edit flagged as a
   // likely duplicate by checkDocDuplicates (absent = no flag, nothing to resolve).
   const fileScans = async (docEdits: DocEdit[], srcs: Attachment[], resolutions: Record<number, DocDuplicateFlag>) => {
-    if (!srcs.length) return;
+    // Nothing to file only when BOTH sources are missing: an edit stamped with
+    // its own fileUrl needs no chat attachment at all.
+    if (!srcs.length && !docEdits.some(e => e.fileUrl)) return;
     let existing = await loadDocuments();
     const today = new Date().toISOString().slice(0, 10);
     const by = auth.currentUser?.displayName || auth.currentUser?.email || 'Family';
     const added: VaultDocument[] = [];
+    const skipped: string[] = [];
 
     for (let i = 0; i < docEdits.length; i++) {
       const e = docEdits[i];
       const src = srcs[e.imageIndex ?? 0] || srcs[0];
-      const blob = dataUrlToBlob(src.dataUrl);
-      const file = new File([blob], src.name, { type: src.mimeType });
-      const hash = await computeFileHash(blob);
 
       const flag = resolutions[i];
       if (flag?.resolution === 'replace') {
@@ -598,11 +685,63 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       }
 
       const id = newId();
-      const { storagePath, downloadUrl } = await uploadVaultFile(file, id);
+      // Three ways to get the file into the vault, in order of preference:
+      //  1. the edit is stamped AND we still hold the original bytes from this
+      //     session — upload a full copy under documents/, exactly as before;
+      //  2. the edit is stamped but the bytes are gone (Apply after a reload) —
+      //     adopt the chat-attachment object itself as the vault file. It already
+      //     lives permanently in the bucket under families/{id}/, which
+      //     storage.rules grants the same family-scoped read as documents/, so
+      //     no copy, no re-download, and nothing to go wrong. Trade-off worth
+      //     naming: deleting this vault document also deletes the chat photo;
+      //  3. no stamp at all (a card saved before this change) — today's exact
+      //     path from the chat attachment, so old cards behave no worse.
+      let fileName: string, fileType: string, fileSize: number, hash: string;
+      let storagePath: string, downloadUrl: string;
+      const cachedBlob = e.fileStoragePath ? sessionAttachmentBlobs.get(e.fileStoragePath) : undefined;
+      if (e.fileUrl && e.fileStoragePath && !cachedBlob) {
+        fileName = e.fileName || src?.name || e.name;
+        fileType = e.fileMimeType || src?.mimeType || 'application/octet-stream';
+        fileSize = e.fileSize ?? 0;
+        hash = e.contentHash || '';
+        // Deliberately NOT e.fileStoragePath. One photo can produce several
+        // document edits (a scan showing both a passport and a residence
+        // permit), and they all stamp the SAME chat-attachment path — so
+        // handing that path to the delete machinery would mean deleting one
+        // document destroys the file behind its siblings, and behind the copy
+        // on the member's profile, leaving them pointing at a dead URL. An
+        // empty path makes deletion metadata-only for these: the chat-attachment
+        // object is orphaned rather than deleted. Orphaning bytes is a cost;
+        // silently destroying another document's file is not acceptable in a
+        // vault holding passports and IDs.
+        storagePath = '';
+        downloadUrl = e.fileUrl;
+      } else {
+        // The guard above now lets this loop run when SOME edits are stamped,
+        // so `srcs` can legitimately be empty here while `src` is undefined —
+        // e.g. one attachment in a multi-image send failed to upload, leaving
+        // its edit unstamped while its sibling's succeeded. Dereferencing
+        // `src` would throw, and because saveDocuments() only runs after the
+        // whole loop, that would lose EVERY document in the turn including the
+        // stamped ones that were fine. Skip just this one instead.
+        if (!src && !cachedBlob) {
+          console.error('No source available for unstamped document edit; skipping:', e.name);
+          skipped.push(e.name);
+          continue;
+        }
+        const blob = cachedBlob ?? await attachmentToBlob(src);
+        fileName = e.fileName || src?.name || e.name;
+        fileType = e.fileMimeType || src?.mimeType || blob.type || 'application/octet-stream';
+        fileSize = blob.size;
+        hash = e.contentHash || await computeFileHash(blob);
+        const file = new File([blob], fileName, { type: fileType });
+        ({ storagePath, downloadUrl } = await uploadVaultFile(file, id));
+      }
+
       added.push({
         id, name: e.name, category: e.category,
-        fileName: src.name, fileType: src.mimeType, fileSize: blob.size,
-        storagePath, downloadUrl, uploadedAt: today, uploadedBy: by, contentHash: hash,
+        fileName, fileType, fileSize,
+        storagePath, downloadUrl, uploadedAt: today, uploadedBy: by, contentHash: hash || undefined,
       });
 
       // Also file on the member's profile when the doc names its owner. Store the
@@ -615,16 +754,23 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
           id: 'doc-' + id,
           name: e.name,
           category: MEMBER_DOC_CAT[e.category] || 'Other',
-          fileType: src.mimeType,
-          fileName: src.name,
-          fileSize: blob.size,
+          fileType,
+          fileName,
+          fileSize,
           uploadedAt: today,
           fileData: downloadUrl,
-          contentHash: hash,
+          contentHash: hash || undefined,
         });
       }
     }
     if (added.length) await saveDocuments([...added, ...existing]);
+    // Never let a document fail to file in silence — that is the whole class of
+    // bug this work exists to kill. Whatever else succeeded is already saved.
+    if (skipped.length) {
+      setError(
+        `Saved everything else, but ${skipped.length === 1 ? `"${skipped[0]}" couldn't be filed` : `${skipped.length} documents couldn't be filed`} — the photo didn't finish uploading. Please re-attach and send it again.`
+      );
+    }
   };
 
   // `flagsOverride`, when passed, is used instead of reading docDuplicates[idx]
@@ -652,8 +798,13 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     // here so the user can resolve them — nothing is saved until they do.
     // `flags` stays a single local variable throughout so this never depends
     // on whether the setDocDuplicates state update has re-rendered yet.
+    // A document edit is fileable when it carries its own stamped Storage URL,
+    // even if the chat message has lost its images entirely — that is the whole
+    // point of stamping. Chat attachments remain the fallback for older cards.
+    const canFileDocs = srcs.length > 0 || docEdits.some(e => e.fileUrl);
+
     let flags: DocDuplicateFlag[] = flagsOverride ?? (docDuplicates[idx] || []);
-    if (flagsOverride === undefined && docEdits.length && srcs.length && !(idx in docDuplicates)) {
+    if (flagsOverride === undefined && docEdits.length && canFileDocs && !(idx in docDuplicates)) {
       setApplyingIdx(idx);
       try {
         flags = await checkDocDuplicates(docEdits, srcs);
@@ -710,7 +861,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         const owner = cvEdit ? resolveMemberByName(cvEdit.member) : undefined;
         if (cvEdit && owner) {
           try {
-            const blob = dataUrlToBlob(srcs[0].dataUrl);
+            // attachmentToBlob, not dataUrlToBlob — after the send-time upload
+            // this dataUrl is an https URL, which atob() turned into zero bytes.
+            const blob = await attachmentToBlob(srcs[0]);
             const file = new File([blob], srcs[0].name, { type: srcs[0].mimeType });
             const hash = await computeFileHash(blob);
             const docId = newId();
@@ -735,11 +888,11 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
 
       const dataEdits = resolvedEdits.filter(e => e.kind !== 'document');
       if (dataEdits.length) await onApplyEdits(dataEdits);
-      if (docEdits.length && srcs.length) {
+      if (docEdits.length && canFileDocs) {
         const resolutions: Record<number, DocDuplicateFlag> = {};
         flags.forEach(f => { resolutions[f.editIdx] = f; });
         await fileScans(docEdits, srcs, resolutions);
-      } else if (docEdits.length && !srcs.length) {
+      } else if (docEdits.length && !canFileDocs) {
         // Image is stripped from persisted history — after a reload we can't
         // file the scan. Don't fail silently: the data edits applied, but the
         // user must re-attach the photo to store the document itself.

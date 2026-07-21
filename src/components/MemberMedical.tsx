@@ -85,7 +85,7 @@ export default function MemberMedical({ member, onUpdate, country = 'AT' }: Memb
         <div className="card p-5 space-y-4 border-l-4 border-l-honey-500">
           {/* Health-insurance identifier FIRST — the number an ambulance crew or
               admissions desk asks for before anything else. Country-driven, and
-              read-only here: it is edited on the ID & documents tab only. */}
+              read-only here: it is edited on the ID & Passports tab only. */}
           <HealthInsuranceRow member={member} country={country} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
