@@ -674,7 +674,6 @@ export default function MemberDocuments({
         onClose={() => setScannerOpen(false)}
         onUse={handleScannerResult}
         title="Document Scanner"
-        requireBothSides={category === 'ID'}
       />
     </div>
   );

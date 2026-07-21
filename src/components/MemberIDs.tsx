@@ -1218,7 +1218,7 @@ export default function MemberIDs({ member, onUpdate, onAddDocument, country = '
         onClose={() => setScannerOpen(false)}
         onUse={handleScanResult}
         title="Scan ID card"
-        requireBothSides
+        scanType="id"
       />
 
       <ShowCardModal
