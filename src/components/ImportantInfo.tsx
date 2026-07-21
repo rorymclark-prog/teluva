@@ -15,9 +15,10 @@ function newId() {
 interface ImportantInfoProps {
   isBusinessSpace?: boolean;
   refreshKey?: number;
+  onContactsChange?: (contacts: ContactEntry[]) => void;
 }
 
-export default function ImportantInfo({ isBusinessSpace, refreshKey }: ImportantInfoProps) {
+export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsChange }: ImportantInfoProps) {
   const [info, setInfo] = useState<FamilyInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -28,17 +29,21 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey }: Important
     (async () => {
       const data = await loadFamilyInfo();
       if (active) {
-        setInfo(data && (data.numbers || data.contacts || data.providers) ? { numbers: data.numbers || [], contacts: data.contacts || [], providers: data.providers || [] } : EMPTY);
+        const next = data && (data.numbers || data.contacts || data.providers) ? { numbers: data.numbers || [], contacts: data.contacts || [], providers: data.providers || [] } : EMPTY;
+        setInfo(next);
         setLoaded(true);
+        onContactsChange?.(next.contacts);
       }
     })();
     return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
   const persist = async (next: FamilyInfo) => {
     setInfo(next);
     const ok = await saveFamilyInfo(next);
     setCloudSynced(ok);
+    onContactsChange?.(next.contacts);
   };
 
   const q = search.trim().toLowerCase();
@@ -336,6 +341,7 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
   const [phone, setPhone] = useState(initial?.phone || '');
   const [email, setEmail] = useState(initial?.email || '');
   const [note, setNote] = useState(initial?.note || '');
+  const [birthdate, setBirthdate] = useState(initial?.birthdate || '');
 
   const save = () => {
     if (!name.trim() && !phone.trim() && !email.trim()) { onCancel(); return; }
@@ -346,6 +352,7 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
       phone: phone.trim() || undefined,
       email: email.trim() || undefined,
       note: note.trim() || undefined,
+      birthdate: birthdate || undefined,
     });
   };
 
@@ -369,6 +376,10 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
         <input className="field" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
       </div>
       <input className="field" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} />
+      <div>
+        <label className="text-[11px] font-semibold text-ink-500 mb-1 block">Birthday (optional) — gets a reminder here even without a full profile</label>
+        <input type="date" className="field" value={birthdate} onChange={e => setBirthdate(e.target.value)} />
+      </div>
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>

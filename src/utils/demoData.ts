@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent } from '../types';
+import { FamilyMember, CalendarEvent, ContactEntry } from '../types';
 
 // Demo-mode fixtures: shown when the app is opened with ?demo=1.
 // Never written to Firestore or localStorage.
@@ -93,6 +93,16 @@ export const DEMO_EVENTS: CalendarEvent[] = [
   { id: 'demo-e1', title: "Mia's school play", date: iso(6), time: '16:00', category: 'School', remindMe: true, memberIds: ['demo-mia'] },
   { id: 'demo-e2', title: 'Pediatrician — Ben', date: iso(12), time: '09:30', category: 'Appointment', remindMe: true, memberIds: ['demo-ben'] },
   { id: 'demo-e3', title: 'Renew Papa passport', date: iso(30), category: 'Travel', remindMe: true, memberIds: ['demo-papa'] },
+];
+
+function birthdateInDays(daysFromNow: number, birthYear: number): string {
+  return `${birthYear}-${iso(daysFromNow).slice(5, 7)}-${iso(daysFromNow).slice(8, 10)}`;
+}
+
+export const DEMO_CONTACTS: ContactEntry[] = [
+  // Birthday in ~5 days — shows up as a nudge even without a full profile.
+  { id: 'demo-contact-oma', name: 'Oma', relation: 'Grandmother', phone: '+43 664 1234567', birthdate: birthdateInDays(5, 1951) },
+  { id: 'demo-contact-school', name: 'Volksschule am Park Office', relation: 'School office', phone: '+43 1 5551234' },
 ];
 
 export function isDemoMode(): boolean {

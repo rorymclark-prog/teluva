@@ -208,7 +208,9 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   const providers = [...(info.providers || [])];
   for (const e of edits) {
     if (e.kind === 'contact') {
-      contacts.push({ id: newId(), name: e.name, relation: e.relation, phone: e.phone, email: e.email });
+      // birthdate lets a contact who isn't a full family member (a
+      // grandparent, godparent, etc.) still surface a birthday nudge.
+      contacts.push({ id: newId(), name: e.name, relation: e.relation, phone: e.phone, email: e.email, birthdate: e.birthdate });
     } else if (e.kind === 'number') {
       numbers.push({ id: newId(), label: e.label, value: e.value });
     } else if (e.kind === 'provider') {

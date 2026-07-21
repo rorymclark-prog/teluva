@@ -1,6 +1,6 @@
 import { useState, useEffect, type ElementType } from 'react';
 import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car } from 'lucide-react';
-import { FamilyMember, AssetItem, Vehicle } from '../types';
+import { FamilyMember, AssetItem, Vehicle, ContactEntry } from '../types';
 import { careNextDue } from '../utils/care';
 import { loadAssets, loadHousehold } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel } from '../utils/vehicle';
@@ -68,6 +68,35 @@ function computeVehicleNudges(vehicles: Vehicle[]): Nudge[] {
       } else {
         out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles' });
       }
+    }
+  }
+  return out;
+}
+
+// Contact birthdays — same "within 21 days" window as a family member's
+// birthday nudge below, but a contact has no member profile/tab to jump to,
+// so this routes to the Info view (where contacts live) instead.
+function computeContactNudges(contacts: ContactEntry[]): Nudge[] {
+  const out: Nudge[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (const c of contacts) {
+    if (!c.birthdate) continue;
+    const bd = new Date(c.birthdate);
+    if (isNaN(bd.getTime())) continue;
+    const nb = new Date(today.getFullYear(), bd.getMonth(), bd.getDate());
+    if (nb.getTime() < today.getTime()) nb.setFullYear(today.getFullYear() + 1);
+    const days = Math.round((nb.getTime() - today.getTime()) / DAY);
+    if (days <= 21) {
+      out.push({
+        key: `contact-bday-${c.id}`,
+        memberId: '',
+        icon: Cake,
+        tone: 'info',
+        text: days === 0 ? `It's ${c.name}'s birthday today! 🎂` : `${c.name}'s birthday in ${days} day${days !== 1 ? 's' : ''}`,
+        tab: 'info',
+        view: 'info',
+      });
     }
   }
   return out;
@@ -181,8 +210,8 @@ const TONE_STYLE: Record<Tone, string> = {
 };
 
 export default function NeedsAttention(
-  { members, onGo, onGoView }:
-  { members: FamilyMember[]; onGo: (memberId: string, tab: string) => void; onGoView?: (view: string) => void },
+  { members, contacts, onGo, onGoView }:
+  { members: FamilyMember[]; contacts?: ContactEntry[]; onGo: (memberId: string, tab: string) => void; onGoView?: (view: string) => void },
 ) {
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -200,7 +229,7 @@ export default function NeedsAttention(
   const [showAll, setShowAll] = useState(false);
 
   const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
-  const all = [...computeNudges(members), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets)]
+  const all = [...computeNudges(members), ...computeContactNudges(contacts || []), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets)]
     .sort((a, b) => order[a.tone] - order[b.tone]);
   if (all.length === 0) return null;
   const COLLAPSED = 6;

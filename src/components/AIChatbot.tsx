@@ -29,7 +29,7 @@ export type AiEdit =
   | { kind: 'new_member'; name: string; role?: string; nickname?: string; birthdate?: string }
   | { kind: 'member'; member: string; field: string; value: string }
   | { kind: 'passport'; member: string; country: string; number: string; expiry?: string }
-  | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string }
+  | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string; birthdate?: string }
   | { kind: 'provider'; name: string; type?: string; specialty?: string; practiceName?: string; phone?: string; afterHoursPhone?: string; email?: string; address?: string; forMember?: string }
   | { kind: 'number'; label: string; value: string }
   | { kind: 'document'; name: string; category: VaultCategory; member?: string; imageIndex?: number }
@@ -987,7 +987,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'new_member') return `Add a new ${(e.role || 'family member').toLowerCase()}: ${e.name}${e.nickname ? ` “${e.nickname}”` : ''}`;
   if (e.kind === 'member') return `${e.member}: set ${e.field.replace(/_/g, ' ')} → “${e.value}”`;
   if (e.kind === 'passport') return `${e.member}: add ${e.country} passport ${e.number}${e.expiry ? ` (exp ${e.expiry})` : ''}`;
-  if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}`;
+  if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}${e.birthdate ? ` · birthday ${e.birthdate}` : ''}`;
   if (e.kind === 'provider') return `Add ${(e.type || 'provider').toLowerCase()}: ${e.name}${e.specialty ? ` (${e.specialty})` : ''}${e.forMember ? ` — for ${e.forMember}` : ''}`;
   if (e.kind === 'number') return `Add number “${e.label}” → ${e.value}`;
   if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}`;

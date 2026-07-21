@@ -1,7 +1,7 @@
 {
-  "label": "v105",
+  "label": "v106",
   "changes": [
-    "Fixed: a scan saved under a different name or in a different language could look like a brand-new document — the same official document (e.g. a German \"Meldezettel\" vs its English \"Registration Confirmation\") is now recognized as the same kind of document",
-    "Documents now show a real thumbnail of the actual page, including PDFs — not just a generic file icon"
+    "Google Calendar import now pulls in appointments from the past year, not just recent ones — including ones scheduled before you started using Family Hub",
+    "Birthdays can now be tracked for people without a full profile (e.g. Granny) — add a birthday in Contacts and it shows up as a reminder just like a family member's"
   ]
 }

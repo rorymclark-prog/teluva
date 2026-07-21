@@ -1,7 +1,7 @@
 import type { ElementType } from 'react';
 import { Calendar, Sparkles, Cake, Ruler, GraduationCap, PartyPopper, Plane, BookOpen, Quote } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { FamilyMember, CalendarEvent } from '../types';
+import { FamilyMember, CalendarEvent, ContactEntry } from '../types';
 
 // "On this day" — the emotional daily hook on the home screen. Pure/presentational:
 // everything here is derived from members + events + the current date, no network,
@@ -75,8 +75,12 @@ function seasonLabel(then: Date, today: Date): string {
   return `${thenSeason} ${then.getFullYear()}`;
 }
 
-// Birthday today, or coming up within ~10 days.
-function birthdayInsight(m: FamilyMember, today: Date): Insight | null {
+// Birthday today, or coming up within ~10 days. Takes a narrow {id, name,
+// birthdate} shape (not the full FamilyMember) so the same date-math serves
+// both family members and non-member contacts (e.g. a grandparent) — both
+// types already satisfy this shape structurally, no adapting needed at either
+// call site.
+function birthdayInsight(m: { id: string; name: string; birthdate?: string }, today: Date): Insight | null {
   if (!m.birthdate) return null;
   const bd = new Date(m.birthdate);
   if (isNaN(bd.getTime())) return null;
@@ -271,8 +275,8 @@ function recordInsight(members: FamilyMember[], events: CalendarEvent[], today: 
 
 // Rank every candidate, always keep "today or very soon" items, and gently rotate
 // the long tail by day-of-year so it isn't always the same 2-4 items.
-function buildInsights(members: FamilyMember[], events: CalendarEvent[]): Insight[] {
-  if (members.length === 0 && events.length === 0) return [];
+function buildInsights(members: FamilyMember[], events: CalendarEvent[], contacts: ContactEntry[] = []): Insight[] {
+  if (members.length === 0 && events.length === 0 && contacts.length === 0) return [];
 
   const today = new Date();
   const memberById = new Map(members.map((m) => [m.id, m]));
@@ -285,6 +289,10 @@ function buildInsights(members: FamilyMember[], events: CalendarEvent[]): Insigh
     if (g) candidates.push(g);
     const s = sayingInsight(m, today);
     if (s) candidates.push(s);
+  }
+  for (const c of contacts) {
+    const b = birthdayInsight(c, today);
+    if (b) candidates.push(b);
   }
   for (const ev of events) {
     const a = anniversaryInsight(ev, memberById, today);
@@ -312,8 +320,8 @@ function buildInsights(members: FamilyMember[], events: CalendarEvent[]): Insigh
   return picked;
 }
 
-export default function OnThisDay({ members, events }: { members: FamilyMember[]; events: CalendarEvent[] }) {
-  const items = buildInsights(members, events);
+export default function OnThisDay({ members, events, contacts }: { members: FamilyMember[]; events: CalendarEvent[]; contacts?: ContactEntry[] }) {
+  const items = buildInsights(members, events, contacts);
   if (items.length === 0) return null;
 
   return (

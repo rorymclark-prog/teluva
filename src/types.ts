@@ -537,6 +537,9 @@ export interface ContactEntry {
   phone?: string;
   email?: string;
   note?: string;
+  birthdate?: string;   // YYYY-MM-DD, optional — lets a contact who isn't a full
+                         // family member (a grandparent, godparent, etc.) still
+                         // get a birthday nudge in NeedsAttention/OnThisDay
 }
 
 // A doctor, practice, specialist, or pharmacy — the family's own directory of

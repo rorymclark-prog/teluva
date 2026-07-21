@@ -204,8 +204,19 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
         if (e instanceof Error && e.message.includes('permissions')) throw e;
       }
 
-      const startOfPeriod = new Date('2026-01-01T00:00:00Z').toISOString();
-      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfPeriod}&maxResults=30&orderBy=startTime&singleEvents=true`, {
+      // A genuine backfill needs to reach back before the user started using this
+      // app, not just forward from today — this was previously a hardcoded
+      // absolute date (2026-01-01), which both missed anything entered before
+      // that and would silently drift further wrong every year it wasn't
+      // updated. One year back is enough to catch "I already had this on my
+      // Google Calendar" appointments without pulling in irrelevant ancient
+      // history. maxResults raised from 30 to 250 (a higher one-time cap, not
+      // full pageToken pagination) so a real year-plus backfill isn't silently
+      // truncated on the very first import.
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      const startOfPeriod = oneYearAgo.toISOString();
+      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfPeriod}&maxResults=250&orderBy=startTime&singleEvents=true`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -555,7 +566,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                 onClick={() => scanFileRef.current?.click()}
                 disabled={isScanningNotice || !aiOn}
                 className="btn-quiet text-sm disabled:opacity-50"
-                title="Scan a school notice or flyer — AI extracts events automatically"
+                title="Photograph a school notice, flyer, or an old reminder/appointment card — AI extracts every date automatically"
               >
                 {isScanningNotice ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
                 <span>{isScanningNotice ? 'Reading…' : 'Scan notice'}</span>
@@ -633,7 +644,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
             </h4>
             <p className="text-[13px] text-ink-400 mt-0.5">
               {needsAuth
-                ? "Link your Google account to enable event import and export."
+                ? "Link your Google account to bring in appointments you already had scheduled there — even from before you started using Family Hub — and keep new ones in sync."
                 : `Active connection with ${user?.email || 'Google account'}.`
               }
             </p>
@@ -671,6 +682,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                 onClick={handleImportFromGoogle}
                 disabled={isGoogleCalendarSyncing}
                 className="btn-quiet flex-1 sm:flex-none disabled:opacity-50"
+                title="Pulls in appointments from the past year onward, including ones scheduled before you started using Family Hub"
               >
                 {isGoogleCalendarSyncing ? (
                   <Loader2 className="w-4 h-4 animate-spin text-ink-400" />

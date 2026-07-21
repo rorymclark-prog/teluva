@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem } from '../types';
+import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry } from '../types';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -35,7 +35,7 @@ import ImageLightbox from './ImageLightbox';
 import { HubSettings } from '../types';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { DEMO_MEMBERS, DEMO_EVENTS, isDemoMode } from '../utils/demoData';
+import { DEMO_MEMBERS, DEMO_EVENTS, DEMO_CONTACTS, isDemoMode } from '../utils/demoData';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import AddMemberModal from './AddMemberModal';
 import EditMemberModal from './EditMemberModal';
@@ -257,6 +257,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const [isAuthLoading, setIsAuthLoading] = useState(!demo);
 
   const [members, setMembers] = useState<FamilyMember[]>([]);
+  // Only the contacts array is kept at this top level — just enough for
+  // NeedsAttention/OnThisDay's birthday nudges. ImportantInfo's own view still
+  // self-loads the full FamilyInfo doc (numbers/contacts/providers) for editing.
+  const [contacts, setContacts] = useState<ContactEntry[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -301,6 +305,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       setCurrentUser({ displayName: 'Demo family', isDemo: true });
       setMembers(DEMO_MEMBERS);
       setEvents(DEMO_EVENTS);
+      setContacts(DEMO_CONTACTS);
       setSelectedMemberId(DEMO_MEMBERS[0].id);
       return;
     }
@@ -338,6 +343,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       if (!currentUser) {
         setMembers([]);
         setEvents([]);
+        setContacts([]);
         return;
       }
 
@@ -354,6 +360,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
       const hub = await loadSettings();
       if (hub) setSettings(hub);
+
+      const info = await loadFamilyInfo();
+      setContacts(info?.contacts || []);
     }
     init();
   }, [currentUser, ctxLoading, activeSpaceId]);
@@ -603,8 +612,13 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     }
     if (hasInfoEdits(edits)) {
       const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [] };
-      const ok = await saveFamilyInfo(applyInfoEdits(info, edits));
+      const updatedInfo = applyInfoEdits(info, edits);
+      const ok = await saveFamilyInfo(updatedInfo);
       if (!ok) failures.push('contacts & numbers');
+      // Keep NeedsAttention/OnThisDay's contact-birthday nudges current — they
+      // read the top-level `contacts` state (a prop), not a self-load like
+      // ImportantInfo's own view, so an AI-added contact needs this explicit push.
+      setContacts(updatedInfo.contacts || []);
     }
     if (hasCalendarEdits(edits)) {
       const next = applyCalendarEdits(events, edits, members);
@@ -1003,7 +1017,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           <FamilyCalendar members={members} events={events} onSaveEvents={handleSaveEvents} />
         )}
 
-        {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} />}
+        {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onContactsChange={setContacts} />}
 
         {mainView === 'emergency' && <EmergencyView members={members} />}
 
@@ -1046,9 +1060,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'profiles' && (
           <>
-            <NeedsAttention members={members} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
+            <NeedsAttention members={members} contacts={contacts} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
 
-            <OnThisDay members={members} events={events} />
+            <OnThisDay members={members} events={events} contacts={contacts} />
 
             {!isBusinessSpace && (
               <>
