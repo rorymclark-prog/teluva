@@ -16,6 +16,7 @@ import {
   loadRecipes, saveRecipes,
   saveAsset,
   loadFamilyWords, saveFamilyWords,
+  loadSlips, saveSlips,
 } from '../utils/db';
 import {
   applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
@@ -24,6 +25,7 @@ import {
   hasShoppingEdits, applyShoppingEdits, hasAssetEdits,
   hasFamilyWordsEdits, applyFamilyWordsEdits,
   hasRecipeEdits, applyRecipeEdits,
+  hasSlipEdits, applySlipEdits,
 } from '../utils/aiApply';
 import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
@@ -86,13 +88,14 @@ import HealthTimeline from './HealthTimeline';
 import MemberCalendarDates from './MemberCalendarDates';
 import { sunSign } from '../utils/astrology';
 import RecipeBook from './RecipeBook';
+import SlipsView from './SlipsView';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
-  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard
+  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Receipt
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -118,7 +121,7 @@ export function calculateAge(birthdate?: string): string | null {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'slips';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -168,6 +171,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'vault', icon: FolderArchive },
   { id: 'assets', icon: Package },
   { id: 'recipes', icon: ChefHat },
+  { id: 'slips', icon: Receipt },
   { id: 'shopping', icon: ShoppingCart },
   { id: 'passwords', icon: KeyRound },
   { id: 'familyWords', icon: BookHeart },
@@ -748,13 +752,18 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const ok = await saveRecipes(applyRecipeEdits(current, edits));
       if (!ok) failures.push('recipes');
     }
+    if (hasSlipEdits(edits)) {
+      const current = await loadSlips();
+      const ok = await saveSlips(applySlipEdits(current, edits));
+      if (!ok) failures.push('slips');
+    }
 
     // Remount the self-loading views so an applied change shows immediately
     // (these views load their data once on mount and take no props).
     if (
       hasInfoEdits(edits) || hasHouseholdEdits(edits) || hasFinancesEdits(edits) ||
       hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
-      hasFamilyWordsEdits(edits) || hasRecipeEdits(edits)
+      hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasSlipEdits(edits)
     ) {
       setAiDataVersion(v => v + 1);
     }
@@ -1143,6 +1152,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'recipes' && (
           demo ? <DemoUnavailable label="The recipe book" /> : <RecipeBook key={aiDataVersion} />
+        )}
+
+        {mainView === 'slips' && (
+          demo ? <DemoUnavailable label="Purchase slips" /> : <SlipsView key={aiDataVersion} />
         )}
 
         {mainView === 'passwords' && (

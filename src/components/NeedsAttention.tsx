@@ -1,9 +1,9 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car } from 'lucide-react';
-import { FamilyMember, AssetItem, Vehicle, ContactEntry } from '../types';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, RotateCcw, ShieldCheck } from 'lucide-react';
+import { FamilyMember, AssetItem, Vehicle, ContactEntry, SlipItem } from '../types';
 import { careNextDue } from '../utils/care';
-import { loadAssets, loadHousehold } from '../utils/db';
-import { vehicleDeadlines, vehicleLabel } from '../utils/vehicle';
+import { loadAssets, loadHousehold, loadSlips } from '../utils/db';
+import { vehicleDeadlines, vehicleLabel, daysUntil } from '../utils/vehicle';
 import { birthdayPhotoNudge } from '../utils/birthday';
 
 const DAY = 1000 * 60 * 60 * 24;
@@ -80,6 +80,57 @@ export function computeVehicleNudges(vehicles: Vehicle[]): Nudge[] {
         out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'urgent', text: `${name}: ${d.label} overdue`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days });
       } else {
         out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days });
+      }
+    }
+  }
+  return out;
+}
+
+// Slip deadline nudges ("Keep the slip") — two SEPARATE clocks, never
+// conflated. Return window: urgent inside 2 days, warn inside 10 — once it's
+// actually lapsed there's nothing left to do, so (unlike vehicles) an overdue
+// return produces NO nudge, just quiet archival (see utils/slip.ts). Warranty:
+// warn inside 30 days, same "nothing once lapsed" rule (you can't file a claim
+// against an expired warranty). A returned slip never nudges about its return.
+export function computeSlipNudges(slips: SlipItem[]): Nudge[] {
+  const out: Nudge[] = [];
+  for (const s of slips) {
+    const label = s.item || 'purchase';
+    const shopSuffix = s.shop ? ` (${s.shop})` : '';
+    if (s.returnByDate && !s.returned) {
+      const days = daysUntil(s.returnByDate);
+      if (days !== null && days >= 0 && days <= 10) {
+        out.push({
+          key: `slip-return-${s.id}`,
+          memberId: '',
+          icon: RotateCcw,
+          tone: days <= 2 ? 'urgent' : 'warn',
+          text: days === 0
+            ? `Return window for “${label}”${shopSuffix} closes today`
+            : `Return window for “${label}”${shopSuffix} closes in ${days} day${days === 1 ? '' : 's'}`,
+          tab: 'slips',
+          view: 'slips',
+          date: s.returnByDate,
+          days,
+        });
+      }
+    }
+    if (s.warrantyUntil) {
+      const days = daysUntil(s.warrantyUntil);
+      if (days !== null && days >= 0 && days <= 30) {
+        out.push({
+          key: `slip-warranty-${s.id}`,
+          memberId: '',
+          icon: ShieldCheck,
+          tone: 'warn',
+          text: days === 0
+            ? `Warranty on “${label}”${shopSuffix} expires today`
+            : `Warranty on “${label}”${shopSuffix} expires in ${days} day${days === 1 ? '' : 's'}`,
+          tab: 'slips',
+          view: 'slips',
+          date: s.warrantyUntil,
+          days,
+        });
       }
     }
   }
@@ -254,6 +305,7 @@ export default function NeedsAttention(
 ) {
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [slips, setSlips] = useState<SlipItem[]>([]);
   useEffect(() => {
     let cancelled = false;
     loadAssets()
@@ -262,13 +314,16 @@ export default function NeedsAttention(
     loadHousehold()
       .then((h) => { if (!cancelled) setVehicles(h?.vehicles || []); })
       .catch(() => { if (!cancelled) setVehicles([]); });
+    loadSlips()
+      .then((s) => { if (!cancelled) setSlips(s || []); })
+      .catch(() => { if (!cancelled) setSlips([]); });
     return () => { cancelled = true; };
   }, []);
 
   const [showAll, setShowAll] = useState(false);
 
   const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
-  const all = [...computeNudges(members), ...computeContactNudges(contacts || []), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets)]
+  const all = [...computeNudges(members), ...computeContactNudges(contacts || []), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets), ...computeSlipNudges(slips)]
     .sort((a, b) => order[a.tone] - order[b.tone]);
   if (all.length === 0) return null;
   const COLLAPSED = 6;

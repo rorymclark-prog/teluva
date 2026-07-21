@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, SlipItem, SlipsDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -494,6 +494,41 @@ export async function uploadRecipePhoto(dataUrl: string): Promise<string> {
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: mime });
   return await getDownloadURL(r);
+}
+
+// --- Slips ("Keep the slip"): one shared doc for the whole household, same
+// shape as recipes/documents/shopping above. Metadata only — the receipt
+// photo itself lives in Storage (see uploadSlipPhoto), never inlined as
+// base64, so a fast-accumulating pile of slips never risks the ~1MB
+// Firestore document cap. ---
+export const saveSlips = (slips: SlipItem[]) => saveReferenceDoc('slips', { slips }, 'family_slips');
+export async function loadSlips(): Promise<SlipItem[]> {
+  const data = await loadReferenceDoc<SlipsDoc>('slips', 'family_slips');
+  return data?.slips || [];
+}
+
+// Slip photo (the receipt/till slip itself): uploaded to Firebase Storage
+// rather than embedded as base64 — mirrors uploadRecipePhoto's self-contained
+// id (decoupled from the slip's own id, since the AI-chat path uploads the
+// photo before a SlipItem id even exists) but also returns the storage path
+// so a replaced/deleted slip can clean up its old file, like uploadTravelPhoto.
+export async function uploadSlipPhoto(dataUrl: string): Promise<{ url: string; storagePath: string }> {
+  const id = Date.now().toString() + Math.floor(Math.random() * 1000);
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const storagePath = `families/${FAMILY_ID}/slip-photos/${id}.jpg`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
+  const url = await getDownloadURL(r);
+  return { url, storagePath };
+}
+
+export async function deleteSlipPhoto(storagePath: string): Promise<void> {
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (e) {
+    console.error('Slip photo delete failed (entry will still be removed):', e);
+  }
 }
 
 // --- User profile (users/{uid}) ---
