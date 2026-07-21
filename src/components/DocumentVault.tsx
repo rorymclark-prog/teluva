@@ -5,11 +5,12 @@ import { auth } from '../lib/firebase';
 import DocumentViewer from './DocumentViewer';
 import {
   FolderLock, Upload, Search, Trash2, Eye, Cloud, CloudOff,
-  Plus, X, Check, Loader2, FileText, File, Image, AlertCircle, AlertTriangle,
+  Plus, X, Check, Loader2, File, AlertCircle, AlertTriangle,
   CheckSquare, Share2, Download
 } from 'lucide-react';
-import { computeFileHash, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
+import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch } from '../utils/documentDedup';
 import { canShare, shareMultiple, downloadZip } from '../utils/share';
+import PdfThumbnail from './PdfThumbnail';
 
 const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
 
@@ -108,7 +109,9 @@ function UploadPanel({ members, existingDocs, onUpload, onCancel }: UploadPanelP
     setError(null);
     try {
       const hash = await computeFileHash(file);
-      const match = findLikelyDuplicate({ fileName: file.name, fileSize: file.size, contentHash: hash }, existingDocs);
+      const sameSlot = existingDocs.filter((d) => d.category === category && (d.memberId || '') === (memberId || ''));
+      const match = findLikelyDuplicate({ fileName: file.name, fileSize: file.size, contentHash: hash }, existingDocs)
+        || findLikelyDuplicateByType(name.trim() || file.name, sameSlot);
       if (match) {
         setDuplicateMatch(match);
         setPendingHash(hash);
@@ -235,6 +238,7 @@ function UploadPanel({ members, existingDocs, onUpload, onCancel }: UploadPanelP
             <span>
               This looks like it might already be saved as “{duplicateMatch.doc.name}”.
               {duplicateMatch.confidence === 'probable' && ' Same filename and size.'}
+              {duplicateMatch.confidence === 'probable-type' && ' Looks like the same kind of document, just under a different name.'}
             </span>
           </p>
           <div className="flex gap-2">
@@ -618,15 +622,11 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
                       className="w-12 h-12 rounded-xl object-cover border border-cream-200 shrink-0"
                       loading="lazy"
                     />
+                  ) : doc.fileType === 'application/pdf' ? (
+                    <PdfThumbnail src={doc.downloadUrl} />
                   ) : (
                     <div className="w-12 h-12 rounded-xl bg-cream-100 border border-cream-200 flex items-center justify-center shrink-0">
-                      {doc.fileType === 'application/pdf' ? (
-                        <FileText className="w-5 h-5 text-rosa-500" />
-                      ) : doc.fileType.startsWith('image/') ? (
-                        <Image className="w-5 h-5 text-dusk-500" />
-                      ) : (
-                        <File className="w-5 h-5 text-ink-400" />
-                      )}
+                      <File className="w-5 h-5 text-ink-400" />
                     </div>
                   )}
 

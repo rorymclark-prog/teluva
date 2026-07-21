@@ -8,8 +8,9 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { jsPDF } from 'jspdf';
-import { hashDataUrl, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
+import { hashDataUrl, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch } from '../utils/documentDedup';
 import { canShare, shareMultiple, downloadZip } from '../utils/share';
+import PdfThumbnail from './PdfThumbnail';
 
 interface MemberDocumentsProps {
   member: FamilyMember;
@@ -413,10 +414,11 @@ export default function MemberDocuments({
     setCheckingDuplicate(true);
     try {
       const hash = await hashDataUrl(pendingFileData.data);
+      const sameCategory = (member.documents || []).filter((d) => d.category === category);
       const match = findLikelyDuplicate(
         { fileName: pendingFileData.name, fileSize: pendingFileData.size, contentHash: hash },
         member.documents || [],
-      );
+      ) || findLikelyDuplicateByType(docName.trim(), sameCategory);
       if (match) {
         setDuplicateMatch(match);
         setPendingHash(hash);
@@ -659,6 +661,7 @@ export default function MemberDocuments({
                 <span>
                   This looks like it might already be saved as “{duplicateMatch.doc.name}”.
                   {duplicateMatch.confidence === 'probable' && ' Same filename and size.'}
+                  {duplicateMatch.confidence === 'probable-type' && ' Looks like the same kind of document, just under a different name.'}
                 </span>
               </p>
               <div className="flex gap-2">
@@ -800,9 +803,15 @@ export default function MemberDocuments({
 
                   {/* Icon & Details */}
                   <div className="flex items-start gap-3">
-                    <div className="p-2.5 bg-cream-100 border border-cream-200 rounded-xl text-ink-500 shrink-0">
-                      <FileText className="w-4 h-4 text-ink-700" />
-                    </div>
+                    {doc.fileType.startsWith('image/') && doc.fileData && doc.fileData !== 'PLACEHOLDER' ? (
+                      <img src={doc.fileData} alt="" className="w-10 h-10 rounded-xl object-cover border border-cream-200 shrink-0" />
+                    ) : doc.fileType === 'application/pdf' && doc.fileData && doc.fileData !== 'PLACEHOLDER' ? (
+                      <PdfThumbnail src={doc.fileData} size="w-10 h-10" />
+                    ) : (
+                      <div className="p-2.5 bg-cream-100 border border-cream-200 rounded-xl text-ink-500 shrink-0">
+                        <FileText className="w-4 h-4 text-ink-700" />
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <h5 className="text-[13px] font-semibold text-ink-900 truncate leading-snug">
                         {doc.name}

@@ -1,11 +1,7 @@
 {
-  "label": "v104",
+  "label": "v105",
   "changes": [
-    "Fixed: the AI-written star sign blurb kept repeating the same text on shuffle — now genuinely varies each time",
-    "The star sign blurb is now saved, so it's there next time you open the app instead of resetting every visit",
-    "Richer, longer star sign write-up when both a birth time and place are known",
-    "New: Family Word of the Day — resurfaces an entry from your family's private word glossary",
-    "New: Flashback — a shuffle button for a random memory from your family's full history, not just recent days",
-    "A one-time hint now points out the star sign shuffle dice, since it was easy to miss"
+    "Fixed: a scan saved under a different name or in a different language could look like a brand-new document — the same official document (e.g. a German \"Meldezettel\" vs its English \"Registration Confirmation\") is now recognized as the same kind of document",
+    "Documents now show a real thumbnail of the actual page, including PDFs — not just a generic file icon"
   ]
 }

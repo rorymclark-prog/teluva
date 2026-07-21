@@ -4,7 +4,7 @@
 
 export interface DupMatch<T> {
   doc: T;
-  confidence: 'definite' | 'probable';
+  confidence: 'definite' | 'probable' | 'probable-type';
 }
 
 type Signature = { fileName: string; fileSize: number; contentHash?: string };
@@ -37,4 +37,36 @@ export function findLikelyDuplicate<T extends Signature>(newDoc: Signature, exis
     (d) => !d.contentHash && normalizeName(d.fileName) === normalizeName(newDoc.fileName) && d.fileSize === newDoc.fileSize,
   );
   return hit ? { doc: hit, confidence: 'probable' } : null;
+}
+
+// Curated families of alternate names/languages for the SAME real-world
+// document type — catches the case a hash/filename check structurally can't:
+// a "Meldezettel" rescanned weeks later and titled "Central Register of
+// Residents Confirmation" shares no bytes and no filename with the original,
+// but is obviously the same document to a human. Same idea as MemberIDs.tsx's
+// IDENTITY_SCAN_PATTERNS (which links a scan to a structured field) — this is
+// the sibling check for "is this a second copy of the same TYPE of document".
+// Extend this list as new real-world naming variants surface.
+const DOCUMENT_TYPE_FAMILIES: RegExp[] = [
+  /meldezettel|anmeldebest|register.*resident|residence.*registration|registration.*confirmation/i,
+  /passport|reisepass/i,
+  /national\s*id|id\s*card|personalausweis|smart id|id book/i,
+  /driver|f(?:ü|ue)hrerschein|driving licen[cs]e/i,
+  /birth cert|geburtsurkunde/i,
+  /marriage cert|heiratsurkunde|marriage registration/i,
+  /e-?card/i,
+  /tax|steuer|sars/i,
+];
+
+// Caller must pre-scope `existing` to whatever should count as "the same
+// document slot" (typically: same person, same category) — this function
+// does no member/category filtering itself, so passing the wrong scope would
+// cross-match e.g. two different people's passports as duplicates of each
+// other. Independent of findLikelyDuplicate — call both and prefer whichever
+// (if either) returns a match.
+export function findLikelyDuplicateByType<T extends { name: string }>(newName: string, existing: T[]): DupMatch<T> | null {
+  const family = DOCUMENT_TYPE_FAMILIES.find((p) => p.test(newName));
+  if (!family) return null;
+  const hit = existing.find((d) => family.test(d.name));
+  return hit ? { doc: hit, confidence: 'probable-type' } : null;
 }

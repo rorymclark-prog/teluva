@@ -11,7 +11,7 @@ import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import ImageLightbox from './ImageLightbox';
 import { looksLikePdf } from '../utils/fileType';
-import { computeFileHash, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
+import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch } from '../utils/documentDedup';
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle,
@@ -492,7 +492,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       if (!src) continue;
       const blob = dataUrlToBlob(src.dataUrl);
       const hash = await computeFileHash(blob);
-      const match = findLikelyDuplicate({ fileName: src.name, fileSize: blob.size, contentHash: hash }, existing);
+      const ownerId = resolveMemberByName(e.member)?.id;
+      const sameSlot = existing.filter((d) => d.category === e.category && (d.memberId || '') === (ownerId || ''));
+      const match = findLikelyDuplicate({ fileName: src.name, fileSize: blob.size, contentHash: hash }, existing)
+        || findLikelyDuplicateByType(e.name, sameSlot);
       if (match) flags.push({ editIdx: i, name: e.name, match });
     }
     return flags;
@@ -825,6 +828,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
                             <span>
                               "{f.name}" looks like it may already be saved as "{f.match.doc.name}".
                               {f.match.confidence === 'probable' && ' Same filename and size.'}
+                              {f.match.confidence === 'probable-type' && ' Looks like the same kind of document, just under a different name.'}
                             </span>
                           </p>
                           <div className="flex gap-2">
