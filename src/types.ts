@@ -893,3 +893,30 @@ export interface EstateRecord {
 }
 
 export interface WillsEstateDoc { records: EstateRecord[]; }
+// --- Slips ("Keep the slip"): purchase receipts/till slips captured mainly
+// for their two DEADLINES, not as filing — a return window (short, shop
+// policy, usually ~30 days) and a warranty (much longer, 12/24 months). These
+// are two SEPARATE clocks and must never be conflated. The photo matters
+// because thermal till slips physically fade to blank within months — capturing
+// the image early is half the point. Family-wide shared doc, same shape as
+// recipes/documents/shopping above; assignedTo is free text ("Household" for
+// a shared item like a fridge, or a member's name for a personal item like a
+// laptop) mirroring AssetItem.assignedMember — no strict per-member document.
+export interface SlipItem {
+  id: string;
+  shop?: string;
+  item: string;
+  purchaseDate?: string;    // YYYY-MM-DD
+  amount?: string;          // free text, kept for back-compat + display (mirrors AssetItem.purchasePrice)
+  currency?: string;        // ISO 4217, default EUR
+  assignedTo?: string;      // free text: a member's name, "Household", or blank
+  returnByDate?: string;    // YYYY-MM-DD — change-of-mind return window (shop policy, NOT a statutory right)
+  warrantyUntil?: string;   // YYYY-MM-DD — manufacturer/retailer warranty expiry
+  returned?: boolean;       // marked returned — closes the return clock early
+  photoUrl?: string;        // Storage download URL of the receipt/till slip photo
+  photoStoragePath?: string; // Storage path, so a deleted/replaced photo can be cleaned up
+  notes?: string;
+  createdAt: string;        // ISO date
+}
+
+export interface SlipsDoc { slips: SlipItem[]; }

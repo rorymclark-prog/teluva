@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { AVATAR_COLORS } from './avatarPalette';
 
@@ -410,6 +410,36 @@ export function applyRecipeEdits(recipes: Recipe[], edits: AiEdit[]): Recipe[] {
       createdAt: today,
     }));
   return [...recipes, ...added];
+}
+
+// Add slips ("Keep the slip") from AI edits. photoUrl/photoStoragePath (when
+// present) were already uploaded to Storage client-side before this runs —
+// the model itself never supplies them. currency is validated against the
+// same list Assets uses, falling back to EUR for an unrecognised value.
+export const hasSlipEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'slip');
+
+const SLIP_CURRENCIES = ['EUR', 'GBP', 'USD', 'ZAR', 'CHF'];
+
+export function applySlipEdits(slips: SlipItem[], edits: AiEdit[]): SlipItem[] {
+  const today = new Date().toISOString().slice(0, 10);
+  const added: SlipItem[] = edits
+    .filter((e): e is Extract<AiEdit, { kind: 'slip' }> => e.kind === 'slip' && !!e.item)
+    .map(e => ({
+      id: newId(),
+      shop: e.shop || undefined,
+      item: e.item,
+      purchaseDate: e.purchaseDate || undefined,
+      amount: e.amount || undefined,
+      currency: e.currency && SLIP_CURRENCIES.includes(e.currency) ? e.currency : 'EUR',
+      assignedTo: e.assignedTo || undefined,
+      returnByDate: e.returnByDate || undefined,
+      warrantyUntil: e.warrantyUntil || undefined,
+      notes: e.notes || undefined,
+      photoUrl: e.photoUrl || undefined,
+      photoStoragePath: e.photoStoragePath || undefined,
+      createdAt: today,
+    }));
+  return [...slips, ...added];
 }
 export const hasHouseholdEdits = (edits: AiEdit[]) =>
   edits.some(e =>
