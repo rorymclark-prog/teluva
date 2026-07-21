@@ -84,7 +84,7 @@ import FamilyStats from './FamilyStats';
 import FamilyQuiz from './FamilyQuiz';
 import HealthTimeline from './HealthTimeline';
 import MemberCalendarDates from './MemberCalendarDates';
-import { sunSign } from '../utils/astrology';
+import { sunSign, isSameLocalDay } from '../utils/astrology';
 import RecipeBook from './RecipeBook';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
@@ -603,6 +603,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const shuffleAstrology = async (memberId: string) => {
     const member = membersRef.current.find((m) => m.id === memberId);
     if (!member) return;
+    // One meaningful insight per member per local calendar day — every call
+    // below is a paid Gemini request; unlimited reshuffling cheapens the
+    // writing. A genuine input change (birth time/place added) still earns a
+    // fresh one, same condition the auto-generate effect below uses.
+    const capInputs = `${member.birthdate || ''}|${member.birthTime || ''}|${member.placeOfBirth || ''}`;
+    if (member.astrologyBlurb && member.astrologyBlurb.forInputs === capInputs && isSameLocalDay(member.astrologyBlurb.generatedAt)) return;
     const previousBlurb = member.astrologyBlurb?.text || astroBlurb[memberId]?.text || undefined;
     setAstroBlurb((s) => ({ ...s, [memberId]: { text: s[memberId]?.text || previousBlurb || '', loading: true, error: null } }));
     try {
@@ -895,6 +901,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   };
 
   const selectedMember = members.find(m => m.id === selectedMemberId);
+
+  // Mirrors the guard inside shuffleAstrology so the dice button can show its
+  // calm "today's is set" state proactively, before the user even taps it.
+  const astrologyCappedToday = !!selectedMember?.astrologyBlurb
+    && selectedMember.astrologyBlurb.forInputs === `${selectedMember.birthdate || ''}|${selectedMember.birthTime || ''}|${selectedMember.placeOfBirth || ''}`
+    && isSameLocalDay(selectedMember.astrologyBlurb.generatedAt);
 
   // Auto-generate (lazily, once per stale/missing state) the first time a
   // member with a birthdate is viewed, instead of requiring an explicit dice
@@ -1392,6 +1404,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                   showAstrology={!!settings.astrology}
                                   onShuffleAstrology={isAdmin ? () => (canUseAI ? shuffleAstrology(selectedMember.id) : setConsentOpen(true)) : undefined}
                                   astrologyBlurb={astroBlurb[selectedMember.id]}
+                                  astrologyCappedToday={astrologyCappedToday}
                                 />
                               )}
                               {activeTab === 'medical' && (

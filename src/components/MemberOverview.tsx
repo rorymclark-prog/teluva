@@ -51,6 +51,7 @@ export default function MemberOverview({
   showAstrology = false,
   onShuffleAstrology,
   astrologyBlurb,
+  astrologyCappedToday = false,
 }: {
   member: FamilyMember;
   onViewDocument?: (src: string) => void;
@@ -59,6 +60,8 @@ export default function MemberOverview({
   /** Present only when the viewer is allowed to (re-)generate an AI blurb — omitted hides the shuffle button. */
   onShuffleAstrology?: () => void;
   astrologyBlurb?: { text: string; loading: boolean; error: string | null };
+  /** True once today's insight has already been generated for these inputs — one per member per local day. */
+  astrologyCappedToday?: boolean;
 }) {
   // First-time discovery nudge for the dice icon — dismissed for good the
   // first time it's actually clicked, per device/space (isHintSeen/db.ts).
@@ -183,11 +186,12 @@ export default function MemberOverview({
                   type="button"
                   onClick={() => {
                     if (!diceHintSeen) { markHintSeen('astrology_dice'); setDiceHintSeen(true); }
+                    if (astrologyCappedToday) return;
                     onShuffleAstrology();
                   }}
                   disabled={astrologyBlurb?.loading}
                   className="relative shrink-0 p-1 -m-1 text-clay-500 hover:text-clay-700 disabled:opacity-50 cursor-pointer"
-                  title={astrologyBlurb?.text ? 'Shuffle for a new one' : 'Get an AI-written version'}
+                  title={astrologyCappedToday ? "That's today's insight — there'll be a new one tomorrow" : astrologyBlurb?.text ? 'Shuffle for a new one' : 'Get an AI-written version'}
                 >
                   {astrologyBlurb?.loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Dices className="w-3.5 h-3.5" />}
                   {!diceHintSeen && !astrologyBlurb?.loading && (
@@ -204,7 +208,10 @@ export default function MemberOverview({
               {astrologyBlurb?.text || `${zodiac.blurb}${member.birthTime ? ` Born ${member.birthTime}${member.placeOfBirth ? ` in ${member.placeOfBirth}` : ''}.` : ''}`}
             </p>
             {astrologyBlurb?.error && <p className="text-[11px] text-rosa-600 mt-0.5">{astrologyBlurb.error}</p>}
-            {onShuffleAstrology && !diceHintSeen && (
+            {onShuffleAstrology && astrologyCappedToday && (
+              <p className="text-[11px] text-ink-400 mt-1">That's today's insight — there'll be a new one tomorrow.</p>
+            )}
+            {onShuffleAstrology && !astrologyCappedToday && !diceHintSeen && (
               <p className="text-[11px] text-clay-600 mt-1">Tap the dice for a fresh AI-written version →</p>
             )}
           </div>

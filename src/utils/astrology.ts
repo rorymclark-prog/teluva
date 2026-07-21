@@ -44,6 +44,20 @@ export function sunSign(birthdate?: string): ZodiacSign | null {
   return { sign, ...META[sign] };
 }
 
+// True if the given ISO timestamp falls on the same LOCAL calendar day as
+// `now` (defaults to the current moment). Compares y/m/d via the local Date
+// getters, not Date#toISOString() (which is UTC) — a Vienna user must not
+// have "today's" insight roll over at 01:00. Mirrors the toISODate pattern
+// used in NeedsAttention.tsx / utils/vehicle.ts.
+export function isSameLocalDay(iso?: string, now: Date = new Date()): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return false;
+  return d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate();
+}
+
 const ELEMENT_TINT: Record<ZodiacSign['element'], string> = {
   Fire: 'bg-clay-100 text-clay-700',
   Earth: 'bg-sage-100 text-sage-700',
