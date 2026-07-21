@@ -1273,8 +1273,14 @@ app.post('/api/set-founding-date', async (req, res) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(foundingDate) || Number.isNaN(new Date(foundingDate).getTime())) {
       return res.status(400).json({ error: 'Please give a valid date (YYYY-MM-DD).' });
     }
-    const todayStr = new Date().toISOString().slice(0, 10);
-    if (foundingDate > todayStr) return res.status(400).json({ error: 'The founding date cannot be in the future.' });
+    // Cloud Run runs in UTC and has no idea what day it is where the user is.
+    // A founding date of "today" in Vienna or Johannesburg (both UTC+1/+2) is
+    // still "tomorrow" in UTC for the first hours of the local day, so a strict
+    // `> todayUTC` check rejected a perfectly valid date every evening. Allow
+    // one day of slack: this guard exists to stop someone typing 2049, not to
+    // adjudicate timezones. The client already caps the picker at local today.
+    const tomorrowUtc = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (foundingDate > tomorrowUtc) return res.status(400).json({ error: 'The founding date cannot be in the future.' });
 
     const familyId = caller.familyId;
     const infoRef = adminDb.doc(`families/${familyId}/info/info`);

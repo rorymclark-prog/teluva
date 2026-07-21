@@ -5,6 +5,17 @@ import { loadFamilyRoles, setFamilyMemberRole, loadSettings, saveSettings, loadS
 import { FamilyRole, FamilyMemberRole, IdCountry } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 
+// Today's date in the USER'S timezone as YYYY-MM-DD. Same convention as
+// toISODate() in utils/vehicle.ts and utils/businessMilestone.ts — never
+// Date#toISOString(), which shifts to UTC and rolls the date over early
+// for anyone east of Greenwich.
+function localToday(): string {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 interface FamilySettingsProps {
   onClose: () => void;
 }
@@ -239,7 +250,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
                 value={foundingDate}
                 onChange={(e) => handleFoundingDateChange(e.target.value)}
                 disabled={foundingSaving}
-                max={new Date().toISOString().slice(0, 10)}
+                max={localToday()}
                 className="field disabled:opacity-60"
               />
               {foundingError && (

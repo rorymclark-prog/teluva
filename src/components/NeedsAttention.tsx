@@ -197,7 +197,13 @@ function computeBusinessAnniversaryNudge(spaceInfo: FamilyInfoDoc | null): Nudge
   if (!spaceInfo || spaceInfo.type !== 'business' || !spaceInfo.foundingDate) return [];
   const next = nextAnniversary(spaceInfo.foundingDate);
   if (!next) return [];
-  const days = Math.round((next.date.getTime() - Date.now()) / DAY);
+  // Compare midnight-to-midnight. nextAnniversary() returns a date normalised to
+  // local midnight, so measuring it against Date.now() (a wall-clock instant)
+  // mixed two different reference points and rounded the day count wrong for
+  // most of any given day — "anniversary today" could read as 1 day away.
+  const midnightToday = new Date();
+  midnightToday.setHours(0, 0, 0, 0);
+  const days = Math.round((next.date.getTime() - midnightToday.getTime()) / DAY);
   if (days > 21) return [];
   const name = spaceInfo.name || 'The business';
   return [{

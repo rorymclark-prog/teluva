@@ -477,7 +477,16 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel }: BulkP
       )}
 
       <div className="flex justify-end gap-2 pt-1">
-        <button onClick={onCancel} className="btn-quiet text-sm px-4 py-2">
+        {/* Disabled mid-import, matching the Import button. Without this, closing
+            the panel during a batch unmounted it while uploads were still in
+            flight — the remaining photos kept uploading with nothing left to
+            record them, so they'd land in Storage but never in the vault. */}
+        <button
+          onClick={onCancel}
+          disabled={importing}
+          className="btn-quiet text-sm px-4 py-2 disabled:opacity-50"
+          title={importing ? 'Please wait until the import finishes' : undefined}
+        >
           <X className="w-3.5 h-3.5" /> {done ? 'Close' : 'Cancel'}
         </button>
         {items.length > 0 && !done && (

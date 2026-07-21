@@ -1,5 +1,6 @@
 import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
+import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -432,7 +433,15 @@ export function applySlipEdits(slips: SlipItem[], edits: AiEdit[]): SlipItem[] {
       amount: e.amount || undefined,
       currency: e.currency && SLIP_CURRENCIES.includes(e.currency) ? e.currency : 'EUR',
       assignedTo: e.assignedTo || undefined,
-      returnByDate: e.returnByDate || undefined,
+      // A till slip almost never prints a return-by date, so the model has
+      // nothing to extract and left this blank — which meant an AI-filed slip
+      // carried NO return clock, produced no nudge, and the feature's whole
+      // point ("photograph it, get reminded before the window shuts") silently
+      // did nothing. Fall back to the same editable purchase-date + 30 days
+      // suggestion the manual form already offers. It is a starting point the
+      // user can change, never a claim about their rights — shop policy varies
+      // and consumer law differs between Austria and South Africa.
+      returnByDate: e.returnByDate || suggestReturnBy(e.purchaseDate),
       warrantyUntil: e.warrantyUntil || undefined,
       notes: e.notes || undefined,
       photoUrl: e.photoUrl || undefined,
