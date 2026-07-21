@@ -48,10 +48,21 @@ const IDENTITY_SCAN_PATTERNS: Partial<Record<keyof IdentityRecord, RegExp>> = {
 function findIdentityScan(field: keyof IdentityRecord, docs?: FamilyDocument[]): FamilyDocument | undefined {
   const pattern = IDENTITY_SCAN_PATTERNS[field];
   if (!pattern) return undefined;
-  const idDocs = (docs || []).filter(d => d.category === 'ID' && d.fileData && pattern.test(d.name));
-  if (idDocs.length === 0) return undefined;
-  if (idDocs.length === 1) return idDocs[0];
-  return [...idDocs].sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''))[0];
+  const idDocs = (docs || []).filter(d => d.category === 'ID' && d.fileData);
+  let candidates = idDocs.filter(d => pattern.test(d.name));
+  // The generic "national ID" field also catches anything explicitly labelled "ID"
+  // as its own word — "Nomvula ID", "Mama ID and Driver's License" — the single
+  // most common way people actually name an ID-document scan. This ADDS to (never
+  // replaces) the specific-pattern match above, so a combined "ID and Driver's
+  // License" scan surfaces under both fields rather than whichever keyword the
+  // regex happened to hit first.
+  if (field === 'nationalIdNumber') {
+    const idLabelled = idDocs.filter(d => /\bid\b/i.test(d.name));
+    candidates = [...new Set([...candidates, ...idLabelled])];
+  }
+  if (candidates.length === 0) return undefined;
+  if (candidates.length === 1) return candidates[0];
+  return [...candidates].sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''))[0];
 }
 
 /* ─── expiry chip helper ─────────────────────────────────────────── */

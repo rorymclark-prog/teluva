@@ -1,8 +1,7 @@
 {
-  "label": "v102",
+  "label": "v103",
   "changes": [
-    "New: select multiple documents at once (Document Vault and each person's Documents tab)",
-    "Share several documents together via your phone's share sheet — attach them all to Mail, WhatsApp, AirDrop, etc. in one go",
-    "On desktop, download a selection as one .zip file instead"
+    "Fixed: a scanned ID document sometimes didn't link up to its ID number field (e.g. a scan named \"Nomvula ID and Driver's License\" wasn't showing under National/SA ID number, even though it was saved in Documents)",
+    "A scan named for more than one thing (like a combined ID + driver's licence) now shows under all the fields it matches"
   ]
 }
