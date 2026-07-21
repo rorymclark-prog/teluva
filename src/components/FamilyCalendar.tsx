@@ -213,19 +213,29 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
       // history. maxResults raised from 30 to 250 (a higher one-time cap, not
       // full pageToken pagination) so a real year-plus backfill isn't silently
       // truncated on the very first import.
-      const oneYearAgo = new Date();
+      //
+      // Past and future are fetched as TWO SEPARATE requests, each with their
+      // own 250 cap. A single request spanning both (timeMin=1yr-ago, no
+      // timeMax) sorts oldest-first, so an active calendar's past events alone
+      // could exhaust the entire cap and silently crowd out every upcoming
+      // appointment — the opposite of what an import is for. The future
+      // request has no timeMax, so it reaches at least a year out and further
+      // for anything already on the calendar beyond that.
+      const now = new Date();
+      const oneYearAgo = new Date(now);
       oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-      const startOfPeriod = oneYearAgo.toISOString();
-      const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfPeriod}&maxResults=250&orderBy=startTime&singleEvents=true`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const nowIso = now.toISOString();
+      const gcalHeaders = { headers: { 'Authorization': `Bearer ${token}` } };
+      const [pastRes, futureRes] = await Promise.all([
+        fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${oneYearAgo.toISOString()}&timeMax=${nowIso}&maxResults=250&orderBy=startTime&singleEvents=true`, gcalHeaders),
+        fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${nowIso}&maxResults=250&orderBy=startTime&singleEvents=true`, gcalHeaders),
+      ]);
 
-      if (!response.ok) {
-        throw new Error(`Google Calendar API error: ${response.status}`);
-      }
+      if (!pastRes.ok) throw new Error(`Google Calendar API error: ${pastRes.status}`);
+      if (!futureRes.ok) throw new Error(`Google Calendar API error: ${futureRes.status}`);
 
-      const data = await response.json();
-      const googleEvents = data.items || [];
+      const [pastData, futureData] = await Promise.all([pastRes.json(), futureRes.json()]);
+      const googleEvents = [...(pastData.items || []), ...(futureData.items || [])];
 
       if (googleEvents.length === 0) {
         triggerReminderNotification('No events found in Google Calendar.');
@@ -233,9 +243,15 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
       }
 
       const importedEvents: CalendarEvent[] = [];
+      const seenThisRun = new Set<string>();
       googleEvents.forEach((gEv: any) => {
         // Bug fix #5: skip events previously exported from Family Hub
         if ((gEv.summary || '').startsWith('[Family Hub]')) return;
+
+        // The past/future requests' boundaries could in principle both return
+        // the same event; guard against double-adding it in this run.
+        if (seenThisRun.has(gEv.id)) return;
+        seenThisRun.add(gEv.id);
 
         // Bug fix #5: dedupe by Google event id instead of case-insensitive title
         const exists = events.some(e => e.id === 'gcal-' + gEv.id);
@@ -682,7 +698,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                 onClick={handleImportFromGoogle}
                 disabled={isGoogleCalendarSyncing}
                 className="btn-quiet flex-1 sm:flex-none disabled:opacity-50"
-                title="Pulls in appointments from the past year onward, including ones scheduled before you started using Family Hub"
+                title="Pulls in appointments from the past year plus everything upcoming, including ones scheduled before you started using Family Hub"
               >
                 {isGoogleCalendarSyncing ? (
                   <Loader2 className="w-4 h-4 animate-spin text-ink-400" />

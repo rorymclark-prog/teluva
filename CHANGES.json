@@ -1,9 +1,8 @@
 {
-  "label": "v107",
+  "label": "v108",
   "changes": [
-    "Fixed: the document scanner could silently fail on detail-heavy photos like ID cards — it now compresses before saving instead of discarding the scan",
-    "The camera scanner is now available everywhere you'd expect it — the AI chat has its own camera button, and ID & Passports can now scan straight in",
-    "Scanning an ID card now asks for the back too, and saves both sides as one document",
-    "Document thumbnails in a member's Documents tab are now bigger and easier to see"
+    "Fixed: a passport scan (e.g. a UK passport) could be saved correctly but not show up linked to the passport record in ID & Passports",
+    "Fixed: the astrology card could fail to generate for anyone whose star sign is Cancer",
+    "Google Calendar import now reliably pulls in upcoming appointments too, not just the past year — a busy calendar could previously crowd out future events"
   ]
 }
