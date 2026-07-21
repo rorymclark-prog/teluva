@@ -1,7 +1,8 @@
 import type { ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard } from 'lucide-react';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera } from 'lucide-react';
 import { FamilyMember } from '../types';
 import { careNextDue } from '../utils/care';
+import { birthdayPhotoNudge } from '../utils/birthday';
 
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
@@ -58,6 +59,11 @@ function computeNudges(members: FamilyMember[]): Nudge[] {
         if (days <= 21) out.push({ key: `bday-${m.id}`, memberId: m.id, icon: Cake, tone: 'info', text: days === 0 ? `It's ${first}'s birthday today! 🎂` : `${first}'s birthday in ${days} day${days !== 1 ? 's' : ''}`, tab: 'favorites' });
       }
     }
+
+    // Birthday photo for the growing-up timelapse — prompt around the birthday
+    // (±30 days) when this year's photo hasn't been added yet.
+    const photoNudge = birthdayPhotoNudge(m, now);
+    if (photoNudge) out.push({ key: `bphoto-${m.id}-${photoNudge.year}`, memberId: m.id, icon: Camera, tone: 'info', text: `Add ${first}'s ${photoNudge.year} birthday photo`, tab: 'timelapse' });
 
     // Growth check for children (>6 months since last, or never)
     if (m.role === 'Child') {

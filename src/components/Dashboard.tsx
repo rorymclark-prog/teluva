@@ -40,6 +40,7 @@ import MemberSizing from './MemberSizing';
 import MemberDocuments from './MemberDocuments';
 import DocumentViewer from './DocumentViewer';
 import GrowthTracker from './GrowthTracker';
+import BirthdayTimelapse from './BirthdayTimelapse';
 import SecureSecrets from './SecureSecrets';
 import FamilyCalendar from './FamilyCalendar';
 import FamilyChat from './FamilyChat';
@@ -66,7 +67,7 @@ import {
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
-  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope
+  Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, Clapperboard
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -91,7 +92,7 @@ export function calculateAge(birthdate?: string): string | null {
   return `${age} yrs`;
 }
 
-type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
+type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets';
 type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'timeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -102,6 +103,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'sizes', label: 'Sizes', icon: Scissors },
   { id: 'favorites', label: 'Wishlist', icon: Heart },
   { id: 'growth', label: 'Growth', icon: TrendingUp },
+  { id: 'timelapse', label: 'Timelapse', icon: Clapperboard },
   { id: 'travel', label: 'Travel', icon: Plane },
   { id: 'preferences', label: 'Likes', icon: Sparkles },
   { id: 'documents', label: 'Documents', icon: FileText },
@@ -1064,6 +1066,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               )}
                               {activeTab === 'growth' && (
                                 <GrowthTracker member={selectedMember} onUpdateMember={handleUpdateMember} />
+                              )}
+                              {activeTab === 'timelapse' && (
+                                <BirthdayTimelapse member={selectedMember} onUpdateMember={handleUpdateMember} />
                               )}
                               {activeTab === 'travel' && (
                                 <MemberTravel member={selectedMember} onUpdate={handlePatchSelectedMember} />
