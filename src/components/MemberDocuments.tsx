@@ -4,11 +4,12 @@ import { getDocumentPlaceholderSvg } from '../utils/svgPlaceholders';
 import {
   FileText, Upload, Trash2, Eye, Download, Plus,
   Sparkles, FileImage, ShieldCheck, AlertCircle,
-  Camera, X, RefreshCcw, AlertTriangle
+  Camera, X, RefreshCcw, AlertTriangle, CheckSquare, Share2, Check, Loader2
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import { hashDataUrl, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
+import { canShare, shareMultiple, downloadZip } from '../utils/share';
 
 interface MemberDocumentsProps {
   member: FamilyMember;
@@ -65,6 +66,9 @@ export default function MemberDocuments({
   const [duplicateMatch, setDuplicateMatch] = useState<DupMatch<FamilyDocument> | null>(null);
   const [pendingHash, setPendingHash] = useState<string>('');
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState<'share' | 'zip' | null>(null);
 
   // Device Camera States & Refs
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -460,6 +464,46 @@ export default function MemberDocuments({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   };
 
+  const toggleSelectMode = () => {
+    setSelectMode(v => !v);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedDocs = (member.documents || []).filter(d => selectedIds.has(d.id));
+
+  const handleShareSelected = async () => {
+    if (!selectedDocs.length) return;
+    setExporting('share');
+    try {
+      await shareMultiple(selectedDocs.map(d => ({ src: getDocSource(d), name: d.fileName || d.name })));
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleZipSelected = async () => {
+    if (!selectedDocs.length) return;
+    setExporting('zip');
+    try {
+      await downloadZip(
+        selectedDocs.map(d => ({ src: getDocSource(d), name: d.fileName || d.name })),
+        `${member.name.replace(/\s+/g, '-').toLowerCase()}-documents-${new Date().toISOString().slice(0, 10)}.zip`,
+      );
+    } catch (e) {
+      console.error('Zip export failed:', e);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Section header */}
@@ -644,15 +688,70 @@ export default function MemberDocuments({
 
         {/* Existing documents catalog */}
         <div className="lg:col-span-12 xl:col-span-8 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <h4 className="text-[13px] font-semibold text-ink-600">
               Archives ({member.documents?.length || 0})
             </h4>
-            <span className="chip bg-sage-100 text-sage-700 flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3" />
-              Synced to your family
-            </span>
+            <div className="flex items-center gap-2">
+              {(member.documents?.length || 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={toggleSelectMode}
+                  className="btn-quiet text-xs px-3 py-1.5"
+                  title={selectMode ? 'Exit selection' : 'Select documents to export or share'}
+                >
+                  {selectMode ? <X className="w-3.5 h-3.5" /> : <CheckSquare className="w-3.5 h-3.5" />}
+                  {selectMode ? 'Cancel' : 'Select'}
+                </button>
+              )}
+              <span className="chip bg-sage-100 text-sage-700 flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3" />
+                Synced to your family
+              </span>
+            </div>
           </div>
+
+          {selectMode && (
+            <div className="p-3.5 rounded-2xl bg-clay-50 border border-clay-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <p className="text-[13px] font-semibold text-clay-900">
+                  {selectedIds.size === 0 ? 'Tap documents to select them' : `${selectedIds.size} selected`}
+                  {selectedIds.size > 0 && (
+                    <span className="text-clay-600 font-normal"> · {formatBytes(selectedDocs.reduce((sum, d) => sum + (d.fileSize || 0), 0))}</span>
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(selectedIds.size === (member.documents?.length || 0) ? new Set() : new Set((member.documents || []).map(d => d.id)))}
+                  className="text-[12px] font-semibold text-clay-700 hover:text-clay-900 underline underline-offset-2"
+                >
+                  {selectedIds.size === (member.documents?.length || 0) ? 'Clear all' : `Select all ${member.documents?.length || 0}`}
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                {canShare && (
+                  <button
+                    type="button"
+                    onClick={handleShareSelected}
+                    disabled={selectedIds.size === 0 || !!exporting}
+                    className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50"
+                  >
+                    {exporting === 'share' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+                    Share
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleZipSelected}
+                  disabled={selectedIds.size === 0 || !!exporting}
+                  className="btn-quiet text-xs px-3 py-1.5 disabled:opacity-50"
+                >
+                  {exporting === 'zip' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  Download .zip
+                </button>
+              </div>
+            </div>
+          )}
 
           {(!member.documents || member.documents.length === 0) ? (
             <div className="text-center py-16 px-4 rounded-2xl border border-dashed border-cream-300 bg-clay-50">
@@ -666,16 +765,34 @@ export default function MemberDocuments({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {member.documents.map((doc) => (
+              {member.documents.map((doc) => {
+                const isSelected = selectedIds.has(doc.id);
+                return (
                 <div
                   key={doc.id}
-                  className="flex flex-col bg-white border border-cream-200 p-4 rounded-2xl hover:bg-cream-100/60 transition-all gap-3.5 relative overflow-hidden group"
+                  onClick={selectMode ? () => toggleSelected(doc.id) : undefined}
+                  className={`flex flex-col bg-white border p-4 rounded-2xl transition-all gap-3.5 relative overflow-hidden group ${
+                    selectMode
+                      ? `cursor-pointer ${isSelected ? 'ring-2 ring-clay-400 bg-clay-50 border-clay-200' : 'border-cream-200 hover:bg-cream-100/60'}`
+                      : 'border-cream-200 hover:bg-cream-100/60'
+                  }`}
                 >
-                  {/* Category pill + date */}
+                  {/* Category pill + date (+ checkbox while selecting) */}
                   <div className="flex items-start justify-between">
-                    <span className={categoryChipClass(doc.category)}>
-                      {doc.category}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      {selectMode && (
+                        <div
+                          className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
+                            isSelected ? 'bg-clay-500 border-clay-500' : 'border-cream-400 bg-white'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                        </div>
+                      )}
+                      <span className={categoryChipClass(doc.category)}>
+                        {doc.category}
+                      </span>
+                    </div>
                     <p className="text-[12px] text-ink-400 font-mono tabular-nums">
                       {doc.uploadedAt}
                     </p>
@@ -703,39 +820,42 @@ export default function MemberDocuments({
                     </p>
                   )}
 
-                  {/* Actions Bar */}
-                  <div className="flex items-center justify-end space-x-1 border-t border-cream-100 pt-3 mt-auto">
-                    <button
-                      type="button"
-                      onClick={() => onViewDocument(doc, member.name)}
-                      className="p-1.5 text-ink-400 hover:text-ink-800 hover:bg-cream-100 rounded-xl transition-colors cursor-pointer"
-                      title="View document"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownload(doc)}
-                      className="p-1.5 text-ink-400 hover:text-ink-800 hover:bg-cream-100 rounded-xl transition-colors cursor-pointer"
-                      title="Download"
-                    >
-                      <Download className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm(`Delete "${doc.name}"? This permanently removes the document. This can't be undone.`)) {
-                          onDeleteDocument(member.id, doc.id);
-                        }
-                      }}
-                      className="p-1.5 text-ink-400 hover:text-rosa-700 hover:bg-rosa-50 rounded-xl transition-colors cursor-pointer"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  {/* Actions Bar — hidden while selecting so a stray tap can't view/delete */}
+                  {!selectMode && (
+                    <div className="flex items-center justify-end space-x-1 border-t border-cream-100 pt-3 mt-auto">
+                      <button
+                        type="button"
+                        onClick={() => onViewDocument(doc, member.name)}
+                        className="p-1.5 text-ink-400 hover:text-ink-800 hover:bg-cream-100 rounded-xl transition-colors cursor-pointer"
+                        title="View document"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(doc)}
+                        className="p-1.5 text-ink-400 hover:text-ink-800 hover:bg-cream-100 rounded-xl transition-colors cursor-pointer"
+                        title="Download"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Delete "${doc.name}"? This permanently removes the document. This can't be undone.`)) {
+                            onDeleteDocument(member.id, doc.id);
+                          }
+                        }}
+                        className="p-1.5 text-ink-400 hover:text-rosa-700 hover:bg-rosa-50 rounded-xl transition-colors cursor-pointer"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

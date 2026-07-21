@@ -5,9 +5,11 @@ import { auth } from '../lib/firebase';
 import DocumentViewer from './DocumentViewer';
 import {
   FolderLock, Upload, Search, Trash2, Eye, Cloud, CloudOff,
-  Plus, X, Check, Loader2, FileText, File, Image, AlertCircle, AlertTriangle
+  Plus, X, Check, Loader2, FileText, File, Image, AlertCircle, AlertTriangle,
+  CheckSquare, Share2, Download
 } from 'lucide-react';
 import { computeFileHash, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
+import { canShare, shareMultiple, downloadZip } from '../utils/share';
 
 const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
 
@@ -316,6 +318,9 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
   const [filterCat, setFilterCat] = useState<VaultCategory | 'All'>('All');
   const [search, setSearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState<'share' | 'zip' | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -363,6 +368,47 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
     const next = docs.filter(d => d.id !== doc.id);
     await persist(next);
     setDeletingId(null);
+  };
+
+  const toggleSelectMode = () => {
+    setSelectMode(v => !v);
+    setSelectedIds(new Set());
+    setShowUpload(false);
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedDocs = docs.filter(d => selectedIds.has(d.id));
+
+  const handleShareSelected = async () => {
+    if (!selectedDocs.length) return;
+    setExporting('share');
+    try {
+      await shareMultiple(selectedDocs.map(d => ({ src: d.downloadUrl, name: d.fileName || d.name })));
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleZipSelected = async () => {
+    if (!selectedDocs.length) return;
+    setExporting('zip');
+    try {
+      await downloadZip(
+        selectedDocs.map(d => ({ src: d.downloadUrl, name: d.fileName || d.name })),
+        `documents-${new Date().toISOString().slice(0, 10)}.zip`,
+      );
+    } catch (e) {
+      console.error('Zip export failed:', e);
+    } finally {
+      setExporting(null);
+    }
   };
 
   // Filtering
@@ -423,15 +469,69 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setShowUpload(v => !v)}
-            className="btn-primary shrink-0"
-          >
-            {showUpload ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-            {showUpload ? 'Cancel' : 'Upload document'}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {docs.length > 0 && (
+              <button
+                onClick={toggleSelectMode}
+                className={selectMode ? 'btn-quiet' : 'btn-quiet'}
+                title={selectMode ? 'Exit selection' : 'Select documents to export or share'}
+              >
+                {selectMode ? <X className="w-4 h-4" /> : <CheckSquare className="w-4 h-4" />}
+                {selectMode ? 'Cancel' : 'Select'}
+              </button>
+            )}
+            <button
+              onClick={() => { setShowUpload(v => !v); setSelectMode(false); }}
+              className="btn-primary shrink-0"
+            >
+              {showUpload ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              {showUpload ? 'Cancel' : 'Upload document'}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Selection bar — appears once "Select" is toggled on */}
+      {selectMode && (
+        <div className="card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-clay-50 border-clay-200">
+          <div className="flex items-center gap-3">
+            <p className="text-[13px] font-semibold text-clay-900">
+              {selectedIds.size === 0 ? 'Tap documents to select them' : `${selectedIds.size} selected`}
+              {selectedIds.size > 0 && (
+                <span className="text-clay-600 font-normal"> · {formatBytes(selectedDocs.reduce((sum, d) => sum + (d.fileSize || 0), 0))}</span>
+              )}
+            </p>
+            {docs.length > 0 && (
+              <button
+                onClick={() => setSelectedIds(selectedIds.size === filtered.length ? new Set() : new Set(filtered.map(d => d.id)))}
+                className="text-[12px] font-semibold text-clay-700 hover:text-clay-900 underline underline-offset-2"
+              >
+                {selectedIds.size === filtered.length ? 'Clear all' : `Select all ${filtered.length}`}
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {canShare && (
+              <button
+                onClick={handleShareSelected}
+                disabled={selectedIds.size === 0 || !!exporting}
+                className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50"
+              >
+                {exporting === 'share' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+                Share
+              </button>
+            )}
+            <button
+              onClick={handleZipSelected}
+              disabled={selectedIds.size === 0 || !!exporting}
+              className="btn-quiet text-xs px-3 py-1.5 disabled:opacity-50"
+            >
+              {exporting === 'zip' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              Download .zip
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Upload panel (inline, collapsible) */}
       {showUpload && (
@@ -488,13 +588,28 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
             const isImage = doc.fileType.startsWith('image/');
             const mName = memberName(doc.memberId);
             const isDeleting = deletingId === doc.id;
+            const isSelected = selectedIds.has(doc.id);
 
             return (
               <div
                 key={doc.id}
-                className="card p-4 sm:p-5 flex items-start justify-between gap-4 hover:bg-cream-100/60 transition-all"
+                onClick={selectMode ? () => toggleSelected(doc.id) : undefined}
+                className={`card p-4 sm:p-5 flex items-start justify-between gap-4 transition-all ${
+                  selectMode
+                    ? `cursor-pointer ${isSelected ? 'ring-2 ring-clay-400 bg-clay-50' : 'hover:bg-cream-100/60'}`
+                    : 'hover:bg-cream-100/60'
+                }`}
               >
                 <div className="flex items-start gap-3 min-w-0 flex-1">
+                  {selectMode && (
+                    <div
+                      className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                        isSelected ? 'bg-clay-500 border-clay-500' : 'border-cream-400 bg-white'
+                      }`}
+                    >
+                      {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                    </div>
+                  )}
                   {/* Thumbnail or icon */}
                   {isImage ? (
                     <img
@@ -538,30 +653,32 @@ export default function DocumentVault({ members, isBusinessSpace }: { members: F
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setViewingDoc(doc)}
-                    className="btn-quiet text-xs px-3 py-1.5"
-                    title="View document"
-                  >
-                    <Eye className="w-3 h-3" />
-                    View
-                  </button>
-                  <button
-                    onClick={() => handleDelete(doc)}
-                    disabled={isDeleting}
-                    className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-rosa-50 rounded-xl transition-colors disabled:opacity-40"
-                    title="Delete document"
-                  >
-                    {isDeleting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
+                {/* Actions — hidden while selecting so a stray tap can't view/delete */}
+                {!selectMode && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setViewingDoc(doc)}
+                      className="btn-quiet text-xs px-3 py-1.5"
+                      title="View document"
+                    >
+                      <Eye className="w-3 h-3" />
+                      View
+                    </button>
+                    <button
+                      onClick={() => handleDelete(doc)}
+                      disabled={isDeleting}
+                      className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-rosa-50 rounded-xl transition-colors disabled:opacity-40"
+                      title="Delete document"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

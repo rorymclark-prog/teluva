@@ -1,9 +1,8 @@
 {
-  "label": "v101",
+  "label": "v102",
   "changes": [
-    "Passport scans are now reliably filed to ID & Passports, even when photographed as multiple pages",
-    "A warning banner appears if a passport-looking scan didn't get a full passport record — so nothing slips through silently",
-    "New: duplicate-document detection — scanning or uploading a file that looks already saved now asks Replace existing or Keep both, instead of silently creating a copy",
-    "Applies everywhere you add a document: AI chat, a member's own Documents tab, and the shared Document Vault"
+    "New: select multiple documents at once (Document Vault and each person's Documents tab)",
+    "Share several documents together via your phone's share sheet — attach them all to Mail, WhatsApp, AirDrop, etc. in one go",
+    "On desktop, download a selection as one .zip file instead"
   ]
 }
