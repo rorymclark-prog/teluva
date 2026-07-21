@@ -1,5 +1,5 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car } from 'lucide-react';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award } from 'lucide-react';
 import { FamilyMember, AssetItem, Vehicle, ContactEntry } from '../types';
 import { careNextDue } from '../utils/care';
 import { loadAssets, loadHousehold } from '../utils/db';
@@ -235,6 +235,20 @@ export function computeNudges(members: FamilyMember[]): Nudge[] {
       const days = Math.round((t - now) / DAY);
       if (months < 0) out.push({ key: `visa-${m.id}-${visa.id}`, memberId: m.id, icon: Bell, tone: 'urgent', text: `${first}'s ${visa.country} visa has expired`, tab: 'travel', date: visa.expiryDate, days });
       else if (months <= 2) out.push({ key: `visa-${m.id}-${visa.id}`, memberId: m.id, icon: Bell, tone: 'warn', text: `${first}'s ${visa.country} visa expires soon`, tab: 'travel', date: visa.expiryDate, days });
+    }
+
+    // CV qualification/certificate expiry (first-aid certs, driving-licence
+    // categories, professional registrations …) — business spaces only in
+    // practice, since the 'cv' tab is hidden in family spaces, but this loop
+    // is harmless either way as it only fires when data is actually present.
+    for (const q of m.cv?.qualifications || []) {
+      if (!q.expiryDate) continue;
+      const t = new Date(q.expiryDate).getTime();
+      if (isNaN(t)) continue;
+      const months = (t - now) / MONTH;
+      const days = Math.round((t - now) / DAY);
+      if (months < 0) out.push({ key: `cvqual-${m.id}-${q.id}`, memberId: m.id, icon: Award, tone: 'urgent', text: `${first}'s ${q.name} has expired`, tab: 'cv', date: q.expiryDate, days });
+      else if (months <= 2) out.push({ key: `cvqual-${m.id}-${q.id}`, memberId: m.id, icon: Award, tone: 'warn', text: `${first}'s ${q.name} expires soon`, tab: 'cv', date: q.expiryDate, days });
     }
   }
 

@@ -48,7 +48,15 @@ export type AiEdit =
   | { kind: 'transit_pass'; member: string; name: string; operator?: string; cardNumber?: string; zone?: string; validFrom?: string; validUntil?: string; notes?: string }
   | { kind: 'care_schedule'; member: string; careKind: string; provider?: string; lastVisit?: string; intervalMonths?: number; nextDue?: string; notes?: string }
   | { kind: 'saying'; member: string; text: string; said?: string; context?: string }
-  | { kind: 'family_word'; word: string; meaning: string; coinedBy?: string; approxDate?: string };
+  | { kind: 'family_word'; word: string; meaning: string; coinedBy?: string; approxDate?: string }
+  | {
+      kind: 'cv'; member: string; summary?: string;
+      roles?: { title: string; employer?: string; startDate?: string; endDate?: string; current?: boolean; notes?: string }[];
+      education?: { institution: string; qualification?: string; fieldOfStudy?: string; startDate?: string; endDate?: string; notes?: string }[];
+      qualifications?: { name: string; issuer?: string; issueDate?: string; expiryDate?: string; notes?: string }[];
+      skills?: string[]; languages?: string[];
+      fileDocumentId?: string; // client-only — stamped after the attached CV photo/PDF is filed; the model never supplies this
+    };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
@@ -670,6 +678,42 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         }
       }
 
+      // A cv edit can carry an attached CV photo/PDF ("here's Nomvula's CV").
+      // File it onto the member's own Documents tab (same vault-upload path
+      // fileScans uses, so it's a full-resolution Storage copy, not a
+      // shrunk inline base64) and stamp the new document's id onto the edit's
+      // fileDocumentId — the model itself never supplies this id. Only the
+      // first attached image is used, same limitation the recipe-photo and
+      // document-scan paths already have. Business-only (defense-in-depth —
+      // the system prompt never offers this edit kind outside a business space).
+      if (srcs.length && isBusinessSpace) {
+        const cvEdit = resolvedEdits.find((e): e is Extract<AiEdit, { kind: 'cv' }> => e.kind === 'cv');
+        const owner = cvEdit ? resolveMemberByName(cvEdit.member) : undefined;
+        if (cvEdit && owner) {
+          try {
+            const blob = dataUrlToBlob(srcs[0].dataUrl);
+            const file = new File([blob], srcs[0].name, { type: srcs[0].mimeType });
+            const hash = await computeFileHash(blob);
+            const docId = newId();
+            const { downloadUrl } = await uploadVaultFile(file, docId);
+            await onAddMemberDoc(owner.id, {
+              id: 'doc-' + docId,
+              name: `${owner.name}'s CV`,
+              category: 'Other',
+              fileType: srcs[0].mimeType,
+              fileName: srcs[0].name,
+              fileSize: blob.size,
+              uploadedAt: new Date().toISOString().slice(0, 10),
+              fileData: downloadUrl,
+              contentHash: hash,
+            });
+            resolvedEdits = resolvedEdits.map(e => (e.kind === 'cv' ? { ...e, fileDocumentId: 'doc-' + docId } : e));
+          } catch {
+            // Non-fatal — the structured CV fields below still get saved without the filed copy.
+          }
+        }
+      }
+
       const dataEdits = resolvedEdits.filter(e => e.kind !== 'document');
       if (dataEdits.length) await onApplyEdits(dataEdits);
       if (docEdits.length && srcs.length) {
@@ -1083,5 +1127,15 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'care_schedule') return `${e.member}: add ${e.careKind}${e.intervalMonths ? ` every ${e.intervalMonths} mo` : ''}${e.lastVisit ? ` (last ${e.lastVisit})` : ''}`;
   if (e.kind === 'saying') return `${e.member}: save a saying — “${e.text}”${e.said ? ` (${e.said})` : ''}`;
   if (e.kind === 'family_word') return `Add family word: “${e.word}” — ${e.meaning}${e.coinedBy ? ` (${e.coinedBy})` : ''}`;
+  if (e.kind === 'cv') {
+    const parts = [
+      e.roles?.length ? `${e.roles.length} role${e.roles.length === 1 ? '' : 's'}` : '',
+      e.education?.length ? `${e.education.length} education entr${e.education.length === 1 ? 'y' : 'ies'}` : '',
+      e.qualifications?.length ? `${e.qualifications.length} qualification${e.qualifications.length === 1 ? '' : 's'}` : '',
+      e.skills?.length ? `${e.skills.length} skill${e.skills.length === 1 ? '' : 's'}` : '',
+      e.languages?.length ? `${e.languages.length} language${e.languages.length === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join(', ');
+    return `${e.member}: update CV${parts ? ` — ${parts}` : ''}`;
+  }
   return JSON.stringify(e);
 }

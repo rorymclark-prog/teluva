@@ -166,6 +166,7 @@ export interface FamilyMember {
   careSchedule?: CareSchedule[];    // recurring health/admin appointments (dentist, yearly check-up …)
   sayings?: Saying[];               // keepsake: funny/wise things they said, age derived from birthdate
   birthdayPhotos?: BirthdayPhoto[]; // one photo per year → growing-up timelapse
+  cv?: MemberCv;                    // business spaces only — CV/résumé structured facts + a pointer to the filed CV document
 }
 
 // A quote a family member said — captured with the date so their AGE at the time
@@ -742,3 +743,52 @@ export interface Recipe {
 }
 
 export interface RecipeBookDoc { recipes: Recipe[]; }
+
+// --- CV / résumé (business spaces only): the structured half of a team
+// member's employment record. The FILE (the actual CV PDF/photo someone sent)
+// reuses the existing per-member `documents` array — `fileDocumentId` below
+// just points at the FamilyDocument that holds it, so there's no new Storage
+// path or Firestore doc. Deliberately does NOT duplicate the v111
+// employer/jobTitle/workPhone/workAddress fields already on FamilyMember —
+// those are shown read-only as the "current role" header.
+export interface CvRole {
+  id: string;
+  title: string;
+  employer?: string;
+  startDate?: string;   // YYYY-MM-DD
+  endDate?: string;     // YYYY-MM-DD — blank/absent while current
+  current?: boolean;
+  notes?: string;
+}
+
+export interface CvEducationEntry {
+  id: string;
+  institution: string;
+  qualification?: string;  // degree/certificate name, e.g. "BSc Computer Science"
+  fieldOfStudy?: string;
+  startDate?: string;      // YYYY-MM-DD
+  endDate?: string;        // YYYY-MM-DD
+  notes?: string;
+}
+
+// A certificate/registration/licence with an EXPIRY — first-aid certificate,
+// driving-licence category, professional registration. expiryDate feeds the
+// existing NeedsAttention nudge pipeline exactly like a visa or passport.
+export interface CvQualification {
+  id: string;
+  name: string;            // e.g. "First Aid Certificate", "Code B Driving Licence"
+  issuer?: string;
+  issueDate?: string;      // YYYY-MM-DD
+  expiryDate?: string;     // YYYY-MM-DD — drives the "expires soon" nudge
+  notes?: string;
+}
+
+export interface MemberCv {
+  summary?: string;
+  roles?: CvRole[];
+  education?: CvEducationEntry[];
+  qualifications?: CvQualification[];
+  skills?: string[];
+  languages?: string[];
+  fileDocumentId?: string; // points at the FamilyDocument (in member.documents) holding the filed CV file
+}

@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { AVATAR_COLORS } from './avatarPalette';
 
@@ -186,6 +186,55 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
         context: e.context?.trim() || undefined,
       };
       next = next.map(m => (m.id === target.id ? { ...m, sayings: [...(m.sayings || []), rec] } : m));
+    } else if (e.kind === 'cv' && isBusinessSpace) {
+      // Business-only, guarded here in addition to the UI (Dashboard's
+      // HIDDEN_IN_FAMILY) and the system prompt (server.js only offers this
+      // edit kind when context.isBusinessSpace) — belt-and-braces so even a
+      // replayed/legacy chat card can't write cv data into a family space.
+      const target = resolveMember(next, e.member);
+      if (!target) continue;
+      const existingCv = target.cv || {};
+      const norm = (s?: string) => (s || '').trim().toLowerCase();
+
+      const existingRoles = existingCv.roles || [];
+      const newRoles: CvRole[] = (e.roles || [])
+        .filter(r => r && r.title && r.title.trim())
+        .filter(r => !existingRoles.some(x => norm(x.title) === norm(r.title) && norm(x.employer) === norm(r.employer)))
+        .map(r => ({ id: newId(), title: r.title.trim(), employer: r.employer || undefined, startDate: r.startDate || undefined, endDate: r.endDate || undefined, current: r.current || undefined, notes: r.notes || undefined }));
+
+      const existingEdu = existingCv.education || [];
+      const newEdu: CvEducationEntry[] = (e.education || [])
+        .filter(x => x && x.institution && x.institution.trim())
+        .filter(x => !existingEdu.some(y => norm(y.institution) === norm(x.institution) && norm(y.qualification) === norm(x.qualification)))
+        .map(x => ({ id: newId(), institution: x.institution.trim(), qualification: x.qualification || undefined, fieldOfStudy: x.fieldOfStudy || undefined, startDate: x.startDate || undefined, endDate: x.endDate || undefined, notes: x.notes || undefined }));
+
+      const existingQuals = existingCv.qualifications || [];
+      const newQuals: CvQualification[] = (e.qualifications || [])
+        .filter(q => q && q.name && q.name.trim())
+        .filter(q => !existingQuals.some(y => norm(y.name) === norm(q.name) && norm(y.issuer) === norm(q.issuer)))
+        .map(q => ({ id: newId(), name: q.name.trim(), issuer: q.issuer || undefined, issueDate: q.issueDate || undefined, expiryDate: q.expiryDate || undefined, notes: q.notes || undefined }));
+
+      const mergeTags = (existing: string[], incoming?: string[]) => {
+        const out = [...existing];
+        for (const t of (incoming || [])) {
+          const v = (t || '').trim();
+          if (v && !out.some(x => norm(x) === norm(v))) out.push(v);
+        }
+        return out;
+      };
+
+      const nextCv = {
+        ...existingCv,
+        summary: e.summary?.trim() || existingCv.summary,
+        roles: [...existingRoles, ...newRoles],
+        education: [...existingEdu, ...newEdu],
+        qualifications: [...existingQuals, ...newQuals],
+        skills: mergeTags(existingCv.skills || [], e.skills),
+        languages: mergeTags(existingCv.languages || [], e.languages),
+        // Never clobber an already-filed CV with nothing — only set when this edit actually carries one.
+        fileDocumentId: e.fileDocumentId || existingCv.fileDocumentId,
+      };
+      next = next.map(m => (m.id === target.id ? { ...m, cv: nextCv } : m));
     }
   }
   return next;
@@ -231,7 +280,7 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   return { numbers, contacts, providers };
 }
 
-export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying');
+export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'cv');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number' || e.kind === 'provider');
 
 const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;
