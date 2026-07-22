@@ -16,9 +16,10 @@ import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMat
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
-  ClipboardPaste,
+  ClipboardPaste, Undo2,
 } from 'lucide-react';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import { UndoRecord, landingLabel, countIrreversibleEdits } from '../utils/aiUndo';
 
 // Web Speech API — may be undefined in unsupported browsers
 const SR: any = (typeof window !== 'undefined')
@@ -107,16 +108,20 @@ interface ChatMessage {
   sourceImage?: Attachment;   // legacy single source — kept for messages persisted before multi-attach
   sourceImages?: Attachment[]; // carried on the assistant message so 'document' edits can file the right scan
   warnings?: string[];        // client-side safety-net notices (e.g. a likely-missed passport record) — display only, never persisted server-side
+  undo?: UndoRecord[];        // ids of the records THIS apply created (captured at Apply time) — lets "Undo" delete exactly them and flip the card back to un-applied
 }
 
 interface Props {
   members: FamilyMember[];
-  onApplyEdits: (edits: AiEdit[]) => Promise<void>;
+  // Returns the undo manifest — ids of the non-document records this apply created — so the card can offer an exact reversal. (Older callers may still return void.)
+  onApplyEdits: (edits: AiEdit[]) => Promise<UndoRecord[] | void>;
   // File a scanned document into a member's own Documents tab (in addition to the vault)
   onAddMemberDoc: (memberId: string, doc: FamilyDocument) => Promise<void>;
   isBusinessSpace?: boolean;
   /** Open the "fun avatar" generator for whichever profile is currently active. Omitted (no chip shown) when the caller can't use it (not admin, or nothing selected). */
   onOpenFunAvatar?: () => void;
+  /** Delete exactly the records an earlier Apply created (its undo manifest), reversing that Apply. Returns how many were removed vs. not found. Omitted → no Undo control shown. */
+  onUndoEdits?: (records: UndoRecord[]) => Promise<{ undone: number; missing: number }>;
 }
 
 function slimMembers(members: FamilyMember[]) {
@@ -221,7 +226,7 @@ function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): s
   ]));
 }
 
-export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBusinessSpace, onOpenFunAvatar }: Props) {
+export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBusinessSpace, onOpenFunAvatar, onUndoEdits }: Props) {
   const { uid, familyId } = useFamilyCtx();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
@@ -240,6 +245,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   // message's own docEdits array). Apply is held until every flag is resolved.
   const [docDuplicates, setDocDuplicates] = useState<Record<number, DocDuplicateFlag[]>>({});
   const [error, setError] = useState<string | null>(null);
+  // Undo-last-apply: which applied card is asking "Undo this?" for confirmation,
+  // and which is mid-undo (so its control shows a spinner and can't double-fire).
+  const [confirmingUndoIdx, setConfirmingUndoIdx] = useState<number | null>(null);
+  const [undoingIdx, setUndoingIdx] = useState<number | null>(null);
   const [listening, setListening] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   // Progressive word-by-word reveal of the latest assistant reply — null means
@@ -791,10 +800,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   // first image, matching the old single-attachment behaviour). `resolutions`
   // carries the user's Replace/Keep-both choice for any edit flagged as a
   // likely duplicate by checkDocDuplicates (absent = no flag, nothing to resolve).
-  const fileScans = async (docEdits: DocEdit[], srcs: Attachment[], resolutions: Record<number, DocDuplicateFlag>) => {
+  const fileScans = async (docEdits: DocEdit[], srcs: Attachment[], resolutions: Record<number, DocDuplicateFlag>): Promise<UndoRecord[]> => {
     // Nothing to file only when BOTH sources are missing: an edit stamped with
     // its own fileUrl needs no chat attachment at all.
-    if (!srcs.length && !docEdits.some(e => e.fileUrl)) return;
+    if (!srcs.length && !docEdits.some(e => e.fileUrl)) return [];
     let existing = await loadDocuments();
     const today = new Date().toISOString().slice(0, 10);
     const by = auth.currentUser?.displayName || auth.currentUser?.email || 'Family';
@@ -911,6 +920,11 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         `Saved everything else, but ${skipped.length === 1 ? `"${skipped[0]}" couldn't be filed` : `${skipped.length} documents couldn't be filed`} — the photo didn't finish uploading. Please re-attach and send it again.`
       );
     }
+    // Undo manifest for the docs just filed: the vault id is the anchor, and its
+    // member-profile copy (id 'doc-'+id, stripped by deleteDocumentEverywhere via
+    // the vault doc) rides along. memberId lets Undo route through the same
+    // delete-everywhere helper so nothing is half-removed.
+    return added.map(d => ({ domain: 'document' as const, id: d.id, memberId: d.memberId, label: d.name }));
   };
 
   // `flagsOverride`, when passed, is used instead of reading docDuplicates[idx]
@@ -1026,12 +1040,21 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         }
       }
 
+      // Collect the undo manifest as we apply: onApplyEdits returns the ids of
+      // the non-document records it created (via before/after diffing in the
+      // Dashboard), and fileScans returns the vault-document ids. Merged onto the
+      // message so a later Undo can delete exactly these and nothing else.
+      const undo: UndoRecord[] = [];
       const dataEdits = resolvedEdits.filter(e => e.kind !== 'document');
-      if (dataEdits.length) await onApplyEdits(dataEdits);
+      if (dataEdits.length) {
+        const u = await onApplyEdits(dataEdits);
+        if (Array.isArray(u)) undo.push(...u);
+      }
       if (docEdits.length && canFileDocs) {
         const resolutions: Record<number, DocDuplicateFlag> = {};
         flags.forEach(f => { resolutions[f.editIdx] = f; });
-        await fileScans(docEdits, srcs, resolutions);
+        const u = await fileScans(docEdits, srcs, resolutions);
+        if (Array.isArray(u)) undo.push(...u);
       } else if (docEdits.length && !canFileDocs) {
         // Image is stripped from persisted history — after a reload we can't
         // file the scan. Don't fail silently: the data edits applied, but the
@@ -1039,7 +1062,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         setError('Your other changes were saved, but the photo itself is no longer in this chat (it was cleared when the app reloaded). Please re-attach the photo and send it again to file the document.');
       }
       setMessages(prev => {
-        const updated = prev.map((m, i) => i === idx ? { ...m, applied: true } : m);
+        const updated = prev.map((m, i) => i === idx ? { ...m, applied: true, undo: undo.length ? undo : undefined } : m);
         // Persist the applied flag to cloud so the card stays "Applied" after a
         // reload or on another device — otherwise the Apply button reappears.
         if (uid) saveChatHistory(uid, slimForCloud(updated));
@@ -1067,6 +1090,55 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   const dismissEdits = (idx: number) => {
     setMessages(prev => prev.map((m, i) => i === idx ? { ...m, edits: undefined } : m));
     setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
+  };
+
+  // Undo the MOST RECENT apply of this message: delete exactly the records it
+  // created (its stored manifest) and flip the card back to un-applied so it can
+  // be re-Applied (which mints fresh ids). Only the records this apply minted are
+  // touched — field-set edits that merely changed a value stay, and are called
+  // out in the copy. If a record can't be found (already changed/removed on
+  // another device), Undo removes what it can and says how many it couldn't.
+  const undoEdits = async (idx: number) => {
+    setConfirmingUndoIdx(null);
+    const msg = messages[idx];
+    const records = msg?.undo || [];
+    if (!onUndoEdits || !records.length) {
+      // Nothing reversible was captured — just flip the card back so it can be re-applied.
+      setMessages(prev => {
+        const updated = prev.map((m, i) => i === idx ? { ...m, applied: false, undo: undefined } : m);
+        if (uid) saveChatHistory(uid, slimForCloud(updated));
+        return updated;
+      });
+      setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
+      return;
+    }
+    setUndoingIdx(idx);
+    try {
+      const res = await onUndoEdits(records);
+      setMessages(prev => {
+        const updated = prev.map((m, i) => i === idx ? { ...m, applied: false, undo: undefined } : m);
+        if (uid) saveChatHistory(uid, slimForCloud(updated));
+        return updated;
+      });
+      // Clear any duplicate flags so a re-Apply re-checks the vault from scratch.
+      setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
+      // Field-set edits (a shoe size, an address) change a value in place rather
+      // than create a record, so undo can't reverse them — say so plainly instead
+      // of implying the card was wiped clean.
+      const irreversible = countIrreversibleEdits(msg.edits || []);
+      const notes: string[] = [];
+      if (res.missing > 0) notes.push(`${res.missing} couldn't be found (already changed or removed) and were left as they are`);
+      if (irreversible > 0) notes.push(`${irreversible} field change${irreversible === 1 ? '' : 's'} (like a size or an address) can't be auto-undone and stay${irreversible === 1 ? 's' : ''} set`);
+      setError(
+        notes.length
+          ? `Undid ${res.undone} item${res.undone === 1 ? '' : 's'}. ${notes.join('; ')}.`
+          : null,
+      );
+    } catch (e: any) {
+      setError(e?.message || "Couldn't undo those changes.");
+    } finally {
+      setUndoingIdx(null);
+    }
   };
 
   return (
@@ -1274,9 +1346,47 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
                     </div>
                   )}
                   {m.applied ? (
-                    <p className="text-[12px] font-semibold text-sage-700 flex items-center gap-1.5">
-                      <Check className="w-3.5 h-3.5" /> {t.ai_applied}
-                    </p>
+                    <div className="space-y-1.5">
+                      <p className="text-[12px] font-semibold text-sage-700 flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5" /> {t.ai_applied}
+                      </p>
+                      {/* Where each edit landed — kills the "it says saved but I can't find it" doubt. */}
+                      <ul className="space-y-0.5">
+                        {m.edits!.map((e, j) => (
+                          <li key={j} className="text-[11.5px] text-ink-400 pl-5 truncate">
+                            → {landingLabel(e, (n) => resolveMemberByName(n)?.name)}
+                          </li>
+                        ))}
+                      </ul>
+                      {onUndoEdits && m.undo && m.undo.length > 0 && (
+                        confirmingUndoIdx === i ? (
+                          <div className="flex items-center gap-2 pt-0.5 pl-5">
+                            <span className="text-[11.5px] text-ink-500">Undo this?</span>
+                            <button
+                              onClick={() => undoEdits(i)}
+                              disabled={undoingIdx === i}
+                              className="btn-quiet text-[11px] px-2 py-0.5 text-rosa-700 disabled:opacity-50"
+                            >
+                              {undoingIdx === i ? <Loader2 className="w-3 h-3 animate-spin" /> : <Undo2 className="w-3 h-3" />} Yes, undo
+                            </button>
+                            <button
+                              onClick={() => setConfirmingUndoIdx(null)}
+                              disabled={undoingIdx === i}
+                              className="btn-quiet text-[11px] px-2 py-0.5 disabled:opacity-50"
+                            >
+                              Keep
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmingUndoIdx(i)}
+                            className="ml-5 text-[11px] text-ink-400 hover:text-rosa-600 underline underline-offset-2 inline-flex items-center gap-1"
+                          >
+                            <Undo2 className="w-3 h-3" /> Undo
+                          </button>
+                        )
+                      )}
+                    </div>
                   ) : (
                     <div className="flex gap-2 pt-1">
                       <button

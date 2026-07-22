@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import AIChatbot, { AiEdit } from './AIChatbot';
+import type { UndoRecord } from '../utils/aiUndo';
 import type { FamilyMember, FamilyDocument } from '../types';
 import { useT } from '../i18n/LangContext';
 
 interface Props {
   members: FamilyMember[];
-  onApplyEdits: (edits: AiEdit[]) => Promise<void>;
+  onApplyEdits: (edits: AiEdit[]) => Promise<UndoRecord[] | void>;
   onAddMemberDoc: (memberId: string, doc: FamilyDocument) => Promise<void>;
   demo?: boolean;
   isBusinessSpace?: boolean;
   onOpenFunAvatar?: () => void;
+  onUndoEdits?: (records: UndoRecord[]) => Promise<{ undone: number; missing: number }>;
 }
 
 /**
@@ -19,7 +21,7 @@ interface Props {
  * launcher toggles to a close (X); clicking anywhere outside the panel (or Esc,
  * or the mobile backdrop) also closes it.
  */
-export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, demo, isBusinessSpace, onOpenFunAvatar }: Props) {
+export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, demo, isBusinessSpace, onOpenFunAvatar, onUndoEdits }: Props) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -86,6 +88,7 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
                 onAddMemberDoc={onAddMemberDoc}
                 isBusinessSpace={isBusinessSpace}
                 onOpenFunAvatar={onOpenFunAvatar ? () => { setOpen(false); onOpenFunAvatar(); } : undefined}
+                onUndoEdits={onUndoEdits}
               />
             )}
           </div>
