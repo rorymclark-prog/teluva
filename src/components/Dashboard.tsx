@@ -31,6 +31,8 @@ import {
   hasSlipEdits, applySlipEdits,
   hasServiceRecordEdits, applyServiceRecordEdits,
 } from '../utils/aiApply';
+// EDIT/DELETE existing records (confirm-before-destroy) — real logic lives here.
+import { hasDestructiveEdits, applyDestructiveEdits } from '../utils/aiDestructive';
 import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
 import AiConsentModal from './AiConsentModal';
@@ -798,6 +800,24 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const ok = await saveSlips(applySlipEdits(current, edits));
       if (!ok) failures.push('slips');
     }
+    // DESTRUCTIVE edits (delete_record / update_record) run LAST — after every
+    // create/append above has been saved — so applyDestructiveEdits re-resolves
+    // each target id against the freshest saved data and can't act on a record a
+    // same-batch edit just changed. This ONLY runs because the user tapped Apply
+    // on a card that spelled out exactly WHAT and WHOSE record would change
+    // (confirm-before-destroy). Document deletes route through
+    // deleteDocumentEverywhere so both stores + Storage are cleaned; ids that no
+    // longer resolve are dropped with a note, never substituted.
+    if (hasDestructiveEdits(edits)) {
+      const res = await applyDestructiveEdits(edits, membersRef.current);
+      if (res.members) { membersRef.current = res.members; setMembers(res.members); }
+      if (res.contacts) setContacts(res.contacts);
+      if (res.notes.length) {
+        console.warn('AI delete/update:', res.notes.join(' '));
+        showToast(res.notes.join(' '));
+      }
+      if (res.failures.length) failures.push(...res.failures);
+    }
 
     // Remount the self-loading views so an applied change shows immediately
     // (these views load their data once on mount and take no props).
@@ -805,7 +825,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       hasInfoEdits(edits) || hasHouseholdEdits(edits) || hasFinancesEdits(edits) ||
       hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
       hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasEstateEdits(edits) || hasSlipEdits(edits) ||
-      hasServiceRecordEdits(edits)
+      hasServiceRecordEdits(edits) || hasDestructiveEdits(edits)
     ) {
       setAiDataVersion(v => v + 1);
     }

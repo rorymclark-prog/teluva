@@ -247,6 +247,16 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
         fileDocumentId: e.fileDocumentId || existingCv.fileDocumentId,
       };
       next = next.map(m => (m.id === target.id ? { ...m, cv: nextCv } : m));
+    } else if (e.kind === 'clear_field') {
+      // Blank out ONE member field on request ("remove Papa's old phone number").
+      // Reuses the SAME whitelisted field-writer map as a normal member edit, just
+      // with an empty value — so a "clear" can only ever touch a known field, never
+      // wipe a whole record. Confirm-before-destroy still applies: like every edit
+      // it only runs when the user taps Apply on a card that spells out the change.
+      const target = resolveMember(next, e.member);
+      const fn = MEMBER_FIELD_MAP[e.field];
+      if (!target || !fn) { if (!fn) console.warn('AI: unknown field', e.field); continue; }
+      next = next.map(m => (m.id === target.id ? fn(m, '') : m));
     }
   }
   return next;
@@ -292,7 +302,7 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   return { numbers, contacts, providers };
 }
 
-export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote' || e.kind === 'cv');
+export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote' || e.kind === 'cv' || e.kind === 'clear_field');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number' || e.kind === 'provider');
 
 const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;
