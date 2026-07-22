@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument } from '../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem } from '../types';
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
   loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto, loadSpaceInfo, uploadSlipPhoto,
-  uploadChatAttachmentWithPath,
+  uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen,
 } from '../utils/db';
+import { computeChatInsights } from '../utils/chatInsights';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -16,7 +17,7 @@ import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMat
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
-  ClipboardPaste,
+  ClipboardPaste, ChevronRight, CalendarClock,
 } from 'lucide-react';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 
@@ -117,6 +118,10 @@ interface Props {
   isBusinessSpace?: boolean;
   /** Open the "fun avatar" generator for whichever profile is currently active. Omitted (no chip shown) when the caller can't use it (not admin, or nothing selected). */
   onOpenFunAvatar?: () => void;
+  /** Jump to a member's own profile tab — used by the heads-up card to make each item tappable. */
+  onGo?: (memberId: string, tab: string) => void;
+  /** Jump to a top-level view (e.g. 'vehicles', 'slips') — the view-nudge counterpart of onGo. */
+  onGoView?: (view: string) => void;
 }
 
 function slimMembers(members: FamilyMember[]) {
@@ -221,7 +226,7 @@ function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): s
   ]));
 }
 
-export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBusinessSpace, onOpenFunAvatar }: Props) {
+export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBusinessSpace, onOpenFunAvatar, onGo, onGoView }: Props) {
   const { uid, familyId } = useFamilyCtx();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
@@ -247,6 +252,15 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   const [streamWordCount, setStreamWordCount] = useState<number | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // Heads-up card: vehicles + slips aren't in `members`, so load them once (same
+  // sources NeedsAttention uses) to feed the deterministic expiry/gap index.
+  const [hVehicles, setHVehicles] = useState<Vehicle[]>([]);
+  const [hSlips, setHSlips] = useState<SlipItem[]>([]);
+  // Dismiss persists per-day via the existing isHintSeen/markHintSeen convention
+  // (per space + device). A fresh key each day means the card returns tomorrow if
+  // there's still something to surface, but stays gone for the rest of today.
+  const headsUpKey = `chat_headsup_${new Date().toISOString().slice(0, 10)}`;
+  const [headsUpDismissed, setHeadsUpDismissed] = useState(() => isHintSeen(headsUpKey));
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -331,6 +345,25 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     } catch { /* ignore */ }
   }, [messages, familyId]);
 
+  // Load the vehicles + slips the heads-up card needs (members are already a
+  // prop). Only worth doing while the opening state can show — reloads per space.
+  useEffect(() => {
+    let cancelled = false;
+    loadHousehold().then((h) => { if (!cancelled) setHVehicles(h?.vehicles || []); }).catch(() => { if (!cancelled) setHVehicles([]); });
+    loadSlips().then((s) => { if (!cancelled) setHSlips(s || []); }).catch(() => { if (!cancelled) setHSlips([]); });
+    return () => { cancelled = true; };
+  }, [familyId]);
+
+  // Deterministic expiry/gap index for the heads-up card — same function that
+  // feeds buildContext, so the card and the AI agree. Recomputed only when its
+  // inputs change.
+  const insights = useMemo(
+    () => computeChatInsights({ members, vehicles: hVehicles, slips: hSlips }),
+    [members, hVehicles, hSlips],
+  );
+  const headsUp = [...insights.expiries, ...insights.gaps].slice(0, 4);
+  const dismissHeadsUp = () => { markHintSeen(headsUpKey); setHeadsUpDismissed(true); };
+
   const startNewChat = () => {
     stopStreaming();
     setMessages([]);
@@ -342,8 +375,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   };
 
   const buildContext = async () => {
-    const [info, household, finances, timeline, docs, events, spaceInfo] = await Promise.all([
-      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(),
+    const [info, household, finances, timeline, docs, events, spaceInfo, slips] = await Promise.all([
+      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(),
     ]);
     // Say plainly, for each vault document, whether it is actually on a person's
     // profile Documents tab or only in the shared vault — because that is the
@@ -376,7 +409,14 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     // registrationNumber/industry) and only when a founding date is actually
     // set — keeps the AI's BUSINESS ANNIVERSARY instruction a no-op until then.
     const spaceInfoCtx = (spaceInfo && spaceInfo.foundingDate) ? { name: spaceInfo.name, foundingDate: spaceInfo.foundingDate } : undefined;
-    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx };
+    // Precomputed, deterministic expiry/gap index (no AI, pure code over the data
+    // above) — the AUTHORITATIVE answer for "what expires in the next N months"
+    // and "what's missing", so the model never has to eyeball raw dates. Compact:
+    // just the factual text + daysUntil (negative = overdue).
+    const insights = computeChatInsights({ members, vehicles: household?.vehicles || [], slips: slips || [] });
+    const expiries = insights.expiries.map((n) => ({ text: n.text, daysUntil: n.days }));
+    const gaps = insights.gaps.map((n) => ({ text: n.text }));
+    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {
@@ -1099,6 +1139,42 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center px-6 space-y-5">
+            {!headsUpDismissed && headsUp.length > 0 && (
+              <div className="w-full max-w-md rounded-2xl border border-cream-300 bg-white/70 overflow-hidden text-left shrink-0">
+                <div className="px-4 py-2.5 border-b border-cream-200 flex items-center gap-2">
+                  <CalendarClock className="w-4 h-4 text-clay-500 shrink-0" />
+                  <span className="font-semibold text-[13px] text-ink-900">Heads-up</span>
+                  <button
+                    type="button"
+                    onClick={dismissHeadsUp}
+                    title="Dismiss for today"
+                    className="ml-auto p-1 -mr-1 text-ink-400 hover:text-ink-700 rounded-lg"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="divide-y divide-cream-100">
+                  {headsUp.map((n) => {
+                    const Icon = n.icon;
+                    const overdue = n.days != null && n.days < 0;
+                    return (
+                      <button
+                        key={n.key}
+                        type="button"
+                        onClick={() => (n.view ? onGoView?.(n.view) : onGo?.(n.memberId, n.tab))}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-cream-50 transition-colors group"
+                      >
+                        <div className={`p-1.5 rounded-lg shrink-0 ${overdue ? 'bg-rosa-100 text-rosa-700' : 'bg-cream-200 text-ink-500'}`}>
+                          <Icon className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="flex-1 text-[12.5px] text-ink-800 font-medium">{n.text}</span>
+                        <ChevronRight className="w-4 h-4 text-ink-300 group-hover:text-ink-500 shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="w-14 h-14 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
               <Wand2 className="w-7 h-7" />
             </div>

@@ -11,6 +11,8 @@ interface Props {
   demo?: boolean;
   isBusinessSpace?: boolean;
   onOpenFunAvatar?: () => void;
+  onGo?: (memberId: string, tab: string) => void;
+  onGoView?: (view: string) => void;
 }
 
 /**
@@ -19,7 +21,7 @@ interface Props {
  * launcher toggles to a close (X); clicking anywhere outside the panel (or Esc,
  * or the mobile backdrop) also closes it.
  */
-export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, demo, isBusinessSpace, onOpenFunAvatar }: Props) {
+export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, demo, isBusinessSpace, onOpenFunAvatar, onGo, onGoView }: Props) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -86,6 +88,8 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
                 onAddMemberDoc={onAddMemberDoc}
                 isBusinessSpace={isBusinessSpace}
                 onOpenFunAvatar={onOpenFunAvatar ? () => { setOpen(false); onOpenFunAvatar(); } : undefined}
+                onGo={onGo ? (memberId, tab) => { setOpen(false); onGo(memberId, tab); } : undefined}
+                onGoView={onGoView ? (view) => { setOpen(false); onGoView(view); } : undefined}
               />
             )}
           </div>
