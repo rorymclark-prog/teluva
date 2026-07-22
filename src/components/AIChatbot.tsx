@@ -326,15 +326,25 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     const [info, household, finances, timeline, docs, events, spaceInfo] = await Promise.all([
       loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(),
     ]);
-    // Resolve each vault document to its owner's NAME (not just an id the model
-    // can't read) and say plainly whether it's on a person's profile or only in
-    // the shared vault. Without this the assistant saw a flat list it called
-    // "documents" and told the user a scan was "in his documents" when it was
-    // only in the shared vault and NOT on that person's profile tab — the exact
-    // "says it's there but it isn't" complaint.
-    const memberNameById = new Map(members.map(m => [m.id, m.name]));
+    // Say plainly, for each vault document, whether it is actually on a person's
+    // profile Documents tab or only in the shared vault — because that is the
+    // "says it's there but it isn't" complaint: the assistant saw a flat vault
+    // list it called "documents" and reported a scan as "in his documents" when
+    // the profile tab (which renders member.documents) showed nothing.
+    //
+    // Derive this from GROUND TRUTH — actual presence in a member's own
+    // documents — NOT from the vault doc's memberId. memberId is only a hint:
+    // the manual upload and bulk-import panels stamp memberId on a vault doc
+    // WITHOUT copying it to the member's profile, so trusting memberId would
+    // reintroduce the exact bug through those paths. A vault doc with id X is on
+    // a profile iff some member.documents entry has id "doc-" + X (the linkage
+    // fileScans mints).
+    const ownerOfDocId = new Map<string, string>();
+    for (const m of members) {
+      for (const md of (m.documents || [])) ownerOfDocId.set(md.id, m.name);
+    }
     const documents = (docs || []).map(d => {
-      const ownerName = d.memberId ? memberNameById.get(d.memberId) : undefined;
+      const ownerName = ownerOfDocId.get('doc-' + d.id);
       return {
         name: d.name,
         category: d.category,
