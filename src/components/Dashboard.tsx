@@ -29,6 +29,7 @@ import {
   hasRecipeEdits, applyRecipeEdits,
   hasEstateEdits, applyEstateEdits,
   hasSlipEdits, applySlipEdits,
+  hasServiceRecordEdits, applyServiceRecordEdits,
 } from '../utils/aiApply';
 import { AiEdit } from './AIChatbot';
 import AssistantBubble from './AssistantBubble';
@@ -720,9 +721,22 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const ok = await saveCalendarEvents(next);
       if (!ok) failures.push('calendar');
     }
-    if (hasHouseholdEdits(edits)) {
+    if (hasHouseholdEdits(edits) || hasServiceRecordEdits(edits)) {
       const h = (await loadHousehold()) || {};
-      const ok = await saveHousehold(applyHouseholdEdits(h, edits));
+      // Apply household list_add/household_set first (so a vehicle added in the
+      // same batch exists), then append any scanned service records onto the
+      // matching vehicle. One save covers both.
+      const h2 = applyHouseholdEdits(h, edits);
+      const { vehicles, matched, unmatched } = applyServiceRecordEdits(h2.vehicles || [], edits);
+      // If service records named a vehicle that isn't on file AND there is
+      // nothing else to save from this batch, tell the user plainly instead of
+      // dropping the data. Throw BEFORE saving so a retry can't double-add
+      // (nothing was persisted yet); when other edits or matched records exist
+      // we save them and let the assistant's reply mention any it couldn't place.
+      if (unmatched.length && matched === 0 && !hasHouseholdEdits(edits)) {
+        throw new Error(`I couldn't find a vehicle on file matching ${unmatched.join(', ')}. Add that vehicle first (or check the plate on the document), then scan the service history again.`);
+      }
+      const ok = await saveHousehold({ ...h2, vehicles });
       if (!ok) failures.push('household');
     }
     if (hasFinancesEdits(edits)) {
@@ -790,7 +804,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     if (
       hasInfoEdits(edits) || hasHouseholdEdits(edits) || hasFinancesEdits(edits) ||
       hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
-      hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasEstateEdits(edits) || hasSlipEdits(edits)
+      hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasEstateEdits(edits) || hasSlipEdits(edits) ||
+      hasServiceRecordEdits(edits)
     ) {
       setAiDataVersion(v => v + 1);
     }
@@ -1163,7 +1178,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         {mainView === 'finances' && <FinancesView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
         {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
-        {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
+        {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} canUseAI={canUseAI} />}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
 

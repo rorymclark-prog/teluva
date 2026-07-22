@@ -64,7 +64,13 @@ export type AiEdit =
       skills?: string[]; languages?: string[];
       fileDocumentId?: string; // client-only — stamped after the attached CV photo/PDF is filed; the model never supplies this
     }
-  | { kind: 'estate_record'; docKind: string; forMember?: string; originalLocation?: string; heldBy?: string; notaryName?: string; notaryPhone?: string; executor?: string; lastReviewed?: string; notes?: string };
+  | { kind: 'estate_record'; docKind: string; forMember?: string; originalLocation?: string; heldBy?: string; notaryName?: string; notaryPhone?: string; executor?: string; lastReviewed?: string; notes?: string }
+  // Append one or more service/repair records — read from a service booklet,
+  // workshop invoice, or stamped maintenance page — onto an EXISTING vehicle's
+  // serviceLog. The vehicle is matched (client-side, in aiApply) by VIN, then
+  // registration plate, then name. Store-and-recall only: records exactly what
+  // the document shows, never an interpretation ("overdue"/"you must…").
+  | { kind: 'service_record'; vehicle?: string; plate?: string; vin?: string; records: { date: string; work: string; odometer?: string; cost?: string; garage?: string; notes?: string }[] };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
@@ -1375,5 +1381,10 @@ function describeEdit(e: AiEdit): string {
     return `${e.member}: update CV${parts ? ` — ${parts}` : ''}`;
   }
   if (e.kind === 'estate_record') return `Save ${e.docKind}${e.forMember ? ` for ${e.forMember}` : ''}${e.originalLocation ? ` — original at ${e.originalLocation}` : ''}`;
+  if (e.kind === 'service_record') {
+    const n = e.records?.length || 0;
+    const tgt = e.plate || e.vehicle || e.vin || 'the vehicle';
+    return `Add ${n} service record${n === 1 ? '' : 's'} to ${tgt}`;
+  }
   return JSON.stringify(e);
 }

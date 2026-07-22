@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Car, Plus, Pencil, Trash2, X, CalendarClock, User, Gauge, ShieldCheck, Wrench, MapPin } from 'lucide-react';
+import { Car, Plus, Pencil, Trash2, X, CalendarClock, User, Gauge, ShieldCheck, Wrench, MapPin, Sparkles } from 'lucide-react';
 import { FamilyMember, HouseholdInfo, Vehicle, ServiceRecord } from '../types';
 import { loadHousehold, saveHousehold } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel, VehicleDeadline } from '../utils/vehicle';
@@ -27,7 +27,7 @@ function deadlineLabel(d: VehicleDeadline): string {
 }
 
 export default function VehiclesView(
-  { members, canEdit = false, demo = false, refreshKey = 0 }: { members: FamilyMember[]; canEdit?: boolean; demo?: boolean; refreshKey?: number },
+  { members, canEdit = false, demo = false, refreshKey = 0, canUseAI = false }: { members: FamilyMember[]; canEdit?: boolean; demo?: boolean; refreshKey?: number; canUseAI?: boolean },
 ) {
   const [household, setHousehold] = useState<HouseholdInfo>({});
   const [loading, setLoading] = useState(true);
@@ -149,6 +149,21 @@ export default function VehiclesView(
       </div>
 
       {saveError && <div className="rounded-xl bg-honey-50 border border-honey-200 text-honey-800 text-[12px] px-4 py-2.5">{saveError}</div>}
+
+      {/* Scan-instead-of-typing hint — only when the assistant (the scan pipeline)
+          is actually available. Points to the working path: snap the document in
+          the assistant and it extracts the fields / adds the service history. */}
+      {canEdit && canUseAI && !demo && (
+        <div className="card p-4 sm:p-5 flex items-start gap-3">
+          <div className="p-2 rounded-xl bg-clay-50 text-clay-600 shrink-0"><Sparkles className="w-4 h-4" /></div>
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-ink-800">Scan it instead of typing</p>
+            <p className="text-[12px] text-ink-500 mt-0.5 leading-relaxed">
+              Open the assistant (the <span className="font-semibold text-clay-600">✦</span> button, bottom-right) and photograph your <span className="font-medium text-ink-700">registration</span> (Zulassungsschein) to fill in a vehicle, or a <span className="font-medium text-ink-700">service booklet or workshop invoice</span> to add its service history — no re-typing.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Deadlines coming up */}
       {upcoming.length > 0 && (
