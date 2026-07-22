@@ -96,6 +96,7 @@ import InMemoryView from './InMemoryView';
 import MemberCV from './MemberCV';
 import WillsEstateView from './WillsEstateView';
 import SlipsView from './SlipsView';
+import CelebrationOverlay from './CelebrationOverlay';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
@@ -1220,6 +1221,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         {mainView === 'profiles' && (
           <>
             <NeedsAttention members={members} contacts={contacts} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
+            <CelebrationOverlay members={members} />
 
             <OnThisDay members={members} events={events} contacts={contacts} />
 
