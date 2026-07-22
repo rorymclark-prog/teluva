@@ -16,6 +16,7 @@ import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMat
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
+  ClipboardPaste,
 } from 'lucide-react';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 
@@ -393,6 +394,76 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
           setError("Couldn't read the pasted image.");
         }
         return;
+      }
+      // Desktop Ctrl+V of a copied PDF — route it through the same attachment
+      // path with no image compression.
+      if (item.type === 'application/pdf') {
+        const file = item.getAsFile();
+        if (!file) continue;
+        e.preventDefault();
+        if (attachments.length >= MAX_ATTACHMENTS) {
+          setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`);
+          return;
+        }
+        try {
+          const dataUrl = await fileToDataUrl(file);
+          setAttachments(prev => [...prev, { name: file.name || `clipboard-${prev.length + 1}.pdf`, mimeType: 'application/pdf', dataUrl }]);
+          setError(null);
+        } catch {
+          setError("Couldn't read the pasted PDF.");
+        }
+        return;
+      }
+    }
+  };
+
+  // iOS Safari (and desktop) fallback: a user-gesture-triggered read of the
+  // async Clipboard API. On iOS, pasting a copied Photos image into a plain
+  // input does NOT populate onPaste's clipboardData with the image, so this
+  // button is the only reachable paste path there. Feature-detected at the
+  // call site (button only renders when navigator.clipboard.read exists).
+  const pasteFromClipboard = async () => {
+    if (!navigator.clipboard || typeof navigator.clipboard.read !== 'function') {
+      setError('Pasting from the clipboard is not supported on this device — use Attach instead.');
+      return;
+    }
+    if (attachments.length >= MAX_ATTACHMENTS) {
+      setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`);
+      return;
+    }
+    try {
+      const clipItems = await navigator.clipboard.read();
+      let added = 0;
+      for (const clipItem of clipItems) {
+        if (attachments.length + added >= MAX_ATTACHMENTS) break;
+        const pdfType = clipItem.types.find(ty => ty === 'application/pdf');
+        const imageType = clipItem.types.find(ty => ty.startsWith('image/'));
+        if (pdfType) {
+          const blob = await clipItem.getType(pdfType);
+          const file = new File([blob], `clipboard-${Date.now()}.pdf`, { type: 'application/pdf' });
+          const dataUrl = await fileToDataUrl(file);
+          setAttachments(prev => [...prev, { name: file.name, mimeType: 'application/pdf', dataUrl }]);
+          added++;
+        } else if (imageType) {
+          const blob = await clipItem.getType(imageType);
+          const file = new File([blob], `clipboard-${Date.now()}.png`, { type: imageType });
+          let dataUrl = await fileToDataUrl(file);
+          dataUrl = await compressImageToAvatar(dataUrl, 1600, 0.82);
+          setAttachments(prev => [...prev, { name: `pasted-${prev.length + 1}.jpg`, mimeType: 'image/jpeg', dataUrl }]);
+          added++;
+        }
+      }
+      if (added === 0) {
+        setError('No image or PDF found on the clipboard — copy one first, then tap Paste.');
+      } else {
+        setError(null);
+      }
+    } catch (err) {
+      const name = (err && typeof err === 'object' && 'name' in err) ? (err as { name?: string }).name : undefined;
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        setError('Clipboard access was blocked — allow it in your browser, or use Attach instead.');
+      } else {
+        setError("Couldn't read the clipboard. Try Attach instead.");
       }
     }
   };
@@ -1303,6 +1374,17 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
           >
             <Camera className="w-4 h-4" />
           </button>
+          {typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.read === 'function' && (
+            <button
+              type="button"
+              onClick={pasteFromClipboard}
+              disabled={loading || attachments.length >= MAX_ATTACHMENTS}
+              title="Paste a copied image or PDF from your clipboard"
+              className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
+            >
+              <ClipboardPaste className="w-4 h-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
