@@ -19,6 +19,7 @@ import {
   ClipboardPaste,
 } from 'lucide-react';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import { speechLocaleFor } from '../utils/speechLocale';
 
 // Web Speech API — may be undefined in unsupported browsers
 const SR: any = (typeof window !== 'undefined')
@@ -523,16 +524,25 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     }
 
     const rec = new SR();
-    rec.lang = 'en-US';
+    // Map the app's UI language to a speech locale so German/Afrikaans (etc.)
+    // transcribe correctly; fall back to the browser default, then en-US.
+    rec.lang = speechLocaleFor(lang, navigator.language || 'en-US');
     rec.interimResults = true;
-    rec.continuous = false;
+    rec.continuous = true; // keep listening across pauses instead of one breath
 
+    // Append to whatever is already typed rather than clobbering it. In
+    // continuous mode event.results holds every result so far (finalised ones
+    // plus the current interim), so we rebuild deterministically each event —
+    // idempotent, no duplication or flicker.
+    const base = input;
     rec.onresult = (event: any) => {
       let transcript = '';
       for (let i = 0; i < event.results.length; i++) {
         transcript += event.results[i][0].transcript;
       }
-      setInput(transcript);
+      const spoken = transcript.trim();
+      const sep = base && spoken && !/\s$/.test(base) ? ' ' : '';
+      setInput(base + sep + spoken);
     };
 
     rec.onend = () => {
