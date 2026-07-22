@@ -326,7 +326,23 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     const [info, household, finances, timeline, docs, events, spaceInfo] = await Promise.all([
       loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(),
     ]);
-    const documents = (docs || []).map(d => ({ name: d.name, category: d.category, memberId: d.memberId, uploadedAt: d.uploadedAt }));
+    // Resolve each vault document to its owner's NAME (not just an id the model
+    // can't read) and say plainly whether it's on a person's profile or only in
+    // the shared vault. Without this the assistant saw a flat list it called
+    // "documents" and told the user a scan was "in his documents" when it was
+    // only in the shared vault and NOT on that person's profile tab — the exact
+    // "says it's there but it isn't" complaint.
+    const memberNameById = new Map(members.map(m => [m.id, m.name]));
+    const documents = (docs || []).map(d => {
+      const ownerName = d.memberId ? memberNameById.get(d.memberId) : undefined;
+      return {
+        name: d.name,
+        category: d.category,
+        uploadedAt: d.uploadedAt,
+        // "on <name>'s profile" vs "shared vault only (not on anyone's profile)"
+        location: ownerName ? `on ${ownerName}'s profile` : 'shared vault only',
+      };
+    });
     // Business Milestones: only surface name+foundingDate (never address/
     // registrationNumber/industry) and only when a founding date is actually
     // set — keeps the AI's BUSINESS ANNIVERSARY instruction a no-op until then.
@@ -738,17 +754,30 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         ({ storagePath, downloadUrl } = await uploadVaultFile(file, id));
       }
 
+      // Resolve the owner ONCE, and infer it (from the document's own name, and
+      // sibling edits in the same turn) rather than trusting a bare e.member that
+      // an upstream step may not have backfilled. This is exactly how the e-card
+      // ended up in the vault but not on Rory's profile: e.member was blank, the
+      // bare resolveMemberByName returned nothing, and the profile copy was
+      // skipped — even though the name "Rory Michael Clark Austrian e-card" names
+      // him unambiguously.
+      const owner = inferDocOwner(e, docEdits);
+
       added.push({
         id, name: e.name, category: e.category,
         fileName, fileType, fileSize,
+        // Attribute the vault copy to its owner. Without this, EVERY chat-filed
+        // vault document had memberId undefined — so the Document Vault couldn't
+        // show whose it was, and the assistant (which is sent the vault list) saw
+        // an unowned doc and couldn't tell it apart from the person's profile.
+        memberId: owner?.id,
         storagePath, downloadUrl, uploadedAt: today, uploadedBy: by, contentHash: hash || undefined,
       });
 
-      // Also file on the member's profile when the doc names its owner. Store the
-      // Storage download URL (not the base64 image) so the member's Firestore doc
-      // stays tiny and can never blow the 1 MiB limit — it renders the same, since
-      // MemberDocuments/DocumentViewer use fileData directly as an <img src>.
-      const owner = resolveMemberByName(e.member);
+      // Also file on the member's profile when we could identify the owner. Store
+      // the Storage download URL (not the base64 image) so the member's Firestore
+      // doc stays tiny and can never blow the 1 MiB limit — it renders the same,
+      // since MemberDocuments/DocumentViewer use fileData directly as an <img src>.
       if (owner) {
         await onAddMemberDoc(owner.id, {
           id: 'doc-' + id,
