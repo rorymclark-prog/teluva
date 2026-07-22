@@ -1649,6 +1649,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           demo={demo}
           isBusinessSpace={isBusinessSpace}
           onOpenFunAvatar={isAdmin && selectedMember ? () => setRestyleMemberId(selectedMember.id) : undefined}
+          onGo={goToMemberTab}
+          onGoView={(v) => setMainView(v as ViewId)}
         />
       )}
 
