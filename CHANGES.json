@@ -1,12 +1,8 @@
 {
-  "label": "v119",
+  "label": "v120",
   "changes": [
-    "New: Family Recipe Book, Travel Timeline, Birthday Timelapse, a per-profile calendar of that person's own dates, Wills & Estate, an In Memory archive for loved ones who've passed, purchase Slips with return & warranty reminders, favourite quotes on a profile, bulk photo import, business founding-date & anniversary, and a CV tab for team members",
-    "Fixed: deleting a document now removes it everywhere — the vault, the profile, and the stored file — so a deleted scan can never block re-adding a new copy",
-    "Fixed: photos and scans sent to the assistant now file reliably even after a reload — the document no longer depends on the photo still being in the chat",
-    "Emergency essentials now leads with your health-insurance number (e-card, medical aid, or NHS by country) and a one-tap view of the card scan",
-    "The Documents archive now has its own filter, separate from the upload category picker",
-    "Fixed: the star-sign reading now settles to one per day instead of changing every time you open a profile",
-    "Fixed: a business founding date of 'today' could be rejected as being in the future — a timezone issue that affected Vienna and South Africa every evening"
+    "Fixed: the assistant could say a scan was \"saved to your documents\" when it was only in the shared vault and not on the person's profile — it now files it to the right person and can tell the two apart",
+    "Documents filed through the assistant now attach to the right family member's profile automatically, matched from the document's own name",
+    "Your Austrian e-card scan is now showing on your profile, where it belongs"
   ]
 }
