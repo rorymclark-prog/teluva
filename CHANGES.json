@@ -1,7 +1,9 @@
 {
-  "label": "v123",
+  "label": "v124",
   "changes": [
-    "New: scan a vehicle's registration and the assistant fills in the make, plate, VIN and details for you; scan a service history and it adds the service records to the right vehicle",
-    "You can now paste a copied image or PDF into the assistant — with a Paste button that works on iPhone, not just Ctrl+V on a computer"
+    "The assistant can now change and remove things by voice, not just add them — \"that's not Mia's dentist anymore, remove it\". It always shows exactly what and whose record will change, and nothing happens until you tap Apply",
+    "Every Apply now shows where each thing landed, and can be undone",
+    "New: open the assistant and it flags what's expiring in the next few months and what's missing (like a passport with no expiry date) — and \"what expires across everyone in 3 months\" now works reliably",
+    "Voice dictation now understands German and Afrikaans, keeps listening, and adds to what you've typed instead of replacing it"
   ]
 }
