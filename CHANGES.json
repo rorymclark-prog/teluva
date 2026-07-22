@@ -1,6 +1,7 @@
 {
-  "label": "v122",
+  "label": "v123",
   "changes": [
-    "Fixed (for real this time): a scanned document sent to the assistant now files reliably even if the upload hiccups or the app reloads — the scan is retried, and its image is kept until it's actually filed instead of being dropped"
+    "New: scan a vehicle's registration and the assistant fills in the make, plate, VIN and details for you; scan a service history and it adds the service records to the right vehicle",
+    "You can now paste a copied image or PDF into the assistant — with a Paste button that works on iPhone, not just Ctrl+V on a computer"
   ]
 }
