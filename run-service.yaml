@@ -39,6 +39,21 @@ spec:
           value: gen-lang-client-0384516171
         - name: ALLOWED_EMAILS
           value: rorymclark@gmail.com,partner@example.com,child@example.com
+        # Web Push (birthday/anniversary phone notifications). Public key is not
+        # secret — it's shipped to every browser to subscribe. Private key + the
+        # cron shared-secret come from Secret Manager.
+        - name: VAPID_PUBLIC_KEY
+          value: BDPuPXk1dA6RTlCBpjLU0sFvu3GpYRZg3kJffShpnBOdj6j9STCRLmb2nJrUR6RbcM0k-chUcPM2LuG0PUVaRWY
+        - name: VAPID_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: vapid-private-key
+              key: latest
+        - name: CRON_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: cron-secret
+              key: latest
         resources:
           limits:
             cpu: '1'

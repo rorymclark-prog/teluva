@@ -1,8 +1,7 @@
 {
-  "label": "v120",
+  "label": "v121",
   "changes": [
-    "Fixed: the assistant could say a scan was \"saved to your documents\" when it was only in the shared vault and not on the person's profile — it now files it to the right person and can tell the two apart",
-    "Documents filed through the assistant now attach to the right family member's profile automatically, matched from the document's own name",
-    "Your Austrian e-card scan is now showing on your profile, where it belongs"
+    "New: a little celebration now plays on a family member's birthday (and your business's anniversary) — confetti and a warm note, once a day",
+    "New: birthday & anniversary reminders can now be sent to your phone. Add Tresa to your Home Screen, open it from there, and turn on reminders in Settings"
   ]
 }
