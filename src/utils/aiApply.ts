@@ -504,3 +504,61 @@ export function applyEstateEdits(records: EstateRecord[], edits: AiEdit[]): Esta
   }
   return [...records, ...added];
 }
+
+// --- Vehicle service history (scanned service booklet / workshop invoice) ---
+// Appends ServiceRecord(s) onto an EXISTING vehicle's serviceLog. The vehicle is
+// matched by VIN, then registration plate, then name — all normalised (uppercase,
+// non-alphanumerics stripped) so "W 12345 X" == "W-12345X" and a VIN copied with
+// stray spaces still lands. Store-and-recall only: records exactly what the doc
+// shows, no interpretation. Freshens lastService to the newest record date so the
+// existing next-service reminder stays accurate (mirrors VehiclesView.addRecord).
+// Returns { vehicles, matched, unmatched } — `unmatched` lists the plate/vehicle
+// tokens whose records found no vehicle, so the caller can tell the user rather
+// than silently dropping the data (service records need a vehicle to attach to).
+type ServiceVehicle = NonNullable<HouseholdInfo['vehicles']>[number];
+const normVehicleKey = (s?: string) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+export const hasServiceRecordEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'service_record');
+
+export function applyServiceRecordEdits(
+  vehicles: ServiceVehicle[],
+  edits: AiEdit[],
+): { vehicles: ServiceVehicle[]; matched: number; unmatched: string[] } {
+  const next = [...vehicles];
+  const unmatched: string[] = [];
+  let matched = 0;
+  for (const e of edits) {
+    if (e.kind !== 'service_record') continue;
+    const recs = (e.records || [])
+      .filter(r => r && (r.work || '').trim())
+      .map(r => ({
+        id: newId(),
+        date: (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) ? r.date : new Date().toISOString().slice(0, 10),
+        work: r.work.trim(),
+        odometer: r.odometer?.trim() || undefined,
+        cost: r.cost?.trim() || undefined,
+        garage: r.garage?.trim() || undefined,
+        notes: r.notes?.trim() || undefined,
+      }));
+    if (!recs.length) continue;
+    const vin = normVehicleKey(e.vin);
+    const plate = normVehicleKey(e.plate);
+    const name = (e.vehicle || '').trim().toLowerCase();
+    let idx = -1;
+    if (vin) idx = next.findIndex(v => normVehicleKey(v.vin) && normVehicleKey(v.vin) === vin);
+    if (idx < 0 && plate) idx = next.findIndex(v => normVehicleKey(v.registration) && normVehicleKey(v.registration) === plate);
+    if (idx < 0 && name) idx = next.findIndex(v =>
+      (v.name || '').trim().toLowerCase() === name ||
+      `${v.make || ''} ${v.model || ''}`.trim().toLowerCase() === name);
+    // Single-car convenience: an unqualified service doc (no plate/VIN/name) with
+    // exactly one vehicle on file attaches to it.
+    if (idx < 0 && !vin && !plate && !name && next.length === 1) idx = 0;
+    if (idx < 0) { unmatched.push(e.plate || e.vin || e.vehicle || 'an unknown vehicle'); continue; }
+    const veh = next[idx];
+    const log = [...(veh.serviceLog || []), ...recs];
+    const newest = recs.reduce((mx, r) => (r.date > mx ? r.date : mx), veh.lastService || '');
+    next[idx] = { ...veh, serviceLog: log, lastService: newest || veh.lastService };
+    matched += recs.length;
+  }
+  return { vehicles: next, matched, unmatched };
+}
