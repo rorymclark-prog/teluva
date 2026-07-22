@@ -4,6 +4,7 @@ import { useFamilyCtx } from '../contexts/FamilyContext';
 import { loadFamilyRoles, setFamilyMemberRole, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate } from '../utils/db';
 import { FamilyRole, FamilyMemberRole, IdCountry } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
+import PushOptInCard from './PushOptInCard';
 
 // Today's date in the USER'S timezone as YYYY-MM-DD. Same convention as
 // toISODate() in utils/vehicle.ts and utils/businessMilestone.ts — never
@@ -423,6 +424,10 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
               </div>
             </div>
           )}
+
+          {/* Section 4: Birthday reminders (Web Push) — self-contained card,
+              gates itself on install/eligibility so it's safe to always mount. */}
+          <PushOptInCard />
         </div>
       </div>
     </div>

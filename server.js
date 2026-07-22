@@ -6,6 +6,7 @@ import { GoogleAuth } from 'google-auth-library';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import webpush from 'web-push';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -127,6 +128,24 @@ const DB_ID = process.env.FIRESTORE_DB_ID || 'ai-studio-393d7146-0d1a-431e-bd58-
 
 admin.initializeApp({ projectId: PROJECT_ID });
 const adminDb = getFirestore(admin.app(), DB_ID);
+
+// ---------------------------------------------------------------------------
+// Web Push (raw W3C VAPID — NOT Firebase Cloud Messaging). Configured only when
+// both VAPID keys are present in the environment; otherwise push stays disabled
+// and the app still boots normally. The coordinator provisions the keys
+// (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY) via Secret Manager. CRON_SECRET gates
+// the daily-celebrations endpoint (see below) so a random internet POST can't
+// fire notifications.
+// ---------------------------------------------------------------------------
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const CRON_SECRET = process.env.CRON_SECRET || '';
+const PUSH_READY = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+if (PUSH_READY) {
+  webpush.setVapidDetails('mailto:rorymclark@gmail.com', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else {
+  console.warn('[push] VAPID keys not set — Web Push disabled (public-key/subscribe/cron endpoints will 503).');
+}
 
 // ---------------------------------------------------------------------------
 // Membership auth: verify the Firebase ID token, require a verified email,
@@ -1503,6 +1522,205 @@ app.get('/carer/:token', async (req, res) => {
   } catch (err) {
     console.error('/carer render error:', err);
     return res.status(500).send(carerErrorPage());
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Web Push endpoints (raw VAPID). Registered BEFORE the SPA catch-all so
+// /api/push/* and /api/cron/* resolve as real routes rather than falling
+// through to index.html.
+// ---------------------------------------------------------------------------
+
+// A push subscription is stored per-device, keyed by a stable hash of its
+// endpoint URL so re-subscribing the same device overwrites rather than
+// duplicates. sha256(endpoint) -> hex is deterministic and collision-safe here.
+function subDocId(endpoint) {
+  return crypto.createHash('sha256').update(String(endpoint)).digest('hex');
+}
+
+// The client hands us the VAPID PUBLIC key so pushManager.subscribe can use it.
+// 503 when push isn't configured so the client shows "not available" rather
+// than subscribing against a key the server can't sign with.
+app.get('/api/push/public-key', (_req, res) => {
+  if (!PUSH_READY) return res.status(503).json({ error: 'Push is not configured.' });
+  res.json({ key: VAPID_PUBLIC_KEY });
+});
+
+// Store the caller's device subscription under their OWN server-verified
+// familyId (never trusted from the client). Written via firebase-admin, so the
+// new pushSubscriptions collection is never touched by the client SDK and
+// firestore.rules needs no change.
+app.post('/api/push/subscribe', async (req, res) => {
+  try {
+    if (!PUSH_READY) return res.status(503).json({ error: 'Push is not configured.' });
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const sub = (req.body || {}).subscription;
+    if (!sub || typeof sub.endpoint !== 'string' || !sub.keys) {
+      return res.status(400).json({ error: 'A valid subscription is required.' });
+    }
+    const id = subDocId(sub.endpoint);
+    await adminDb.doc(`families/${caller.familyId}/pushSubscriptions/${id}`).set({
+      // Raw subscription (endpoint + p256dh/auth keys) — exactly what
+      // webpush.sendNotification needs later.
+      endpoint: sub.endpoint,
+      keys: sub.keys,
+      uid: caller.uid,
+      createdAt: new Date().toISOString(),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/api/push/subscribe error:', err);
+    res.status(500).json({ error: 'Could not save the subscription.' });
+  }
+});
+
+// Remove this device's subscription (keyed by endpoint). Scoped to the caller's
+// familyId so one family can never delete another's.
+app.post('/api/push/unsubscribe', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const endpoint = String((req.body || {}).endpoint || '');
+    if (!endpoint) return res.status(400).json({ error: 'An endpoint is required.' });
+    await adminDb.doc(`families/${caller.familyId}/pushSubscriptions/${subDocId(endpoint)}`).delete();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/api/push/unsubscribe error:', err);
+    res.status(500).json({ error: 'Could not remove the subscription.' });
+  }
+});
+
+// "Today" in Europe/Vienna as {month, day}, computed explicitly rather than
+// trusting the server's process timezone — the Cloud Scheduler job is set to
+// Europe/Vienna, but we never rely on that: we ask Intl for the Vienna wall-clock
+// date so a birthday matches on the family's real local day regardless of where
+// the container runs.
+function viennaMonthDay(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Vienna', month: '2-digit', day: '2-digit',
+  }).formatToParts(now);
+  const month = Number(parts.find((p) => p.type === 'month')?.value);
+  const day = Number(parts.find((p) => p.type === 'day')?.value);
+  return { month, day };
+}
+
+// Does a YYYY-MM-DD string fall on the given month/day (ignoring year)?
+function matchesMonthDay(dateStr, month, day) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim());
+  if (!m) return false;
+  return Number(m[2]) === month && Number(m[3]) === day;
+}
+
+// Send one notification to every subscription of a family, pruning any that the
+// push service reports as gone (404/410). Each send is wrapped so one bad
+// endpoint can't abort the rest. Returns the count actually sent.
+async function sendToFamily(familyRef, payloadObj) {
+  const subsSnap = await familyRef.collection('pushSubscriptions').get();
+  const payload = JSON.stringify(payloadObj);
+  let sent = 0;
+  for (const doc of subsSnap.docs) {
+    const s = doc.data();
+    if (!s || !s.endpoint || !s.keys) continue;
+    try {
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, payload);
+      sent += 1;
+    } catch (err) {
+      const code = err && err.statusCode;
+      // 404/410 = the subscription is permanently gone (app deleted, permission
+      // revoked). Standard web-push hygiene: delete it so it isn't retried.
+      if (code === 404 || code === 410) {
+        await doc.ref.delete().catch(() => {});
+      } else {
+        console.error(`[push] send failed (${code || 'unknown'}) for ${doc.id}:`, err && err.body);
+      }
+    }
+  }
+  return sent;
+}
+
+// Daily celebrations cron — the endpoint Cloud Scheduler hits once a day.
+//
+// AUTH: two independent gates. (1) The coordinator restricts run.invoker via
+// OIDC so only the scheduler's service account can reach Cloud Run at all.
+// (2) BELT + SUSPENDERS in code: we ALSO require x-cron-secret === CRON_SECRET,
+// so even a request that somehow reaches this handler without the shared secret
+// is rejected 401. A random internet POST can never fire notifications.
+//
+// DECEASED-EXCLUSION SAFETY: this handler reads ONLY families/{id}/family_members
+// (living members) and families/{id}/info/info (business anniversary). It NEVER
+// reads families/{id}/reference/inMemory or any Departed/InMemory data, so a
+// deceased relative's birthday can NEVER trigger a notification. Do not add any
+// read of the inMemory reference doc here.
+async function runDailyCelebrations() {
+  const { month, day } = viennaMonthDay();
+  let familiesChecked = 0;
+  let celebrationsFound = 0;
+  let notificationsSent = 0;
+
+  // listDocuments() returns a ref for every family — including implicit parent
+  // docs that only exist because subcollections live under them.
+  const familyRefs = await adminDb.collection('families').listDocuments();
+  for (const familyRef of familyRefs) {
+    familiesChecked += 1;
+    const celebrations = [];
+
+    // Living family/team members whose birthday is today (month+day match).
+    const membersSnap = await familyRef.collection('family_members').get();
+    for (const mDoc of membersSnap.docs) {
+      const mem = mDoc.data() || {};
+      if (matchesMonthDay(mem.birthdate, month, day)) {
+        const name = String(mem.name || 'Someone in your family').trim();
+        celebrations.push({
+          title: `🎂 It's ${name}'s birthday!`,
+          body: `Wish ${name} a happy birthday today.`,
+        });
+      }
+    }
+
+    // Business anniversary (business spaces only), from the info/info doc.
+    const infoSnap = await familyRef.collection('info').doc('info').get();
+    const info = infoSnap.exists ? (infoSnap.data() || {}) : {};
+    if (info.type === 'business' && matchesMonthDay(info.foundingDate, month, day)) {
+      const bizName = String(info.name || 'Your business').trim();
+      const years = yearsSinceFoundingServer(info.foundingDate);
+      const yearPart = years && years > 0 ? ` — ${ordinalServer(years)} year!` : '';
+      celebrations.push({
+        title: `🎉 ${bizName}'s anniversary`,
+        body: `Today marks another year for ${bizName}${yearPart}`,
+      });
+    }
+
+    if (celebrations.length === 0) continue;
+    celebrationsFound += celebrations.length;
+
+    for (const c of celebrations) {
+      notificationsSent += await sendToFamily(familyRef, {
+        title: c.title,
+        body: c.body,
+        url: '/',
+        tag: `celebration-${month}-${day}`,
+      });
+    }
+  }
+
+  return { familiesChecked, celebrationsFound, notificationsSent };
+}
+
+app.post('/api/cron/daily-celebrations', async (req, res) => {
+  // Shared-secret gate — see runDailyCelebrations() header for the full auth
+  // story (this plus Cloud Run's OIDC run.invoker restriction).
+  if (!CRON_SECRET || req.headers['x-cron-secret'] !== CRON_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized.' });
+  }
+  if (!PUSH_READY) return res.status(503).json({ error: 'Push is not configured.' });
+  try {
+    const summary = await runDailyCelebrations();
+    console.log('[cron] daily-celebrations:', JSON.stringify(summary));
+    res.json(summary);
+  } catch (err) {
+    console.error('/api/cron/daily-celebrations error:', err);
+    res.status(500).json({ error: 'Cron run failed.' });
   }
 });
 

@@ -1203,3 +1203,42 @@ export async function uploadChatAttachmentWithPath(
   const url = await getDownloadURL(r);
   return { url, storagePath };
 }
+
+// --- Web Push subscriptions -------------------------------------------------
+// These are thin authed-fetch wrappers, NOT direct Firestore writes. The server
+// (see /api/push/subscribe + /api/push/unsubscribe in server.js) does the actual
+// write to families/{FAMILY_ID}/pushSubscriptions/{sha256(endpoint)} via
+// firebase-admin. Doing it server-side means the new pushSubscriptions
+// collection is never touched by the client SDK, so firestore.rules needs no
+// change, and the endpoint is keyed by a stable hash of the endpoint URL so
+// re-subscribing the same device overwrites rather than duplicates.
+//
+// (Most subscribe/unsubscribe callers use utils/pushClient.ts directly, which
+// owns the pushManager dance; these exports mirror the module's fetch style for
+// any caller that already holds a PushSubscription and just needs the persist.)
+
+/** Persist a raw PushSubscription for the current device (server writes it). */
+export async function savePushSubscription(sub: PushSubscriptionJSON): Promise<boolean> {
+  const user = auth.currentUser;
+  if (!user) return false;
+  const token = await user.getIdToken();
+  const res = await fetch('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ subscription: sub }),
+  });
+  return res.ok;
+}
+
+/** Delete this device's stored subscription, keyed by its endpoint URL. */
+export async function deletePushSubscription(endpoint: string): Promise<boolean> {
+  const user = auth.currentUser;
+  if (!user) return false;
+  const token = await user.getIdToken();
+  const res = await fetch('/api/push/unsubscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ endpoint }),
+  });
+  return res.ok;
+}
