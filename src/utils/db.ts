@@ -927,6 +927,7 @@ type StoredChatMessage = {
   applied?: boolean;
   images?: string[];
   sourceImages?: StoredAttachment[];
+  undo?: unknown[]; // undo manifest (ids of records an Apply created) — must survive cloud persist so "Undo" still works after a reload / on another device
 };
 
 export async function loadChatHistory(uid: string): Promise<StoredChatMessage[]> {
@@ -946,12 +947,13 @@ export async function saveChatHistory(
   uid: string,
   messages: StoredChatMessage[],
 ): Promise<void> {
-  const slim = messages.slice(-50).map(({ role, text, edits, applied, images, sourceImages }) => {
+  const slim = messages.slice(-50).map(({ role, text, edits, applied, images, sourceImages, undo }) => {
     const m: StoredChatMessage = { role, text };
     if (edits) m.edits = edits;
     if (applied) m.applied = applied;
     if (images) m.images = images;
     if (sourceImages) m.sourceImages = sourceImages;
+    if (undo) m.undo = undo;
     return m;
   });
   await setDoc(doc(db, 'families', FAMILY_ID, 'chat', uid), { messages: slim }, { merge: true });

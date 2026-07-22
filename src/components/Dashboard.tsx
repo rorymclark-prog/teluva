@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry } from '../types';
+import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, VaultDocument } from '../types';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -14,7 +14,7 @@ import {
   loadDocuments, saveDocuments,
   loadShopping, saveShopping,
   loadRecipes, saveRecipes,
-  saveAsset,
+  saveAsset, loadAssets, deleteAsset,
   loadFamilyWords, saveFamilyWords,
   loadWillsEstate, saveWillsEstate,
   loadSlips, saveSlips,
@@ -32,6 +32,10 @@ import {
   hasServiceRecordEdits, applyServiceRecordEdits,
 } from '../utils/aiApply';
 import { AiEdit } from './AIChatbot';
+import {
+  UndoRecord, UndoDomain,
+  diffMemberUndo, diffInfoUndo, diffHouseholdUndo, diffFinancesUndo, mapNewIds,
+} from '../utils/aiUndo';
 import AssistantBubble from './AssistantBubble';
 import AiConsentModal from './AiConsentModal';
 import AvatarRestyleModal from './AvatarRestyleModal';
@@ -695,21 +699,31 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // Apply edits proposed by the AI assistant (after the user confirms).
   // Throws if any cloud save fails so the chatbot doesn't mark the message
   // as "Applied" when data didn't actually reach Firestore.
-  const handleApplyAiEdits = async (edits: AiEdit[]) => {
+  const handleApplyAiEdits = async (edits: AiEdit[]): Promise<UndoRecord[]> => {
     const failures: string[] = [];
+    // Undo manifest: the ids of the records this Apply CREATES, learned by
+    // diffing each domain's collection before vs. after (the pure apply helpers
+    // mint ids internally, so this is the only non-invasive way to recover them).
+    // Only pushed when the save succeeded, so the manifest never references a
+    // record that isn't actually in the cloud. Documents are captured separately
+    // in fileScans (AIChatbot) — they don't flow through this handler.
+    const undo: UndoRecord[] = [];
 
     if (hasMemberEdits(edits)) {
-      const next = applyMemberEdits(membersRef.current, edits, isBusinessSpace);
+      const before = membersRef.current;
+      const next = applyMemberEdits(before, edits, isBusinessSpace);
       membersRef.current = next; // so a following fileScans→handleAddDocument merges onto this
       setMembers(next);
       const ok = await saveFamilyMembers(next);
       if (!ok) failures.push('family members');
+      else undo.push(...diffMemberUndo(before, next));
     }
     if (hasInfoEdits(edits)) {
       const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [] };
       const updatedInfo = applyInfoEdits(info, edits);
       const ok = await saveFamilyInfo(updatedInfo);
       if (!ok) failures.push('contacts & numbers');
+      else undo.push(...diffInfoUndo(info, updatedInfo));
       // Keep NeedsAttention/OnThisDay's contact-birthday nudges current — they
       // read the top-level `contacts` state (a prop), not a self-load like
       // ImportantInfo's own view, so an AI-added contact needs this explicit push.
@@ -720,6 +734,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       setEvents(next);
       const ok = await saveCalendarEvents(next);
       if (!ok) failures.push('calendar');
+      else undo.push(...mapNewIds(events, next, 'calendar', (e) => e.title || 'event'));
     }
     if (hasHouseholdEdits(edits) || hasServiceRecordEdits(edits)) {
       const h = (await loadHousehold()) || {};
@@ -736,28 +751,38 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       if (unmatched.length && matched === 0 && !hasHouseholdEdits(edits)) {
         throw new Error(`I couldn't find a vehicle on file matching ${unmatched.join(', ')}. Add that vehicle first (or check the plate on the document), then scan the service history again.`);
       }
-      const ok = await saveHousehold({ ...h2, vehicles });
+      const after = { ...h2, vehicles };
+      const ok = await saveHousehold(after);
       if (!ok) failures.push('household');
+      else undo.push(...diffHouseholdUndo(h, after));
     }
     if (hasFinancesEdits(edits)) {
       const f = (await loadFinances()) || {};
-      const ok = await saveFinances(applyFinancesEdits(f, edits));
+      const after = applyFinancesEdits(f, edits);
+      const ok = await saveFinances(after);
       if (!ok) failures.push('finances');
+      else undo.push(...diffFinancesUndo(f, after));
     }
     if (hasTimelineEdits(edits)) {
       const t = (await loadTimeline()) || { entries: [] };
-      const ok = await saveTimeline(applyTimelineEdits(t, edits));
+      const after = applyTimelineEdits(t, edits);
+      const ok = await saveTimeline(after);
       if (!ok) failures.push('timeline');
+      else undo.push(...mapNewIds(t.entries, after.entries, 'timeline', (e: any) => e.title || e.type || 'timeline entry'));
     }
     if (hasFamilyWordsEdits(edits)) {
       const doc = (await loadFamilyWords()) || { words: [] };
-      const ok = await saveFamilyWords({ words: applyFamilyWordsEdits(doc.words || [], edits) });
+      const after = applyFamilyWordsEdits(doc.words || [], edits);
+      const ok = await saveFamilyWords({ words: after });
       if (!ok) failures.push('family words');
+      else undo.push(...mapNewIds(doc.words, after, 'familyWord', (w: any) => w.word || 'word'));
     }
     if (hasShoppingEdits(edits)) {
       const s = await loadShopping();
-      const ok = await saveShopping(applyShoppingEdits(s, edits));
+      const after = applyShoppingEdits(s, edits);
+      const ok = await saveShopping(after);
       if (!ok) failures.push('shopping');
+      else undo.push(...mapNewIds(s, after, 'shopping', (x: any) => x.name || 'item'));
     }
     if (hasAssetEdits(edits)) {
       const VALID_CATS: AssetItem['category'][] = ['Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other'];
@@ -781,22 +806,29 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         };
         const ok = await saveAsset(asset);
         if (!ok) failures.push('assets');
+        else undo.push({ domain: 'asset', id: asset.id, label: asset.name });
       }
     }
     if (hasRecipeEdits(edits)) {
       const current = await loadRecipes();
-      const ok = await saveRecipes(applyRecipeEdits(current, edits));
+      const after = applyRecipeEdits(current, edits);
+      const ok = await saveRecipes(after);
       if (!ok) failures.push('recipes');
+      else undo.push(...mapNewIds(current, after, 'recipe', (r: any) => r.title || 'recipe'));
     }
     if (hasEstateEdits(edits)) {
       const doc = (await loadWillsEstate()) || { records: [] };
-      const ok = await saveWillsEstate({ records: applyEstateEdits(doc.records || [], edits) });
+      const after = applyEstateEdits(doc.records || [], edits);
+      const ok = await saveWillsEstate({ records: after });
       if (!ok) failures.push('wills & estate');
+      else undo.push(...mapNewIds(doc.records, after, 'estate', (r: any) => r.kind || 'estate record'));
     }
     if (hasSlipEdits(edits)) {
       const current = await loadSlips();
-      const ok = await saveSlips(applySlipEdits(current, edits));
+      const after = applySlipEdits(current, edits);
+      const ok = await saveSlips(after);
       if (!ok) failures.push('slips');
+      else undo.push(...mapNewIds(current, after, 'slip', (s: any) => s.item || 'slip'));
     }
 
     // Remount the self-loading views so an applied change shows immediately
@@ -813,6 +845,193 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     if (failures.length > 0) {
       throw new Error(`Couldn't save to cloud: ${failures.join(', ')}. Check your connection and try again.`);
     }
+    return undo;
+  };
+
+  // Reverse the MOST RECENT apply of a chat card: delete exactly the records its
+  // manifest names (member profiles, nested member records, calendar/list rows,
+  // vault documents, …) and report how many were removed vs. couldn't be found.
+  // Each domain is reloaded fresh, the target ids are filtered out, and the rest
+  // saved back — append-only filing means removing these ids restores the prior
+  // state. Documents route through deleteDocumentEverywhere (the SAME helper the
+  // delete screens use) so the vault copy, every member-profile copy, and the
+  // Storage object all go together — never a half-deleted orphan.
+  const handleUndoAiEdits = async (records: UndoRecord[]): Promise<{ undone: number; missing: number }> => {
+    let undone = 0;
+    let missing = 0;
+    const tally = (present: Set<string>, targets: Set<string>) => {
+      for (const id of targets) { if (present.has(id)) undone++; else missing++; }
+    };
+    const idsFor = (...ds: UndoDomain[]) => new Set(records.filter(r => ds.includes(r.domain)).map(r => r.id));
+
+    // --- Members: whole new profiles + nested records + transit passes ---
+    if (records.some(r => r.domain === 'member' || r.domain === 'memberNested' || r.domain === 'transitPass')) {
+      const removeMemberIds = idsFor('member');
+      const beforeIds = new Set(membersRef.current.map(m => m.id));
+      for (const id of removeMemberIds) { if (beforeIds.has(id)) undone++; else missing++; }
+      let next = membersRef.current.filter(m => !removeMemberIds.has(m.id));
+      next = next.map(m => {
+        let mm = m;
+        for (const r of records) {
+          if (r.memberId !== m.id) continue;
+          if (r.domain === 'memberNested' && r.collection) {
+            const arr = (mm as any)[r.collection] as { id: string }[] | undefined;
+            if (arr?.some(x => x.id === r.id)) { mm = { ...mm, [r.collection]: arr.filter(x => x.id !== r.id) }; undone++; }
+            else missing++;
+          } else if (r.domain === 'transitPass') {
+            const arr = mm.travel?.transitPasses;
+            if (arr?.some(x => x.id === r.id)) { mm = { ...mm, travel: { ...mm.travel, transitPasses: arr.filter(x => x.id !== r.id) } }; undone++; }
+            else missing++;
+          }
+        }
+        return mm;
+      });
+      await persistChanges(next);
+    }
+
+    // --- Contacts / numbers / providers ---
+    const contactIds = idsFor('contact'), numberIds = idsFor('number'), providerIds = idsFor('provider');
+    if (contactIds.size || numberIds.size || providerIds.size) {
+      const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [] };
+      tally(new Set((info.contacts || []).map(c => c.id)), contactIds);
+      tally(new Set((info.numbers || []).map(n => n.id)), numberIds);
+      tally(new Set((info.providers || []).map(p => p.id)), providerIds);
+      const nextInfo = {
+        numbers: (info.numbers || []).filter(n => !numberIds.has(n.id)),
+        contacts: (info.contacts || []).filter(c => !contactIds.has(c.id)),
+        providers: (info.providers || []).filter(p => !providerIds.has(p.id)),
+      };
+      await saveFamilyInfo(nextInfo);
+      setContacts(nextInfo.contacts);
+    }
+
+    // --- Calendar events ---
+    const calIds = idsFor('calendar');
+    if (calIds.size) {
+      const current = await loadCalendarEvents();
+      tally(new Set(current.map(e => e.id)), calIds);
+      const next = current.filter(e => !calIds.has(e.id));
+      await saveCalendarEvents(next);
+      setEvents(next);
+    }
+
+    // --- Household: vehicles / pets / utilities + service records ---
+    const vehIds = idsFor('vehicle'), petIds = idsFor('pet'), utilIds = idsFor('utility');
+    const serviceRecs = records.filter(r => r.domain === 'serviceRecord');
+    if (vehIds.size || petIds.size || utilIds.size || serviceRecs.length) {
+      const h = (await loadHousehold()) || {};
+      tally(new Set((h.vehicles || []).map(v => v.id)), vehIds);
+      tally(new Set((h.pets || []).map(p => p.id)), petIds);
+      tally(new Set((h.utilities || []).map(u => u.id)), utilIds);
+      let vehicles = (h.vehicles || []).filter(v => !vehIds.has(v.id));
+      const byVeh = new Map<string, Set<string>>();
+      for (const r of serviceRecs) {
+        if (!r.parentId) { missing++; continue; }
+        if (!byVeh.has(r.parentId)) byVeh.set(r.parentId, new Set());
+        byVeh.get(r.parentId)!.add(r.id);
+      }
+      vehicles = vehicles.map(v => {
+        const rm = byVeh.get(v.id);
+        if (!rm) return v;
+        tally(new Set((v.serviceLog || []).map(s => s.id)), rm);
+        byVeh.delete(v.id);
+        return { ...v, serviceLog: (v.serviceLog || []).filter(s => !rm.has(s.id)) };
+      });
+      // Service records whose vehicle no longer exists — count as not-found.
+      for (const rm of byVeh.values()) for (const _ of rm) missing++;
+      await saveHousehold({
+        ...h,
+        vehicles,
+        pets: (h.pets || []).filter(p => !petIds.has(p.id)),
+        utilities: (h.utilities || []).filter(u => !utilIds.has(u.id)),
+      });
+    }
+
+    // --- Finances: banks / insurance / benefits ---
+    const bankIds = idsFor('bank'), insIds = idsFor('insurance'), benIds = idsFor('benefit');
+    if (bankIds.size || insIds.size || benIds.size) {
+      const f = (await loadFinances()) || {};
+      tally(new Set((f.banks || []).map(b => b.id)), bankIds);
+      tally(new Set((f.insurance || []).map(i => i.id)), insIds);
+      tally(new Set((f.benefits || []).map(b => b.id)), benIds);
+      await saveFinances({
+        ...f,
+        banks: (f.banks || []).filter(b => !bankIds.has(b.id)),
+        insurance: (f.insurance || []).filter(i => !insIds.has(i.id)),
+        benefits: (f.benefits || []).filter(b => !benIds.has(b.id)),
+      });
+    }
+
+    // --- Simple single-list stores ---
+    const tlIds = idsFor('timeline');
+    if (tlIds.size) {
+      const doc = (await loadTimeline()) || { entries: [] };
+      tally(new Set((doc.entries || []).map(e => e.id)), tlIds);
+      await saveTimeline({ ...doc, entries: (doc.entries || []).filter(e => !tlIds.has(e.id)) });
+    }
+    const fwIds = idsFor('familyWord');
+    if (fwIds.size) {
+      const doc = (await loadFamilyWords()) || { words: [] };
+      tally(new Set((doc.words || []).map(w => w.id)), fwIds);
+      await saveFamilyWords({ words: (doc.words || []).filter(w => !fwIds.has(w.id)) });
+    }
+    const shopIds = idsFor('shopping');
+    if (shopIds.size) {
+      const current = await loadShopping();
+      tally(new Set(current.map(s => s.id)), shopIds);
+      await saveShopping(current.filter(s => !shopIds.has(s.id)));
+    }
+    const recipeIds = idsFor('recipe');
+    if (recipeIds.size) {
+      const current = await loadRecipes();
+      tally(new Set(current.map(r => r.id)), recipeIds);
+      await saveRecipes(current.filter(r => !recipeIds.has(r.id)));
+    }
+    const estateIds = idsFor('estate');
+    if (estateIds.size) {
+      const doc = (await loadWillsEstate()) || { records: [] };
+      tally(new Set((doc.records || []).map(r => r.id)), estateIds);
+      await saveWillsEstate({ records: (doc.records || []).filter(r => !estateIds.has(r.id)) });
+    }
+    const slipIds = idsFor('slip');
+    if (slipIds.size) {
+      const current = await loadSlips();
+      tally(new Set(current.map(s => s.id)), slipIds);
+      await saveSlips(current.filter(s => !slipIds.has(s.id)));
+    }
+
+    // --- Assets (one doc each) ---
+    const assetIds = idsFor('asset');
+    if (assetIds.size) {
+      const current = await loadAssets();
+      const present = new Set(current.map(a => a.id));
+      tally(present, assetIds);
+      for (const id of assetIds) if (present.has(id)) await deleteAsset(id);
+    }
+
+    // --- Documents: route through deleteDocumentEverywhere so vault copy,
+    // member-profile copies, and the Storage object all go together. Thread the
+    // members list through each call (it strips the profile copies and returns
+    // the next members) and persist once at the end. ---
+    const docRecords = records.filter(r => r.domain === 'document');
+    if (docRecords.length) {
+      let vault: VaultDocument[] = [];
+      try { vault = await loadDocuments(); } catch { vault = []; }
+      const byId = new Map(vault.map(d => [d.id, d]));
+      let workingMembers = membersRef.current;
+      for (const r of docRecords) {
+        const vaultDoc = byId.get(r.id);
+        if (!vaultDoc) { missing++; continue; }
+        const res = await deleteDocumentEverywhere({ vaultDoc, members: workingMembers });
+        workingMembers = res.members;
+        undone++;
+      }
+      await persistChanges(workingMembers);
+    }
+
+    // Refresh the self-loading views so the removals show immediately.
+    setAiDataVersion(v => v + 1);
+    return { undone, missing };
   };
 
   const handleAddDocument = async (memberId: string, docToAdd: FamilyDocument) => {
@@ -1646,6 +1865,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           members={members}
           onApplyEdits={handleApplyAiEdits}
           onAddMemberDoc={handleAddDocument}
+          onUndoEdits={handleUndoAiEdits}
           demo={demo}
           isBusinessSpace={isBusinessSpace}
           onOpenFunAvatar={isAdmin && selectedMember ? () => setRestyleMemberId(selectedMember.id) : undefined}
