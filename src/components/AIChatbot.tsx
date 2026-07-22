@@ -297,12 +297,24 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   // its dataUrl is still `data:` and gets stripped here rather than bloating
   // storage — that attachment just won't survive a reload, same as before.
   const isRemoteUrl = (src: string) => /^https?:\/\//i.test(src);
+  // A message still carrying a document scan that (a) hasn't been Applied yet and
+  // (b) never got a durable Storage URL on its edit (its send-time upload failed).
+  // For such a message the inline base64 is the ONLY surviving copy of the scan —
+  // and stripping it for storage is EXACTLY what produced "the photo is no longer
+  // in this chat" after a reload. So we keep the bytes for these until the doc is
+  // filed; the very next save after Apply drops them (applied → not pending).
+  const hasUnfiledDocScan = (m: Partial<ChatMessage>) =>
+    !m.applied && Array.isArray(m.edits) &&
+    m.edits.some((e) => e.kind === 'document' && !e.fileUrl);
   const slimForCloud = (msgs: ChatMessage[]) =>
-    msgs.map(({ image, sourceImage, images, sourceImages, ...m }) => ({
-      ...m,
-      images: images?.every(isRemoteUrl) ? images : undefined,
-      sourceImages: sourceImages?.every((a) => isRemoteUrl(a.dataUrl)) ? sourceImages : undefined,
-    }));
+    msgs.map(({ image, sourceImage, images, sourceImages, ...m }) => {
+      const keepBytes = hasUnfiledDocScan(m);
+      return {
+        ...m,
+        images: images?.every(isRemoteUrl) ? images : (keepBytes ? images : undefined),
+        sourceImages: sourceImages?.every((a) => isRemoteUrl(a.dataUrl)) ? sourceImages : (keepBytes ? sourceImages : undefined),
+      };
+    });
 
   // Persist the conversation (minus heavy image data) on this device.
   useEffect(() => {
@@ -498,17 +510,29 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       const uploadFailures: string[] = [];
       const uploadPromise: Promise<PersistedAttachment[]> = atts.length
         ? Promise.all(atts.map(async (a) => {
-            try {
-              const blob = dataUrlToBlob(a.dataUrl);
-              const contentHash = await computeFileHash(blob);
-              const { url, storagePath } = await uploadChatAttachmentWithPath(a.dataUrl, a.mimeType, user.uid);
-              cacheAttachmentBlob(storagePath, blob);
-              return { ...a, dataUrl: url, storagePath, fileSize: blob.size, contentHash };
-            } catch (e) {
-              console.error('Chat attachment upload failed — it will not survive a reload:', e);
-              uploadFailures.push(a.name);
-              return { ...a };
+            const blob = dataUrlToBlob(a.dataUrl);
+            const contentHash = await computeFileHash(blob);
+            // Retry the Storage upload: on mobile the single most common cause of
+            // "the photo didn't file" was a transient upload failure (flaky
+            // connection), which left the edit without a durable URL. Three tries
+            // with backoff turns almost all of those into successes. If it still
+            // fails, the base64 is retained in the message (see hasUnfiledDocScan)
+            // so a later Apply can re-upload from it — the scan is never lost.
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                const { url, storagePath } = await uploadChatAttachmentWithPath(a.dataUrl, a.mimeType, user.uid);
+                cacheAttachmentBlob(storagePath, blob);
+                return { ...a, dataUrl: url, storagePath, fileSize: blob.size, contentHash };
+              } catch (e) {
+                if (attempt === 3) {
+                  console.error('Chat attachment upload failed after 3 tries; base64 kept for retry-on-apply:', e);
+                  uploadFailures.push(a.name);
+                  return { ...a };
+                }
+                await new Promise((r) => setTimeout(r, 400 * attempt));
+              }
             }
+            return { ...a }; // unreachable; satisfies the type checker
           }))
         : Promise.resolve([]);
 
