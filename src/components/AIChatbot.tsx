@@ -8,6 +8,9 @@ import {
   uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
+// Edit/delete-existing-records feature: display labels + apply-time re-resolution
+// live here (this shared component only gets append-only wiring).
+import { annotateDestructiveEdits } from '../utils/aiDestructive';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -74,7 +77,18 @@ export type AiEdit =
   // serviceLog. The vehicle is matched (client-side, in aiApply) by VIN, then
   // registration plate, then name. Store-and-recall only: records exactly what
   // the document shows, never an interpretation ("overdue"/"you must…").
-  | { kind: 'service_record'; vehicle?: string; plate?: string; vin?: string; records: { date: string; work: string; odometer?: string; cost?: string; garage?: string; notes?: string }[] };
+  | { kind: 'service_record'; vehicle?: string; plate?: string; vin?: string; records: { date: string; work: string; odometer?: string; cost?: string; garage?: string; notes?: string }[] }
+  // --- EDIT/DELETE existing records (confirm-before-destroy; see utils/aiDestructive.ts) ---
+  // clear_field blanks ONE member field ("remove Papa's old phone"); it rides the
+  // normal member-edit path (aiApply.applyMemberEdits) so it can only ever touch a
+  // whitelisted field, never a whole record.
+  | { kind: 'clear_field'; member: string; field: string }
+  // delete_record / update_record target an EXISTING record by its stable context
+  // id. `label` is stamped CLIENT-SIDE (annotateDestructiveEdits) for the Apply
+  // card — the model never supplies it — and apply RE-RESOLVES the id against live
+  // data, never trusting a stale id/label from chat history.
+  | { kind: 'delete_record'; targetKind: string; id: string; label?: string }
+  | { kind: 'update_record'; targetKind: string; id: string; fields: Record<string, string>; label?: string };
 
 interface Attachment { name: string; mimeType: string; dataUrl: string; }
 
@@ -135,7 +149,8 @@ function slimMembers(members: FamilyMember[]) {
     const { avatarUrl, documents, digitalAccounts, favorites, growthHistory, ...rest } = m as any;
     return {
       ...rest,
-      documents: (documents || []).map((d: any) => ({ name: d.name, category: d.category, uploadedAt: d.uploadedAt })),
+      // id is included so the AI can reference a specific member document for delete_record.
+      documents: (documents || []).map((d: any) => ({ id: d.id, name: d.name, category: d.category, uploadedAt: d.uploadedAt })),
       // NEVER send stored passwords to the AI; keep only what lets it answer "what accounts does X have"
       digitalAccounts: (digitalAccounts || []).map((a: any) => ({ service: a.service, username: a.username })),
       // Strip base64 wishlist images (huge + would truncate the whole context)
@@ -408,6 +423,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     const documents = (docs || []).map(d => {
       const ownerName = ownerOfDocId.get('doc-' + d.id);
       return {
+        // id lets the AI reference a specific vault document for delete_record.
+        id: d.id,
         name: d.name,
         category: d.category,
         uploadedAt: d.uploadedAt,
@@ -426,7 +443,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     const insights = computeChatInsights({ members, vehicles: household?.vehicles || [], slips: slips || [] });
     const expiries = insights.expiries.map((n) => ({ text: n.text, daysUntil: n.days }));
     const gaps = insights.gaps.map((n) => ({ text: n.text }));
-    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps };
+    // slips carry ids so the AI can target one for delete_record/update_record ("bin that Media Markt receipt").
+    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [] };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {
@@ -705,6 +723,13 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
           fileSize: src.fileSize, contentHash: src.contentHash,
         };
       });
+      // Stamp a plain-language, display-only label onto any destructive edit
+      // (delete_record/update_record) so the Apply card spells out WHAT will be
+      // removed/changed and on WHOSE record — a mis-heard command is caught by
+      // eye before Apply. Purely cosmetic: apply RE-RESOLVES the id against fresh
+      // data (see utils/aiDestructive) and ignores this label. Uses the context
+      // we just built, so no extra load. Mutates the freshly-created edit objects.
+      annotateDestructiveEdits(edits, context);
       // Safety net for a known failure mode: the model sometimes files a passport
       // scan as a plain document without the matching structured passport edit
       // (most often when it's photographed alongside other images). We can't
@@ -1664,5 +1689,11 @@ function describeEdit(e: AiEdit): string {
     const tgt = e.plate || e.vehicle || e.vin || 'the vehicle';
     return `Add ${n} service record${n === 1 ? '' : 's'} to ${tgt}`;
   }
+  // EDIT/DELETE existing records: clear_field describes itself directly; delete/
+  // update rely on the client-stamped `label` (annotateDestructiveEdits) which
+  // names WHAT + WHOSE record — the whole point of confirm-before-destroy.
+  if (e.kind === 'clear_field') return `${e.member}: clear ${e.field.replace(/_/g, ' ')}`;
+  if (e.kind === 'delete_record') return e.label || `Remove a ${e.targetKind.replace(/_/g, ' ')}`;
+  if (e.kind === 'update_record') return e.label || `Update a ${e.targetKind.replace(/_/g, ' ')}`;
   return JSON.stringify(e);
 }
