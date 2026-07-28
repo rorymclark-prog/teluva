@@ -1543,7 +1543,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             )}
 
             {isAdmin && (
-              <button onClick={() => setIsAddModalOpen(true)} className="btn-primary px-4 py-2">
+              <button onClick={() => setIsAddModalOpen(true)} className="btn-primary px-4 py-2" title={t.btn_add} aria-label={t.btn_add}>
                 <UserPlus className="w-4 h-4" />
                 <span className="hidden sm:inline">{t.btn_add}</span>
               </button>
@@ -1875,6 +1875,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               key={tab.id}
                               type="button"
                               onClick={() => setActiveTab(tab.id)}
+                              // The label below is display:none under `sm`, which takes it out
+                              // of the accessibility tree as well as off the screen — so on a
+                              // phone, where nearly everyone is, these 14 tabs were unnamed
+                              // icons. title carries the name for assistive tech and gives
+                              // desktop a tooltip it didn't have either.
+                              title={tab.label}
+                              aria-label={tab.label}
+                              aria-current={activeTab === tab.id ? 'page' : undefined}
                               className={`tab-pill px-3 ${activeTab === tab.id ? 'tab-pill-active' : ''}`}
                             >
                               <tab.icon className={`w-4 h-4 ${tab.id === 'favorites' ? 'fill-rosa-500 text-rosa-500' : ''}`} />
