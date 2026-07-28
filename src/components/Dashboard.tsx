@@ -108,6 +108,7 @@ import MemberCV from './MemberCV';
 import WillsEstateView from './WillsEstateView';
 import SlipsView from './SlipsView';
 import CelebrationOverlay from './CelebrationOverlay';
+import InstallPrompt from './InstallPrompt';
 import FirstRunTour from './FirstRunTour';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
@@ -1608,6 +1609,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'profiles' && (
           <>
+            {/* Only ever asks once the family has actually put something in —
+                an install prompt over an empty vault is asking for commitment
+                before showing any value. Silent in demo mode. */}
+            {!demo && <InstallPrompt hasContent={members.length > 0} />}
+
             <NeedsAttention members={members} contacts={contacts} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
             <CelebrationOverlay members={members} />
 
