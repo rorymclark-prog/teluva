@@ -38,19 +38,24 @@
 //   members[].financialAccounts  (accountNumber, routingNumber)
 //       Bank account + routing numbers on a person's profile.
 //
+//   members[].identity — the ID NUMBERS only (see REDACTED_IDENTITY_KEYS).
+//       Rory's call, 2026-07-28: strip the numbers, keep the dates. The whole
+//       block was previously kept because dropping it would break shipped,
+//       prompt-documented behaviour — but that turned out to be true only of
+//       the DATES. "When does my residence permit expire?" is a starter
+//       suggestion and still works; "what is my SV-Nummer?" no longer does,
+//       and that is the intended trade. The numbers remain on the ID screen,
+//       which is where they were always actually read from.
+//
 // NOT removed, on purpose — read the note before "tidying" these up:
-//   members[].identity (IdentityRecord) still carries svNumber, taxNumber,
-//       nationalIdNumber, birthCertNumber, medicalAidNumber, driversLicenseNumber.
-//       Stripping it would silently break a SHIPPED, prompt-documented feature:
-//       the system instruction lists these as canonical member field keys and
-//       tells the model to "answer questions thoroughly (sizes, IDs, medical,
-//       ...)", and residencePermitExpiry/driversLicenseExpiry feed the
-//       "when does my residence permit expire?" starter suggestion. Narrowing
-//       this one is a product decision (which ID numbers should the assistant
-//       be able to recall at all?), not a mechanical fix — it is flagged for the
-//       owner rather than decided here.
-//   insurance[].policyNumber, utilities[].accountNumber — same reasoning, and
-//       both are lower-sensitivity than the above.
+//   members[].identity expiry dates and scheme names (residencePermitExpiry,
+//       driversLicenseExpiry, medicalAidScheme, medicalAidPlanOption,
+//       medicalAidDependantCode, idDocumentType, registeredGpPractice,
+//       notes). These drive the expiry nudges and the questions people
+//       actually ask, and a scheme name is not a credential.
+//   insurance[].policyNumber, utilities[].accountNumber — lower sensitivity
+//       than a government ID, and genuinely useful to recall ("which policy
+//       number do I quote?"). Revisit if the risk appetite changes.
 // ---------------------------------------------------------------------------
 
 /** Household credential keys that must never leave the browser in AI context. */
@@ -61,6 +66,37 @@ export const REDACTED_BANK_KEYS = ['iban', 'bic'] as const;
 
 /** Member-profile keys that must never leave the browser in AI context. */
 export const REDACTED_MEMBER_KEYS = ['identifiers', 'financialAccounts'] as const;
+
+/**
+ * Government/insurance ID NUMBERS inside members[].identity.
+ *
+ * Removed rather than the whole `identity` block, because the two halves of
+ * that record have very different value-to-risk ratios:
+ *
+ *   The NUMBERS below are what you would least want sitting in a third-party
+ *   prompt log, and are the least useful to an assistant — nobody asks a chat
+ *   assistant to read their Sozialversicherungsnummer aloud; they open the
+ *   ID screen, where these are all still shown.
+ *
+ *   The DATES and SCHEME NAMES are kept, because they are what people actually
+ *   ask ("when does my residence permit expire?" is a shipped starter
+ *   suggestion), they drive the expiry nudges, and a scheme name like
+ *   "Discovery Health" is not a credential.
+ */
+export const REDACTED_IDENTITY_KEYS = [
+  'eCardNumber',
+  'svNumber',              // Austrian Sozialversicherungsnummer
+  'taxNumber',
+  'studentNumber',
+  'schoolRegNumber',
+  'residencePermitNumber', // …Expiry is KEPT — it is what gets asked about
+  'nationalIdNumber',      // SA 13-digit ID, and the SSN-equivalent elsewhere
+  'birthCertNumber',
+  'medicalAidNumber',      // …Scheme/PlanOption/DependantCode are KEPT
+  'insuranceGroupNumber',
+  'citizenshipCertNumber',
+  'driversLicenseNumber',  // …Expiry is KEPT
+] as const;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -96,10 +132,17 @@ export function redactFinances<T>(finances: T): T {
 }
 
 /**
- * Strip the legacy national-identifier block and per-member bank accounts from
- * one already-slimmed member object.
+ * Strip the legacy national-identifier block, per-member bank accounts, and the
+ * government/insurance ID NUMBERS inside `identity`, from one already-slimmed
+ * member object. Identity expiry dates and scheme names survive — see
+ * REDACTED_IDENTITY_KEYS for why the record is split rather than dropped.
  */
 export function redactMember<T>(member: T): T {
   if (!isPlainObject(member)) return member;
-  return omit(member, REDACTED_MEMBER_KEYS) as T;
+  const stripped: Record<string, unknown> = omit(member, REDACTED_MEMBER_KEYS);
+  const identity = stripped.identity;
+  if (isPlainObject(identity)) {
+    stripped.identity = omit(identity, REDACTED_IDENTITY_KEYS);
+  }
+  return stripped as T;
 }

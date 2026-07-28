@@ -71,7 +71,15 @@ const member = {
   birthdate: '2015-04-02',
   identifiers: { ssn: '1234 010115', nationalId: 'AT-99', driversLicenseNo: 'DL-1', taxId: 'TX-1', insuranceNo: 'INS-1' },
   financialAccounts: [{ id: 'f1', bankName: 'Erste', accountType: 'Savings', accountNumber: '00112233', routingNumber: '20111' }],
-  identity: { residencePermitExpiry: '2027-01-31', svNumber: '1234 010115' },
+  identity: {
+    residencePermitExpiry: '2027-01-31',
+    driversLicenseExpiry: '2030-06-30',
+    medicalAidScheme: 'Discovery Health',
+    svNumber: '1234 010115',
+    nationalIdNumber: '9001015800086',
+    medicalAidNumber: 'DH-77421',
+    driversLicenseNumber: 'DL-1',
+  },
   medical: { bloodGroup: 'O+' },
 };
 const rm = redactMember(member) as any;
@@ -82,11 +90,22 @@ assert.ok(!('financialAccounts' in rm), 'account/routing numbers must not be sen
 assert.strictEqual(rm.name, 'Mia');
 assert.strictEqual(rm.birthdate, '2015-04-02');
 assert.deepStrictEqual(rm.medical, { bloodGroup: 'O+' });
-// DOCUMENTED, DELIBERATE GAP: `identity` still carries ID numbers, because
-// stripping it would break the shipped "when does my residence permit expire?"
-// / "answer questions about IDs" behaviour. Flagged for the owner, not silently
-// changed — this assertion exists so that decision is visible, not accidental.
-assert.deepStrictEqual(rm.identity, { residencePermitExpiry: '2027-01-31', svNumber: '1234 010115' });
+// `identity` is SPLIT, not dropped (Rory's call, 2026-07-28): the ID numbers go,
+// the dates and scheme names stay. This is the assertion that keeps the split
+// honest — if someone re-adds a number to the context, it fails here.
+assert.deepStrictEqual(rm.identity, {
+  residencePermitExpiry: '2027-01-31',
+  driversLicenseExpiry: '2030-06-30',
+  medicalAidScheme: 'Discovery Health',
+});
+for (const leaked of ['svNumber', 'nationalIdNumber', 'medicalAidNumber', 'driversLicenseNumber']) {
+  assert.ok(!(leaked in rm.identity), `${leaked} must not be sent to the AI`);
+}
+// The expiry dates are what the shipped "when does my residence permit expire?"
+// starter suggestion needs — losing these would silently break it.
+assert.strictEqual(rm.identity.residencePermitExpiry, '2027-01-31');
+// Redaction must not mutate the caller's member object (buildContext reuses it).
+assert.strictEqual(member.identity.svNumber, '1234 010115', 'must not mutate the input identity');
 
 assert.ok(member.identifiers, 'redaction must not mutate its input');
 assert.strictEqual(redactMember(null), null);
