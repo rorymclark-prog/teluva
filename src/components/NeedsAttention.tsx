@@ -1,14 +1,15 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt } from 'lucide-react';
-import { FamilyMember, AssetItem, Vehicle, ContactEntry, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc } from '../types';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock } from 'lucide-react';
+import { FamilyMember, AssetItem, Vehicle, ContactEntry, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc, InsurancePolicy } from '../types';
 import { careNextDue } from '../utils/care';
-import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones } from '../utils/db';
+import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones, loadFinances } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel, daysUntil } from '../utils/vehicle';
 import { birthdayPhotoNudge } from '../utils/birthday';
 import { nextAnniversary, nextMilestoneAnniversary } from '../utils/businessMilestone';
 import { isReviewStale } from '../utils/willsEstate';
 import { sizeStaleness } from '../utils/sizeStaleness';
 import { todayISO } from '../utils/age';
+import { isFuneralPolicy, inWaitingPeriod, daysUntilWaitingPeriodEnd } from '../utils/funeralCover';
 
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
@@ -157,6 +158,34 @@ export function computeSlipNudges(slips: SlipItem[]): Nudge[] {
           days,
         });
       }
+    }
+  }
+  return out;
+}
+
+// Funeral cover nudges — a funeral policy lapsing because a debit order failed
+// is a real and awful failure, so a lapsed one is 'urgent' regardless of its
+// renewal date. Otherwise reuses the same overdue/42-day-window framing as
+// vehicle deadlines. Also flags an active waiting period — not urgent, just
+// worth knowing (accidental death is still covered; natural death isn't yet).
+export function computeFuneralCoverNudges(policies: InsurancePolicy[]): Nudge[] {
+  const out: Nudge[] = [];
+  for (const p of policies) {
+    if (!isFuneralPolicy(p.type)) continue;
+    const label = `${p.provider || 'Funeral cover'}${p.type ? ` (${p.type})` : ''}`;
+    if (p.status === 'lapsed') {
+      out.push({ key: `funeral-lapsed-${p.id}`, memberId: '', icon: ShieldCheck, tone: 'urgent', text: `${label} has lapsed — check the debit order before it's needed`, tab: 'insurance', view: 'insurance' });
+    } else if (p.status !== 'cancelled' && p.renewalDate) {
+      const days = daysUntil(p.renewalDate);
+      if (days !== null && days < 0) {
+        out.push({ key: `funeral-renewal-${p.id}`, memberId: '', icon: ShieldCheck, tone: 'urgent', text: `${label} renewal is overdue`, tab: 'insurance', view: 'insurance', date: p.renewalDate, days });
+      } else if (days !== null && days <= 42) {
+        out.push({ key: `funeral-renewal-${p.id}`, memberId: '', icon: ShieldCheck, tone: 'warn', text: `${label} renews in ${days} day${days === 1 ? '' : 's'}`, tab: 'insurance', view: 'insurance', date: p.renewalDate, days });
+      }
+    }
+    if (p.status !== 'cancelled' && p.status !== 'lapsed' && inWaitingPeriod(p)) {
+      const days = daysUntilWaitingPeriodEnd(p) ?? 0;
+      out.push({ key: `funeral-waiting-${p.id}`, memberId: '', icon: Clock, tone: 'info', text: `${label} is still in its natural-death waiting period (${days} day${days === 1 ? '' : 's'} left) — accidental death is covered now`, tab: 'insurance', view: 'insurance' });
     }
   }
   return out;
@@ -501,6 +530,7 @@ export default function NeedsAttention(
   const [slips, setSlips] = useState<SlipItem[]>([]);
   const [settings, setSettings] = useState<HubSettings | null>(null);
   const [milestones, setMilestones] = useState<BusinessMilestonesDoc | null>(null);
+  const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
   useEffect(() => {
     let cancelled = false;
     loadAssets()
@@ -524,6 +554,9 @@ export default function NeedsAttention(
     loadBusinessMilestones()
       .then((m) => { if (!cancelled) setMilestones(m); })
       .catch(() => { if (!cancelled) setMilestones(null); });
+    loadFinances()
+      .then((f) => { if (!cancelled) setInsurancePolicies(f?.insurance || []); })
+      .catch(() => { if (!cancelled) setInsurancePolicies([]); });
     return () => { cancelled = true; };
   }, []);
 
@@ -540,6 +573,7 @@ export default function NeedsAttention(
     ...computeMilestoneAnniversaryNudge(spaceInfo, settings, milestones),
     ...computeEstateNudges(estateRecords),
     ...computeSlipNudges(slips),
+    ...computeFuneralCoverNudges(insurancePolicies),
   ].sort((a, b) => order[a.tone] - order[b.tone]);
   if (all.length === 0) return null;
   const COLLAPSED = 6;

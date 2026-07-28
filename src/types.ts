@@ -501,6 +501,21 @@ export interface InsurancePolicy {
   // --- Recall-only reader (dark-launched, see config/features.ts) ---
   obligations?: PolicyObligation[]; // verbatim quotes of conditions the holder must meet
   obligationsReadAt?: string;       // ISO timestamp of the last AI read
+  // --- Funeral cover (Phase 3) ---
+  // South African funeral policies and burial societies are close to universal
+  // for this app's audience (families spread across SA/UK/US/Austria) and had
+  // nowhere to live. Waiting period: a NATURAL-cause death claim typically only
+  // pays out once the policy has run 3–12 months (commonly 6); accidental
+  // death is usually covered from day one — see utils/funeralCover.ts.
+  // Repatriation of remains (e.g. Vienna → KZN) is its own product/rider and
+  // matters most for this app's diaspora audience.
+  waitingPeriodMonths?: number;      // months after startDate before a NATURAL-death claim pays out
+  waitingPeriodEndDate?: string;     // YYYY-MM-DD explicit override; else derived from startDate + waitingPeriodMonths
+  claimDeadlineMonths?: number;      // months after death a claim must be lodged per the policy wording — informational only; this app never tracks a living member's date of death (see DepartedRelative.died)
+  beneficiary?: string;              // who the payout is made to — a named person, or "Estate"
+  repatriationIncluded?: boolean;    // whether this policy/rider covers returning remains to another country
+  repatriationDestination?: string;  // where to, e.g. "KwaZulu-Natal, South Africa"
+  burialSocietyContact?: string;     // informal burial society only: named contact + phone — there is no formal claims line to call
 }
 
 export interface BenefitInfo {
@@ -649,10 +664,33 @@ export interface HealthcareProvider {
   note?: string;
 }
 
+// A household trade/service contact — the plumber, electrician, boiler
+// service, locksmith, or the neighbour with the spare key. Deliberately
+// mirrors HealthcareProvider's shape and interaction closely (same directory
+// pattern, different domain) rather than inventing a new one.
+export type VendorTrade =
+  | 'Plumber' | 'Electrician' | 'Boiler / heating' | 'Locksmith' | 'Handyman'
+  | 'Cleaner' | 'Gardener' | 'Appliance repair' | 'Pest control'
+  | 'Neighbour (spare key)' | 'Other';
+
+export interface HouseholdVendor {
+  id: string;
+  name: string;
+  trade: VendorTrade;
+  company?: string;
+  phone?: string;
+  afterHoursPhone?: string;
+  accountRef?: string;      // account / customer reference number
+  lastServiceDate?: string; // YYYY-MM-DD — when they last did work
+  isUsual?: boolean;        // "our usual" for this trade
+  notes?: string;
+}
+
 export interface FamilyInfo {
   numbers: InfoEntry[];
   contacts: ContactEntry[];
   providers: HealthcareProvider[];
+  vendors?: HouseholdVendor[]; // household trades/services directory — plumber, electrician, locksmith…
 }
 
 // --- Shopping list ---
@@ -918,6 +956,9 @@ export interface EstateRecord {
   executor?: string;
   lastReviewed?: string;     // YYYY-MM-DD — drives the staleness nudge
   linkedDocIds?: string[];   // ids into the shared Document Vault (VaultDocument), category 'Legal'
+  linkedPolicyIds?: string[]; // ids into Finances.insurance (funeral-type InsurancePolicy records) — connects a
+                               // 'Funeral wishes' record to its policy/policies so the policy number and who-to-call
+                               // aren't stranded in a different corner of the app from the wishes themselves
   notes?: string;
 }
 

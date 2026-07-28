@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ShieldCheck, Shield, Plus, Pencil, Trash2, X, CalendarClock, Users, Package,
-  ScrollText, Info, Loader2, Camera, Check,
+  ScrollText, Info, Loader2, Camera, Check, Clock, Plane, HandCoins,
 } from 'lucide-react';
 import { FamilyMember, FinancesInfo, InsurancePolicy, InsuranceCoverage, AssetItem, PolicyObligation } from '../types';
 import { loadFinances, saveFinances, loadAssets } from '../utils/db';
@@ -10,6 +10,7 @@ import RemoteChangeHint from './RemoteChangeHint';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { INSURANCE_READER_ENABLED } from '../config/features';
+import { isFuneralPolicy, inWaitingPeriod, daysUntilWaitingPeriodEnd } from '../utils/funeralCover';
 
 const OBLIGATION_TOPICS = ['Lock', 'Storage', 'Travel', 'Safety', 'Deadline', 'Documents', 'General'] as const;
 
@@ -26,7 +27,14 @@ const EMPTY_FINANCES: FinancesInfo = { banks: [], insurance: [], benefits: [] };
 
 const POLICY_TYPES = [
   'Home contents', 'Building', 'Health', 'Health supplement', 'Car (liability)',
-  'Car (comprehensive)', 'Travel', 'Life', 'Liability', 'Valuables', 'Other',
+  'Car (comprehensive)', 'Travel', 'Life',
+  // Funeral cover: close to universal for this app's SA/UK/US/Austria audience —
+  // 'Funeral cover' covers a formal SA funeral policy, a UK prepaid plan, or an
+  // Austrian Sterbeversicherung alike (same shape: lump sum / plan for funeral
+  // costs). 'Burial society' is the informal mutual-aid version. 'Repatriation
+  // cover' is its own product/rider for returning remains to another country.
+  'Funeral cover', 'Burial society', 'Repatriation cover',
+  'Liability', 'Valuables', 'Other',
 ];
 const CURRENCIES = ['EUR', 'GBP', 'USD', 'ZAR', 'CHF'];
 const PREMIUM_FREQUENCIES = ['Monthly', 'Quarterly', 'Semi-annual', 'Annual'];
@@ -418,6 +426,11 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
                       </p>
                       <div className="flex items-center gap-2 flex-wrap mt-0.5">
                         {policy.policyNumber && <p className="text-[11px] text-ink-500 font-mono truncate">{policy.policyNumber}</p>}
+                        {isFuneralPolicy(policy.type) && inWaitingPeriod(policy) && (
+                          <span className="chip bg-honey-100 text-honey-700 text-[10px] px-1.5 py-0">
+                            <Clock className="w-2.5 h-2.5" /> waiting period ({daysUntilWaitingPeriodEnd(policy) ?? 0}d)
+                          </span>
+                        )}
                         {(memberCount > 0 || assetCount > 0) && (
                           <span className="text-[11px] text-ink-400 flex items-center gap-2">
                             {memberCount > 0 && <span className="flex items-center gap-0.5"><Users className="w-3 h-3" />{memberCount}</span>}
@@ -557,11 +570,97 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
               <div>
                 <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Claims phone</label>
                 <input type="text" placeholder="24h claims line" value={editing.claimsPhone || ''} onChange={e => patch({ claimsPhone: e.target.value })} className="field w-full" />
+                {isFuneralPolicy(editing.type) && (
+                  <p className="text-[11px] text-ink-400 mt-1">
+                    This is the number a grieving family calls first — keep it current.
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Claims notes</label>
                 <textarea rows={2} placeholder="How to claim / portal URL…" value={editing.claimsNotes || ''} onChange={e => patch({ claimsNotes: e.target.value })} className="field w-full resize-none" />
               </div>
+
+              {/* Funeral cover: waiting period, claim deadline, beneficiary, repatriation, burial society contact */}
+              {isFuneralPolicy(editing.type) && (
+                <div className="rounded-2xl border border-clay-200 bg-clay-50/40 p-4 space-y-4">
+                  <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Funeral cover details
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Natural-death waiting period (months)</label>
+                      <input
+                        type="number" min={0} placeholder="e.g. 6"
+                        value={editing.waitingPeriodMonths ?? ''}
+                        onChange={e => patch({ waitingPeriodMonths: e.target.value === '' ? undefined : Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                        className="field w-full tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Claim time limit (months after death)</label>
+                      <input
+                        type="number" min={0} placeholder="e.g. 6"
+                        value={editing.claimDeadlineMonths ?? ''}
+                        onChange={e => patch({ claimDeadlineMonths: e.target.value === '' ? undefined : Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                        className="field w-full tabular-nums"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-ink-400 -mt-2">
+                    Accidental death is usually covered from day one — the waiting period is about natural causes only. Check the policy wording.
+                  </p>
+                  {editing.startDate && editing.waitingPeriodMonths ? (
+                    <div>
+                      <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">
+                        Waiting period ends (override — else calculated from start date)
+                      </label>
+                      <input
+                        type="date"
+                        value={editing.waitingPeriodEndDate || ''}
+                        onChange={e => patch({ waitingPeriodEndDate: e.target.value || undefined })}
+                        className="field w-full"
+                      />
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <HandCoins className="w-3.5 h-3.5" /> Beneficiary — who the payout is made to
+                    </label>
+                    <input type="text" placeholder="e.g. Barbara Hubauer, or Estate" value={editing.beneficiary || ''} onChange={e => patch({ beneficiary: e.target.value })} className="field w-full" />
+                  </div>
+
+                  <div>
+                    <label className="flex items-center gap-2 text-[13px] text-ink-600 cursor-pointer select-none">
+                      <input type="checkbox" checked={editing.repatriationIncluded || false} onChange={e => patch({ repatriationIncluded: e.target.checked })} className="rounded" />
+                      <Plane className="w-3.5 h-3.5" /> Includes repatriation of remains
+                    </label>
+                    {editing.repatriationIncluded && (
+                      <input
+                        type="text" placeholder="Where to, e.g. KwaZulu-Natal, South Africa"
+                        value={editing.repatriationDestination || ''}
+                        onChange={e => patch({ repatriationDestination: e.target.value })}
+                        className="field w-full mt-2"
+                      />
+                    )}
+                  </div>
+
+                  {editing.type === 'Burial society' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Burial society contact</label>
+                      <input
+                        type="text" placeholder="e.g. Thabo Nkosi (secretary) — 082 555 1234"
+                        value={editing.burialSocietyContact || ''}
+                        onChange={e => patch({ burialSocietyContact: e.target.value })}
+                        className="field w-full"
+                      />
+                      <p className="text-[11px] text-ink-400 mt-1">A burial society usually has no formal claims line — this is who to phone instead.</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Broker + notes */}
               <div>

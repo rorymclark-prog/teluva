@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType, FamilyInfoDoc } from '../types';
+import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType, FamilyInfoDoc, HouseholdVendor, VendorTrade } from '../types';
 import { loadFamilyInfo, saveFamilyInfo, loadSpaceInfo } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import { auth } from '../lib/firebase';
 import { yearsSinceFounding, ordinal } from '../utils/businessMilestone';
 import {
   Hash, Phone, Mail, Plus, Pencil, Check, X,
-  IdCard, Users, Search, Cloud, CloudOff, Stethoscope, Star, Briefcase, PartyPopper, Dices, Loader2
+  IdCard, Users, Search, Cloud, CloudOff, Stethoscope, Star, Briefcase, PartyPopper, Dices, Loader2, Wrench
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 
-const EMPTY: FamilyInfo = { numbers: [], contacts: [], providers: [] };
+const EMPTY: FamilyInfo = { numbers: [], contacts: [], providers: [], vendors: [] };
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -33,7 +33,9 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
     (async () => {
       const data = await loadFamilyInfo();
       if (active) {
-        const next = data && (data.numbers || data.contacts || data.providers) ? { numbers: data.numbers || [], contacts: data.contacts || [], providers: data.providers || [] } : EMPTY;
+        const next = data && (data.numbers || data.contacts || data.providers || data.vendors)
+          ? { numbers: data.numbers || [], contacts: data.contacts || [], providers: data.providers || [], vendors: data.vendors || [] }
+          : EMPTY;
         setInfo(next);
         setLoaded(true);
         onContactsChange?.(next.contacts);
@@ -116,6 +118,9 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
   const providers = q
     ? spaceProviders.filter(p => `${p.name} ${p.type} ${p.specialty || ''} ${p.practiceName || ''} ${p.phone || ''} ${p.forMember || ''} ${p.note || ''}`.toLowerCase().includes(q))
     : spaceProviders;
+  const vendors = q
+    ? (info.vendors || []).filter(v => `${v.name} ${v.trade} ${v.company || ''} ${v.phone || ''} ${v.accountRef || ''} ${v.notes || ''}`.toLowerCase().includes(q))
+    : (info.vendors || []);
 
   if (!loaded) {
     return (
@@ -176,6 +181,16 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
         onAdd={(p) => persist({ ...info, providers: [...(info.providers || []), p] })}
         onUpdate={(p) => persist({ ...info, providers: (info.providers || []).map(x => x.id === p.id ? p : x) })}
         onDelete={(id) => persist({ ...info, providers: (info.providers || []).filter(p => p.id !== id) })}
+      />
+
+      {/* Household vendors — the plumber, electrician, locksmith, the neighbour
+          with the spare key. Mirrors ProvidersSection closely (same directory
+          pattern, different domain) — a household's other "who to call" list. */}
+      <VendorsSection
+        entries={vendors}
+        onAdd={(v) => persist({ ...info, vendors: [...(info.vendors || []), v] })}
+        onUpdate={(v) => persist({ ...info, vendors: (info.vendors || []).map(x => x.id === v.id ? v : x) })}
+        onDelete={(id) => persist({ ...info, vendors: (info.vendors || []).filter(v => v.id !== id) })}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
@@ -730,6 +745,179 @@ function ProviderForm({ initial, isBusinessSpace, onSave, onCancel }: {
         {professional ? 'This is our main point of contact for this kind of thing' : 'This is our usual GP / primary provider'}
       </label>
       <input className="field" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} />
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
+        <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Household vendors ---------------- */
+// The plumber, electrician, boiler service, locksmith, the neighbour with the
+// spare key. Deliberately mirrors ProvidersSection/ProviderForm closely —
+// same shape, same interactions — rather than inventing a new pattern.
+
+const VENDOR_TRADES: VendorTrade[] = [
+  'Plumber', 'Electrician', 'Boiler / heating', 'Locksmith', 'Handyman',
+  'Cleaner', 'Gardener', 'Appliance repair', 'Pest control', 'Neighbour (spare key)', 'Other',
+];
+
+function VendorsSection({ entries, onAdd, onUpdate, onDelete }: {
+  entries: HouseholdVendor[];
+  onAdd: (v: HouseholdVendor) => void;
+  onUpdate: (v: HouseholdVendor) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+
+  return (
+    <section className="card p-5 space-y-4">
+      <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+        <div>
+          <h3 className="section-label flex items-center gap-1.5">
+            <Wrench className="w-3.5 h-3.5" /> Household vendors
+          </h3>
+          <p className="text-[12px] text-ink-400 mt-0.5">
+            Your plumber, electrician, boiler service, locksmith, the neighbour with the spare key — one place to find who to call.
+          </p>
+        </div>
+        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5 shrink-0">
+          <Plus className="w-3.5 h-3.5" /> Add
+        </button>
+      </div>
+
+      {adding && (
+        <VendorForm
+          onSave={(v) => { onAdd(v); setAdding(false); }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+
+      {entries.length === 0 && !adding ? (
+        <div className="text-center py-6">
+          <div className="w-10 h-10 rounded-2xl bg-honey-50 text-honey-700 flex items-center justify-center mx-auto mb-2">
+            <Wrench className="w-5 h-5" />
+          </div>
+          <p className="text-[13px] text-ink-400">
+            No household vendors yet — your plumber, electrician, boiler service, locksmith, or the neighbour with the spare key.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {entries.map(v => editId === v.id ? (
+            <div key={v.id} className="sm:col-span-2">
+              <VendorForm
+                initial={v}
+                onSave={(upd) => { onUpdate(upd); setEditId(null); }}
+                onCancel={() => setEditId(null)}
+              />
+            </div>
+          ) : (
+            <div key={v.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="chip bg-honey-100 text-honey-700">{v.trade}</span>
+                  {v.isUsual && <Star className="w-3.5 h-3.5 text-honey-500 fill-honey-400" />}
+                </div>
+                <p className="text-[14px] font-semibold text-ink-900 truncate mt-1">{v.name || 'Unnamed'}</p>
+                {v.company && <p className="text-[12.5px] text-ink-500">{v.company}</p>}
+                <div className="mt-1 space-y-0.5">
+                  {v.phone && (
+                    <a href={`tel:${v.phone.replace(/\s+/g, '')}`} className="flex items-center gap-1.5 text-[13px] font-mono tabular-nums text-sage-700 hover:underline">
+                      <Phone className="w-3 h-3 shrink-0" /> {v.phone}
+                    </a>
+                  )}
+                  {v.afterHoursPhone && (
+                    <a href={`tel:${v.afterHoursPhone.replace(/\s+/g, '')}`} className="flex items-center gap-1.5 text-[13px] font-mono tabular-nums text-honey-700 hover:underline">
+                      <Phone className="w-3 h-3 shrink-0" /> {v.afterHoursPhone} <span className="text-ink-400 font-sans not-italic">after-hours</span>
+                    </a>
+                  )}
+                  {v.accountRef && <p className="text-[12px] text-ink-400 font-mono">Ref: {v.accountRef}</p>}
+                  {v.lastServiceDate && <p className="text-[12px] text-ink-500">Last visit: {v.lastServiceDate}</p>}
+                  {v.notes && <p className="text-[12px] text-ink-500">{v.notes}</p>}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => { setEditId(v.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <ConfirmDeleteButton
+                  onConfirm={() => onDelete(v.id)}
+                  ariaLabel={`Delete ${v.name || 'this vendor'}`}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function VendorForm({ initial, onSave, onCancel }: {
+  initial?: HouseholdVendor;
+  onSave: (v: HouseholdVendor) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial?.name || '');
+  const [trade, setTrade] = useState<VendorTrade>(initial?.trade || 'Plumber');
+  const [company, setCompany] = useState(initial?.company || '');
+  const [phone, setPhone] = useState(initial?.phone || '');
+  const [afterHoursPhone, setAfterHoursPhone] = useState(initial?.afterHoursPhone || '');
+  const [accountRef, setAccountRef] = useState(initial?.accountRef || '');
+  const [lastServiceDate, setLastServiceDate] = useState(initial?.lastServiceDate || '');
+  const [isUsual, setIsUsual] = useState(initial?.isUsual || false);
+  const [notes, setNotes] = useState(initial?.notes || '');
+
+  const save = () => {
+    if (!name.trim() && !company.trim() && !phone.trim()) { onCancel(); return; }
+    onSave({
+      id: initial?.id || newId(),
+      name: name.trim(),
+      trade,
+      company: company.trim() || undefined,
+      phone: phone.trim() || undefined,
+      afterHoursPhone: afterHoursPhone.trim() || undefined,
+      accountRef: accountRef.trim() || undefined,
+      lastServiceDate: lastServiceDate || undefined,
+      isUsual,
+      notes: notes.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input
+          autoFocus
+          className="field"
+          placeholder="Name  (e.g. Josef Bauer)"
+          value={name}
+          onChange={e => setName(e.target.value)}
+        />
+        <select className="field" value={trade} onChange={e => setTrade(e.target.value as VendorTrade)}>
+          {VENDOR_TRADES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      <input className="field" placeholder="Company (optional)" value={company} onChange={e => setCompany(e.target.value)} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input className="field" placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} />
+        <input className="field" placeholder="After-hours / emergency phone" value={afterHoursPhone} onChange={e => setAfterHoursPhone(e.target.value)} />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input className="field" placeholder="Account / customer reference (optional)" value={accountRef} onChange={e => setAccountRef(e.target.value)} />
+        <div>
+          <label className="text-[11px] font-semibold text-ink-500 mb-1 block">Last visit (optional)</label>
+          <input type="date" className="field w-full" value={lastServiceDate} onChange={e => setLastServiceDate(e.target.value)} />
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-[13px] text-ink-600 cursor-pointer select-none">
+        <input type="checkbox" checked={isUsual} onChange={e => setIsUsual(e.target.checked)} className="rounded" />
+        This is our usual one for this trade
+      </label>
+      <input className="field" placeholder="Note (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>

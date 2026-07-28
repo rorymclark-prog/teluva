@@ -1,17 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ScrollText, Plus, Pencil, Trash2, X, Loader2, Info, User, Landmark,
-  HandHeart, Paperclip, Upload, Eye, AlertCircle, MapPin,
+  HandHeart, Paperclip, Upload, Eye, AlertCircle, MapPin, Phone, HandCoins,
 } from 'lucide-react';
-import { EstateRecord, FamilyMember, VaultDocument, FamilyDocument } from '../types';
-import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile } from '../utils/db';
+import { EstateRecord, FamilyMember, VaultDocument, FamilyDocument, InsurancePolicy } from '../types';
+import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile, loadFinances } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { auth } from '../lib/firebase';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { ESTATE_DOC_KINDS, isReviewStale, reviewAgeLabel } from '../utils/willsEstate';
+import { isFuneralPolicy } from '../utils/funeralCover';
 import DocumentViewer from './DocumentViewer';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+
+const FUNERAL_WISHES_KIND = 'Funeral wishes';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -29,11 +32,13 @@ interface EstateForm {
   lastReviewed: string;
   notes: string;
   linkedDocIds: string[];
+  linkedPolicyIds: string[];
 }
 
 const BLANK_FORM: EstateForm = {
   id: '', kind: ESTATE_DOC_KINDS[0].kind, forMember: '', originalLocation: '', heldBy: '',
   notaryName: '', notaryPhone: '', executor: '', lastReviewed: '', notes: '', linkedDocIds: [],
+  linkedPolicyIds: [],
 };
 
 function toForm(r: EstateRecord): EstateForm {
@@ -49,6 +54,7 @@ function toForm(r: EstateRecord): EstateForm {
     lastReviewed: r.lastReviewed || '',
     notes: r.notes || '',
     linkedDocIds: r.linkedDocIds ? [...r.linkedDocIds] : [],
+    linkedPolicyIds: r.linkedPolicyIds ? [...r.linkedPolicyIds] : [],
   };
 }
 
@@ -66,6 +72,10 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   const { canWrite } = useFamilyCtx();
   const [records, setRecords] = useState<EstateRecord[]>([]);
   const [documents, setDocuments] = useState<VaultDocument[]>([]);
+  // Funeral-type policies from Finances — loaded here (not just in Insurance)
+  // so a 'Funeral wishes' record can link to its policy and surface the
+  // policy number and who-to-call right where a bereaved family looks.
+  const [funeralPolicies, setFuneralPolicies] = useState<InsurancePolicy[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [form, setForm] = useState<EstateForm | null>(null);
@@ -80,10 +90,11 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   useEffect(() => {
     let active = true;
     (async () => {
-      const [estate, docs] = await Promise.all([loadWillsEstate(), loadDocuments()]);
+      const [estate, docs, finances] = await Promise.all([loadWillsEstate(), loadDocuments(), loadFinances()]);
       if (active) {
         setRecords(estate?.records || []);
         setDocuments(docs || []);
+        setFuneralPolicies((finances?.insurance || []).filter(p => isFuneralPolicy(p.type)));
         setLoading(false);
       }
     })();
@@ -174,6 +185,16 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
 
   const linkedDocsFor = (ids?: string[]) => (ids || []).map(id => documents.find(d => d.id === id)).filter((d): d is VaultDocument => !!d);
 
+  const linkedPoliciesFor = (ids?: string[]) =>
+    (ids || []).map(id => funeralPolicies.find(p => p.id === id)).filter((p): p is InsurancePolicy => !!p);
+
+  const togglePolicyLink = (policyId: string) => setForm(prev => {
+    if (!prev) return prev;
+    const current = prev.linkedPolicyIds;
+    const next = current.includes(policyId) ? current.filter(id => id !== policyId) : [...current, policyId];
+    return { ...prev, linkedPolicyIds: next };
+  });
+
   // ── Save / delete ──
 
   const handleSave = async () => {
@@ -198,6 +219,7 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
         executor: form.executor.trim() || undefined,
         lastReviewed: form.lastReviewed || undefined,
         linkedDocIds: form.linkedDocIds.length ? form.linkedDocIds : undefined,
+        linkedPolicyIds: form.linkedPolicyIds.length ? form.linkedPolicyIds : undefined,
         notes: form.notes.trim() || undefined,
       };
       const next = isNew ? [...records, record] : records.map(r => (r.id === id ? record : r));
@@ -295,6 +317,7 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
               {sorted.map(r => {
                 const stale = isReviewStale(r.lastReviewed);
                 const linked = linkedDocsFor(r.linkedDocIds);
+                const linkedPolicies = linkedPoliciesFor(r.linkedPolicyIds);
                 return (
                   <button
                     key={r.id}
@@ -324,6 +347,12 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
                         <span className="inline-flex items-center gap-1 text-[11px] text-ink-400 mt-1.5">
                           <Paperclip className="w-3 h-3" />
                           {linked.length} scan{linked.length === 1 ? '' : 's'} attached
+                        </span>
+                      )}
+                      {linkedPolicies.length > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-ink-400 mt-1.5 ml-3">
+                          <Phone className="w-3 h-3" />
+                          {linkedPolicies.length} funeral polic{linkedPolicies.length === 1 ? 'y' : 'ies'} linked
                         </span>
                       )}
                     </div>
@@ -377,6 +406,40 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
             </div>
 
             <div className="px-6 pb-6 space-y-4">
+              {/* Who to call, and the policy number — the single most important
+                  thing on this record, shown big and plain for someone who is
+                  grieving and probably didn't enter this data themselves. */}
+              {viewing.kind === FUNERAL_WISHES_KIND && linkedPoliciesFor(viewing.linkedPolicyIds).length > 0 && (
+                <div className="rounded-3xl bg-ink-900 text-white p-5 space-y-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-white/60">Who to call, and the policy number</p>
+                  {linkedPoliciesFor(viewing.linkedPolicyIds).map((p, i) => (
+                    <div key={p.id} className={i > 0 ? 'pt-4 border-t border-white/10' : ''}>
+                      <p className="text-lg font-bold leading-tight">{p.provider}{p.type ? ` · ${p.type}` : ''}</p>
+                      {p.claimsPhone && (
+                        <a href={`tel:${p.claimsPhone.replace(/\s+/g, '')}`} className="block text-2xl sm:text-3xl font-mono font-extrabold tabular-nums text-honey-200 mt-1 hover:underline">
+                          {p.claimsPhone}
+                        </a>
+                      )}
+                      {p.burialSocietyContact && (
+                        <p className="text-[14px] font-semibold text-white/90 mt-1">{p.burialSocietyContact}</p>
+                      )}
+                      {!p.claimsPhone && !p.burialSocietyContact && (
+                        <p className="text-[13px] text-white/60 italic mt-1">No phone number on file for this policy.</p>
+                      )}
+                      {p.policyNumber && (
+                        <p className="text-[13px] font-mono tabular-nums text-white/70 mt-1.5">Policy {p.policyNumber}</p>
+                      )}
+                      {p.beneficiary && (
+                        <p className="text-[12px] text-white/60 mt-0.5 flex items-center gap-1"><HandCoins className="w-3 h-3" /> Payable to: {p.beneficiary}</p>
+                      )}
+                      {p.repatriationIncluded && (
+                        <p className="text-[12px] text-white/60 mt-0.5">Includes repatriation{p.repatriationDestination ? ` to ${p.repatriationDestination}` : ''}.</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {viewing.originalLocation && (
                 <div>
                   <p className="section-label mb-1">Where the signed original is kept</p>
@@ -578,6 +641,38 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
                   className="field w-full resize-none"
                 />
               </div>
+
+              {/* Link to funeral cover policies (only relevant for Funeral wishes) —
+                  so the policy number and who-to-call live right alongside the
+                  wishes themselves, not stranded in a different corner of the app. */}
+              {form.kind === FUNERAL_WISHES_KIND && (
+                <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-2.5">
+                  <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5" /> Linked funeral cover
+                  </label>
+                  {funeralPolicies.length === 0 ? (
+                    <p className="text-[12px] text-ink-400">
+                      No funeral cover, burial society, or repatriation policy recorded yet — add one in Insurance.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {funeralPolicies.map(p => {
+                        const active = form.linkedPolicyIds.includes(p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => togglePolicyLink(p.id)}
+                            className={`chip cursor-pointer transition-colors ${active ? 'bg-clay-500 text-white' : 'bg-cream-100 text-ink-500 hover:bg-cream-200'}`}
+                          >
+                            {p.provider || 'Unnamed'}{p.type ? ` · ${p.type}` : ''}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Attached scans */}
               <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-2.5">
