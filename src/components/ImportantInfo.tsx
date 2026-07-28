@@ -5,9 +5,10 @@ import { useSharedDoc } from '../hooks/useSharedDoc';
 import { auth } from '../lib/firebase';
 import { yearsSinceFounding, ordinal } from '../utils/businessMilestone';
 import {
-  Hash, Phone, Mail, Plus, Trash2, Pencil, Check, X,
+  Hash, Phone, Mail, Plus, Pencil, Check, X,
   IdCard, Users, Search, Cloud, CloudOff, Stethoscope, Star, Briefcase, PartyPopper, Dices, Loader2
 } from 'lucide-react';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 const EMPTY: FamilyInfo = { numbers: [], contacts: [], providers: [] };
 
@@ -313,7 +314,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
               />
             </div>
           ) : (
-            <div key={e.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+            <div key={e.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">{e.label || 'Untitled'}</p>
                 <p className="font-mono tabular-nums text-[15px] text-ink-900 break-all">{e.value || '—'}</p>
@@ -323,9 +324,10 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
                 <button onClick={() => { setEditId(e.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={() => onDelete(e.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <ConfirmDeleteButton
+                  onConfirm={() => onDelete(e.id)}
+                  ariaLabel={`Delete ${e.label || 'this number'}`}
+                />
               </div>
             </div>
           ))}
@@ -421,7 +423,7 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }
               />
             </div>
           ) : (
-            <div key={c.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+            <div key={c.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold text-ink-900 truncate">
                   {c.name || 'Unnamed'}
@@ -445,9 +447,10 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }
                 <button onClick={() => { setEditId(c.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={() => onDelete(c.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <ConfirmDeleteButton
+                  onConfirm={() => onDelete(c.id)}
+                  ariaLabel={`Delete contact ${c.name || 'Unnamed'}`}
+                />
               </div>
             </div>
           ))}
@@ -586,7 +589,7 @@ function ProvidersSection({ entries, isBusinessSpace, onAdd, onUpdate, onDelete 
               />
             </div>
           ) : (
-            <div key={p.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+            <div key={p.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className={`chip ${isProfessionalType(p.type) ? 'bg-dusk-100 text-dusk-700' : 'bg-rosa-100 text-rosa-700'}`}>{p.type}</span>
@@ -624,9 +627,10 @@ function ProvidersSection({ entries, isBusinessSpace, onAdd, onUpdate, onDelete 
                 <button onClick={() => { setEditId(p.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={() => onDelete(p.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <ConfirmDeleteButton
+                  onConfirm={() => onDelete(p.id)}
+                  ariaLabel={`Delete ${p.name || 'this provider'}`}
+                />
               </div>
             </div>
           ))}

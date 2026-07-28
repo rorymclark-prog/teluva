@@ -3,9 +3,10 @@ import { FamilyTimeline, TimelineEntry } from '../types';
 import { loadTimeline, saveTimeline } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import {
-  CalendarHeart, Plus, Trash2, Pencil, Check, X,
+  CalendarHeart, Plus, Pencil, Check, X,
   Cloud, CloudOff
 } from 'lucide-react';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 const EMPTY: FamilyTimeline = { entries: [] };
 
@@ -165,7 +166,7 @@ function TimelineSection({ entries, onAdd, onUpdate, onDelete }: {
 
                   {/* Content */}
                   <div className="flex-1 pb-2 pt-1">
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className="font-mono tabular-nums text-[12px] font-semibold text-ink-500">
@@ -198,13 +199,10 @@ function TimelineSection({ entries, onAdd, onUpdate, onDelete }: {
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => onDelete(entry.id)}
-                          className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <ConfirmDeleteButton
+                          onConfirm={() => onDelete(entry.id)}
+                          ariaLabel={`Delete "${entry.title || 'this'}" from the timeline`}
+                        />
                       </div>
                     </div>
                   </div>

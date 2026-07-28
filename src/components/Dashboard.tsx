@@ -140,6 +140,15 @@ export function calculateAge(birthdate?: string): string | null {
   return `${age} yrs`;
 }
 
+// Detects a /join/{code} URL WITHOUT resolving or displaying the code or
+// which family it belongs to — we're not signed in yet, so there's no safe
+// way to look either of those up (no rate-limited, unauthenticated endpoint
+// exists for it). This only softens the pre-auth pitch's copy; the actual
+// join still happens post-sign-in in FamilyOnboarding's own codeFromUrl().
+function isJoinLinkVisit(): boolean {
+  return /^\/join\/.+/.test(window.location.pathname);
+}
+
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv';
 type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips';
 
@@ -1342,6 +1351,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   }
 
   if (!currentUser) {
+    const joinLinkVisit = isJoinLinkVisit();
     return (
       <div
         className="min-h-screen bg-cream-100 flex items-center justify-center font-sans px-4"
@@ -1355,9 +1365,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             <ShieldCheck className="w-8 h-8 text-sage-600" />
           </div>
           <p className="text-[11px] font-bold text-clay-500 uppercase tracking-wider mb-1">Tresa</p>
-          <h1 className="text-display-md text-ink-900 mb-3">{hubName}</h1>
+          <h1 className="text-display-md text-ink-900 mb-3">{joinLinkVisit ? "You've been invited" : hubName}</h1>
           <p className="text-sm text-ink-500 leading-relaxed mb-8">
-            Sizes, documents, growth and plans for the whole family — together in one private place.
+            {joinLinkVisit
+              ? 'Someone has invited you to join their family vault on Tresa. Sign in with Google to accept — you\'ll land straight in it.'
+              : 'Sizes, documents, growth and plans for the whole family — together in one private place.'}
           </p>
           <button onClick={loginWithGoogle} className="btn-primary w-full py-3">
             <LogIn className="w-4 h-4" />
@@ -1484,7 +1496,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} />}
 
-        {mainView === 'finances' && <FinancesView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} />}
+        {mainView === 'finances' && <FinancesView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onOpenPrivacy={() => setLegalTab('privacy')} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
         {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
         {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} canUseAI={canUseAI} />}
@@ -1802,7 +1814,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                 <CareSchedule member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
                               {activeTab === 'ids' && (
-                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} onAddDocument={handleAddDocument} country={settings.country || 'AT'} />
+                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} onAddDocument={handleAddDocument} country={settings.country || 'AT'} onOpenPrivacy={() => setLegalTab('privacy')} />
                               )}
                               {activeTab === 'sizes' && (
                                 <MemberSizing member={selectedMember} onUpdateSizes={handleUpdateSizes} />
@@ -1842,7 +1854,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               )}
                               {activeTab === 'secrets' && (
                                 isAdmin
-                                  ? <SecureSecrets member={selectedMember} onUpdateMember={handleUpdateMember} />
+                                  ? <SecureSecrets member={selectedMember} onUpdateMember={handleUpdateMember} onOpenPrivacy={() => setLegalTab('privacy')} />
                                   : (
                                     <div className="card text-center py-16 px-4">
                                       <div className="w-12 h-12 rounded-2xl bg-cream-200 text-ink-400 flex items-center justify-center mx-auto mb-3">

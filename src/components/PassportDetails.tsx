@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { PassportInfo, FamilyMember } from '../types';
 import { Save, AlertTriangle, Check, Copy } from 'lucide-react';
+import PrivacyNote from './PrivacyNote';
 
 interface PassportDetailsProps {
   member: FamilyMember;
   onUpdatePassport: (id: string, passport: PassportInfo | undefined) => void;
+  onOpenPrivacy?: () => void;
 }
 
 const initPassport = (member: FamilyMember): PassportInfo => ({
@@ -17,7 +19,7 @@ const initPassport = (member: FamilyMember): PassportInfo => ({
   notes: member.passport?.notes || '',
 });
 
-export default function PassportDetails({ member, onUpdatePassport }: PassportDetailsProps) {
+export default function PassportDetails({ member, onUpdatePassport, onOpenPrivacy }: PassportDetailsProps) {
   const [hasPassport, setHasPassport] = useState<boolean>(!!member.passport);
   const [passport, setPassport] = useState<PassportInfo>(() => initPassport(member));
 
@@ -121,6 +123,10 @@ export default function PassportDetails({ member, onUpdatePassport }: PassportDe
           </button>
         </div>
       </div>
+
+      <PrivacyNote onOpenPrivacy={onOpenPrivacy}>
+        Only signed-in members of your family can see this — it's stored securely and isolated to your family space.
+      </PrivacyNote>
 
       {/* Enable toggle */}
       <div className="flex items-center space-x-2.5 p-4 rounded-2xl bg-cream-100 border border-cream-200 shadow-soft">

@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Settings, Users, Trash2, Upload, Save } from 'lucide-react';
+import { X, Settings, Users, Upload, Save } from 'lucide-react';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { HubSettings, IdCountry } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import LanguageSelector from './LanguageSelector';
+import PushOptInCard from './PushOptInCard';
 
 export const COUNTRY_OPTIONS: { value: IdCountry; label: string }[] = [
   { value: 'AT', label: 'Austria' },
@@ -267,14 +269,12 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
                         </label>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleRemovePhoto}
-                      className="p-1.5 hover:bg-rosa-50 text-ink-400 hover:text-rosa-700 rounded-lg transition-colors cursor-pointer shrink-0"
-                      title={isBusinessSpace ? 'Remove business photo' : 'Remove family photo'}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={handleRemovePhoto}
+                      ariaLabel={isBusinessSpace ? 'Remove business photo' : 'Remove family photo'}
+                      confirm={false}
+                      className="shrink-0"
+                    />
                   </div>
                 ) : (
                   /* Placeholder / upload prompt */
@@ -300,6 +300,12 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
                   </div>
                 )}
               </div>
+
+              {/* Birthday reminders (Web Push) — everyone (not just admins) can
+                  reach this modal, and enabling push is a per-device thing, so it
+                  belongs here rather than in the admin-only Family Settings panel.
+                  Self-contained: gates itself on install/eligibility. */}
+              <PushOptInCard />
             </div>
 
             {/* Footer actions */}

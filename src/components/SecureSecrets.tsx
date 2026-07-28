@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyMember, DigitalAccount, FinancialAccount, EducationDetails, NationalIdentifiers } from '../types';
 import {
-  Lock, Eye, EyeOff, Plus, Trash2, Key, Check,
+  Lock, Eye, EyeOff, Plus, Key, Check,
   School, ShieldAlert, CreditCard, Landmark
 } from 'lucide-react';
 import { protectSecrets, revealSecrets } from '../utils/db';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
+import PrivacyNote from './PrivacyNote';
 
 interface SecureSecretsProps {
   member: FamilyMember;
   onUpdateMember: (member: FamilyMember) => void;
+  onOpenPrivacy?: () => void;
 }
 
-export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsProps) {
+export default function SecureSecrets({ member, onUpdateMember, onOpenPrivacy }: SecureSecretsProps) {
   const [successMsg, setSuccessMsg] = useState('');
 
   // SSN/IDs Form States
@@ -227,6 +230,10 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
           Stored locally
         </span>
       </div>
+
+      <PrivacyNote onOpenPrivacy={onOpenPrivacy}>
+        Only signed-in members of your family can see this. Login passwords are encrypted before they're stored.
+      </PrivacyNote>
 
       {successMsg && (
         <div className="p-3 rounded-xl bg-sage-50 border border-sage-200 text-[13px] text-sage-700 flex items-center gap-2">
@@ -521,7 +528,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                 </div>
               ) : (
                 member.digitalAccounts.map(acc => (
-                  <div key={acc.id} className="card p-4 flex items-start justify-between gap-3 text-sm leading-normal group">
+                  <div key={acc.id} className="card p-4 flex flex-wrap items-start justify-between gap-3 text-sm leading-normal group">
                     <div className="space-y-1 min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-semibold text-ink-900">{acc.serviceName}</span>
@@ -559,13 +566,11 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                       )}
                     </div>
 
-                    <button
-                      onClick={() => handleDeleteDigitalAccount(acc.id)}
-                      className="w-10 h-10 flex items-center justify-center opacity-0 group-hover:opacity-100 text-ink-400 hover:text-rosa-600 hover:bg-rosa-50 active:scale-[0.97] transition-all rounded cursor-pointer"
-                      title="Remove login"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={() => handleDeleteDigitalAccount(acc.id)}
+                      ariaLabel={`Remove login for ${acc.serviceName}`}
+                      className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100"
+                    />
                   </div>
                 ))
               )}
@@ -679,7 +684,7 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                 </div>
               ) : (
                 member.financialAccounts.map(b => (
-                  <div key={b.id} className="card p-4 flex items-start justify-between gap-3 text-sm leading-normal group">
+                  <div key={b.id} className="card p-4 flex flex-wrap items-start justify-between gap-3 text-sm leading-normal group">
                     <div className="space-y-1 min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <CreditCard className="w-4 h-4 text-ink-400" />
@@ -703,13 +708,11 @@ export default function SecureSecrets({ member, onUpdateMember }: SecureSecretsP
                       )}
                     </div>
 
-                    <button
-                      onClick={() => handleDeleteBankAccount(b.id)}
-                      className="w-10 h-10 flex items-center justify-center opacity-0 group-hover:opacity-100 text-ink-400 hover:text-rosa-600 hover:bg-rosa-50 active:scale-[0.97] transition-all rounded cursor-pointer"
-                      title="Remove financial record"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={() => handleDeleteBankAccount(b.id)}
+                      ariaLabel={`Remove financial record for ${b.bankName}`}
+                      className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100"
+                    />
                   </div>
                 ))
               )}

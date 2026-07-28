@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { CareSchedule as CareItem, FamilyMember } from '../types';
 import { CARE_KINDS, careNextDue, careDueLabel } from '../utils/care';
 import {
-  Stethoscope, Plus, Trash2, Pencil, Check, X,
+  Stethoscope, Plus, Pencil, Check, X,
 } from 'lucide-react';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
@@ -237,7 +238,7 @@ export default function CareSchedule({ member, onUpdate }: CareScheduleProps) {
               ) : (
                 <div
                   key={item.id}
-                  className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3 hover:bg-cream-50 hover:border-cream-300 transition-colors"
+                  className="p-3.5 rounded-2xl border border-cream-200 bg-white flex flex-wrap items-start justify-between gap-3 hover:bg-cream-50 hover:border-cream-300 transition-colors"
                 >
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -269,13 +270,10 @@ export default function CareSchedule({ member, onUpdate }: CareScheduleProps) {
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                      onClick={() => remove(item.id)}
-                      className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={() => remove(item.id)}
+                      ariaLabel={`Delete ${item.kind || 'this'} care schedule entry`}
+                    />
                   </div>
                 </div>
               )

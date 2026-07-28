@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { FamilyDocument, FamilyMember } from '../types';
 import { getDocumentPlaceholderSvg } from '../utils/svgPlaceholders';
 import {
-  FileText, Upload, Trash2, Eye, Download, Plus,
+  FileText, Upload, Eye, Download, Plus,
   Sparkles, FileImage, ShieldCheck, AlertCircle,
   Camera, X, RefreshCcw, AlertTriangle, CheckSquare, Share2, Check, Loader2
 } from 'lucide-react';
@@ -12,6 +12,7 @@ import { canShare, shareMultiple, downloadZip } from '../utils/share';
 import { compileImageToPdf } from '../utils/pdfCompile';
 import PdfThumbnail from './PdfThumbnail';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 interface MemberDocumentsProps {
   member: FamilyMember;
@@ -724,7 +725,7 @@ export default function MemberDocuments({
 
                   {/* Actions Bar — hidden while selecting so a stray tap can't view/delete */}
                   {!selectMode && (
-                    <div className="flex items-center justify-end space-x-1 border-t border-cream-100 pt-3 mt-auto">
+                    <div className="flex flex-wrap items-center justify-end gap-1 border-t border-cream-100 pt-3 mt-auto">
                       <button
                         type="button"
                         onClick={() => onViewDocument(doc, member.name)}
@@ -741,21 +742,15 @@ export default function MemberDocuments({
                       >
                         <Download className="w-4 h-4" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // Honest copy: this really does remove it everywhere
-                          // now — the profile, the shared Document Vault and
-                          // the stored file itself (see deleteDocumentEverywhere).
-                          if (window.confirm(`Delete "${doc.name}" everywhere? This permanently removes it from ${member.name}'s profile and from the shared Document Vault. This can't be undone.`)) {
-                            onDeleteDocument(member.id, doc.id);
-                          }
-                        }}
-                        className="p-1.5 text-ink-400 hover:text-rosa-700 hover:bg-rosa-50 rounded-xl transition-colors cursor-pointer"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <ConfirmDeleteButton
+                        // Honest copy: this really does remove it everywhere
+                        // now — the profile, the shared Document Vault and
+                        // the stored file itself (see deleteDocumentEverywhere).
+                        onConfirm={() => onDeleteDocument(member.id, doc.id)}
+                        ariaLabel={`Delete "${doc.name}" everywhere`}
+                        hint={`Removes it from ${member.name}'s profile and from the shared Document Vault.`}
+                        className="rounded-xl"
+                      />
                     </div>
                   )}
                 </div>

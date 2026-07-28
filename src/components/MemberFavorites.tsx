@@ -2,11 +2,12 @@ import React, { useState, useRef } from 'react';
 import { FamilyMember, FavoriteItem } from '../types';
 import { getFavoritePlaceholderSvg } from '../utils/svgPlaceholders';
 import {
-  Heart, Plus, Trash2, Camera, Upload, Sparkles, X,
+  Heart, Plus, Camera, Upload, Sparkles, X,
   Search, Eye, Calendar, Tag, Check, RefreshCcw, HelpCircle, FileText,
   Gift, ExternalLink, ShoppingBag, DollarSign
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 interface MemberFavoritesProps {
   member: FamilyMember;
@@ -656,13 +657,12 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
                     <Eye className="w-3.5 h-3.5" />
                     <span>Zoom detail</span>
                   </button>
-                  <button
-                    onClick={() => handleDelete(item.id)}
-                    className="btn-danger p-2 rounded-xl text-[12px] active:scale-95"
-                    title="Remove favorite"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <ConfirmDeleteButton
+                    onConfirm={() => handleDelete(item.id)}
+                    ariaLabel={`Remove ${item.title || 'this'} from favorites`}
+                    confirm={false}
+                    variant="solid"
+                  />
                 </div>
               </div>
 
@@ -831,12 +831,15 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
               </div>
 
               <div className="px-5 py-4 bg-cream-50 border-t border-cream-200 flex justify-end gap-2">
-                <button
-                  onClick={() => handleDelete(viewingItem.id)}
-                  className="btn-danger"
+                <ConfirmDeleteButton
+                  onConfirm={() => handleDelete(viewingItem.id)}
+                  ariaLabel={`Delete ${viewingItem.title || 'this'} favorite`}
+                  confirm={false}
+                  variant="solid"
+                  className="rounded-full px-4"
                 >
                   Delete item
-                </button>
+                </ConfirmDeleteButton>
                 <button
                   onClick={() => setViewingItem(null)}
                   className="btn-primary"

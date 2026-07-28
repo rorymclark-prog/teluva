@@ -5,7 +5,7 @@ import { useSharedDoc } from '../hooks/useSharedDoc';
 import { auth } from '../lib/firebase';
 import DocumentViewer from './DocumentViewer';
 import {
-  FolderLock, Upload, Search, Trash2, Eye, Cloud, CloudOff,
+  FolderLock, Upload, Search, Eye, Cloud, CloudOff,
   Plus, X, Check, Loader2, File, AlertCircle, AlertTriangle,
   CheckSquare, Share2, Download, ImagePlus
 } from 'lucide-react';
@@ -13,6 +13,7 @@ import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMat
 import { canShare, shareMultiple, downloadZip } from '../utils/share';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import PdfThumbnail from './PdfThumbnail';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
 
@@ -622,11 +623,10 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   // independently, which left the other one holding a ghost of a document the
   // user was sure they had deleted. deleteDocumentEverywhere() is the single
   // shared implementation (MemberDocuments' delete goes through it too).
+  // Confirmation now lives in ConfirmDeleteButton (in-place two-step) at the
+  // call site — a bare window.confirm() looks and behaves like a broken
+  // webpage inside the iOS home-screen PWA.
   const handleDelete = async (doc: VaultDocument) => {
-    const confirmed = window.confirm(
-      `Remove "${doc.name}" everywhere? This permanently deletes the file from the vault and from any family member's profile it was filed on. This can't be undone.`
-    );
-    if (!confirmed) return;
     setDeletingId(doc.id);
     const result = await deleteDocumentEverywhere({ vaultDoc: doc, members });
     if (result.membersChanged) await onMembersChange?.(result.members);
@@ -886,7 +886,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
               <div
                 key={doc.id}
                 onClick={selectMode ? () => toggleSelected(doc.id) : undefined}
-                className={`card p-4 sm:p-5 flex items-start justify-between gap-4 transition-all ${
+                className={`card p-4 sm:p-5 flex flex-wrap items-start justify-between gap-4 transition-all ${
                   selectMode
                     ? `cursor-pointer ${isSelected ? 'ring-2 ring-clay-400 bg-clay-50' : 'hover:bg-cream-100/60'}`
                     : 'hover:bg-cream-100/60'
@@ -953,18 +953,13 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
                       <Eye className="w-3 h-3" />
                       View
                     </button>
-                    <button
-                      onClick={() => handleDelete(doc)}
-                      disabled={isDeleting}
-                      className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-rosa-50 rounded-xl transition-colors disabled:opacity-40"
-                      title="Delete document"
-                    >
-                      {isDeleting ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-4 h-4" />
-                      )}
-                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={() => handleDelete(doc)}
+                      ariaLabel={`Delete "${doc.name}" everywhere`}
+                      hint="Removes the file from the vault and from any family member's profile it was filed on."
+                      busy={isDeleting}
+                      className="rounded-xl"
+                    />
                   </div>
                 )}
               </div>

@@ -5,7 +5,6 @@ import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings,
 import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
-import PushOptInCard from './PushOptInCard';
 
 const MILESTONE_KINDS: BusinessMilestoneKind[] = ['First customer', 'New location', 'Certification / licence', 'Revenue target', 'Product launch', 'Funding', 'Award / recognition', 'Other'];
 
@@ -730,9 +729,10 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
             </div>
           )}
 
-          {/* Section 4: Birthday reminders (Web Push) — self-contained card,
-              gates itself on install/eligibility so it's safe to always mount. */}
-          <PushOptInCard />
+          {/* Birthday reminders (Web Push) now live in HubSettingsModal, which
+              every member can reach — this panel is admin-only, so mounting the
+              card here meant nobody but the admin could ever turn notifications
+              on or learn they must add the app to their Home Screen first. */}
 
           {/* Section 5: Danger zone — permanent deletion */}
           <div className="card p-5 space-y-3 border border-rosa-200">

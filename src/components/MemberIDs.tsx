@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyMember, PassportRecord, IdentityRecord, FamilyDocument, IdCountry } from '../types';
 import {
-  Plus, Pencil, Trash2, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye, Maximize2, Camera,
+  Plus, Pencil, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye, Maximize2, Camera,
 } from 'lucide-react';
 import ImageLightbox from './ImageLightbox';
 import ShowCardModal from './ShowCardModal';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
+import PrivacyNote from './PrivacyNote';
 
 // Data needed to pop open the full-screen "show this to someone" card — a border
 // officer, receptionist, ticket inspector. Shared by the passport rows and the
@@ -123,6 +125,7 @@ interface MemberIDsProps {
   onUpdate: (patch: Partial<FamilyMember>) => void;
   onAddDocument: (memberId: string, doc: FamilyDocument) => void;
   country?: IdCountry;
+  onOpenPrivacy?: () => void;
 }
 
 /* ─── Passport form ──────────────────────────────────────────────── */
@@ -294,7 +297,7 @@ function PassportsSection({
               />
             </div>
           ) : (
-            <div key={p.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+            <div key={p.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-[14px] font-semibold text-ink-900">{p.country || 'Unknown country'}</p>
@@ -333,13 +336,10 @@ function PassportsSection({
                 >
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
-                <button
-                  onClick={() => handleDelete(p.id)}
-                  className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg"
-                  title="Delete"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <ConfirmDeleteButton
+                  onConfirm={() => handleDelete(p.id)}
+                  ariaLabel={`Delete ${p.country || 'this'} passport`}
+                />
               </div>
             </div>
           ))}
@@ -1157,7 +1157,7 @@ function foldPassports(member: FamilyMember): PassportRecord[] {
   return list;
 }
 
-export default function MemberIDs({ member, onUpdate, onAddDocument, country = 'AT' }: MemberIDsProps) {
+export default function MemberIDs({ member, onUpdate, onAddDocument, country = 'AT', onOpenPrivacy }: MemberIDsProps) {
   const [passports, setPassports] = useState<PassportRecord[]>(() => foldPassports(member));
   const [identity, setIdentity] = useState<IdentityRecord>(member.identity ?? {});
   const [viewScanSrc, setViewScanSrc] = useState<string | null>(null);
@@ -1195,6 +1195,10 @@ export default function MemberIDs({ member, onUpdate, onAddDocument, country = '
 
   return (
     <div className="space-y-6 font-sans">
+      <PrivacyNote onOpenPrivacy={onOpenPrivacy}>
+        Only signed-in members of your family can see this — it's stored securely and isolated to your family space.
+      </PrivacyNote>
+
       <PassportsSection
         passports={passports}
         onChange={handlePassportsChange}

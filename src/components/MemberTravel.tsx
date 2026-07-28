@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyMember, TravelInfo, VisaRecord, TransitPass } from '../types';
 import {
-  Plane, Plus, Trash2, Pencil, Check, X, ShieldCheck, TrainFront, Maximize2,
+  Plane, Plus, Pencil, Check, X, ShieldCheck, TrainFront, Maximize2,
 } from 'lucide-react';
 import ShowCardModal from './ShowCardModal';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
@@ -460,7 +461,7 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
               ) : (
                 <div
                   key={v.id}
-                  className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3"
+                  className="p-3.5 rounded-2xl border border-cream-200 bg-white flex flex-wrap items-start justify-between gap-3"
                 >
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -501,13 +502,10 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                      onClick={() => deleteVisa(v.id)}
-                      className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={() => deleteVisa(v.id)}
+                      ariaLabel={`Delete ${v.country || 'this'} visa`}
+                    />
                   </div>
                 </div>
               )
@@ -602,13 +600,11 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                      onClick={() => deletePass(p.id)}
-                      className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={() => deletePass(p.id)}
+                      ariaLabel={`Delete ${p.name || 'this'} travel pass`}
+                      confirm={false}
+                    />
                   </div>
                 </div>
               )

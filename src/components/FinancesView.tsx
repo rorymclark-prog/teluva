@@ -3,9 +3,11 @@ import { FinancesInfo, BankAccount, BenefitInfo } from '../types';
 import { loadFinances, saveFinances } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import {
-  Landmark, Plus, Trash2, Pencil, Check, X,
+  Landmark, Plus, Pencil, Check, X,
   Cloud, CloudOff
 } from 'lucide-react';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
+import PrivacyNote from './PrivacyNote';
 
 const EMPTY: FinancesInfo = { banks: [], insurance: [], benefits: [] };
 
@@ -16,9 +18,10 @@ function newId() {
 interface FinancesViewProps {
   isBusinessSpace?: boolean;
   refreshKey?: number;
+  onOpenPrivacy?: () => void;
 }
 
-export default function FinancesView({ isBusinessSpace, refreshKey }: FinancesViewProps) {
+export default function FinancesView({ isBusinessSpace, refreshKey, onOpenPrivacy }: FinancesViewProps) {
   const [finances, setFinances] = useState<FinancesInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -71,6 +74,10 @@ export default function FinancesView({ isBusinessSpace, refreshKey }: FinancesVi
           </div>
         </div>
       </div>
+
+      <PrivacyNote onOpenPrivacy={onOpenPrivacy}>
+        Only signed-in members of your family can see this — it's stored securely and isolated to your family space.
+      </PrivacyNote>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <BankAccountsSection
@@ -146,7 +153,7 @@ function BankAccountsSection({ entries, onAdd, onUpdate, onDelete }: {
               />
             </div>
           ) : (
-            <div key={e.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+            <div key={e.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold text-ink-900">{e.bankName || 'Unnamed'}</p>
                 {e.accountHolder && <p className="text-[12px] text-ink-500 mt-0.5">{e.accountHolder}</p>}
@@ -158,9 +165,10 @@ function BankAccountsSection({ entries, onAdd, onUpdate, onDelete }: {
                 <button onClick={() => { setEditId(e.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={() => onDelete(e.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <ConfirmDeleteButton
+                  onConfirm={() => onDelete(e.id)}
+                  ariaLabel={`Delete ${e.bankName || 'this bank account'}`}
+                />
               </div>
             </div>
           ))}
@@ -251,7 +259,7 @@ function BenefitsSection({ entries, onAdd, onUpdate, onDelete }: {
               />
             </div>
           ) : (
-            <div key={e.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+            <div key={e.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold text-ink-900">{e.name || 'Unnamed'}</p>
                 {e.reference && <p className="font-mono text-[13px] text-ink-700 break-all mt-1 tabular-nums">{e.reference}</p>}
@@ -261,9 +269,10 @@ function BenefitsSection({ entries, onAdd, onUpdate, onDelete }: {
                 <button onClick={() => { setEditId(e.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
-                <button onClick={() => onDelete(e.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <ConfirmDeleteButton
+                  onConfirm={() => onDelete(e.id)}
+                  ariaLabel={`Delete ${e.name || 'this benefit'}`}
+                />
               </div>
             </div>
           ))}

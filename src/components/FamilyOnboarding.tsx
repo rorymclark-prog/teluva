@@ -200,7 +200,7 @@ export default function FamilyOnboarding() {
                 id="join-code"
                 type="text"
                 className="field w-full font-mono text-sm tracking-widest uppercase"
-                placeholder="ABCD1234"
+                placeholder="e.g. A1B2C3D4"
                 maxLength={12}
                 value={joinCode}
                 onChange={(e) => { setJoinCode(e.target.value); resetError(); }}

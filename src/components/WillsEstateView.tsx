@@ -11,6 +11,7 @@ import { auth } from '../lib/firebase';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { ESTATE_DOC_KINDS, isReviewStale, reviewAgeLabel } from '../utils/willsEstate';
 import DocumentViewer from './DocumentViewer';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -207,8 +208,10 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
     }
   };
 
+  // Confirmation now lives in ConfirmDeleteButton (in-place two-step) at the
+  // call site — a bare window.confirm() looks and behaves like a broken
+  // webpage inside the iOS home-screen PWA.
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Remove this record? This only removes the note about where it is kept — any attached scan stays in the Document Vault. This cannot be undone.')) return;
     await persist(records.filter(r => r.id !== id));
     if (form?.id === id) closeForm();
     if (viewingId === id) setViewingId(null);
@@ -617,16 +620,19 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 p-6 pt-0">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-6 pt-0">
               <div>
                 {form.id && (
-                  <button
-                    onClick={() => handleDelete(form.id)}
-                    className="btn-quiet text-rosa-600 hover:text-rosa-700 text-xs px-3 py-2"
+                  <ConfirmDeleteButton
+                    onConfirm={() => handleDelete(form.id)}
+                    ariaLabel={`Delete record for ${form.originalLocation || form.kind || 'this estate item'}`}
+                    hint="Only removes this note — any attached scan stays in the Document Vault."
+                    variant="danger-text"
+                    className="rounded-xl px-3 text-xs"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     Delete
-                  </button>
+                  </ConfirmDeleteButton>
                 )}
               </div>
               <div className="flex items-center gap-3">

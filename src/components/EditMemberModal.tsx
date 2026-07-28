@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Sparkles, Camera, Upload, RefreshCcw, Save, Trash2 } from 'lucide-react';
+import { X, Sparkles, Camera, Upload, RefreshCcw, Save } from 'lucide-react';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { FamilyMember, MemberRole } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
@@ -539,14 +540,11 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                         <p className="text-[13px] font-semibold text-ink-500">Stored locally in secure index sandbox.</p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleClearImage}
-                      className="p-1.5 hover:bg-rosa-50 text-ink-400 hover:text-rosa-700 rounded-lg transition-colors cursor-pointer"
-                      title="Delete profile picture and return to standard color"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <ConfirmDeleteButton
+                      onConfirm={handleClearImage}
+                      ariaLabel="Remove this photo and use a standard color instead"
+                      confirm={false}
+                    />
                   </div>
                 )}
 

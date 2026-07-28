@@ -8,8 +8,9 @@ import { extractTravelMeta } from '../utils/travelGeo';
 import { emojiFlag } from '@rapideditor/country-coder';
 import ImageLightbox from './ImageLightbox';
 import {
-  Globe2, Plus, Camera, Trash2, Pencil, Check, X, Cloud, CloudOff, Loader2, MapPin, Sparkles,
+  Globe2, Plus, Camera, Pencil, Check, X, Cloud, CloudOff, Loader2, MapPin, Sparkles,
 } from 'lucide-react';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 const EMPTY: TravelTimelineDoc = { entries: [] };
 
@@ -360,7 +361,7 @@ function TravelEntryRow({
       </div>
 
       <div className="flex-1 pb-2 pt-1">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <span className="font-mono tabular-nums text-[12px] font-semibold text-ink-500">
@@ -382,9 +383,10 @@ function TravelEntryRow({
             <button onClick={onEdit} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
               <Pencil className="w-3.5 h-3.5" />
             </button>
-            <button onClick={onDelete} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <ConfirmDeleteButton
+              onConfirm={onDelete}
+              ariaLabel={`Delete ${entry.country || 'this'} travel entry${entry.photoUrl ? ' and its photo' : ''}`}
+            />
           </div>
         </div>
       </div>

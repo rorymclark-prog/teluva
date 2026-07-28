@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { KeyRound, Plus, Eye, EyeOff, Copy, Check, Pencil, Trash2, X, ExternalLink } from 'lucide-react';
+import { KeyRound, Plus, Eye, EyeOff, Copy, Check, Pencil, X, ExternalLink, Trash2 } from 'lucide-react';
 import { PasswordEntry } from '../types';
 import { loadPasswords, savePassword, deletePassword } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 const BLANK: PasswordEntry = {
   id: '',
@@ -74,8 +75,10 @@ export default function FamilyPasswords() {
     }
   };
 
+  // Confirmation now lives in ConfirmDeleteButton (in-place two-step) at both
+  // call sites — a bare window.confirm() looks and behaves like a broken
+  // webpage inside the iOS home-screen PWA.
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this password entry?')) return;
     await deletePassword(id);
     setEntries(prev => prev.filter(e => e.id !== id));
   };
@@ -166,7 +169,7 @@ export default function FamilyPasswords() {
 
             return (
               <div key={entry.id} className="card p-4 sm:p-5 group">
-                <div className="flex items-start gap-3">
+                <div className="flex flex-wrap items-start gap-3">
                   {/* Avatar */}
                   <div className="w-9 h-9 rounded-full bg-clay-100 text-clay-700 flex items-center justify-center text-[15px] font-bold shrink-0 select-none">
                     {serviceInitial(entry.service)}
@@ -247,13 +250,11 @@ export default function FamilyPasswords() {
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(entry.id)}
-                        className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 w-10 h-10 flex items-center justify-center rounded-lg text-ink-300 hover:text-rosa-600 hover:bg-cream-100 active:scale-[0.97] transition-all cursor-pointer"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <ConfirmDeleteButton
+                        onConfirm={() => handleDelete(entry.id)}
+                        ariaLabel={`Delete password for ${entry.service || 'this service'}`}
+                        className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100"
+                      />
                     </div>
                   )}
                 </div>
@@ -371,13 +372,15 @@ export default function FamilyPasswords() {
             <div className="flex items-center gap-2 mt-6">
               {/* Delete (edit mode, admin only) */}
               {editingEntry && isAdmin && (
-                <button
-                  onClick={() => { handleDelete(editingEntry.id); closeForm(); }}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-medium text-rosa-600 hover:bg-rosa-50 active:scale-[0.97] transition-all cursor-pointer mr-auto"
+                <ConfirmDeleteButton
+                  onConfirm={() => { handleDelete(editingEntry.id); closeForm(); }}
+                  ariaLabel={`Delete password for ${editingEntry.service || 'this service'}`}
+                  variant="danger-text"
+                  className="rounded-xl px-3 text-[13px] font-medium mr-auto"
                 >
                   <Trash2 className="w-4 h-4" />
                   Delete
-                </button>
+                </ConfirmDeleteButton>
               )}
               <div className="flex gap-2 ml-auto">
                 <button onClick={closeForm} className="btn-quiet">

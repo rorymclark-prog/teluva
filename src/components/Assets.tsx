@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Package, Plus, Pencil, Trash2, Camera, Loader2, X, FileDown, ShieldAlert, Receipt, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { AssetItem } from '../types';
 import { loadAssets, saveAsset, deleteAsset, uploadAssetPhoto, deleteAssetPhoto } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -219,8 +220,10 @@ export default function Assets() {
     closeForm();
   };
 
+  // Confirmation now lives in ConfirmDeleteButton (in-place two-step) at the
+  // call site — a bare window.confirm() looks and behaves like a broken
+  // webpage inside the iOS home-screen PWA.
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this asset? This cannot be undone.')) return;
     await deleteAsset(id);
     setItems(prev => prev.filter(i => i.id !== id));
     if (editingItem?.id === id) closeForm();
@@ -577,10 +580,17 @@ export default function Assets() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 p-6 pt-0">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-6 pt-0">
               <div>
                 {editing.id && (
-                  <button onClick={() => handleDelete(editing.id)} className="btn-quiet text-rosa-600 hover:text-rosa-700 text-xs px-3 py-2"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
+                  <ConfirmDeleteButton
+                    onConfirm={() => handleDelete(editing.id)}
+                    ariaLabel={`Delete ${editing.name || 'this asset'}`}
+                    variant="danger-text"
+                    className="rounded-xl px-3 text-xs"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </ConfirmDeleteButton>
                 )}
               </div>
               <div className="flex items-center gap-3">
