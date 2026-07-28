@@ -1,5 +1,5 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock } from 'lucide-react';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, ChevronDown, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock } from 'lucide-react';
 import { FamilyMember, AssetItem, Vehicle, ContactEntry, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc, InsurancePolicy } from '../types';
 import { careNextDue } from '../utils/care';
 import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones, loadFinances } from '../utils/db';
@@ -562,6 +562,19 @@ export default function NeedsAttention(
 
   const [showAll, setShowAll] = useState(false);
 
+  /* Fully collapsed — header only. This card sits at the top of the home
+     screen and can be a dozen rows deep, so on a phone it pushes everything
+     else below the fold. Folding it leaves the count visible, which is the
+     part you actually scan for. Remembered per device. */
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('teluva.needsAttentionCollapsed') === '1'; } catch { return false; }
+  });
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    try { localStorage.setItem('teluva.needsAttentionCollapsed', next ? '1' : '0'); } catch { /* private mode */ }
+    setCollapsed(next);
+  };
+
   const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
   const all = [
     ...computeNudges(members),
@@ -582,12 +595,22 @@ export default function NeedsAttention(
 
   return (
     <div className="card overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-cream-200 flex items-center gap-2">
-        <Sparkles className="w-4 h-4 text-clay-500" />
+      {/* The whole header is the toggle — a title bar that folds the card is a
+          bigger, more obvious target than a chevron parked in the corner. */}
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        aria-expanded={!collapsed}
+        title={collapsed ? 'Show what needs attention' : 'Collapse'}
+        className={`w-full px-5 py-3.5 flex items-center gap-2 text-left transition-colors hover:bg-cream-50 cursor-pointer ${collapsed ? '' : 'border-b border-cream-200'}`}
+      >
+        <Sparkles className="w-4 h-4 text-clay-500 shrink-0" />
         <h3 className="font-display text-[15px] font-bold text-ink-900">Needs attention</h3>
         <span className="chip bg-cream-200 text-ink-600 ml-auto">{all.length}</span>
-      </div>
-      <div className="divide-y divide-cream-100">
+        <ChevronDown className={`w-4 h-4 shrink-0 text-ink-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+      </button>
+
+      <div className={`divide-y divide-cream-100 ${collapsed ? 'hidden' : ''}`}>
         {shown.map((n) => {
           const Icon = n.icon;
           return (
@@ -605,7 +628,7 @@ export default function NeedsAttention(
           );
         })}
       </div>
-      {extra > 0 && (
+      {extra > 0 && !collapsed && (
         <button
           onClick={() => setShowAll((s) => !s)}
           className="w-full px-5 py-2.5 text-[12.5px] font-semibold text-clay-600 hover:bg-cream-50 transition-colors text-center cursor-pointer"
