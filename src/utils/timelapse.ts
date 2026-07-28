@@ -6,9 +6,14 @@
 // ffmpeg/ffmpeg.wasm (this Cloud Run service runs cpu-throttled with minScale:0,
 // so a heavy server pipeline is the wrong architecture — see feature brief).
 //
-// v1 keeps it deliberately tight: a fixed hard-cut transition (more reliable
+// v1 kept it deliberately tight: a fixed hard-cut transition (more reliable
 // than a crossfade), a bounded 1280×720 output, ~1.8s per photo, and a small
-// year label overlay.
+// year label overlay. A crossfade is now available (opt-in via
+// TimelapseOptions.crossfadeMs, default 0 = still a hard cut) — it composites
+// two already-decoded frames on the same canvas inside the existing
+// requestAnimationFrame/track.requestFrame() loop, so it does not touch the
+// manual-mode recording, MediaRecorder start/stop, or the fix-webm-duration
+// patch below; it only changes what gets painted moment to moment.
 
 import fixWebmDuration from 'fix-webm-duration';
 
@@ -36,6 +41,15 @@ export interface TimelapseOptions {
   fps?: number;
   /** Draw the year (and age) label over each photo. Default true. */
   showYearLabel?: boolean;
+  /**
+   * Crossfade duration in ms between consecutive photos. Default 0 (hard cut —
+   * see the file-level comment on why that was the original, deliberate
+   * choice). Only turn this on for photos that are reasonably aligned frame to
+   * frame (e.g. shot against the same ghost-overlay guide); crossfading
+   * mis-framed photos just smears two different framings together instead of
+   * looking like a morph. Clamped to at most half of msPerPhoto.
+   */
+  crossfadeMs?: number;
   /** Called as source images preload, so the UI can show progress. */
   onProgress?: (loaded: number, total: number) => void;
 }
@@ -114,8 +128,10 @@ export async function buildTimelapseVideo(
     maxHeight = 720,
     fps = 30,
     showYearLabel = true,
+    crossfadeMs = 0,
     onProgress,
   } = opts;
+  const crossfade = Math.max(0, Math.min(crossfadeMs, Math.floor(msPerPhoto / 2)));
 
   const ordered = [...photos].sort((a, b) => a.year - b.year);
 
@@ -153,9 +169,10 @@ export async function buildTimelapseVideo(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error("Couldn't prepare the canvas for video.");
 
-  const drawFrame = (index: number) => {
-    const frame = loaded[index];
-    // Letterbox background (classic dark slideshow matte).
+  // Letterbox background + the photo itself, no label — split out from the
+  // label so a crossfade can composite two frames' images without doubling
+  // their text boxes on top of each other.
+  const paintImage = (frame: { img: HTMLImageElement }) => {
     ctx.fillStyle = '#17150f';
     ctx.fillRect(0, 0, width, height);
 
@@ -169,24 +186,46 @@ export async function buildTimelapseVideo(
       const dy = Math.round((height - dh) / 2);
       ctx.drawImage(frame.img, dx, dy, dw, dh);
     }
+  };
 
-    if (showYearLabel) {
-      const pad = Math.round(width * 0.02);
-      const fontPx = Math.max(18, Math.round(height * 0.05));
-      ctx.font = `600 ${fontPx}px system-ui, -apple-system, "Segoe UI", sans-serif`;
-      ctx.textBaseline = 'alphabetic';
-      const label =
-        frame.ageYears != null ? `${frame.year} · age ${frame.ageYears}` : `${frame.year}`;
-      const metrics = ctx.measureText(label);
-      const boxW = Math.round(metrics.width) + pad * 2;
-      const boxH = fontPx + pad;
-      const boxX = pad;
-      const boxY = height - boxH - pad;
-      ctx.fillStyle = 'rgba(0,0,0,0.45)';
-      ctx.fillRect(boxX, boxY, boxW, boxH);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(label, boxX + pad, boxY + boxH - Math.round(pad * 0.9));
-    }
+  const paintLabel = (frame: { year: number; ageYears?: number }) => {
+    if (!showYearLabel) return;
+    const pad = Math.round(width * 0.02);
+    const fontPx = Math.max(18, Math.round(height * 0.05));
+    ctx.font = `600 ${fontPx}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+    ctx.textBaseline = 'alphabetic';
+    const label =
+      frame.ageYears != null ? `${frame.year} · age ${frame.ageYears}` : `${frame.year}`;
+    const metrics = ctx.measureText(label);
+    const boxW = Math.round(metrics.width) + pad * 2;
+    const boxH = fontPx + pad;
+    const boxX = pad;
+    const boxY = height - boxH - pad;
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(label, boxX + pad, boxY + boxH - Math.round(pad * 0.9));
+  };
+
+  const drawFrame = (index: number) => {
+    const frame = loaded[index];
+    paintImage(frame);
+    paintLabel(frame);
+  };
+
+  // Composites frame `bIdx`'s image at opacity `t` (0–1) over frame `aIdx`'s
+  // fully-painted frame. Only the image is blended — the label is a hard
+  // switch at the halfway point, so we never render two overlapping text
+  // boxes mid-fade.
+  const drawCrossfade = (aIdx: number, bIdx: number, t: number) => {
+    const a = loaded[aIdx];
+    const b = loaded[bIdx];
+    paintImage(a);
+    ctx.save();
+    ctx.globalAlpha = t;
+    paintImage(b);
+    ctx.restore();
+    paintLabel(t < 0.5 ? a : b);
   };
 
   // fps=0 puts the track in "manual" mode — WE decide exactly when a frame is
@@ -256,7 +295,14 @@ export async function buildTimelapseVideo(
         return;
       }
       const index = Math.min(ordered.length - 1, Math.floor(elapsed / msPerPhoto));
-      drawFrame(index);
+      const nextIndex = Math.min(ordered.length - 1, index + 1);
+      const withinFrame = elapsed - index * msPerPhoto;
+      if (crossfade > 0 && nextIndex !== index && withinFrame > msPerPhoto - crossfade) {
+        const t = (withinFrame - (msPerPhoto - crossfade)) / crossfade;
+        drawCrossfade(index, nextIndex, Math.min(1, Math.max(0, t)));
+      } else {
+        drawFrame(index);
+      }
       track.requestFrame();
       rafId = requestAnimationFrame(tick);
     };

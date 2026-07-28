@@ -1410,7 +1410,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onContactsChange={setContacts} />}
 
-        {mainView === 'emergency' && <EmergencyView members={members} />}
+        {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} />}
 
         {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} />}
 
@@ -1916,10 +1916,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       })()}
 
       {showEmergency && (
-        <EmergencyCard members={members} events={events} onClose={() => setShowEmergency(false)} />
+        <EmergencyCard members={members} events={events} country={settings.country || 'AT'} onClose={() => setShowEmergency(false)} />
       )}
       {showBabysitter && (
-        <BabysitterMode members={members} events={events} onClose={() => setShowBabysitter(false)} />
+        <BabysitterMode members={members} events={events} country={settings.country || 'AT'} onClose={() => setShowBabysitter(false)} />
       )}
       {showTravelPack && (
         <TravelPack members={members} events={events} onClose={() => setShowTravelPack(false)} />

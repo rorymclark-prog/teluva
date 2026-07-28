@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FamilyMember, MedicalRecord, Vaccination, IdCountry } from '../types';
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 import HealthInsuranceRow from './HealthInsuranceRow';
+import MemberReferrals from './MemberReferrals';
 
 interface MemberMedicalProps {
   member: FamilyMember;
@@ -232,6 +233,11 @@ export default function MemberMedical({ member, onUpdate, country = 'AT' }: Memb
         onUpdate={handleUpdateVaccination}
         onDelete={handleDeleteVaccination}
       />
+
+      {/* Referrals & Results — referral letters, imaging, lab results, specialist
+          letters and sick notes. Own component (MemberReferrals.tsx) since it
+          carries real Storage-backed files, not just plain fields. */}
+      <MemberReferrals member={member} onUpdate={onUpdate} />
     </div>
   );
 }

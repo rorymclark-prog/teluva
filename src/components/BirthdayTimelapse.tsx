@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FamilyMember, BirthdayPhoto } from '../types';
+import { FamilyMember, BirthdayPhoto, TimelapseGuide } from '../types';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { uploadBirthdayPhoto, deleteBirthdayPhoto } from '../utils/db';
 import { isDemoMode } from '../utils/demoData';
@@ -13,8 +13,12 @@ import {
 } from '../utils/timelapse';
 import {
   Clapperboard, Film, ImagePlus, Upload, Trash2, Download, Play,
-  Loader2, Cake, Check, X, AlertCircle, Calendar,
+  Loader2, Cake, Check, X, AlertCircle, Calendar, Camera, RefreshCcw, Lightbulb,
 } from 'lucide-react';
+
+// Default alignment guide for a member who hasn't dragged one into place yet —
+// roughly where a head-and-shoulders portrait's eyes fall in a portrait-ish frame.
+const DEFAULT_GUIDE: TimelapseGuide = { eyeLineY: 0.4, centerX: 0.5 };
 
 interface BirthdayTimelapseProps {
   member: FamilyMember;
@@ -44,6 +48,138 @@ export default function BirthdayTimelapse({ member, onUpdateMember }: BirthdayTi
   // Photos added THIS session keep their local data URL, so the timelapse can be
   // built from same-origin pixels without depending on Storage bucket CORS.
   const sessionSrc = useRef<Record<string, string>>({});
+
+  // --- Live camera capture state ---
+  // Feature-detected once: absent on insecure (non-https/non-localhost)
+  // origins and unsupported browsers, so the tab simply doesn't offer itself
+  // rather than opening onto a guaranteed failure.
+  const cameraSupported = useMemo(
+    () => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia,
+    [],
+  );
+  const [captureMode, setCaptureMode] = useState<'camera' | 'file'>(cameraSupported ? 'camera' : 'file');
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  // The eye-line/centre-line the family drags into place over the ghost photo.
+  // Starts from whatever was saved on the member last year, if anything.
+  const [guide, setGuide] = useState<TimelapseGuide>(member.timelapseGuide || DEFAULT_GUIDE);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const guideBoxRef = useRef<HTMLDivElement>(null);
+  const draggingGuideRef = useRef<'h' | 'v' | null>(null);
+
+  // Last year's (or, failing that, the most recent) photo — shown translucent
+  // over the live preview so the parent can line the child up against it.
+  const ghostPhoto = useMemo(() => {
+    const before = photos.filter((p) => p.year < year);
+    return before[before.length - 1] || photos[photos.length - 1] || null;
+  }, [photos, year]);
+  const ghostSrc = ghostPhoto ? sessionSrc.current[ghostPhoto.id] || ghostPhoto.url : null;
+
+  // Re-sync the guide to what's saved on the member whenever the form opens,
+  // in case a photo was added on another device since this component mounted.
+  useEffect(() => {
+    if (isAdding) setGuide(member.timelapseGuide || DEFAULT_GUIDE);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdding]);
+
+  // Opens (and, on cleanup, always stops) the camera stream whenever the form
+  // is open, "Camera" is the active tab, and there's no captured photo waiting
+  // to be reviewed yet. Re-runs on facingMode change to switch lenses, and its
+  // cleanup fires on every one of those transitions plus unmount — so the
+  // stream is never left running behind the user's back.
+  useEffect(() => {
+    if (!isAdding || captureMode !== 'camera' || uploadedBase64) return;
+    let cancelled = false;
+    setCameraError(null);
+    setCameraReady(false);
+
+    (async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        if (!cancelled) {
+          setCameraError("This browser can't use the camera here.");
+          setCaptureMode('file');
+        }
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode, width: { ideal: 1280 }, height: { ideal: 1280 } },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => {});
+        }
+        setCameraReady(true);
+      } catch (e) {
+        console.error('Camera access failed:', e);
+        if (!cancelled) {
+          // Covers permission denied, no camera present, and camera already in
+          // use — never leave the parent stuck at a black rectangle.
+          setCameraError("Couldn't reach the camera — permission denied, unavailable, or already in use. Choose a photo instead.");
+          setCaptureMode('file');
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setCameraReady(false);
+    };
+  }, [isAdding, captureMode, facingMode, uploadedBase64]);
+
+  const startGuideDrag = (axis: 'h' | 'v') => (e: React.PointerEvent) => {
+    draggingGuideRef.current = axis;
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  };
+
+  const handleGuidePointerMove = (e: React.PointerEvent) => {
+    if (!draggingGuideRef.current || !guideBoxRef.current) return;
+    const box = guideBoxRef.current.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const x = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width));
+    const y = Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
+    setGuide((g) => (draggingGuideRef.current === 'h' ? { ...g, eyeLineY: y } : { ...g, centerX: x }));
+  };
+
+  const handleGuidePointerUp = () => {
+    draggingGuideRef.current = null;
+  };
+
+  const handleFlipCamera = () => {
+    setFacingMode((m) => (m === 'environment' ? 'user' : 'environment'));
+  };
+
+  const handleShutter = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    setUploadFileName(`${firstName(member)}-${year}-camera.jpg`);
+    // Same bounded-size compression path as the file picker, so both routes
+    // produce comparable Storage/Firestore payloads.
+    void compressImageToAvatar(dataUrl, 1280, 0.82).then(setUploadedBase64);
+  };
+
+  const handleRetake = () => {
+    setUploadedBase64('');
+    setUploadFileName('');
+  };
 
   // --- Video generation state ---
   const [generating, setGenerating] = useState(false);
@@ -133,7 +269,11 @@ export default function BirthdayTimelapse({ member, onUpdateMember }: BirthdayTi
         void deleteBirthdayPhoto(removed.storagePath);
       }
 
-      onUpdateMember({ ...member, birthdayPhotos: [...kept, newPhoto] });
+      const updatedMember: FamilyMember = { ...member, birthdayPhotos: [...kept, newPhoto] };
+      // Remember the guide the family just lined up against, so next year's
+      // ghost overlay starts from the same eye-line/centre-line.
+      if (captureMode === 'camera') updatedMember.timelapseGuide = guide;
+      onUpdateMember(updatedMember);
       resetForm();
     } catch (e) {
       console.error('Birthday photo save failed:', e);
@@ -180,6 +320,11 @@ export default function BirthdayTimelapse({ member, onUpdateMember }: BirthdayTi
         maxHeight: 720,
         fps: 30,
         showYearLabel: true,
+        // Aligned photos (via the ghost-overlay guide) are what makes a
+        // crossfade read as a morph rather than a smear — safe to turn on now
+        // that alignment exists. See timelapse.ts for why the recording loop
+        // itself is untouched by this.
+        crossfadeMs: 350,
         onProgress: (loaded, total) => setProgress({ loaded, total }),
       });
       const url = URL.createObjectURL(result.blob);
@@ -268,24 +413,45 @@ export default function BirthdayTimelapse({ member, onUpdateMember }: BirthdayTi
             </div>
 
             <div className="md:col-span-2">
-              <label className="field-label">Photo</label>
-              <div
-                className="w-full min-h-[110px] border-2 border-dashed border-cream-300 rounded-xl bg-white flex flex-col items-center justify-center p-3 cursor-pointer hover:bg-cream-50 transition-colors"
-                onClick={() => document.getElementById('bday-photo-file')?.click()}
-              >
-                <input
-                  id="bday-photo-file"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleFile}
-                />
-                {uploadedBase64 ? (
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="field-label mb-0">Photo</label>
+                {cameraSupported && !uploadedBase64 && (
+                  <div className="flex items-center gap-1 text-[11px] font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setCaptureMode('camera')}
+                      className={`px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 ${
+                        captureMode === 'camera' ? 'bg-ink-900 text-white' : 'text-ink-500 hover:bg-cream-200'
+                      }`}
+                    >
+                      <Camera className="w-3 h-3" /> Camera
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCaptureMode('file')}
+                      className={`px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 ${
+                        captureMode === 'file' ? 'bg-ink-900 text-white' : 'text-ink-500 hover:bg-cream-200'
+                      }`}
+                    >
+                      <Upload className="w-3 h-3" /> Choose file
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {cameraError && (
+                <p className="text-[11px] text-rosa-700 mb-1.5 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3 shrink-0" /> {cameraError}
+                </p>
+              )}
+
+              {uploadedBase64 ? (
+                <div className="relative w-full min-h-[110px] border-2 border-dashed border-cream-300 rounded-xl bg-white flex items-center justify-center p-3">
                   <div className="relative w-full flex items-center justify-center">
                     <img
                       src={uploadedBase64}
                       alt="Preview"
-                      className="max-h-32 object-contain rounded-lg border border-cream-300"
+                      className="max-h-40 object-contain rounded-lg border border-cream-300"
                       referrerPolicy="no-referrer"
                     />
                     {uploadFileName && (
@@ -294,14 +460,120 @@ export default function BirthdayTimelapse({ member, onUpdateMember }: BirthdayTi
                       </div>
                     )}
                   </div>
-                ) : (
-                  <>
-                    <Upload className="w-6 h-6 text-ink-400 mb-1" />
-                    <p className="text-[12px] font-semibold text-ink-600">Tap to choose a photo</p>
-                    <p className="text-[11px] text-ink-400 mt-0.5">JPG / PNG — one per birthday</p>
-                  </>
-                )}
-              </div>
+                  <button
+                    type="button"
+                    onClick={captureMode === 'camera' ? handleRetake : () => document.getElementById('bday-photo-file')?.click()}
+                    className="absolute top-2 right-2 btn-quiet px-2.5 py-1 text-[11px]"
+                  >
+                    {captureMode === 'camera' ? (
+                      <><RefreshCcw className="w-3 h-3" /><span>Retake</span></>
+                    ) : (
+                      <span>Change</span>
+                    )}
+                  </button>
+                </div>
+              ) : captureMode === 'camera' ? (
+                <div className="relative aspect-square sm:aspect-video rounded-xl overflow-hidden bg-ink-900 border border-cream-300">
+                  <video ref={videoRef} playsInline autoPlay muted className="absolute inset-0 w-full h-full object-cover" />
+
+                  {/* Ghost overlay: last year's photo, semi-transparent, to line the child up against */}
+                  {ghostSrc && (
+                    <img
+                      src={ghostSrc}
+                      alt=""
+                      aria-hidden="true"
+                      referrerPolicy="no-referrer"
+                      className="absolute inset-0 w-full h-full object-cover opacity-35 pointer-events-none"
+                    />
+                  )}
+
+                  {/* Alignment guide: horizontal eye-line + vertical centre-line,
+                      both draggable, remembered on the member for next year. */}
+                  <div
+                    ref={guideBoxRef}
+                    className="absolute inset-0 touch-none"
+                    onPointerMove={handleGuidePointerMove}
+                    onPointerUp={handleGuidePointerUp}
+                    onPointerCancel={handleGuidePointerUp}
+                  >
+                    <div
+                      className="absolute left-0 right-0 h-px bg-honey-500 cursor-ns-resize"
+                      style={{ top: `${guide.eyeLineY * 100}%` }}
+                      onPointerDown={startGuideDrag('h')}
+                    >
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-honey-500 border-2 border-white shadow-soft" />
+                    </div>
+                    <div
+                      className="absolute top-0 bottom-0 w-px bg-dusk-500 cursor-ew-resize"
+                      style={{ left: `${guide.centerX * 100}%` }}
+                      onPointerDown={startGuideDrag('v')}
+                    >
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full bg-dusk-500 border-2 border-white shadow-soft" />
+                    </div>
+                  </div>
+
+                  {!cameraReady && (
+                    <div className="absolute inset-0 flex items-center justify-center gap-2 bg-ink-900/60 text-white text-[12px] font-semibold">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Starting camera…
+                    </div>
+                  )}
+
+                  {ghostSrc && cameraReady && (
+                    <div className="absolute top-2 left-2 chip bg-ink-900/70 text-white backdrop-blur-sm">
+                      Ghost · {ghostPhoto?.year}
+                    </div>
+                  )}
+
+                  {cameraReady && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleFlipCamera}
+                        title="Flip camera"
+                        className="absolute top-2 right-2 p-2 rounded-full bg-ink-900/60 hover:bg-ink-900/80 text-white transition-colors"
+                      >
+                        <RefreshCcw className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleShutter}
+                        title="Capture photo"
+                        className="absolute bottom-3 left-1/2 -translate-x-1/2 p-3 bg-clay-500 hover:bg-clay-600 text-white rounded-full border-4 border-white shadow-soft active:scale-95 transition-transform"
+                      >
+                        <div className="w-5 h-5 rounded-full border-2 border-white" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div
+                  className="w-full min-h-[110px] border-2 border-dashed border-cream-300 rounded-xl bg-white flex flex-col items-center justify-center p-3 cursor-pointer hover:bg-cream-50 transition-colors"
+                  onClick={() => document.getElementById('bday-photo-file')?.click()}
+                >
+                  <Upload className="w-6 h-6 text-ink-400 mb-1" />
+                  <p className="text-[12px] font-semibold text-ink-600">Tap to choose a photo</p>
+                  <p className="text-[11px] text-ink-400 mt-0.5">JPG / PNG — one per birthday</p>
+                </div>
+              )}
+
+              {/* Lives outside the branches above so "Change" from the preview
+                  state, and the file-mode dropzone, can both trigger it — the
+                  fallback path stays reachable no matter which branch is showing. */}
+              <input
+                id="bday-photo-file"
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFile}
+              />
+
+              <p className="text-[11px] text-ink-400 mt-1.5 flex items-start gap-1">
+                <Lightbulb className="w-3 h-3 text-honey-500 shrink-0 mt-0.5" />
+                <span>
+                  Best results: same wall or spot, same distance and camera height, and around the
+                  same time of year — line up against the faint ghost photo above.
+                </span>
+              </p>
             </div>
           </div>
 

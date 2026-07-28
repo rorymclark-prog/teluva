@@ -6,8 +6,9 @@ import {
   Link2, Copy, Check, Loader2, Clock,
 } from 'lucide-react';
 import type { ElementType } from 'react';
-import { FamilyMember, CalendarEvent } from '../types';
+import { FamilyMember, CalendarEvent, IdCountry } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
+import EmergencyNumbersBanner from './EmergencyNumbersBanner';
 import { auth } from '../lib/firebase';
 import { createCarerShare, revokeCarerShare, type CarerShareSnapshot } from '../utils/db';
 
@@ -56,10 +57,11 @@ const CATEGORY_STYLE: Record<CalendarEvent['category'], string> = {
 interface Props {
   members: FamilyMember[];
   events: CalendarEvent[];
+  country?: IdCountry;
   onClose: () => void;
 }
 
-export default function BabysitterMode({ members, events, onClose }: Props) {
+export default function BabysitterMode({ members, events, country, onClose }: Props) {
   const children = useMemo(() => members.filter((m) => m.role === 'Child'), [members]);
   const householdAdults = useMemo(
     () => members.filter((m) => m.role !== 'Child' && m.phone),
@@ -178,6 +180,11 @@ export default function BabysitterMode({ members, events, onClose }: Props) {
               <Baby className="w-5 h-5 text-sage-700" />
               <h1 className="font-display text-xl font-bold text-ink-900">Babysitter / carer handover sheet</h1>
             </div>
+
+            {/* The number to dial, before anything else. A sitter who has never
+                opened this app should not have to hunt for it, or guess whether
+                this country uses 999, 911, 112 or 10177. */}
+            <EmergencyNumbersBanner country={country} />
 
             {/* Safety banner */}
             <div className="rounded-2xl bg-sage-100 border border-sage-200 px-4 py-3 flex items-center gap-2.5 print:bg-white print:border-ink-900/20">

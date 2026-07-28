@@ -64,6 +64,17 @@ export interface BirthdayPhoto {
   addedAt: string;     // ISO timestamp
 }
 
+// A small, reusable framing guide for the timelapse's live-camera capture:
+// where the eye-line and vertical centre-line should fall in frame. The family
+// drags these once (over a translucent "ghost" of last year's photo) and every
+// later year reuses the same values, which is what keeps the yearly photos
+// lined up enough for a smooth timelapse instead of a jump-cut slideshow.
+// Values are 0–1 fractions of the frame so they're resolution-independent.
+export interface TimelapseGuide {
+  eyeLineY: number; // 0–1, fraction of frame height for the horizontal eye-line
+  centerX: number;  // 0–1, fraction of frame width for the vertical centre-line
+}
+
 export interface DigitalAccount {
   id: string;
   serviceName: string;
@@ -167,7 +178,9 @@ export interface FamilyMember {
   sayings?: Saying[];               // keepsake: funny/wise things they said, age derived from birthdate
   favoriteQuotes?: FavoriteQuote[]; // quotes THEY love from someone/something else — a book, song, grandparent, film — the OPPOSITE direction from sayings (their own words)
   birthdayPhotos?: BirthdayPhoto[]; // one photo per year → growing-up timelapse
+  timelapseGuide?: TimelapseGuide;  // remembered eye-line/centre-line for the timelapse camera, set once and reused every year
   cv?: MemberCv;                    // business spaces only — CV/résumé structured facts + a pointer to the filed CV document
+  referrals?: ReferralRecord[];     // Referrals & Results: referral letters, imaging, lab results, specialist letters, sick notes
 }
 
 // A quote a family member said — captured with the date so their AGE at the time
@@ -920,3 +933,40 @@ export interface SlipItem {
 }
 
 export interface SlipsDoc { slips: SlipItem[]; }
+
+// --- Referrals & Results: what a doctor hands you — a referral letter, an
+// X-ray/ultrasound image, an MRI/CT report, a blood-test/lab result, a
+// specialist letter, or a sick note. Per-member, like documents/passports —
+// NOT the shared Document Vault, so it inherits exactly the same access rules
+// as the rest of the member record and adds no new sharing surface. The real
+// file bytes live in Firebase Storage (families/{FAMILY_ID}/referrals/
+// {memberId}/…); only the download URL + light metadata sit here — modeled on
+// BirthdayPhoto/uploadBirthdayPhoto exactly, not on FamilyDocument's inline
+// base64 (that pattern is how this app's documents drifted between two
+// stores before; this is deliberately not a third one).
+// A referral has a light lifecycle so an unactioned one doesn't get silently
+// forgotten: 'open' = just received, 'booked' = appointment set, 'done' =
+// result in hand. An open referral whose `date` is well in the past is a
+// natural candidate for a NeedsAttention nudge (out of scope here — see the
+// handoff note).
+export type ReferralKind = 'Referral' | 'Imaging' | 'Lab result' | 'Specialist letter' | 'Sick note' | 'Other';
+export type ReferralStatus = 'open' | 'booked' | 'done';
+
+export interface ReferralRecord {
+  id: string;
+  kind: ReferralKind | string;
+  date?: string;              // YYYY-MM-DD — date on the referral/result itself (not when it was scanned in)
+  providerId?: string;        // links to HealthcareProvider.id (Info → Doctors & Specialists) where the doctor is already on file
+  providerName?: string;      // cached display name — covers a doctor not yet in the directory, and survives the linked provider being edited/deleted
+  reason?: string;            // body part / reason, e.g. "Right knee", "Annual bloods"
+  status?: ReferralStatus;    // default 'open' when absent
+  appointmentDate?: string;   // YYYY-MM-DD — booked appointment date, meaningful once status is 'booked'
+  notes?: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  storagePath: string;        // Storage object path, for deletion
+  downloadUrl: string;        // Storage download URL
+  contentHash?: string;       // SHA-256 of the file bytes — duplicate detection, mirrors FamilyDocument.contentHash
+  addedAt: string;            // ISO timestamp this record was filed
+}

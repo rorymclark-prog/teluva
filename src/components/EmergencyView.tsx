@@ -1,7 +1,8 @@
 import React from 'react';
-import { FamilyMember } from '../types';
+import { FamilyMember, IdCountry } from '../types';
 import { calculateAge } from './Dashboard';
 import { warmAvatarColor } from '../utils/avatarPalette';
+import EmergencyNumbersBanner from './EmergencyNumbersBanner';
 import {
   Phone, Heart, AlertTriangle, Pill, Activity,
   UserCheck, CreditCard, Leaf, Users, Briefcase
@@ -9,26 +10,35 @@ import {
 
 interface EmergencyViewProps {
   members: FamilyMember[];
+  country?: IdCountry;
 }
 
-export default function EmergencyView({ members }: EmergencyViewProps) {
+export default function EmergencyView({ members, country }: EmergencyViewProps) {
   if (members.length === 0) {
+    // Still show the dial-now number: it is useful on day one, before anyone
+    // has entered a single record.
     return (
-      <div className="card p-10 text-center max-w-lg mx-auto mt-8">
-        <div className="w-14 h-14 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-4">
-          <Users className="w-6 h-6" />
+      <div className="space-y-6 font-sans max-w-lg mx-auto mt-8">
+        <EmergencyNumbersBanner country={country} />
+        <div className="card p-10 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-4">
+            <Users className="w-6 h-6" />
+          </div>
+          <h2 className="font-display text-2xl font-semibold text-ink-900 mb-2">No members yet</h2>
+          <p className="text-sm text-ink-500 leading-relaxed">
+            Add family members and fill in their medical info first — the emergency sheet will
+            populate automatically from that data.
+          </p>
         </div>
-        <h2 className="font-display text-2xl font-semibold text-ink-900 mb-2">No members yet</h2>
-        <p className="text-sm text-ink-500 leading-relaxed">
-          Add family members and fill in their medical info first — the emergency sheet will
-          populate automatically from that data.
-        </p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6 font-sans">
+      {/* The dial-now number leads the page — everything below it is detail. */}
+      <EmergencyNumbersBanner country={country} />
+
       {/* Header */}
       <div className="card p-5 sm:p-6">
         <div className="flex items-center gap-3">

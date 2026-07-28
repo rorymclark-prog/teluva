@@ -508,6 +508,56 @@ export async function deleteBirthdayPhoto(storagePath: string): Promise<void> {
   }
 }
 
+// --- Referrals & Results: real Storage files, only the URL + metadata sit on
+// the member record. Modeled on uploadBirthdayPhoto exactly — same per-member
+// families/{FAMILY_ID}/… Storage prefix convention, same 20MB rules cap, two
+// upload variants (File vs a captured data: URL) mirroring uploadVaultFile /
+// uploadVaultPhoto. recordId is folded into the path so re-uploading a
+// replacement for the same record can't collide with an unrelated one. ---
+export async function uploadReferralFile(
+  file: File,
+  memberId: string,
+  recordId: string,
+): Promise<{ storagePath: string; downloadUrl: string }> {
+  const safeName = (file.name || 'file').replace(/[^\w.\-]+/g, '_');
+  const storagePath = `families/${FAMILY_ID}/referrals/${memberId}/${recordId}-${safeName}`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, file, { contentType: file.type || 'application/octet-stream' });
+  const downloadUrl = await getDownloadURL(r);
+  return { storagePath, downloadUrl };
+}
+
+// Data-URL variant (camera scan via DocumentScannerModal) — mirrors
+// uploadVaultPhoto's relationship to uploadVaultFile.
+export async function uploadReferralPhoto(
+  dataUrl: string,
+  memberId: string,
+  recordId: string,
+  contentType: string,
+): Promise<{ storagePath: string; downloadUrl: string }> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const ext = contentType === 'application/pdf' ? 'pdf' : 'jpg';
+  const storagePath = `families/${FAMILY_ID}/referrals/${memberId}/${recordId}.${ext}`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: contentType || blob.type || 'application/octet-stream' });
+  const downloadUrl = await getDownloadURL(r);
+  return { storagePath, downloadUrl };
+}
+
+export async function deleteReferralFile(storagePath: string): Promise<void> {
+  // No path means there is nothing in Storage to remove — never attempt to
+  // resolve an empty path (that would target the bucket root). Mirrors
+  // deleteVaultFile's guard, which exists because of exactly that bug before.
+  if (!storagePath) return;
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (e) {
+    // Best-effort: a missing/denied object must not block removing the metadata.
+    console.error('Referral file delete failed (metadata will still be removed):', e);
+  }
+}
+
 export const saveDocuments = (docs: VaultDocument[]) => saveReferenceDoc('documents', { docs }, 'family_documents');
 export async function loadDocuments(): Promise<VaultDocument[]> {
   const data = await loadReferenceDoc<{ docs: VaultDocument[] }>('documents', 'family_documents');

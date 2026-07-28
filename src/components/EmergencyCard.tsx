@@ -5,8 +5,9 @@ import { QRCodeSVG } from 'qrcode.react';
 import {
   Siren, X, AlertTriangle, Droplet, Pill, Activity, Phone, CreditCard, Printer, Leaf, ScanLine,
 } from 'lucide-react';
-import type { FamilyMember, CalendarEvent } from '../types';
+import type { FamilyMember, CalendarEvent, IdCountry } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
+import EmergencyNumbersBanner from './EmergencyNumbersBanner';
 
 // A compact, self-contained plain-text ICE summary encoded into the QR so a
 // first responder can scan it with any phone camera — no app, no network. Kept
@@ -72,10 +73,12 @@ interface FallbackContact {
 export default function EmergencyCard({
   members,
   events,
+  country,
   onClose,
 }: {
   members: FamilyMember[];
   events: CalendarEvent[];
+  country?: IdCountry;
   onClose: () => void;
 }) {
   void events; // signature parity with other full-screen views in this app; not used by the ICE card
@@ -159,6 +162,13 @@ export default function EmergencyCard({
               <X className="w-5 h-5" />
             </button>
           </div>
+        </div>
+
+        {/* The national emergency number comes FIRST — above the person picker and
+            above the "no members yet" state. Whoever is holding this phone in a
+            real emergency may not be family and may never have opened the app. */}
+        <div className="px-5 sm:px-7 pt-5 sm:pt-7">
+          <EmergencyNumbersBanner country={country} />
         </div>
 
         {!selected ? (
