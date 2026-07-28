@@ -18,8 +18,11 @@ import {
   loadFamilyWords, saveFamilyWords,
   loadWillsEstate, saveWillsEstate,
   loadSlips, saveSlips,
+  loadInMemory,
+  leaveFamily,
   deleteDocumentEverywhere,
 } from '../utils/db';
+import { downloadZip } from '../utils/share';
 import {
   applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
   applyCalendarEdits, applyHouseholdEdits, applyFinancesEdits, applyTimelineEdits,
@@ -111,7 +114,8 @@ import {
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
-  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt
+  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
+  Loader2, UserMinus
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -354,6 +358,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // null = no save attempted yet; true/false = last save reached cloud or not
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [exportingBackup, setExportingBackup] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -1084,17 +1089,36 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     setSelectedDocumentMemberName(memberName);
   };
 
+  // Downloads a .zip: the full data as JSON, PLUS the actual document/photo
+  // FILES themselves (not just downloadUrl links, which 404 once the account
+  // and its Storage files are gone — see /api/delete-family). Reuses the same
+  // fetch+zip machinery as the Document Vault's bulk export (utils/share.ts
+  // downloadZip, already used by DocumentVault.tsx's "zip selected" button).
+  //
+  // Saved PASSWORDS are a deliberate exclusion, not an oversight: decrypting
+  // them into a plaintext file that lands in someone's Downloads folder is
+  // arguably worse than not exporting them at all. That choice is recorded
+  // in the JSON itself (passwordVault.included = false) and in the button's
+  // tooltip below, rather than silently omitted.
   const handleExportAllData = async () => {
+    setExportingBackup(true);
     try {
-      const [info, household, finances, timeline, docs] = await Promise.all([
+      const [info, household, finances, timeline, docs, willsEstate, inMemory, slips, assets, recipes, shopping] = await Promise.all([
         loadFamilyInfo(),
         loadHousehold(),
         loadFinances(),
         loadTimeline(),
         loadDocuments(),
+        loadWillsEstate(),
+        loadInMemory(),
+        loadSlips(),
+        loadAssets(),
+        loadRecipes(),
+        loadShopping(),
       ]);
 
-      // Documents: metadata only (no binary content — files live in Cloud Storage)
+      // Document metadata still travels in the JSON (search/reference use) —
+      // the actual bytes go into the zip below via fileItems.
       const documentsMeta = (docs || []).map(d => ({
         id: d.id,
         name: d.name,
@@ -1110,7 +1134,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       }));
 
       const backupData = {
-        version: 2,
+        version: 3,
         exportedAt: new Date().toISOString(),
         author: 'Family Vault backup',
         members,
@@ -1120,24 +1144,61 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         finances: finances || null,
         timeline: timeline || null,
         documents: documentsMeta,
+        willsEstate: willsEstate || null,
+        inMemory: inMemory || null,
+        slips: slips || [],
+        assets: assets || [],
+        recipes: recipes || [],
+        shopping: shopping || [],
         settings,
+        passwordVault: {
+          included: false,
+          reason: 'Saved passwords are deliberately left out of this download — decrypted secrets should not sit in a plain file in your Downloads folder. Copy them individually from the Passwords tab if you need them elsewhere.',
+        },
       };
-
       const dataStr = JSON.stringify(backupData, null, 2);
-      const blob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
 
-      const exportFileDefaultName = `family_vault_backup_${new Date().toLocaleDateString('en-CA')}.json`;
+      // Real files to bundle alongside the JSON: shared vault documents, the
+      // In Memory archive's documents + portraits, slip photos, and recipe
+      // photos — every place this app stores an actual file, not just a link.
+      const fileItems: { src: string; name: string }[] = [];
+      (docs || []).forEach((d) => {
+        if (d.downloadUrl) fileItems.push({ src: d.downloadUrl, name: `documents/${d.fileName || d.name}` });
+      });
+      (inMemory?.people || []).forEach((p) => {
+        (p.documents || []).forEach((doc) => {
+          if (doc.downloadUrl) fileItems.push({ src: doc.downloadUrl, name: `in-memory/${p.name}/${doc.fileName || doc.name}` });
+        });
+        if (p.photoUrl) fileItems.push({ src: p.photoUrl, name: `in-memory/${p.name}/portrait.jpg` });
+      });
+      (slips || []).forEach((s) => {
+        if (s.photoUrl) fileItems.push({ src: s.photoUrl, name: `slips/${s.item || s.id}.jpg` });
+      });
+      (recipes || []).forEach((r) => {
+        if (r.photoUrl) fileItems.push({ src: r.photoUrl, name: `recipes/${r.title || r.id}.jpg` });
+      });
 
-      const linkElement = document.createElement('a');
-      linkElement.setAttribute('href', url);
-      linkElement.setAttribute('download', exportFileDefaultName);
-      linkElement.click();
-
-      setTimeout(() => URL.revokeObjectURL(url), 100);
+      const exportFileDefaultName = `family_vault_backup_${new Date().toLocaleDateString('en-CA')}.zip`;
+      await downloadZip(fileItems, exportFileDefaultName, [{ name: 'family_vault_data.json', content: dataStr }]);
     } catch (error) {
       console.error('Export failed:', error);
       showToast('Could not generate the backup file.');
+    } finally {
+      setExportingBackup(false);
+    }
+  };
+
+  // Remove ONLY the caller's own access — everyone else's data is untouched.
+  // Server refuses if the caller is the family's only admin (or only member).
+  const handleLeaveFamily = async () => {
+    const label = isBusinessSpace ? 'this business' : 'this family';
+    const ok = window.confirm(`Leave ${label}? You'll lose access to its data — this cannot be undone from your side. Everyone else's data stays intact.`);
+    if (!ok) return;
+    try {
+      await leaveFamily();
+      window.location.reload();
+    } catch (err: any) {
+      showToast(err?.message || 'Could not leave. Please try again.');
     }
   };
 
@@ -1388,13 +1449,21 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
             {!demo && (
               <>
-                <button onClick={handleExportAllData} className="btn-quiet px-3 py-2" title="Download a backup of everything">
-                  <Download className="w-4 h-4" />
+                <button
+                  onClick={handleExportAllData}
+                  disabled={exportingBackup}
+                  className="btn-quiet px-3 py-2 disabled:opacity-50"
+                  title="Download a zip backup: members, calendar, household, finances, wills & estate, In Memory, slips, assets, recipes, shopping list, settings, and every document/photo as a real file. Saved passwords are not included."
+                >
+                  {exportingBackup ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 </button>
                 <label className="btn-quiet px-3 py-2 cursor-pointer" title="Restore from a backup file">
                   <Upload className="w-4 h-4" />
                   <input type="file" accept="application/json" onChange={handleImportAllData} className="hidden" />
                 </label>
+                <button onClick={handleLeaveFamily} className="btn-quiet px-3 py-2" title={isBusinessSpace ? 'Leave this business' : 'Leave this family'}>
+                  <UserMinus className="w-4 h-4" />
+                </button>
                 <button onClick={logout} className="btn-quiet px-3 py-2" title="Sign out">
                   <LogOut className="w-4 h-4" />
                 </button>

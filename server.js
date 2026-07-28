@@ -8,12 +8,18 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import webpush from 'web-push';
+import { familyStoragePrefix, familyFirestorePath } from './server/familyDeletePaths.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 8080;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'gen-lang-client-0384516171';
+// Non-default bucket (see firebase-applet-config.json's "storageBucket") — the
+// admin SDK's default bucket() call assumes `${PROJECT_ID}.appspot.com`, which
+// is NOT this project's real vault bucket, so it must be named explicitly
+// everywhere server-side Storage access happens.
+const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || 'gen-lang-client-0384516171-vault';
 
 // ---------------------------------------------------------------------------
 // AI backend. We call Gemini through Vertex AI in an EU region (default) so that
@@ -1623,6 +1629,248 @@ app.post('/api/refresh-claims', async (req, res) => {
   } catch (err) {
     console.error('/api/refresh-claims error:', err);
     res.status(500).json({ error: 'Could not refresh session.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Removing a member's membership in ONE space — shared by /api/delete-family
+// (called once per remaining member) and /api/leave-family (called for the
+// caller only). Runs with the Admin SDK, so it can write users/{uid} fields
+// (familyId/role/spaces) that firestore.rules deliberately block clients from
+// touching on their own profile.
+//
+// If the member has other spaces left, their ACTIVE pointer only moves if it
+// was pointing at the space being removed (mirrors /api/switch-space's
+// familyId+role pairing). If this was their LAST space, the users/{uid} doc
+// is deleted outright rather than left with a dangling familyId — on next
+// sign-in FamilyProvider (src/contexts/FamilyContext.tsx) sees no doc, finds
+// no bootstrap match for a real family's members, and renders FamilyOnboarding
+// — the same coherent "not in a family yet" screen a brand-new account gets,
+// never a crash or a spinner stuck reading a family that no longer exists.
+async function removeMemberFromFamilySpace(uid, familyId) {
+  const userRef = adminDb.doc(`users/${uid}`);
+  await adminDb.runTransaction(async (tx) => {
+    const snap = await tx.get(userRef);
+    if (!snap.exists) return; // already cleaned up (retry) or never had a profile doc
+    const data = snap.data() || {};
+    const spaces = (Array.isArray(data.spaces) ? data.spaces : []).filter((s) => s && s.id !== familyId);
+    if (spaces.length === 0) {
+      tx.delete(userRef);
+      return;
+    }
+    const update = { spaces };
+    if (data.familyId === familyId) {
+      update.familyId = spaces[0].id;
+      update.role = spaces[0].role;
+    }
+    tx.set(userRef, update, { merge: true });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// --- Delete a family/space PERMANENTLY. The single most destructive endpoint
+// in this application — read the full authorization + safety writeup below
+// before touching any of it. ---
+//
+// AUTHORIZATION: the target is ALWAYS `caller.familyId` from requireMember()
+// (the caller's own server-verified ACTIVE space) — a familyId in the request
+// body is never trusted for this, so a member of family A can never delete
+// family B by guessing/sending its id. The caller must additionally be an
+// 'admin' of that family. This role model has no separate "owner" tier above
+// admin — every admin is symmetric (see firestore.rules isAdminOf, and
+// FamilySettings.tsx's role selector, which lets any admin promote/demote any
+// other member including making a second admin). 'admin' is therefore the
+// STRONGEST membership check this codebase's data model supports; there is no
+// stronger signal (e.g. "original creator") reliably available — the
+// info/info doc's `adminUid` is set once at creation and never kept in sync
+// with later role changes, so it is not a safe substitute.
+//
+// The role check itself is read TWICE, for two different reasons:
+//   1. Primary: the AUTHORITATIVE families/{familyId}/roles/{uid} doc — the
+//      exact doc firestore.rules' isAdminOf() checks — not the cached
+//      users/{uid}.role or the ID token's claims, which can lag.
+//   2. Fallback (idempotent retry only): if that doc is ALREADY gone, this can
+//      only mean a PRIOR call already reached recursiveDelete but died before
+//      finishing the cleanup below — in which case caller.role from
+//      requireMember() (itself read fresh from users/{uid} this request,
+//      which is NEVER writable by a non-admin client per firestore.rules) is
+//      trusted to resume. A non-admin can never reach this fallback, because
+//      they could never have passed check #1 on the original call that
+//      deleted the roles doc in the first place.
+//
+// CONFIRMATION: the client makes the user type the family's exact current
+// name (FamilySettings.tsx); this endpoint independently re-checks that typed
+// name against the real name in families/{familyId}/info/info server-side,
+// so the confirmation is not just a client-side UI gate.
+//
+// STORAGE PREFIX SAFETY: the prefix is built ONLY by familyStoragePrefix()
+// (server/familyDeletePaths.mjs), which throws on anything but a non-empty,
+// safe-charset familyId and re-validates its own output before returning —
+// see that file's tests. This app has a documented prior incident where an
+// EMPTY storage path reached a delete call; that class of bug is what these
+// extra assertions exist to make structurally impossible here.
+//
+// IDEMPOTENCY: every step is safe to re-run — deleting already-deleted
+// Storage objects/Firestore docs is a no-op, and the two DB queries below
+// (invites/carerShares by familyId) simply return empty on a repeat.
+app.post('/api/delete-family', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const familyId = caller.familyId; // NEVER read from req.body
+
+    const rolesRef = adminDb.doc(`families/${familyId}/roles/${caller.uid}`);
+    const infoRef = adminDb.doc(`families/${familyId}/info/info`);
+    const [roleSnap, infoSnap] = await Promise.all([rolesRef.get(), infoRef.get()]);
+
+    if (roleSnap.exists) {
+      // Primary check: the AUTHORITATIVE doc firestore.rules' isAdminOf() reads.
+      if (roleSnap.data().role !== 'admin') {
+        return res.status(403).json({ error: 'Only an admin can delete this family.' });
+      }
+    } else if (caller.role === 'admin') {
+      // Fallback (idempotent-retry path only): the roles doc is already gone,
+      // which can only happen if a PRIOR call's recursiveDelete already ran —
+      // recursiveDelete's internal BulkWriter has no ordering guarantee across
+      // subcollections, so on a crash mid-delete the roles doc can be gone
+      // while info/info (or other subcollections) still linger, and vice
+      // versa. Rather than require BOTH gone (which a partial-order crash can
+      // defeat, wrongly 403-ing a legitimate retry), trust caller.role here:
+      // it comes from requireMember() reading users/{uid} FRESH this request,
+      // a field NO non-admin client can ever write to themselves (see
+      // firestore.rules users/{uid} update rule — 'role'/'familyId' are
+      // excluded from self-update), and caller.familyId is by construction
+      // equal to the familyId we're about to operate on. A non-admin could
+      // never reach this branch with role === 'admin'.
+      console.warn(`[delete-family] roles doc already gone for ${familyId} — resuming an interrupted delete (caller ${caller.uid} is cached-admin).`);
+    } else {
+      return res.status(403).json({ error: 'Only an admin can delete this family.' });
+    }
+
+    if (infoSnap.exists) {
+      const actualName = String(infoSnap.data().name || '').trim();
+      const typed = String((req.body || {}).confirmName || '').trim();
+      if (!actualName || !typed || typed.toLowerCase() !== actualName.toLowerCase()) {
+        return res.status(400).json({ error: 'Type the exact name to confirm — it must match exactly.' });
+      }
+    }
+
+    let prefix;
+    try {
+      prefix = familyStoragePrefix(familyId);
+    } catch (e) {
+      // A malformed/empty familyId here means requireMember or the caller's
+      // own profile is corrupt — refuse outright rather than risk Storage.
+      console.error('[delete-family] refusing to proceed — invalid familyId:', familyId, e);
+      return res.status(500).json({ error: 'Could not safely identify what to delete — nothing was touched. Please contact support.' });
+    }
+
+    // Gather every current member's uid BEFORE the roles collection is gone,
+    // so their users/{uid} doc can be cleaned up too (always include the
+    // caller, in case they are not — should not happen, but be defensive).
+    const rolesSnap = await adminDb.collection(`families/${familyId}/roles`).get();
+    const memberUids = new Set(rolesSnap.docs.map((d) => d.id));
+    memberUids.add(caller.uid);
+
+    // 1) Storage: delete every object under families/{familyId}/ ONLY.
+    let storageDeleted = 0;
+    let storageErrors = 0;
+    try {
+      const bucket = admin.storage().bucket(STORAGE_BUCKET);
+      const [files] = await bucket.getFiles({ prefix });
+      for (const file of files) {
+        // Defense in depth: re-check every single object's own name starts
+        // with the exact prefix before deleting it, even though getFiles()
+        // already filtered by that prefix.
+        if (!file.name.startsWith(prefix)) {
+          console.error('[delete-family] SKIPPING a file outside the expected prefix (should be impossible):', file.name);
+          continue;
+        }
+        try {
+          await file.delete();
+          storageDeleted += 1;
+        } catch (e) {
+          storageErrors += 1;
+          console.error('[delete-family] storage file delete failed:', file.name, e);
+        }
+      }
+    } catch (e) {
+      console.error('[delete-family] storage listing failed (continuing to Firestore delete):', e);
+    }
+
+    // 2) Firestore: recursively delete families/{familyId} and every
+    //    subcollection (family_members, calendar_events, metadata, reference,
+    //    assets, passwords, messages, sharedDriveDocs, chat, roles, info,
+    //    pushSubscriptions — whatever exists under this doc, named or not).
+    try {
+      await adminDb.recursiveDelete(adminDb.doc(familyFirestorePath(familyId)));
+    } catch (e) {
+      console.error('[delete-family] Firestore recursive delete failed:', e);
+      return res.status(500).json({ error: 'Deletion did not fully complete — Storage files were removed, but some records remain. This is safe to retry.' });
+    }
+
+    // 3) Top-level collections that reference this family by FIELD, not by
+    //    path, so recursiveDelete above never touches them.
+    try {
+      const [invitesSnap, sharesSnap] = await Promise.all([
+        adminDb.collection('invites').where('familyId', '==', familyId).get(),
+        adminDb.collection('carerShares').where('familyId', '==', familyId).get(),
+      ]);
+      await Promise.all([
+        ...invitesSnap.docs.map((d) => d.ref.delete().catch(() => {})),
+        ...sharesSnap.docs.map((d) => d.ref.delete().catch(() => {})),
+      ]);
+    } catch (e) {
+      console.error('[delete-family] invites/carerShares cleanup failed (non-fatal):', e);
+    }
+
+    // 4) Every member's own users/{uid} doc — drop this space, and if it was
+    //    their ACTIVE one, hand them off to another remaining space or, if
+    //    none left, clear the doc entirely (see removeMemberFromFamilySpace).
+    await Promise.all(
+      Array.from(memberUids).map((uid) =>
+        removeMemberFromFamilySpace(uid, familyId).catch((e) => {
+          console.error(`[delete-family] could not update users/${uid} after delete:`, e);
+        })),
+    );
+
+    console.log(`[delete-family] family ${familyId} deleted by ${caller.email} (${caller.uid}) — storage ${storageDeleted} deleted/${storageErrors} failed, ${memberUids.size} member(s) unlinked.`);
+    res.json({ ok: true, storageFilesDeleted: storageDeleted, storageErrors });
+  } catch (err) {
+    console.error('/api/delete-family error:', err);
+    res.status(500).json({ error: 'Could not delete the family. Please try again — it is safe to retry.' });
+  }
+});
+
+// --- Leave a family/space (remove ONLY the caller's own access) — the
+// lesser, non-destructive alternative to /api/delete-family. Blocked if the
+// caller is the family's ONLY admin, so a family can never be left with no
+// one able to manage it (invite, remove members, or delete it later). ---
+app.post('/api/leave-family', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const familyId = caller.familyId;
+
+    const rolesSnap = await adminDb.collection(`families/${familyId}/roles`).get();
+    if (rolesSnap.docs.length <= 1 && rolesSnap.docs[0]?.id === caller.uid) {
+      return res.status(400).json({ error: "You're the only member — delete the family instead if you want to remove it." });
+    }
+    if (caller.role === 'admin') {
+      const hasAnotherAdmin = rolesSnap.docs.some((d) => d.id !== caller.uid && d.data().role === 'admin');
+      if (!hasAnotherAdmin) {
+        return res.status(400).json({ error: "You're the only admin — promote another member to admin first, or delete the family instead." });
+      }
+    }
+
+    await adminDb.doc(`families/${familyId}/roles/${caller.uid}`).delete();
+    await removeMemberFromFamilySpace(caller.uid, familyId);
+
+    console.log(`[leave-family] ${caller.email} (${caller.uid}) left family ${familyId}.`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/api/leave-family error:', err);
+    res.status(500).json({ error: 'Could not leave the family. Please try again.' });
   }
 });
 

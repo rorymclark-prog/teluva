@@ -3,15 +3,19 @@ import { X, Shield, FileText } from 'lucide-react';
 
 /**
  * Privacy Policy + Terms, shown in a modal from the sign-in footer (pre-auth) and
- * from Settings. This is a DRAFT scaffold covering the GDPR essentials for a family
- * vault (personal + children's + health data; Google Firebase + Vertex AI EU processors).
- * It is NOT legal advice — the {{PLACEHOLDERS}} and the whole document must be
- * reviewed and completed by a qualified lawyer before publishing.
+ * from Settings. Covers the GDPR essentials for a family vault (personal +
+ * children's + health data; Google Firebase + Vertex AI EU processors). Every
+ * factual claim below (what's collected, where it's processed, the
+ * export/delete tools) is checked against what the app's code actually does —
+ * see FamilySettings.tsx's Danger Zone (delete), Dashboard.tsx's export
+ * button, and server.js's /api/delete-family for the mechanisms this text
+ * describes. This is not a substitute for a lawyer's review of the app's
+ * legal/contractual position — it is a description of current behaviour.
  */
 
 export type LegalTab = 'privacy' | 'terms';
 
-const UPDATED = '18 July 2026';
+const UPDATED = '28 July 2026';
 
 export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: () => void }) {
   const [active, setActive] = useState<LegalTab>(tab);
@@ -52,9 +56,9 @@ export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: (
 
         {/* Body */}
         <div className="overflow-y-auto p-5 sm:p-7 text-[14px] leading-relaxed text-ink-700 space-y-4">
-          <div className="text-[12px] rounded-xl bg-honey-50 border border-honey-100 text-honey-900 px-3 py-2">
-            ⚠️ <b>Draft — not yet legal advice.</b> Confirm the data-controller entity and have this
-            reviewed by a lawyer before publishing (it covers children&apos;s and health data under the GDPR).
+          <div className="text-[12px] rounded-xl bg-cream-100 border border-cream-300 text-ink-500 px-3 py-2">
+            This describes what Tresa actually does today, checked against the app itself. Questions
+            about it — or anything here that looks out of date — go to <b>rorymclark@gmail.com</b>.
           </div>
           {active === 'privacy' ? <Privacy /> : <Terms />}
         </div>
@@ -126,10 +130,16 @@ function Privacy() {
       <p>Your family&apos;s records are stored in the United Kingdom (London, europe-west2), which the EU recognises as providing adequate protection. AI processing runs in the EU (Belgium, europe-west1). Sign-in (Firebase Authentication) may involve processing in the United States under Standard Contractual Clauses.</p>
 
       <H>How long we keep it</H>
-      <p>Until you delete it or close your account. You can export or delete your family&apos;s data from within the app at any time.</p>
+      <p>
+        Until you delete it. You can download a full backup at any time (the export button in the app
+        header — a zip file with your records and the actual document/photo files, not just links; your
+        saved passwords are deliberately left out of it, since a plaintext copy of them in a downloads
+        folder is its own risk). An admin can permanently delete the whole family or business — every
+        member, document, photo, and record — from Settings → Danger zone. This cannot be undone.
+      </p>
 
       <H>Your rights</H>
-      <p>Under the GDPR you may request: access, correction, erasure, restriction, portability, and to object to processing. To exercise these, use the in-app export/delete tools or contact <b>rorymclark@gmail.com</b>. You may also complain to your local data-protection authority (in Austria, the <i>Datenschutzbehörde</i>).</p>
+      <p>Under the GDPR you may request: access, correction, erasure, restriction, portability, and to object to processing. Use the in-app export/delete tools described above, or contact <b>rorymclark@gmail.com</b>. You may also complain to your local data-protection authority (in Austria, the <i>Datenschutzbehörde</i>).</p>
 
       <H>Security</H>
       <p>Data is encrypted in transit (HTTPS), isolated per family by server-side security rules, and access requires a verified Google sign-in. No system is perfectly secure; keep your Google account protected.</p>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp, UserMinus } from 'lucide-react';
+import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp, UserMinus, AlertTriangle } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, loadBusinessMilestones, saveBusinessMilestones } from '../utils/db';
+import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, loadBusinessMilestones, saveBusinessMilestones, deleteFamily } from '../utils/db';
 import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
@@ -280,6 +280,34 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
       setAiError(err?.message ?? 'Could not update the AI assistant setting');
     } finally {
       setAiSaving(false);
+    }
+  }
+
+  // --- Danger zone: permanently delete this family/business (admin-only —
+  // this whole panel is already admin-gated by the parent). Genuine
+  // confirmation: the exact space name must be typed, not just clicked twice.
+  // Server-side (/api/delete-family) independently re-checks the typed name
+  // and re-verifies admin status — this is not the real safety check, just
+  // the UI gate in front of it. ---
+  const spaceName = spaces.find((s) => s.id === familyId)?.name || (isBusinessSpace ? 'this business' : 'this family');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTyped, setDeleteTyped] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleDeleteFamily() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteFamily(deleteTyped.trim());
+      // The space is gone server-side — force a full reload so FamilyProvider
+      // re-resolves everything from scratch (another remaining space, or
+      // onboarding) instead of the app trying to keep rendering against a
+      // family that no longer exists.
+      window.location.reload();
+    } catch (err: any) {
+      setDeleteError(err?.message ?? 'Could not delete. Please try again.');
+      setDeleting(false);
     }
   }
 
@@ -705,6 +733,70 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
           {/* Section 4: Birthday reminders (Web Push) — self-contained card,
               gates itself on install/eligibility so it's safe to always mount. */}
           <PushOptInCard />
+
+          {/* Section 5: Danger zone — permanent deletion */}
+          <div className="card p-5 space-y-3 border border-rosa-200">
+            <h3 className="section-label flex items-center gap-2 text-rosa-700">
+              <AlertTriangle size={14} />
+              Danger zone
+            </h3>
+
+            {!showDeleteConfirm ? (
+              <>
+                <p className="text-[13px] text-ink-500">
+                  Permanently delete {isBusinessSpace ? 'this business' : 'this family'} — every member
+                  profile, document and photo file, calendar event, password, and record. This cannot be
+                  undone.
+                </p>
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="btn-quiet w-full justify-center text-rosa-700 border border-rosa-200 hover:bg-rosa-50"
+                >
+                  Delete {isBusinessSpace ? 'business' : 'family'}…
+                </button>
+              </>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-[13px] text-rosa-700 bg-rosa-50 border border-rosa-100 rounded-xl px-3 py-2">
+                  This permanently deletes <b>every member profile, document/photo file, calendar event,
+                  password, and record</b> belonging to &ldquo;{spaceName}&rdquo; — for everyone in it.
+                  There is no undo and no recovery.
+                </p>
+                <p className="text-[13px] text-ink-500">
+                  Type <b>{spaceName}</b> below to confirm.
+                </p>
+                <input
+                  type="text"
+                  value={deleteTyped}
+                  onChange={(e) => setDeleteTyped(e.target.value)}
+                  placeholder={spaceName}
+                  disabled={deleting}
+                  className="field disabled:opacity-60"
+                  autoFocus
+                />
+                {deleteError && (
+                  <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{deleteError}</p>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { setShowDeleteConfirm(false); setDeleteTyped(''); setDeleteError(null); }}
+                    disabled={deleting}
+                    className="btn-quiet flex-1 justify-center disabled:opacity-40"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteFamily}
+                    disabled={deleting || deleteTyped.trim().toLowerCase() !== spaceName.trim().toLowerCase()}
+                    className="flex-1 justify-center gap-2 bg-rosa-500 hover:bg-rosa-700 text-white rounded-2xl px-4 py-2.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed flex items-center"
+                  >
+                    {deleting ? <Loader2 size={15} className="animate-spin" /> : null}
+                    Permanently delete
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

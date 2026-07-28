@@ -876,6 +876,47 @@ export async function saveFoundingDate(foundingDate: string): Promise<void> {
   if (!res.ok) throw new Error(data.error || 'Could not save the founding date. Please try again.');
 }
 
+/**
+ * PERMANENTLY delete the caller's ACTIVE space and everything in it — every
+ * member, document/photo file, calendar event, and record. Server-side
+ * (/api/delete-family) re-verifies admin status against the authoritative
+ * roles doc and independently re-checks confirmName against the real family
+ * name — this client call is a thin wrapper, not the actual safety check.
+ * There is no undo. See server.js for the full authorization writeup.
+ */
+export async function deleteFamily(confirmName: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to delete a family');
+
+  const token = await user.getIdToken();
+  const res = await fetch('/api/delete-family', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ confirmName }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not delete the family. Please try again.');
+}
+
+/**
+ * Leave the caller's ACTIVE space — removes only their own access; every
+ * other member's data is untouched. Server-side refuses if the caller is the
+ * family's only admin (or its only member), so a family can never be left
+ * unmanageable or orphaned.
+ */
+export async function leaveFamily(): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to leave a family');
+
+  const token = await user.getIdToken();
+  const res = await fetch('/api/leave-family', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not leave the family. Please try again.');
+}
+
 // Ask the server to (re)stamp the familyId/familyIds custom claims, then
 // refresh the local token so Storage rules see them. No-op if it fails — AI
 // calls backfill too.

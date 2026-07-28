@@ -41,25 +41,49 @@ export async function shareMultiple(items: { src: string; name: string }[]): Pro
 // Desktop (and anywhere else navigator.share doesn't exist) has no share sheet
 // at all, so a bulk selection needs a different escape hatch: bundle everything
 // into one .zip and download it, ready to attach by hand.
-export async function downloadZip(items: { src: string; name: string }[], zipName = 'documents.zip'): Promise<void> {
+//
+// `extraFiles` bundles plain-text entries (e.g. a JSON data file) alongside
+// the fetched items — added for the full-account backup export (Dashboard.tsx
+// handleExportAllData), which needs both the real document files AND a
+// structured data file in the same download. Optional and empty by default,
+// so every existing caller (DocumentVault.tsx's "zip selected" export) is
+// unaffected.
+export async function downloadZip(
+  items: { src: string; name: string }[],
+  zipName = 'documents.zip',
+  extraFiles: { name: string; content: string }[] = [],
+): Promise<void> {
   const { default: JSZip } = await import('jszip');
   const zip = new JSZip();
   const used = new Set<string>();
   for (const it of items) {
-    const res = await fetch(it.src);
-    const blob = await res.blob();
-    const ext = (blob.type.split('/')[1] || '').replace('jpeg', 'jpg');
-    let base = (it.name || 'document').replace(/[\\/:*?"<>|]+/g, '').trim() || 'document';
-    if (ext && !base.toLowerCase().endsWith(`.${ext}`)) base = `${base}.${ext}`;
-    let entryName = base;
-    let n = 2;
-    while (used.has(entryName)) {
-      const dot = base.lastIndexOf('.');
-      entryName = dot > 0 ? `${base.slice(0, dot)} (${n})${base.slice(dot)}` : `${base} (${n})`;
-      n++;
+    try {
+      const res = await fetch(it.src);
+      if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+      const blob = await res.blob();
+      const ext = (blob.type.split('/')[1] || '').replace('jpeg', 'jpg');
+      // Strip characters that are unsafe in a zip entry on any OS, but KEEP
+      // '/' — callers may pass a folder-shaped name (e.g. "documents/x.pdf")
+      // to organise the archive; JSZip treats '/' as a path separator.
+      let base = (it.name || 'document').replace(/[\\:*?"<>|]+/g, '').trim() || 'document';
+      if (ext && !base.toLowerCase().endsWith(`.${ext}`)) base = `${base}.${ext}`;
+      let entryName = base;
+      let n = 2;
+      while (used.has(entryName)) {
+        const dot = base.lastIndexOf('.');
+        entryName = dot > 0 ? `${base.slice(0, dot)} (${n})${base.slice(dot)}` : `${base} (${n})`;
+        n++;
+      }
+      used.add(entryName);
+      zip.file(entryName, blob);
+    } catch (e) {
+      // One broken/expired link shouldn't sink the whole export — skip it and
+      // keep going with everything that did fetch successfully.
+      console.error('downloadZip: skipping file (fetch failed):', it.name, e);
     }
-    used.add(entryName);
-    zip.file(entryName, blob);
+  }
+  for (const ef of extraFiles) {
+    zip.file(ef.name, ef.content);
   }
   const content = await zip.generateAsync({ type: 'blob' });
   const url = URL.createObjectURL(content);
