@@ -1223,21 +1223,49 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     }
   };
 
+  // Reads a backup file and returns the records inside it.
+  //
+  // Two formats, because a backup taken before v125 must still restore:
+  //   .zip  — the current export. Records live in family_vault_data.json;
+  //           the document/photo FILES sit alongside it in folders.
+  //   .json — the pre-v125 export, a single JSON file.
+  const readBackupFile = async (file: File): Promise<any> => {
+    const isZip = file.name.toLowerCase().endsWith('.zip')
+      || file.type === 'application/zip'
+      || file.type === 'application/x-zip-compressed';
+    if (!isZip) return JSON.parse(await file.text());
+
+    const { default: JSZip } = await import('jszip');
+    const zip = await JSZip.loadAsync(file);
+    // Tolerate the entry sitting inside a wrapper folder, which is what some
+    // unzip-and-rezip round trips produce.
+    const entry = zip.file('family_vault_data.json')
+      || zip.file(/(^|\/)family_vault_data\.json$/)[0];
+    if (!entry) {
+      throw new Error('no-data-entry');
+    }
+    return JSON.parse(await entry.async('string'));
+  };
+
   const handleImportAllData = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Import OVERWRITES the whole family — never do it silently.
+    // Be accurate about what this does. Records in the backup are written over
+    // the current ones; anything you have now that ISN'T in the backup survives,
+    // because the save layer merges rather than replacing wholesale (that change
+    // is what stopped two family members overwriting each other). Promising a
+    // clean "replace" here would be a lie, and a costly one to act on.
     const ok = window.confirm(
-      'Restore from this backup? It will REPLACE all current family data — members, calendar, household, finances and more — with the contents of the file. This cannot be undone.'
+      'Restore from this backup?\n\n'
+      + 'Anything in the file will be written over what you have now. Records you added since the backup was taken are kept, not removed.\n\n'
+      + 'This cannot be undone.'
     );
     if (!ok) { event.target.value = ''; return; }
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
+    (async () => {
       try {
-        const content = e.target?.result as string;
-        const backupData = JSON.parse(content);
+        const backupData = await readBackupFile(file);
 
         if (backupData.members && Array.isArray(backupData.members)) {
           await persistChanges(backupData.members);
@@ -1269,13 +1297,20 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           setSettings(backupData.settings);
         }
 
-        showToast('Backup imported.');
+        // Say what did NOT happen. The zip also contains the document and
+        // photo FILES, and those are not re-uploaded — the records come back
+        // pointing at storage that may no longer hold them. Better the user
+        // knows to keep the zip than discovers a dead thumbnail later.
+        showToast('Backup restored. Document files in the zip are your copy — they are not re-uploaded.');
       } catch (error) {
         console.error('Import failed:', error);
-        showToast("Couldn't read that backup file — is it a Family Vault export?");
+        showToast(
+          error instanceof Error && error.message === 'no-data-entry'
+            ? "That zip doesn't contain family_vault_data.json — is it a Family Vault backup?"
+            : "Couldn't read that backup file — is it a Family Vault export?"
+        );
       }
-    };
-    reader.readAsText(file);
+    })();
     event.target.value = '';
   };
 
@@ -1488,7 +1523,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 </button>
                 <label className="btn-quiet px-3 py-2 cursor-pointer" title="Restore from a backup file">
                   <Upload className="w-4 h-4" />
-                  <input type="file" accept="application/json" onChange={handleImportAllData} className="hidden" />
+                  <input type="file" accept=".zip,.json,application/zip,application/json" onChange={handleImportAllData} className="hidden" />
                 </label>
                 <button onClick={handleLeaveFamily} className="btn-quiet px-3 py-2" title={isBusinessSpace ? 'Leave this business' : 'Leave this family'}>
                   <UserMinus className="w-4 h-4" />
