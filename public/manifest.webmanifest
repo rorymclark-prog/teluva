@@ -1,11 +1,11 @@
 {
   "name": "Teluva",
   "short_name": "Teluva",
-  "description": "Your family's private vault.",
+  "description": "Everything you love, kept together.",
   "display": "standalone",
   "start_url": "/",
   "scope": "/",
-  "background_color": "#FBF7F0",
+  "background_color": "#F6F5F1",
   "theme_color": "#EA5A3B",
   "icons": [
     {

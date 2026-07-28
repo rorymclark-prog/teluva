@@ -3,11 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Teluva — your private vault</title>
+    <title>Teluva — everything you love, kept together</title>
+    <meta name="description" content="Teluva keeps your family's sizes, documents, medical notes and plans together in one private place." />
     <!-- PWA: installable so iOS/Android can deliver Web Push notifications.
          manifest + icons resolve from dist root (Vite copies public/* there). -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <!-- Browser tab icon. Without these the browser silently requests /favicon.ico
+         and shows a blank page glyph — which is what it did until the brand kit
+         arrived. .ico first for old Windows browsers, PNG for everything modern. -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <meta name="theme-color" content="#EA5A3B" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Teluva" />

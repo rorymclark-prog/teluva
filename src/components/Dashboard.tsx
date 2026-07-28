@@ -1439,10 +1439,19 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         }}
       >
         <div className="card p-10 text-center max-w-md w-full">
-          <div className="w-16 h-16 rounded-full bg-sage-100 flex items-center justify-center mx-auto mb-5">
-            <ShieldCheck className="w-8 h-8 text-sage-600" />
-          </div>
-          <p className="text-[11px] font-bold text-clay-500 uppercase tracking-wider mb-1">Teluva</p>
+          {/* The sign-in screen is the one brand moment every single person sees —
+              new users and everyone arriving on an invite link. It used to be a
+              generic shield icon with the name set in the UI font; it now carries
+              the actual mark and wordmark. Both are outlined SVG paths (no live
+              text), so they need no webfont and render identically everywhere. */}
+          <img
+            src="/icons/app-icon.svg"
+            alt=""
+            width={56}
+            height={56}
+            className="mx-auto mb-4 rounded-[14px]"
+          />
+          <img src="/icons/wordmark.svg" alt="Teluva" width={110} height={32} className="mx-auto mb-4 h-8 w-auto" />
           <h1 className="text-display-md text-ink-900 mb-3">{joinLinkVisit ? "You've been invited" : hubName}</h1>
           <p className="text-sm text-ink-500 leading-relaxed mb-8">
             {joinLinkVisit
