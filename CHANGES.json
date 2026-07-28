@@ -1,15 +1,14 @@
 {
-  "label": "v125",
+  "label": "v126",
   "changes": [
-    "Emergency card and Babysitter mode now show the number to actually dial, as big tap-to-call buttons, for your country — 144/133/122 in Austria, 999 in the UK, 10111 and 10177 in South Africa, 911 in the US. It's the first thing on the screen, even before you've added anyone",
-    "A short welcome tour the first time you open the app, so you can find what's in here. Skippable, never shows twice, and replayable any time from settings",
-    "Measure from a photo: snap the bathroom scale, a shoe label or a growth chart and it fills in the height, weight or size for you to check before saving",
-    "New under each person's Medical tab: a home for doctor's referrals, X-rays, scan reports and lab results — with an open/booked/done marker so a referral doesn't get forgotten",
-    "The growing-up timelapse can use the camera with last year's photo faded over the live view, so this year's shot lines up and the video flows instead of jumping",
-    "Pounds, feet and inches for anyone who thinks in them — and a nudge when a child's sizes are getting out of date",
-    "Deleting a saved password, bank record or medical entry now asks first, and the buttons are big enough to hit on a phone",
-    "You can now remove someone from your space, or permanently delete everything, from Settings. Your backup now includes the actual files, not just links to them",
-    "For businesses: work anniversaries, company milestones and a headcount log, plus the things a decent employer remembers — with a \"no fuss, please\" switch for anyone who'd rather not have one made",
-    "Under the hood: two people using the app at the same time can no longer overwrite each other's changes, and far less of your private information is sent to the AI"
+    "The app is now called Teluva. Same app, same data, nothing to do at your end — you'll see the new name and icon. If you've added it to your Home Screen, the icon will refresh on its own",
+    "A guided setup the first time you sign in: it asks the fifteen or so things worth knowing, in the order a person would actually ask them. Stop halfway and it picks up where you left off",
+    "It now offers to add itself to your Home Screen — which is also the only way an iPhone will let it send you a birthday or expiry reminder. It asks once, backs off if you say no, and stops asking after the third time",
+    "Funeral cover and repatriation: waiting periods, claim deadlines, who the beneficiary is, and the burial society contact. It warns you before a claim window closes",
+    "A household vendor list — plumber, electrician, the person who actually fixes the boiler — so it isn't only in one person's phone",
+    "Fixed: a backup you exported couldn't be imported again. The export became a zip while the import still expected the old format, so the file wouldn't even open. Both ends now agree, and older backups still restore",
+    "A doctor's referral that never got booked now nudges you — gently at two weeks, less gently at six",
+    "Free spaces get 30 AI requests a month and up to 10 people, with a meter in Settings so you can see where you are. Nothing is deleted or locked if you reach it",
+    "Every tab in a person's profile now has a proper name for screen readers. On a phone they were unlabelled icons, which made the app close to unusable if you rely on one"
   ]
 }
