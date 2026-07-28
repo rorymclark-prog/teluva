@@ -1,10 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper } from 'lucide-react';
+import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { loadFamilyRoles, setFamilyMemberRole, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate } from '../utils/db';
-import { FamilyRole, FamilyMemberRole, IdCountry } from '../types';
+import { loadFamilyRoles, setFamilyMemberRole, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, loadBusinessMilestones, saveBusinessMilestones } from '../utils/db';
+import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
+import { headcountTrend } from '../utils/businessMilestone';
 import PushOptInCard from './PushOptInCard';
+
+const MILESTONE_KINDS: BusinessMilestoneKind[] = ['First customer', 'New location', 'Certification / licence', 'Revenue target', 'Product launch', 'Funding', 'Award / recognition', 'Other'];
+
+function newId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
 
 // Today's date in the USER'S timezone as YYYY-MM-DD. Same convention as
 // toISODate() in utils/vehicle.ts and utils/businessMilestone.ts — never
@@ -79,6 +86,72 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
       setFoundingSaving(false);
     }
   };
+
+  // --- Business Milestones (business-only): owner-defined growth timeline +
+  // headcount log, alongside the founding date above. Read utils/businessMilestone.ts
+  // first if extending this — nextMilestoneAnniversary/headcountTrend live there,
+  // shared with NeedsAttention/CelebrationOverlay so an anniversary resurfaces
+  // the same way a birthday does.
+  const [milestonesDoc, setMilestonesDoc] = useState<BusinessMilestonesDoc>({ milestones: [], headcount: [] });
+  const [milestonesLoading, setMilestonesLoading] = useState(false);
+  const [milestonesError, setMilestonesError] = useState<string | null>(null);
+  const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
+  const [newMilestoneDate, setNewMilestoneDate] = useState('');
+  const [newMilestoneKind, setNewMilestoneKind] = useState<BusinessMilestoneKind>('First customer');
+  const [newHeadcountDate, setNewHeadcountDate] = useState(localToday());
+  const [newHeadcountCount, setNewHeadcountCount] = useState('');
+
+  useEffect(() => {
+    if (!isBusinessSpace) return;
+    setMilestonesLoading(true);
+    loadBusinessMilestones()
+      .then((d) => setMilestonesDoc(d || { milestones: [], headcount: [] }))
+      .catch(() => setMilestonesDoc({ milestones: [], headcount: [] }))
+      .finally(() => setMilestonesLoading(false));
+  }, [familyId, isBusinessSpace]);
+
+  const persistMilestones = async (next: BusinessMilestonesDoc) => {
+    setMilestonesDoc(next);
+    setMilestonesError(null);
+    try {
+      await saveBusinessMilestones(next);
+    } catch (err: any) {
+      setMilestonesError(err?.message ?? 'Could not save — please try again');
+    }
+  };
+
+  const handleAddMilestone = () => {
+    if (!newMilestoneTitle.trim() || !newMilestoneDate) return;
+    const entry: BusinessMilestoneEntry = {
+      id: newId('ms'),
+      title: newMilestoneTitle.trim(),
+      date: newMilestoneDate,
+      kind: newMilestoneKind,
+    };
+    persistMilestones({ ...milestonesDoc, milestones: [...milestonesDoc.milestones, entry] });
+    setNewMilestoneTitle('');
+    setNewMilestoneDate('');
+  };
+
+  const handleDeleteMilestone = (id: string) => {
+    persistMilestones({ ...milestonesDoc, milestones: milestonesDoc.milestones.filter((m) => m.id !== id) });
+  };
+
+  const handleAddHeadcount = () => {
+    const count = parseInt(newHeadcountCount, 10);
+    if (!newHeadcountDate || Number.isNaN(count) || count < 0) return;
+    const entry: HeadcountLog = { id: newId('hc'), date: newHeadcountDate, count };
+    persistMilestones({ ...milestonesDoc, headcount: [...milestonesDoc.headcount, entry] });
+    setNewHeadcountCount('');
+  };
+
+  const handleDeleteHeadcount = (id: string) => {
+    persistMilestones({ ...milestonesDoc, headcount: milestonesDoc.headcount.filter((h) => h.id !== id) });
+  };
+
+  const sortedMilestones = [...milestonesDoc.milestones].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const sortedHeadcount = [...milestonesDoc.headcount].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const trend = headcountTrend(milestonesDoc.headcount);
 
   // --- Invite codes (single-use, 14-day, server-issued) ---
   const [inviteCode, setInviteCode] = useState<string | null>(null);
@@ -257,6 +330,131 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
               {foundingError && (
                 <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{foundingError}</p>
               )}
+            </div>
+          )}
+
+          {/* Section 0c: Milestones & growth (Business Milestones) — business-only.
+              Owner-defined growth events + a manually-kept headcount log. An
+              anniversary of any milestone below resurfaces the way a birthday
+              does, via NeedsAttention/CelebrationOverlay (see nextMilestoneAnniversary
+              in utils/businessMilestone.ts). */}
+          {isBusinessSpace && (
+            <div className="card p-5 space-y-4">
+              <h3 className="section-label flex items-center gap-2">
+                <Trophy size={14} />
+                Milestones &amp; growth
+              </h3>
+              <p className="text-[13px] text-ink-500 -mt-1">
+                First customer, a new location, a certification, a revenue target hit — log the moments worth remembering.
+                Each one gets its own anniversary reminder, just like a birthday.
+              </p>
+
+              {milestonesError && (
+                <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{milestonesError}</p>
+              )}
+
+              {/* Add a milestone */}
+              <div className="space-y-2 p-3 rounded-xl bg-cream-50 border border-cream-200">
+                <input
+                  type="text"
+                  placeholder="e.g. Signed our first customer, Café Wien"
+                  value={newMilestoneTitle}
+                  onChange={(e) => setNewMilestoneTitle(e.target.value)}
+                  className="field w-full text-[13px]"
+                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={newMilestoneDate}
+                    max={localToday()}
+                    onChange={(e) => setNewMilestoneDate(e.target.value)}
+                    className="field flex-1 text-[13px]"
+                  />
+                  <select
+                    value={newMilestoneKind}
+                    onChange={(e) => setNewMilestoneKind(e.target.value as BusinessMilestoneKind)}
+                    className="field w-auto text-[13px]"
+                  >
+                    {MILESTONE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                  <button
+                    onClick={handleAddMilestone}
+                    disabled={!newMilestoneTitle.trim() || !newMilestoneDate}
+                    className="btn-primary shrink-0 px-3 py-2 disabled:opacity-40"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Milestone list */}
+              {!milestonesLoading && sortedMilestones.length > 0 && (
+                <div className="space-y-1.5">
+                  {sortedMilestones.map((m) => (
+                    <div key={m.id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-cream-200">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-medium text-ink-800 truncate">{m.title}</p>
+                        <p className="text-[11px] text-ink-400">{m.date} · {m.kind}</p>
+                      </div>
+                      <button onClick={() => handleDeleteMilestone(m.id)} className="p-1.5 text-ink-300 hover:text-rosa-600 rounded-lg shrink-0" title="Delete">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Headcount log */}
+              <div className="pt-3 border-t border-cream-200 space-y-2.5">
+                <h4 className="text-[12px] font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <TrendingUp size={12} /> Headcount over time
+                </h4>
+                {trend && (
+                  <p className="text-[13px] text-ink-600">
+                    {trend.latest.count} today
+                    {trend.deltaSinceFirst !== 0 && (
+                      <span className="text-ink-400"> · {trend.deltaSinceFirst > 0 ? '+' : ''}{trend.deltaSinceFirst} since {trend.first.date}</span>
+                    )}
+                    {trend.isAllTimeHigh && trend.deltaSinceFirst > 0 && <span className="text-sage-600 font-medium"> · biggest the team's been 🌱</span>}
+                  </p>
+                )}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={newHeadcountDate}
+                    max={localToday()}
+                    onChange={(e) => setNewHeadcountDate(e.target.value)}
+                    className="field flex-1 text-[13px]"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="Count"
+                    value={newHeadcountCount}
+                    onChange={(e) => setNewHeadcountCount(e.target.value)}
+                    className="field w-24 text-[13px]"
+                  />
+                  <button
+                    onClick={handleAddHeadcount}
+                    disabled={!newHeadcountDate || !newHeadcountCount}
+                    className="btn-primary shrink-0 px-3 py-2 disabled:opacity-40"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+                {sortedHeadcount.length > 0 && (
+                  <div className="space-y-1.5">
+                    {sortedHeadcount.map((h) => (
+                      <div key={h.id} className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-cream-200">
+                        <p className="text-[13px] text-ink-700 flex-1">{h.date} — <span className="font-semibold">{h.count}</span></p>
+                        <button onClick={() => handleDeleteHeadcount(h.id)} className="p-1 text-ink-300 hover:text-rosa-600 rounded-lg shrink-0" title="Delete">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

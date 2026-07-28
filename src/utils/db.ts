@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -357,6 +357,15 @@ export const loadSettings = () => loadReferenceDoc<HubSettings>('settings', 'fam
 // other feature here.
 export const saveInMemory = (v: InMemoryDoc) => saveReferenceDoc('inMemory', v, 'family_in_memory');
 export const loadInMemory = () => loadReferenceDoc<InMemoryDoc>('inMemory', 'family_in_memory');
+
+// Business Milestones (business spaces only) — the company growth timeline
+// (one-off milestones + headcount log), alongside the founding date already
+// on FamilyInfoDoc.foundingDate. Same shared-reference-doc convention as
+// every other feature above; readable/writable by any adult in the space
+// (mirrors WillsEstate/Slips — not admin-gated the way the founding date is,
+// since a milestone is a shared team memory, not a legal space setting).
+export const saveBusinessMilestones = (v: BusinessMilestonesDoc) => saveReferenceDoc('businessMilestones', v, 'family_business_milestones');
+export const loadBusinessMilestones = () => loadReferenceDoc<BusinessMilestonesDoc>('businessMilestones', 'family_business_milestones');
 
 // --- Asset photos: extra photos live in Firebase Storage (NOT inline base64) so
 // an asset can hold many pictures without hitting Firestore's ~1 MiB per-doc

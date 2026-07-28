@@ -181,6 +181,13 @@ export interface FamilyMember {
   timelapseGuide?: TimelapseGuide;  // remembered eye-line/centre-line for the timelapse camera, set once and reused every year
   cv?: MemberCv;                    // business spaces only — CV/résumé structured facts + a pointer to the filed CV document
   referrals?: ReferralRecord[];     // Referrals & Results: referral letters, imaging, lab results, specialist letters, sick notes
+  employeePreferences?: EmployeePreferences; // business spaces only — the business-appropriate equivalent of `preferences` below
+  // Per-person opt-out — "no fuss, please". Suppresses the birthday/work-anniversary
+  // confetti celebration AND the corresponding "needs attention" nudge for THIS
+  // person only (other members' celebrations are unaffected). Off by default —
+  // absence means celebrate as normal. See HubSettings.celebrationsEnabled for
+  // the per-SPACE equivalent (turns celebrations off for everyone).
+  noCelebrations?: boolean;
 }
 
 // A quote a family member said — captured with the date so their AGE at the time
@@ -555,6 +562,12 @@ export interface HubSettings {
   nameDisplay?: 'real' | 'nick' | 'both';   // how member names show (default 'both')
   astrology?: boolean;       // opt-in "just for fun" star-sign view (off by default)
   country?: IdCountry;       // drives which ID & Passports field set renders (default 'AT')
+  // Per-SPACE opt-out of the birthday/work-anniversary/business-anniversary
+  // confetti celebration and its "needs attention" nudges. Default ON
+  // (undefined = true) — a team that would rather skip the fuss entirely can
+  // turn it off here; a single person who's fine with it generally but wants
+  // out personally uses FamilyMember.noCelebrations instead.
+  celebrationsEnabled?: boolean;
 }
 
 // --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---
@@ -969,4 +982,58 @@ export interface ReferralRecord {
   downloadUrl: string;        // Storage download URL
   contentHash?: string;       // SHA-256 of the file bytes — duplicate detection, mirrors FamilyDocument.contentHash
   addedAt: string;            // ISO timestamp this record was filed
+}
+
+// --- Employee preferences (business spaces only): the business-appropriate
+// equivalent of a family member's `Preferences` above. Family Preferences
+// (favourite movies/games/colours) reads as surveillance in a work context,
+// so this is a deliberately SEPARATE, narrower type — limited to what a
+// decent small employer is expected to know: how to address someone, a drink
+// order and dietary need for shared meals/catering, a kit/uniform size, and
+// what kind of recognition (if any) they'd actually like. Deliberately
+// excludes anything GDPR "special category" (health beyond a catering
+// allergy note already distinct from MedicalRecord, religion, political
+// opinion, family status) — the 2020 Hamburg DPA fine against H&M (€35.3m,
+// for a service-centre file that included employees' family issues and
+// religious beliefs) is the cautionary example that shaped this field list.
+// The opt-out itself — "no fuss, please" — lives on FamilyMember.noCelebrations,
+// not here, so it also suppresses the birthday celebration, not just this form.
+export interface EmployeePreferences {
+  preferredName?: string;
+  coffeeOrTea?: string;
+  dietaryRequirements?: string;
+  kitSize?: string;
+  recognitionStyle?: string;
+  notes?: string;
+}
+
+// --- Business Milestones (business spaces only) ---
+export type BusinessMilestoneKind =
+  | 'First customer'
+  | 'New location'
+  | 'Certification / licence'
+  | 'Revenue target'
+  | 'Product launch'
+  | 'Funding'
+  | 'Award / recognition'
+  | 'Other';
+
+export interface BusinessMilestoneEntry {
+  id: string;
+  title: string;
+  date: string;
+  kind: BusinessMilestoneKind | string;
+  notes?: string;
+}
+
+export interface HeadcountLog {
+  id: string;
+  date: string;
+  count: number;
+  note?: string;
+}
+
+export interface BusinessMilestonesDoc {
+  milestones: BusinessMilestoneEntry[];
+  headcount: HeadcountLog[];
 }

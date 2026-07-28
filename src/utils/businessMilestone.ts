@@ -8,6 +8,8 @@
 // duplicated between server.js and src/utils/astrology.ts — keep both in sync
 // if the definition of "years since founding" is ever revised.
 
+import { BusinessMilestoneEntry, HeadcountLog } from '../types';
+
 function parseISODate(s?: string): Date | null {
   if (!s) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
@@ -62,4 +64,44 @@ export function nextAnniversary(foundingDate: string | undefined, now: Date = ne
   if (next.getTime() < today.getTime()) next = new Date(today.getFullYear() + 1, founded.getMonth(), founded.getDate());
   const years = next.getFullYear() - founded.getFullYear();
   return { date: next, years };
+}
+
+// Nearest upcoming ANNUAL ANNIVERSARY of any one-off milestone in the list
+// (e.g. "2 years since first customer") — same date math as nextAnniversary()
+// above (applied there to the founding date), just picking the closest across
+// a whole list. Also doubles as the per-EMPLOYEE work-anniversary lookup —
+// nextAnniversary(member.startDate) is called directly for that, no separate
+// helper needed since the math is identical to a founding-date anniversary.
+// Returns null when the list is empty or every date is unparseable.
+export function nextMilestoneAnniversary(
+  milestones: BusinessMilestoneEntry[],
+  now: Date = new Date(),
+): { milestone: BusinessMilestoneEntry; date: Date; years: number } | null {
+  let best: { milestone: BusinessMilestoneEntry; date: Date; years: number } | null = null;
+  for (const m of milestones) {
+    const next = nextAnniversary(m.date, now);
+    if (!next) continue;
+    if (!best || next.date.getTime() < best.date.getTime()) {
+      best = { milestone: m, date: next.date, years: next.years };
+    }
+  }
+  return best;
+}
+
+// Latest headcount figure + growth since the first logged figure, and
+// whether the latest entry is an all-time high (a small "we're growing"
+// signal worth celebrating). Sorts a COPY by date — never mutates the input.
+// Ties on date keep array order (Array#sort is stable).
+export function headcountTrend(headcount: HeadcountLog[]): {
+  latest: HeadcountLog;
+  first: HeadcountLog;
+  deltaSinceFirst: number;
+  isAllTimeHigh: boolean;
+} | null {
+  if (headcount.length === 0) return null;
+  const sorted = [...headcount].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const first = sorted[0];
+  const latest = sorted[sorted.length - 1];
+  const isAllTimeHigh = latest.count >= Math.max(...sorted.map((h) => h.count));
+  return { latest, first, deltaSinceFirst: latest.count - first.count, isAllTimeHigh };
 }

@@ -72,6 +72,7 @@ import MemberIDs from './MemberIDs';
 import MemberTravel from './MemberTravel';
 import CareSchedule from './CareSchedule';
 import MemberPreferences from './MemberPreferences';
+import MemberEmployeePreferences from './MemberEmployeePreferences';
 import EmergencyView from './EmergencyView';
 import HouseholdView from './HouseholdView';
 import FinancesView from './FinancesView';
@@ -1744,7 +1745,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                 <MemberTravel member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
                               {activeTab === 'preferences' && (
-                                <MemberPreferences member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                                isBusinessSpace
+                                  ? <MemberEmployeePreferences member={selectedMember} onUpdate={handlePatchSelectedMember} canEdit={demo || canWrite} />
+                                  : <MemberPreferences member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
                               {activeTab === 'sayings' && (
                                 <>

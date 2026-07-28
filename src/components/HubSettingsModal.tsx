@@ -28,6 +28,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
   const [nameDisplay, setNameDisplay] = useState<'real' | 'nick' | 'both'>('both');
   const [astrology, setAstrology] = useState(false);
   const [country, setCountry] = useState<IdCountry>('AT');
+  const [celebrationsEnabled, setCelebrationsEnabled] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -39,6 +40,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
       setNameDisplay(settings.nameDisplay || 'both');
       setAstrology(settings.astrology === true);
       setCountry(settings.country || 'AT');
+      setCelebrationsEnabled(settings.celebrationsEnabled !== false);
       setUploadFileName('');
     }
   }, [isOpen, settings]);
@@ -75,6 +77,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
       nameDisplay,
       astrology,
       country,
+      celebrationsEnabled,
     });
     onClose();
   };
@@ -199,6 +202,34 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
                     className={`relative w-11 h-6 rounded-full shrink-0 transition-colors ${astrology ? 'bg-clay-500' : 'bg-cream-300'}`}
                   >
                     <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-soft transition-transform ${astrology ? 'translate-x-5' : ''}`} />
+                  </button>
+                </label>
+              </div>
+
+              {/* Celebrations — per-space kill switch for the confetti overlay
+                  (birthdays, and in a business space, work/founding/milestone
+                  anniversaries) and its "needs attention" nudges. On by
+                  default. A single person who's fine with celebrations
+                  generally but wants out personally can instead use "No fuss,
+                  please" on their own profile. */}
+              <div>
+                <label className="flex items-center justify-between gap-3 cursor-pointer select-none">
+                  <span>
+                    <span className="field-label" style={{ marginBottom: 0 }}>Celebrations</span>
+                    <span className="block text-[12px] text-ink-400 mt-0.5">
+                      {isBusinessSpace
+                        ? 'The confetti moment for birthdays, work anniversaries and business milestones. Turn off if your team would rather skip the fuss.'
+                        : 'The confetti moment for birthdays. On by default.'}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={celebrationsEnabled}
+                    onClick={() => setCelebrationsEnabled(v => !v)}
+                    className={`relative w-11 h-6 rounded-full shrink-0 transition-colors ${celebrationsEnabled ? 'bg-clay-500' : 'bg-cream-300'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-soft transition-transform ${celebrationsEnabled ? 'translate-x-5' : ''}`} />
                   </button>
                 </label>
               </div>

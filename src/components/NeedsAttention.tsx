@@ -1,11 +1,11 @@
 import { useState, useEffect, type ElementType } from 'react';
 import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck } from 'lucide-react';
-import { FamilyMember, AssetItem, Vehicle, ContactEntry, FamilyInfoDoc, EstateRecord, SlipItem } from '../types';
+import { FamilyMember, AssetItem, Vehicle, ContactEntry, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc } from '../types';
 import { careNextDue } from '../utils/care';
-import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips } from '../utils/db';
+import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel, daysUntil } from '../utils/vehicle';
 import { birthdayPhotoNudge } from '../utils/birthday';
-import { nextAnniversary } from '../utils/businessMilestone';
+import { nextAnniversary, nextMilestoneAnniversary } from '../utils/businessMilestone';
 import { isReviewStale } from '../utils/willsEstate';
 
 const DAY = 1000 * 60 * 60 * 24;
@@ -189,12 +189,23 @@ function computeContactNudges(contacts: ContactEntry[]): Nudge[] {
   return out;
 }
 
+// Space-level celebration kill switch (HubSettings.celebrationsEnabled,
+// default ON) — shared by every celebratory nudge below (business
+// anniversary, work anniversary, milestone anniversary). Deliberately does
+// NOT gate the plain informational/deadline nudges elsewhere in this file
+// (passport expiry, care schedule, etc.) — those need action, they aren't a
+// celebration someone can opt out of.
+function celebrationsOff(settings: HubSettings | null): boolean {
+  return settings?.celebrationsEnabled === false;
+}
+
 // Business anniversary — same "within 21 days" window as a family member's
 // birthday nudge below. NeedsAttention has no isBusinessSpace prop today, so
 // this gates on the self-loaded spaceInfo's own `type` field instead —
 // semantically the same gate as a prop would give, no prop plumbing added.
-function computeBusinessAnniversaryNudge(spaceInfo: FamilyInfoDoc | null): Nudge[] {
+function computeBusinessAnniversaryNudge(spaceInfo: FamilyInfoDoc | null, settings: HubSettings | null): Nudge[] {
   if (!spaceInfo || spaceInfo.type !== 'business' || !spaceInfo.foundingDate) return [];
+  if (celebrationsOff(settings)) return [];
   const next = nextAnniversary(spaceInfo.foundingDate);
   if (!next) return [];
   // Compare midnight-to-midnight. nextAnniversary() returns a date normalised to
@@ -217,6 +228,78 @@ function computeBusinessAnniversaryNudge(spaceInfo: FamilyInfoDoc | null): Nudge
     date: toISODate(next.date),
     days,
   }];
+}
+
+// Work anniversaries — per-EMPLOYEE equivalent of the business-founding
+// anniversary above, using the member's own `startDate` (employment start,
+// added in v111 — see EditMemberModal's business-only "Start date" field).
+// Same "within 21 days", same nextAnniversary() date math (it's fully
+// generic — no separate helper needed), same space-level kill switch, PLUS
+// the per-person `noCelebrations` opt-out ("no fuss, please" in Employee
+// preferences). Never fires for a member's FIRST day (years === 0 means
+// "today is their start date", not an anniversary of anything yet).
+function computeWorkAnniversaryNudges(members: FamilyMember[], spaceInfo: FamilyInfoDoc | null, settings: HubSettings | null): Nudge[] {
+  if (!spaceInfo || spaceInfo.type !== 'business') return [];
+  if (celebrationsOff(settings)) return [];
+  const out: Nudge[] = [];
+  const midnightToday = new Date();
+  midnightToday.setHours(0, 0, 0, 0);
+  for (const m of members) {
+    if (m.noCelebrations || !m.startDate) continue;
+    const next = nextAnniversary(m.startDate);
+    if (!next || next.years < 1) continue;
+    const days = Math.round((next.date.getTime() - midnightToday.getTime()) / DAY);
+    if (days > 21) continue;
+    const first = m.name.split(/\s+/)[0] || m.name;
+    out.push({
+      key: `work-anniversary-${m.id}-${next.years}`,
+      memberId: m.id,
+      icon: PartyPopper,
+      tone: 'info',
+      text: days <= 0
+        ? `${first} hits ${next.years} year${next.years === 1 ? '' : 's'} here today! 🎉`
+        : `${first}'s ${ordinalYears(next.years)} work anniversary in ${days} day${days !== 1 ? 's' : ''}`,
+      tab: 'overview',
+      date: toISODate(next.date),
+      days,
+    });
+  }
+  return out;
+}
+
+// Owner-defined business milestones (first customer, new location,
+// certification, revenue target …) resurface on their ANNUAL anniversary,
+// the same "within 21 days" convention as everything else here. Space-level
+// only (no per-person opt-out — a milestone belongs to the business, not one
+// person).
+function computeMilestoneAnniversaryNudge(spaceInfo: FamilyInfoDoc | null, settings: HubSettings | null, milestones: BusinessMilestonesDoc | null): Nudge[] {
+  if (!spaceInfo || spaceInfo.type !== 'business' || !milestones?.milestones?.length) return [];
+  if (celebrationsOff(settings)) return [];
+  const next = nextMilestoneAnniversary(milestones.milestones);
+  if (!next) return [];
+  const midnightToday = new Date();
+  midnightToday.setHours(0, 0, 0, 0);
+  const days = Math.round((next.date.getTime() - midnightToday.getTime()) / DAY);
+  if (days > 21) return [];
+  return [{
+    key: `milestone-anniversary-${next.milestone.id}-${next.years}`,
+    memberId: '',
+    icon: Award,
+    tone: 'info',
+    text: days <= 0
+      ? `${next.years} year${next.years === 1 ? '' : 's'} since "${next.milestone.title}" — today! 🎉`
+      : `${next.years}-year anniversary of "${next.milestone.title}" in ${days} day${days !== 1 ? 's' : ''}`,
+    tab: 'info',
+    view: 'info',
+    date: toISODate(next.date),
+    days,
+  }];
+}
+
+function ordinalYears(n: number): string {
+  const rem100 = n % 100;
+  const suffix = (rem100 >= 11 && rem100 <= 13) ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] || 'th');
+  return `${n}${suffix}`;
 }
 
 // Deterministic, data-derived nudges — no AI, no cost, no new fields.
@@ -375,6 +458,8 @@ export default function NeedsAttention(
   const [spaceInfo, setSpaceInfo] = useState<FamilyInfoDoc | null>(null);
   const [estateRecords, setEstateRecords] = useState<EstateRecord[]>([]);
   const [slips, setSlips] = useState<SlipItem[]>([]);
+  const [settings, setSettings] = useState<HubSettings | null>(null);
+  const [milestones, setMilestones] = useState<BusinessMilestonesDoc | null>(null);
   useEffect(() => {
     let cancelled = false;
     loadAssets()
@@ -392,14 +477,29 @@ export default function NeedsAttention(
     loadSlips()
       .then((s) => { if (!cancelled) setSlips(s || []); })
       .catch(() => { if (!cancelled) setSlips([]); });
+    loadSettings()
+      .then((s) => { if (!cancelled) setSettings(s); })
+      .catch(() => { if (!cancelled) setSettings(null); });
+    loadBusinessMilestones()
+      .then((m) => { if (!cancelled) setMilestones(m); })
+      .catch(() => { if (!cancelled) setMilestones(null); });
     return () => { cancelled = true; };
   }, []);
 
   const [showAll, setShowAll] = useState(false);
 
   const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
-  const all = [...computeNudges(members), ...computeContactNudges(contacts || []), ...computeVehicleNudges(vehicles), ...computeAssetNudges(assets), ...computeBusinessAnniversaryNudge(spaceInfo), ...computeEstateNudges(estateRecords), ...computeSlipNudges(slips)]
-    .sort((a, b) => order[a.tone] - order[b.tone]);
+  const all = [
+    ...computeNudges(members),
+    ...computeContactNudges(contacts || []),
+    ...computeVehicleNudges(vehicles),
+    ...computeAssetNudges(assets),
+    ...computeBusinessAnniversaryNudge(spaceInfo, settings),
+    ...computeWorkAnniversaryNudges(members, spaceInfo, settings),
+    ...computeMilestoneAnniversaryNudge(spaceInfo, settings, milestones),
+    ...computeEstateNudges(estateRecords),
+    ...computeSlipNudges(slips),
+  ].sort((a, b) => order[a.tone] - order[b.tone]);
   if (all.length === 0) return null;
   const COLLAPSED = 6;
   const shown = showAll ? all : all.slice(0, COLLAPSED);

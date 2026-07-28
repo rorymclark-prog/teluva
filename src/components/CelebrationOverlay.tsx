@@ -1,22 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-import { FamilyMember, FamilyInfoDoc } from '../types';
-import { loadSpaceInfo, isHintSeen, markHintSeen } from '../utils/db';
-import { nextAnniversary, toISODate } from '../utils/businessMilestone';
+import { FamilyMember, FamilyInfoDoc, HubSettings, BusinessMilestonesDoc } from '../types';
+import { loadSpaceInfo, isHintSeen, markHintSeen, loadSettings, loadBusinessMilestones } from '../utils/db';
+import { nextAnniversary, nextMilestoneAnniversary, toISODate } from '../utils/businessMilestone';
 
 // CelebrationOverlay — a once-a-day, in-app confetti moment for the family
-// member birthdays that fall TODAY (and, in a business space, the founding
-// anniversary). Pure client delight: localStorage-only, no Firestore, no AI.
+// member birthdays that fall TODAY, and, in a business space, the founding
+// anniversary, each employee's own work anniversary (member.startDate), and
+// owner-defined business milestone anniversaries. Pure client delight:
+// localStorage-only, no Firestore writes, no AI. Suppressible per-person
+// (FamilyMember.noCelebrations — "no fuss, please") and per-space
+// (HubSettings.celebrationsEnabled).
 //
 // ─────────────────────────────────────────────────────────────────────────
 // SAFETY — why this can never fire for someone who has died:
-// The ONLY inputs are FamilyMember[] (their `birthdate`, a real YYYY-MM-DD)
-// plus the business space's founding date. Deceased relatives are the SEPARATE
-// `DepartedRelative` type, whose born/died are FREE TEXT, never dates, and are
-// never read here. So there is structurally no code path by which a memorial
-// entry could trigger confetti. Do not add one — keep the inputs strictly
-// FamilyMember[] + spaceInfo. (Mirrors the same guarantee in the AI pipelines,
-// see the DepartedRelative note in types.ts.)
+// The ONLY per-person inputs are FamilyMember[] (their `birthdate`/`startDate`,
+// real YYYY-MM-DD fields) plus the business space's founding date and its
+// BusinessMilestonesDoc (dates the OWNER logged about the company, not a
+// person). Deceased relatives are the SEPARATE `DepartedRelative` type, whose
+// born/died are FREE TEXT, never dates, and are never read here. So there is
+// structurally no code path by which a memorial entry could trigger confetti.
+// Do not add one — keep the inputs strictly FamilyMember[] + spaceInfo +
+// BusinessMilestonesDoc. (Mirrors the same guarantee in the AI pipelines, see
+// the DepartedRelative note in types.ts.)
 // ─────────────────────────────────────────────────────────────────────────
 
 const DAY = 1000 * 60 * 60 * 24;
@@ -74,19 +80,29 @@ const CONFETTI_COLORS = ['#e8896a', '#f2b705', '#7fa87f', '#e58a9a', '#f4d06f', 
 
 export default function CelebrationOverlay({ members }: { members: FamilyMember[] }) {
   const [spaceInfo, setSpaceInfo] = useState<FamilyInfoDoc | null>(null);
+  const [settings, setSettings] = useState<HubSettings | null>(null);
+  const [milestones, setMilestones] = useState<BusinessMilestonesDoc | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
-  // Load the space doc ourselves — Dashboard doesn't have the FamilyInfoDoc in
-  // scope (only activeSpaceType from context), so we fetch it like
+  // Load the space doc, hub settings (celebrationsEnabled kill switch) and
+  // business milestones ourselves — Dashboard doesn't have any of these in
+  // scope (only activeSpaceType from context), so we fetch them like
   // NeedsAttention does. Null-safe: demo/family spaces just yield null and the
-  // anniversary branch stays off.
+  // business-only branches stay off.
   useEffect(() => {
     let cancelled = false;
-    loadSpaceInfo()
-      .then((s) => { if (!cancelled) setSpaceInfo(s); })
-      .catch(() => { if (!cancelled) setSpaceInfo(null); })
-      .finally(() => { if (!cancelled) setLoaded(true); });
+    Promise.all([
+      loadSpaceInfo().catch(() => null),
+      loadSettings().catch(() => null),
+      loadBusinessMilestones().catch(() => null),
+    ]).then(([s, st, ms]) => {
+      if (cancelled) return;
+      setSpaceInfo(s);
+      setSettings(st);
+      setMilestones(ms);
+      setLoaded(true);
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -99,11 +115,17 @@ export default function CelebrationOverlay({ members }: { members: FamilyMember[
     // burst per space per day — opening the app 5×/day won't replay it.
     const key = `celebration_${toISODate(today)}`;
 
-    // Family members whose birthday is TODAY (local month+day match). This is
-    // the ONLY place a person feeds the overlay — strictly FamilyMember.
+    // Space-level kill switch — HubSettings.celebrationsEnabled, default ON.
+    // A space that's turned this off gets NO confetti burst at all today,
+    // for anyone or anything.
+    if (settings?.celebrationsEnabled === false) return { messages: [], hintKey: key };
+
+    // Family members whose birthday is TODAY (local month+day match), minus
+    // anyone who opted out ("no fuss, please" — noCelebrations). This is the
+    // ONLY place a person feeds the overlay — strictly FamilyMember.
     const birthdayPeople: { name: string; age: number }[] = [];
     for (const m of members) {
-      if (!m.birthdate) continue;
+      if (!m.birthdate || m.noCelebrations) continue;
       const bd = new Date(m.birthdate);
       if (isNaN(bd.getTime())) continue;
       if (bd.getMonth() === today.getMonth() && bd.getDate() === today.getDate()) {
@@ -139,8 +161,37 @@ export default function CelebrationOverlay({ members }: { members: FamilyMember[
       }
     }
 
+    // Work anniversaries — per-employee equivalent of the founding anniversary
+    // above, using member.startDate. Same "today only" rule, same noCelebrations
+    // opt-out as the birthday loop, and skips a member's very first day
+    // (years === 0 isn't an anniversary of anything yet).
+    if (spaceInfo && spaceInfo.type === 'business') {
+      for (const m of members) {
+        if (m.noCelebrations || !m.startDate) continue;
+        const next = nextAnniversary(m.startDate);
+        if (!next || next.years < 1) continue;
+        const days = Math.round((next.date.getTime() - today.getTime()) / DAY);
+        if (days !== 0) continue;
+        const first = m.name.split(/\s+/)[0] || m.name;
+        msgs.push(`${next.years} ${next.years === 1 ? 'year' : 'years'} of ${first} — happy work anniversary! 🎉`);
+      }
+    }
+
+    // Business milestone anniversary — owner-defined milestones (first
+    // customer, new location, certification, revenue target …) resurface on
+    // their annual anniversary, same "today only" rule.
+    if (spaceInfo && spaceInfo.type === 'business' && milestones?.milestones?.length) {
+      const next = nextMilestoneAnniversary(milestones.milestones);
+      if (next) {
+        const days = Math.round((next.date.getTime() - today.getTime()) / DAY);
+        if (days === 0) {
+          msgs.push(`${next.years} ${next.years === 1 ? 'year' : 'years'} since "${next.milestone.title}" — worth a moment 🎉`);
+        }
+      }
+    }
+
     return { messages: msgs, hintKey: key };
-  }, [members, spaceInfo]);
+  }, [members, spaceInfo, settings, milestones]);
 
   // Whether to actually show: something to celebrate, not already seen today,
   // not dismissed this session, and the space doc has finished loading (so a
