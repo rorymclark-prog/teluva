@@ -1,9 +1,15 @@
 {
-  "label": "v124",
+  "label": "v125",
   "changes": [
-    "The assistant can now change and remove things by voice, not just add them — \"that's not Mia's dentist anymore, remove it\". It always shows exactly what and whose record will change, and nothing happens until you tap Apply",
-    "Every Apply now shows where each thing landed, and can be undone",
-    "New: open the assistant and it flags what's expiring in the next few months and what's missing (like a passport with no expiry date) — and \"what expires across everyone in 3 months\" now works reliably",
-    "Voice dictation now understands German and Afrikaans, keeps listening, and adds to what you've typed instead of replacing it"
+    "Emergency card and Babysitter mode now show the number to actually dial, as big tap-to-call buttons, for your country — 144/133/122 in Austria, 999 in the UK, 10111 and 10177 in South Africa, 911 in the US. It's the first thing on the screen, even before you've added anyone",
+    "A short welcome tour the first time you open the app, so you can find what's in here. Skippable, never shows twice, and replayable any time from settings",
+    "Measure from a photo: snap the bathroom scale, a shoe label or a growth chart and it fills in the height, weight or size for you to check before saving",
+    "New under each person's Medical tab: a home for doctor's referrals, X-rays, scan reports and lab results — with an open/booked/done marker so a referral doesn't get forgotten",
+    "The growing-up timelapse can use the camera with last year's photo faded over the live view, so this year's shot lines up and the video flows instead of jumping",
+    "Pounds, feet and inches for anyone who thinks in them — and a nudge when a child's sizes are getting out of date",
+    "Deleting a saved password, bank record or medical entry now asks first, and the buttons are big enough to hit on a phone",
+    "You can now remove someone from your space, or permanently delete everything, from Settings. Your backup now includes the actual files, not just links to them",
+    "For businesses: work anniversaries, company milestones and a headcount log, plus the things a decent employer remembers — with a \"no fuss, please\" switch for anyone who'd rather not have one made",
+    "Under the hood: two people using the app at the same time can no longer overwrite each other's changes, and far less of your private information is sent to the AI"
   ]
 }
