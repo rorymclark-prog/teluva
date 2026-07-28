@@ -19,6 +19,9 @@
 // per-DEVICE act, not a per-account one. The same person on a phone and a
 // laptop genuinely should be asked on the phone and not the laptop.
 
+// NOTE: still 'tresa_' after the rename to Teluva — deliberately. This holds
+// how many times someone has declined the install prompt; renaming it resets
+// that to zero and starts pestering people who already said no three times.
 const KEY = 'tresa_install_prompt_v1';
 
 export interface InstallPromptState {

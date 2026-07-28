@@ -57,7 +57,7 @@ export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: (
         {/* Body */}
         <div className="overflow-y-auto p-5 sm:p-7 text-[14px] leading-relaxed text-ink-700 space-y-4">
           <div className="text-[12px] rounded-xl bg-cream-100 border border-cream-300 text-ink-500 px-3 py-2">
-            This describes what Tresa actually does today, checked against the app itself. Questions
+            This describes what Teluva actually does today, checked against the app itself. Questions
             about it — or anything here that looks out of date — go to <b>rorymclark@gmail.com</b>.
           </div>
           {active === 'privacy' ? <Privacy /> : <Terms />}
@@ -80,7 +80,7 @@ function Privacy() {
     <>
       <p className="text-[12px] text-ink-400">Last updated: {UPDATED}</p>
       <p>
-        This policy explains what personal data Tresa collects, why, and your rights under the EU
+        This policy explains what personal data Teluva collects, why, and your rights under the EU
         General Data Protection Regulation (GDPR).
       </p>
 
@@ -111,7 +111,7 @@ function Privacy() {
 
       <H>Children&apos;s data</H>
       <p>
-        Tresa is used by adults to keep records about their family, including children. If you add a
+        Teluva is used by adults to keep records about their family, including children. If you add a
         child&apos;s data you confirm you have the right (as a parent or guardian) to do so. We do not
         knowingly let children create their own accounts.
       </p>
@@ -156,7 +156,7 @@ function Terms() {
       <p className="text-[12px] text-ink-400">Last updated: {UPDATED}</p>
 
       <H>1. The service</H>
-      <p>Tresa is a private tool for organising your family&apos;s information. You need a Google account to sign in.</p>
+      <p>Teluva is a private tool for organising your family&apos;s information. You need a Google account to sign in.</p>
 
       <H>2. Your responsibilities</H>
       <ul className="list-disc pl-5 space-y-1">

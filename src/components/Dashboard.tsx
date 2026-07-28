@@ -1442,11 +1442,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           <div className="w-16 h-16 rounded-full bg-sage-100 flex items-center justify-center mx-auto mb-5">
             <ShieldCheck className="w-8 h-8 text-sage-600" />
           </div>
-          <p className="text-[11px] font-bold text-clay-500 uppercase tracking-wider mb-1">Tresa</p>
+          <p className="text-[11px] font-bold text-clay-500 uppercase tracking-wider mb-1">Teluva</p>
           <h1 className="text-display-md text-ink-900 mb-3">{joinLinkVisit ? "You've been invited" : hubName}</h1>
           <p className="text-sm text-ink-500 leading-relaxed mb-8">
             {joinLinkVisit
-              ? 'Someone has invited you to join their family vault on Tresa. Sign in with Google to accept — you\'ll land straight in it.'
+              ? 'Someone has invited you to join their family vault on Teluva. Sign in with Google to accept — you\'ll land straight in it.'
               : 'Sizes, documents, growth and plans for the whole family — together in one private place.'}
           </p>
           <button onClick={loginWithGoogle} className="btn-primary w-full py-3">

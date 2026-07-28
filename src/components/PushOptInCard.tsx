@@ -60,7 +60,7 @@ export default function PushOptInCard() {
 
       {!eligible ? (
         <p className="text-[13px] text-ink-500 leading-relaxed">
-          To get a gentle nudge on family birthdays and anniversaries, add Tresa to your
+          To get a gentle nudge on family birthdays and anniversaries, add Teluva to your
           Home Screen first (Share → Add to Home Screen), then open it from there and come
           back here.
         </p>

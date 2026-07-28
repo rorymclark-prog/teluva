@@ -22,6 +22,9 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 
+// NOTE: still 'tresa_' after the rename to Teluva — deliberately. This carries
+// the resume pointer for a part-finished interview; renaming it would drop
+// someone back at question one having already answered ten.
 const LS_PREFIX = 'tresa_interview_';
 const DEMO_SEEN_KEY = `${LS_PREFIX}demo_seen`;
 const DEMO_STEP_KEY = `${LS_PREFIX}demo_step`;

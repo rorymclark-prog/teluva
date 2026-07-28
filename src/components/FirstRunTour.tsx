@@ -56,7 +56,7 @@ const STEPS: TourStepDef[] = [
           : 'Your family, all in one place',
     body: (ctx) =>
       ctx.membersCount === 0
-        ? 'Add whoever this is for — Tresa builds out their whole profile as you go: sizes, documents, medical, the lot. Nothing needs to be perfect on day one.'
+        ? 'Add whoever this is for — Teluva builds out their whole profile as you go: sizes, documents, medical, the lot. Nothing needs to be perfect on day one.'
         : 'Tap anyone here to see everything about them. Drag the little handle if you want them in a different order.',
   },
   {

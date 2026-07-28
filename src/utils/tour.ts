@@ -16,6 +16,11 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 
+// NOTE: still 'tresa_' — the app was renamed to Teluva, this key was NOT.
+// It is written on every device that has already dismissed the tour; renaming
+// it would make the tour re-run for every existing user, which is exactly the
+// nagging the backoff logic exists to prevent. The brand is what people SEE;
+// this is plumbing, and plumbing keeps its name.
 const LS_PREFIX = 'tresa_tour_seen_';
 const LS_DEMO_KEY = `${LS_PREFIX}demo`;
 

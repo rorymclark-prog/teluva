@@ -1,4 +1,4 @@
-/* Tresa service worker — push notifications only.
+/* Teluva service worker — push notifications only.
  *
  * Deliberately minimal: this SW exists so iOS/Android can deliver Web Push
  * while the app is closed. It intentionally does NOT cache app shell / assets —
@@ -26,7 +26,7 @@ self.addEventListener('push', (event) => {
     data = {};
   }
 
-  const title = data.title || 'Tresa';
+  const title = data.title || 'Teluva';
   const body = data.body || '';
   const url = data.url || '/';
   // A stable tag makes repeated pushes for the same occasion collapse into one
@@ -45,7 +45,7 @@ self.addEventListener('push', (event) => {
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
-// Tapping the notification: focus an already-open Tresa tab if there is one,
+// Tapping the notification: focus an already-open Teluva tab if there is one,
 // otherwise open a fresh window at the target url.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();

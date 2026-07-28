@@ -14,7 +14,7 @@ interface Props {
 
 // Full-screen viewer for a scan / photo / PDF, with download + native share
 // (which is how you email or message a file on mobile). Click the backdrop to close.
-export default function ImageLightbox({ src, onClose, name = 'Tresa document', mimeType }: Props) {
+export default function ImageLightbox({ src, onClose, name = 'Teluva document', mimeType }: Props) {
   const isPdf = !!src && looksLikePdf(src, mimeType);
   async function handleDownload() {
     if (!src) return;
