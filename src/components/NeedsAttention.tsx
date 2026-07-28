@@ -1,5 +1,5 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck } from 'lucide-react';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt } from 'lucide-react';
 import { FamilyMember, AssetItem, Vehicle, ContactEntry, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc } from '../types';
 import { careNextDue } from '../utils/care';
 import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones } from '../utils/db';
@@ -7,6 +7,8 @@ import { vehicleDeadlines, vehicleLabel, daysUntil } from '../utils/vehicle';
 import { birthdayPhotoNudge } from '../utils/birthday';
 import { nextAnniversary, nextMilestoneAnniversary } from '../utils/businessMilestone';
 import { isReviewStale } from '../utils/willsEstate';
+import { sizeStaleness } from '../utils/sizeStaleness';
+import { todayISO } from '../utils/age';
 
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
@@ -370,6 +372,26 @@ export function computeNudges(members: FamilyMember[]): Nudge[] {
           tab: 'growth',
           date: dueDate ? toISODate(dueDate) : undefined,
           days: dueDate ? Math.round((dueDate.getTime() - now) / DAY) : undefined,
+        });
+      }
+    }
+
+    // Clothing sizes not updated in a while, scaled by age — see
+    // utils/sizeStaleness.ts (1-year-old outgrows clothes far faster than a
+    // 40-year-old). Only meaningful for a member who HAS a birthdate; skips
+    // anyone without one rather than guessing an age band.
+    if (m.birthdate) {
+      const staleness = sizeStaleness(m.clothingSizes, m.birthdate, todayISO());
+      if (staleness.stale) {
+        out.push({
+          key: `sizes-stale-${m.id}`,
+          memberId: m.id,
+          icon: Shirt,
+          tone: 'info',
+          text: staleness.monthsSince != null
+            ? `${first}'s sizes were last updated ${staleness.monthsSince} month${staleness.monthsSince === 1 ? '' : 's'} ago — worth checking`
+            : `${first}'s sizes have never been updated — worth checking`,
+          tab: 'sizes',
         });
       }
     }

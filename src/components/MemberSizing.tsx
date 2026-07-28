@@ -1,6 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { ClothingSizes, FamilyMember } from '../types';
-import { Save, Copy, Check, TrendingUp } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ClothingSizes, FamilyMember, IdCountry } from '../types';
+import { Save, Copy, Check, TrendingUp, Clock, Camera, RefreshCcw, AlertCircle } from 'lucide-react';
+import { loadSettings } from '../utils/db';
+import { compressImageToAvatar } from '../utils/imageCompress';
+import {
+  toCanonicalHeightCm, toCanonicalWeightKg, fromCanonicalHeightCm, fromCanonicalWeightKg,
+  unitSystemForCountry, heightUnitFor, weightUnitFor, shoeSystemForCountry, HeightUnit, WeightUnit,
+} from '../utils/measurementUnits';
+import { getUnitSystemOverride, setUnitSystemOverride } from '../utils/unitPreference';
+import { measureFromPhoto, isInterpolatedSource, MeasureResult } from '../utils/measurePhoto';
+import { sizeStaleness } from '../utils/sizeStaleness';
 
 interface MemberSizingProps {
   member: FamilyMember;
@@ -20,7 +29,13 @@ function calculateAgeInMonths(birthdate?: string): number {
 // Bug fix #3: date-only helper
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
 
-// Get Size Suggestions based on age and role using EU standards (height in cm, EU shoes)
+// Get Size Suggestions based on age and role using EU standards (height in cm, EU shoes).
+// NOTE: this table is EU-only — a UK/US/SA family sees the SAME numbers, just
+// labelled "EU sizing" in the UI below (see the Suggestion Engine block), per
+// the deliberate scope decision not to build a full 4-country conversion
+// table (shoe/clothing sizing conventions genuinely diverge by brand, gender
+// and child-vs-adult, unlike the exact cm<->in / kg<->lb height/weight
+// conversions in measurementUnits.ts).
 function getSizeSuggestions(ageMonths: number, role: string) {
   if (ageMonths < 0) return null;
   const ageYears = ageMonths / 12;
@@ -58,32 +73,63 @@ function getSizeSuggestions(ageMonths: number, role: string) {
   }
 }
 
-const initSizes = (member: FamilyMember): ClothingSizes => ({
+// heightCm/weightKg here hold a DISPLAY-unit string (whatever `heightUnit`/
+// `weightUnit` currently is), NOT necessarily canonical cm/kg — converted at
+// the boundary in handleSave/applySuggestions/the photo-reading handlers
+// below. Every OTHER field is free text and unit-agnostic.
+const initSizes = (member: FamilyMember, heightUnit: HeightUnit, weightUnit: WeightUnit): ClothingSizes => ({
   tops: member.clothingSizes.tops || '',
   bottoms: member.clothingSizes.bottoms || '',
   shoes: member.clothingSizes.shoes || '',
   outerwear: member.clothingSizes.outerwear || '',
   underwear: member.clothingSizes.underwear || '',
   hatValue: member.clothingSizes.hatValue || '',
-  heightCm: member.clothingSizes.heightCm || '',
-  weightKg: member.clothingSizes.weightKg || '',
+  heightCm: member.clothingSizes.heightCm ? String(fromCanonicalHeightCm(Number(member.clothingSizes.heightCm), heightUnit)) : '',
+  weightKg: member.clothingSizes.weightKg ? String(fromCanonicalWeightKg(Number(member.clothingSizes.weightKg), weightUnit)) : '',
   notes: member.clothingSizes.notes || '',
 });
 
 export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProps) {
-  const [sizes, setSizes] = useState<ClothingSizes>(() => initSizes(member));
+  // This app's one existing locale signal (HubSettings.country, set in
+  // FamilySettings.tsx) drives the default unit system — self-loaded here the
+  // same way NeedsAttention.tsx self-loads its own extra data, so no new prop
+  // is needed on this component. A per-device override (localStorage, not
+  // synced) lets e.g. a US grandparent read/type in their own units without
+  // changing what the family itself sees.
+  const [country, setCountry] = useState<IdCountry | undefined>(undefined);
+  const [override, setOverride] = useState(() => getUnitSystemOverride());
+  useEffect(() => {
+    let cancelled = false;
+    loadSettings().then((s) => { if (!cancelled) setCountry(s?.country); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const unitSystem = override ?? unitSystemForCountry(country);
+  const heightUnit: HeightUnit = heightUnitFor(unitSystem);
+  const weightUnit: WeightUnit = weightUnitFor(unitSystem);
+  const shoeSystem = shoeSystemForCountry(country);
+  const toggleUnitOverride = () => {
+    const next = unitSystem === 'imperial' ? 'metric' : 'imperial';
+    setUnitSystemOverride(next);
+    setOverride(next);
+  };
+
+  const [sizes, setSizes] = useState<ClothingSizes>(() => initSizes(member, heightUnit, weightUnit));
 
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Bug fix #1: re-sync when member.id changes
+  // Bug fix #1: re-sync when member.id changes — also re-syncs when the
+  // resolved unit re-derives (country finishes loading shortly after mount),
+  // so the displayed number always matches the unit label next to it.
   useEffect(() => {
-    setSizes(initSizes(member));
+    setSizes(initSizes(member, heightUnit, weightUnit));
     setSaved(false);
-  }, [member.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [member.id, heightUnit, weightUnit]);
 
   const ageMonths = member.birthdate ? calculateAgeInMonths(member.birthdate) : -1;
   const suggestions = getSizeSuggestions(ageMonths, member.role);
+  const staleness = sizeStaleness(member.clothingSizes, member.birthdate, todayLocal());
 
   const handleFieldChange = (field: keyof ClothingSizes, value: string) => {
     setSizes((prev) => ({ ...prev, [field]: value }));
@@ -91,8 +137,12 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
   };
 
   const handleSave = () => {
+    const heightCanonical = sizes.heightCm ? toCanonicalHeightCm(Number(sizes.heightCm), heightUnit) : null;
+    const weightCanonical = sizes.weightKg ? toCanonicalWeightKg(Number(sizes.weightKg), weightUnit) : null;
     onUpdateSizes(member.id, {
       ...sizes,
+      heightCm: heightCanonical != null ? String(heightCanonical) : '',
+      weightKg: weightCanonical != null ? String(weightCanonical) : '',
       lastUpdated: todayLocal(), // Bug fix #3: date-only string
     });
     setSaved(true);
@@ -108,8 +158,8 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
       sizes.outerwear ? `• Outerwear: ${sizes.outerwear}` : null,
       sizes.underwear ? `• Underwear: ${sizes.underwear}` : null,
       sizes.hatValue ? `• Hat: ${sizes.hatValue}` : null,
-      sizes.heightCm ? `• Height: ${sizes.heightCm} cm` : null,
-      sizes.weightKg ? `• Weight: ${sizes.weightKg} kg` : null,
+      sizes.heightCm ? `• Height: ${sizes.heightCm} ${heightUnit}` : null,
+      sizes.weightKg ? `• Weight: ${sizes.weightKg} ${weightUnit}` : null,
       sizes.notes ? `• Notes: ${sizes.notes}` : null,
       sizes.lastUpdated ? `(Updated: ${sizes.lastUpdated})` : null,
     ].filter(Boolean);
@@ -121,15 +171,66 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
 
   const applySuggestions = () => {
     if (!suggestions) return;
+    // Bug fix #4: extract first number only, not all digits concatenated.
+    // The table is metric (EU/cm/kg) — convert to the current display unit.
+    const suggestedHeightCm = Number(suggestions.height.match(/[\d.]+/)?.[0] || '');
+    const suggestedWeightKg = Number(suggestions.weight.match(/[\d.]+/)?.[0] || '');
     setSizes((prev) => ({
       ...prev,
       tops: suggestions.tops,
       bottoms: suggestions.bottoms,
       shoes: suggestions.shoes,
-      // Bug fix #4: extract first number only, not all digits concatenated
-      heightCm: suggestions.height.match(/[\d.]+/)?.[0] || '',
-      weightKg: suggestions.weight.match(/[\d.]+/)?.[0] || '',
+      heightCm: Number.isFinite(suggestedHeightCm) && suggestedHeightCm > 0 ? String(fromCanonicalHeightCm(suggestedHeightCm, heightUnit)) : prev.heightCm,
+      weightKg: Number.isFinite(suggestedWeightKg) && suggestedWeightKg > 0 ? String(fromCanonicalWeightKg(suggestedWeightKg, weightUnit)) : prev.weightKg,
     }));
+  };
+
+  // --- "Measure from a photo" — AI reading state. Nothing here is ever
+  // saved automatically: a reading only pre-fills the fields above, which
+  // still require the existing "Save essentials" tap to persist. ---
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiResult, setAiResult] = useState<MeasureResult | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [checkHeight, setCheckHeight] = useState(''); // editable pending value for a ruler/growth-chart height reading, in `heightUnit`
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (aiResult?.readings.heightCm != null && isInterpolatedSource(aiResult.sourceKind)) {
+      setCheckHeight(String(fromCanonicalHeightCm(aiResult.readings.heightCm, heightUnit)));
+    }
+  }, [aiResult, heightUnit]);
+
+  const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    setAiError(null);
+    setAiResult(null);
+    setAiBusy(true);
+    try {
+      const rawDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Could not read the photo file.'));
+        reader.readAsDataURL(file);
+      });
+      const compressed = await compressImageToAvatar(rawDataUrl, 1024, 0.85);
+      const result = await measureFromPhoto(compressed);
+      setAiResult(result);
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'Something went wrong reading the photo.');
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const applyHeight = (cm: number) => setSizes((p) => ({ ...p, heightCm: String(fromCanonicalHeightCm(cm, heightUnit)) }));
+  const applyWeight = (kg: number) => setSizes((p) => ({ ...p, weightKg: String(fromCanonicalWeightKg(kg, weightUnit)) }));
+  const applyShoe = (v: string) => setSizes((p) => ({ ...p, shoes: v }));
+  const applyClothing = (field: 'tops' | 'bottoms', v: string) => setSizes((p) => ({ ...p, [field]: v }));
+  const insertCheckedHeight = () => {
+    if (!checkHeight) return;
+    setSizes((p) => ({ ...p, heightCm: checkHeight }));
   };
 
   return (
@@ -157,8 +258,8 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
         <div className="card p-5">
           <p className="section-label mb-1.5">Height &amp; weight</p>
           <p className="text-xl font-light text-ink-900 truncate tabular-nums">
-            {sizes.heightCm ? `${sizes.heightCm} cm` : <span className="text-ink-400 font-extralight">—</span>}
-            {sizes.weightKg && <span className="text-xs text-ink-500 font-normal ml-1">({sizes.weightKg} kg)</span>}
+            {sizes.heightCm ? `${sizes.heightCm} ${heightUnit}` : <span className="text-ink-400 font-extralight">—</span>}
+            {sizes.weightKg && <span className="text-xs text-ink-500 font-normal ml-1">({sizes.weightKg} {weightUnit})</span>}
           </p>
         </div>
       </section>
@@ -174,9 +275,25 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
             </span>
           </h3>
           <p className="text-[13px] text-ink-500 mt-1">Configure complete sizing for seamless family orders or wardrobe upgrades (EU Standard EN 13402).</p>
+          <button
+            type="button"
+            onClick={toggleUnitOverride}
+            className="text-[11.5px] text-ink-400 hover:text-ink-700 underline underline-offset-2 mt-1 cursor-pointer"
+          >
+            Height/weight shown in {unitSystem === 'imperial' ? 'imperial (in / lb)' : 'metric (cm / kg)'} — switch to {unitSystem === 'imperial' ? 'metric' : 'imperial'}
+          </button>
         </div>
 
-        <div className="flex items-center space-x-2 shrink-0">
+        <div className="flex items-center flex-wrap gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={aiBusy}
+            className="btn-quiet text-sm px-3 py-1.5 disabled:opacity-50"
+          >
+            <Camera className="w-3.5 h-3.5" />
+            <span>Measure from photo</span>
+          </button>
           <button
             type="button"
             onClick={handleCopy}
@@ -194,19 +311,117 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
             <span>{saved ? 'Saved!' : 'Save essentials'}</span>
           </button>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handlePhotoSelected}
+        />
       </div>
+
+      {/* AI photo-reading status */}
+      {aiBusy && (
+        <div className="p-3.5 rounded-xl bg-cream-100 border border-cream-300 text-[13px] text-ink-600 flex items-center gap-2">
+          <RefreshCcw className="w-4 h-4 animate-spin text-clay-500" />
+          <span>Reading the photo…</span>
+        </div>
+      )}
+
+      {aiError && (
+        <div className="p-3.5 rounded-xl bg-rosa-50 border border-rosa-100 text-[13px] text-rosa-700 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rosa-500" />
+          <span>{aiError}</span>
+        </div>
+      )}
+
+      {aiResult && (() => {
+        const { heightCm, weightKg, shoeSize, clothingSize } = aiResult.readings;
+        const nothingRead = heightCm == null && weightKg == null && !shoeSize && !clothingSize;
+        const interpolatedHeight = heightCm != null && isInterpolatedSource(aiResult.sourceKind);
+        return (
+          <div className={`p-3.5 rounded-xl space-y-2.5 bg-honey-50 border ${interpolatedHeight ? 'border-2 border-honey-500' : 'border-honey-200'}`}>
+            <p className="text-[13px] text-ink-700"><span className="font-semibold">What I saw:</span> {aiResult.sawText || aiResult.note || 'Nothing measurable found.'}</p>
+            {nothingRead ? (
+              <p className="text-[12.5px] text-ink-500">{aiResult.note || "Couldn't get a confident reading — please enter the values by hand."}</p>
+            ) : (
+              <div className="space-y-2">
+                {interpolatedHeight ? (
+                  <div className="space-y-1.5">
+                    <p className="text-[12.5px] font-semibold text-honey-900">
+                      Read from a ruler/growth chart — this is an estimate. Please check it against the wall before using it.
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="text-[12.5px] font-semibold text-ink-600 shrink-0">Height ({heightUnit}) — check &amp; edit:</label>
+                      <input type="number" step="0.1" value={checkHeight} onChange={(e) => setCheckHeight(e.target.value)} className="field w-28" />
+                      <button type="button" onClick={insertCheckedHeight} className="btn-primary text-[12.5px] px-3 py-1.5 shrink-0">Insert</button>
+                    </div>
+                  </div>
+                ) : heightCm != null && (
+                  <div className="flex items-center gap-2 text-[12.5px] flex-wrap">
+                    <span className="chip bg-white border border-honey-200 text-ink-700">Height: {fromCanonicalHeightCm(heightCm, heightUnit)} {heightUnit}</span>
+                    <button type="button" onClick={() => applyHeight(heightCm)} className="btn-quiet text-[11.5px] px-2 py-1">Apply</button>
+                  </div>
+                )}
+
+                {weightKg != null && (
+                  <div className="flex items-center gap-2 text-[12.5px] flex-wrap">
+                    <span className="chip bg-white border border-honey-200 text-ink-700">Weight: {fromCanonicalWeightKg(weightKg, weightUnit)} {weightUnit}</span>
+                    <button type="button" onClick={() => applyWeight(weightKg)} className="btn-quiet text-[11.5px] px-2 py-1">Apply</button>
+                  </div>
+                )}
+
+                {shoeSize && (
+                  <div className="flex items-center gap-2 text-[12.5px] flex-wrap">
+                    <span className="chip bg-white border border-honey-200 text-ink-700">Shoe size: {shoeSize}</span>
+                    <button type="button" onClick={() => applyShoe(shoeSize)} className="btn-quiet text-[11.5px] px-2 py-1">Apply</button>
+                  </div>
+                )}
+
+                {clothingSize && (
+                  <div className="flex items-center gap-2 text-[12.5px] flex-wrap">
+                    <span className="chip bg-white border border-honey-200 text-ink-700">Clothing size: {clothingSize}</span>
+                    <button type="button" onClick={() => applyClothing('tops', clothingSize)} className="btn-quiet text-[11.5px] px-2 py-1">Apply to tops</button>
+                    <button type="button" onClick={() => applyClothing('bottoms', clothingSize)} className="btn-quiet text-[11.5px] px-2 py-1">Apply to bottoms</button>
+                  </div>
+                )}
+
+                {aiResult.confidence === 'medium' && (
+                  <p className="text-[11.5px] text-honey-700 italic">Medium confidence — double-check before saving.</p>
+                )}
+              </div>
+            )}
+            <div className="flex justify-end pt-0.5">
+              <button type="button" onClick={() => setAiResult(null)} className="btn-quiet text-[12.5px] px-3 py-1.5">Done</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Suggestion Engine */}
       {suggestions && (
-        <div className="card p-4 flex items-start space-x-3">
+        <div className={staleness.stale
+          ? 'rounded-2xl border-2 border-honey-500 bg-honey-50 p-4 flex items-start space-x-3 shadow-soft'
+          : 'card p-4 flex items-start space-x-3'}>
           <div className="p-1.5 rounded-xl bg-honey-100 text-honey-700 mt-0.5">
-            <TrendingUp className="w-4 h-4" />
+            {staleness.stale ? <Clock className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
           </div>
           <div className="flex-1">
-            <h4 className="text-[13px] font-semibold text-ink-900">Smart fit estimator</h4>
+            <h4 className="text-[13px] font-semibold text-ink-900 flex items-center gap-1.5 flex-wrap">
+              Smart fit estimator
+              <span className="chip bg-dusk-100 text-dusk-700 text-[10px]">{shoeSystem} sizing</span>
+            </h4>
             <p className="text-[13px] text-ink-500 mt-0.5">
-              Standard sizing recommendation based on {member.name}&apos;s birthdate:
+              {staleness.stale
+                ? `${member.name}'s sizes were last updated ${staleness.monthsSince != null ? `${staleness.monthsSince} month${staleness.monthsSince === 1 ? '' : 's'} ago` : 'a while ago'} — here's what's typical for age ${Math.max(0, Math.floor(ageMonths / 12))}:`
+                : `Standard sizing recommendation based on ${member.name}'s birthdate:`}
             </p>
+            {shoeSystem !== 'EU' && (
+              <p className="text-[11px] text-ink-400 italic mt-0.5">
+                Shown in EU sizing — convert to {shoeSystem} sizing for your country.
+              </p>
+            )}
             <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
               <div className="bg-white p-2 rounded-xl border border-cream-200">
                 <span className="section-label block mb-0.5">Tops/pants</span>
@@ -241,20 +456,20 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
         {/* Metric Height / Weight */}
         <div className="card p-4 grid grid-cols-2 gap-4 col-span-1 sm:col-span-2">
           <div>
-            <label className="field-label">Height (cm)</label>
+            <label className="field-label">Height ({heightUnit})</label>
             <input
               type="number"
-              placeholder="e.g. 116"
+              placeholder={heightUnit === 'in' ? 'e.g. 45.9' : 'e.g. 116'}
               value={sizes.heightCm}
               onChange={(e) => handleFieldChange('heightCm', e.target.value)}
               className="field"
             />
           </div>
           <div>
-            <label className="field-label">Weight (kg)</label>
+            <label className="field-label">Weight ({weightUnit})</label>
             <input
               type="number"
-              placeholder="e.g. 21"
+              placeholder={weightUnit === 'lb' ? 'e.g. 46.3' : 'e.g. 21'}
               value={sizes.weightKg}
               onChange={(e) => handleFieldChange('weightKg', e.target.value)}
               className="field"
@@ -285,10 +500,10 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
             />
           </div>
           <div>
-            <label className="field-label">Shoe size (EU)</label>
+            <label className="field-label">Shoe size</label>
             <input
               type="text"
-              placeholder="e.g. EU 35, EU 43"
+              placeholder="e.g. EU 35, UK 2, US 3"
               value={sizes.shoes}
               onChange={(e) => handleFieldChange('shoes', e.target.value)}
               className="field"

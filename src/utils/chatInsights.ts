@@ -1,7 +1,9 @@
-import { IdCard, HeartPulse, PhoneCall, Car } from 'lucide-react';
+import { IdCard, HeartPulse, PhoneCall, Car, Shirt } from 'lucide-react';
 import { FamilyMember, Vehicle, SlipItem } from '../types';
 import { Nudge, computeNudges, computeVehicleNudges, computeSlipNudges } from '../components/NeedsAttention';
 import { vehicleLabel } from './vehicle';
+import { sizeStaleness } from './sizeStaleness';
+import { todayISO } from './age';
 
 // A deterministic, zero-cost "heads-up" index for the chat: what expires in the
 // next ~90 days, and where the family's records have gaps. No AI call — this is
@@ -67,6 +69,24 @@ export function computeChatInsights(
     // No emergency contact (neither name nor phone).
     if (!m.emergencyContactName && !m.emergencyContactPhone) {
       gaps.push({ key: `gap-emergency-${m.id}`, memberId: m.id, icon: PhoneCall, tone: 'info', text: `No emergency contact for ${first}`, tab: 'overview' });
+    }
+
+    // Clothing sizes not updated in a while, scaled by age (see
+    // utils/sizeStaleness.ts) — so the assistant can flag it when asked
+    // "what size is Mia now?" or similar, matching NeedsAttention's own
+    // sizes-stale nudge without re-deriving the staleness rule.
+    const staleness = sizeStaleness(m.clothingSizes, m.birthdate, todayISO());
+    if (staleness.stale) {
+      gaps.push({
+        key: `gap-sizes-stale-${m.id}`,
+        memberId: m.id,
+        icon: Shirt,
+        tone: 'info',
+        text: staleness.monthsSince != null
+          ? `${first}'s clothing sizes haven't been updated in ${staleness.monthsSince} months`
+          : `${first}'s clothing sizes have never been updated`,
+        tab: 'sizes',
+      });
     }
   }
 

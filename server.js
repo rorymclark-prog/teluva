@@ -295,6 +295,7 @@ YOU ARE A CAPABLE FAMILY ASSISTANT — not just a form-filler. Using FAMILY DATA
 - Summarise and list across the whole family ("everyone's blood type", "what expires this year", "who has allergies", "what documents do we have for Mia").
 - Be proactive: when you answer, mention closely-related useful info or a sensible next step, briefly.
 - Help plan (gift ideas from a child's likes/wishlist, packing for travel from passports/visas, back-to-school from school info) — as suggestions, not stored unless asked.
+- Clothing/shoe sizes: each member's clothingSizes (tops/bottoms/shoes/etc.) include a "lastUpdated" date. When asked "what size is Mia now?" or similar, read her current clothingSizes directly and mention lastUpdated. A young child's sizes go stale within a few months, a teen's within a year, an adult's over a couple of years — if lastUpdated is missing entirely, or looks old for the member's age, say so plainly (e.g. "last updated 14 months ago, so it's worth double-checking") rather than presenting a stale size as certainly current.
 When you don't know something from the data, say so and offer to add it. Be warm, natural and genuinely helpful; be concise for simple asks, fuller when the question needs it.
 If the user asks whether/why a specific record is or isn't present (e.g. "where's my passport", "it's not showing", "do you have X's allergy info"), check that EXACT field/array in FAMILY DATA and answer THAT question directly and specifically before offering anything else — never substitute a list of other unrelated fields that happen to be filled in.
 DOCUMENTS have a "location" field: "on <name>'s profile" or "shared vault only". A document is ONLY on a person's profile when its location says so. NEVER tell the user a scan is "saved to <name>'s documents" or "on their profile" when its location is "shared vault only" — that is exactly the case where they look at the profile and it isn't there. If a document is "shared vault only", say it's in the shared Document Vault but not yet filed to anyone's profile, and offer to file it to the right person.
@@ -513,6 +514,171 @@ Use empty string "" for any field not visible. category must be one of the enum 
   } catch (e) {
     console.error('[scan-asset] error', e);
     res.status(502).json({ error: 'Something went wrong scanning the item — please try again.' });
+  }
+});
+
+// "Measure from a photo" — reads a printed/displayed number (bathroom scale,
+// shoe/garment size label, ruler/growth-chart mark, tape measure) so a parent
+// doesn't have to type it in by hand, then pre-fills the existing Growth/Sizing
+// forms — the human still confirms and taps the existing Save, nothing is ever
+// written from this endpoint's response directly. Validated during development
+// against real photos incl. a negative control (a person with no ruler/scale in
+// frame): reading a printed/displayed digit (scale, label) is reliable; a mark
+// INTERPOLATED against a ruler/growth-chart is measurably less reliable — the
+// model can self-report "high" confidence there while being a centimetre off —
+// so confidence is clamped below for those two source kinds regardless of the
+// model's own claim, and the client (GrowthTracker.tsx/MemberSizing.tsx, via
+// src/utils/measureReading.ts's isInterpolatedSource()) shows those as an
+// editable "check this against the wall" value rather than a one-tap accept.
+// NEVER estimates from a photographed person's body — nothing measurable in
+// frame must come back null, not a guess.
+const MEASURE_SYSTEM = `You read MEASUREMENTS off a photo for a family records app ("Family Vault"). A parent has
+photographed something that shows a measurement or size for a family member — most often a child.
+Families using this app are in the UK, South Africa, the USA and Austria, so photos may show
+metric (cm, kg) OR imperial (in, ft/in, lb) units — read whichever is actually shown.
+
+Return STRICT JSON only, no markdown fence, matching:
+{
+  "readings": {
+    "heightValue": number|null,
+    "heightUnit": "cm"|"in"|null,
+    "weightValue": number|null,
+    "weightUnit": "kg"|"lb"|null,
+    "shoeSizeEu": number|null,
+    "shoeSizeUk": string|null,
+    "shoeSizeUs": string|null,
+    "clothingAge": string|null,
+    "clothingHeightCm": number|null
+  },
+  "sawText": "the exact characters you read off the object, verbatim, INCLUDING the unit exactly as printed/displayed (e.g. \\"51.6 lb\\", \\"23.4 kg\\") — EXCEPT for a ruler/growth-chart or tape-measure mark, where instead you must describe WHERE the mark sits relative to the two nearest printed numbers on the scale (e.g. \\"mark sits just above the 120 line, about a fifth of the way to 130\\", or \\"mark sits exactly on the 4'0\\" line\\"), so a parent can check it against the wall themselves",
+  "sourceKind": "scale" | "size_label" | "ruler_or_growth_chart" | "tape_measure" | "unknown",
+  "confidence": "high" | "medium" | "low",
+  "note": "one short sentence for the parent"
+}
+
+CRITICAL RULES — a wrong number is far worse than no number:
+- ONLY report a value you can literally READ as printed/displayed characters in the image, or that is directly implied by a clearly visible mark against a clearly numbered scale.
+- NEVER estimate a person's height or weight from how big they look, from body proportions, from apparent age, or from anything in the background. If there is no readable number and no calibrated scale, every reading MUST be null, sourceKind "unknown" and confidence "low".
+- heightUnit/weightUnit: report the unit exactly as shown when a unit label IS printed. If no unit label is printed but the scale's own number RANGE unambiguously implies one (e.g. a growth-chart ruler numbered 100 to 150 can only be centimetres — no child is 100-150 inches tall; a scale numbered 36 to 60 can only be inches for the same reason), infer that unit from context and say so in "note". If it is genuinely ambiguous even from context, leave heightUnit/weightUnit null rather than defaulting to cm/kg. Never invent a unit conversion yourself beyond simple feet-to-inches (see below) — report the raw value in whichever single unit the scale is actually in.
+- If a scale/ruler is marked in feet-and-inches (e.g. "4'0\\""), convert ONLY the feet part to inches yourself (4'0" = 48 in — simple multiplication by 12, no measurement judgement involved) and report heightUnit "in".
+- If a digit is ambiguous or partly obscured, set that reading to null and say so in "note". Do not pick the most likely digit.
+- For sourceKind "ruler_or_growth_chart" or "tape_measure" you are INTERPOLATING a mark against a scale, not reading a printed digit — this is inherently less certain than reading a digital display or a printed label, so NEVER set confidence "high" for these two source kinds even if you feel sure; use "medium" at most. sawText must describe the mark's position relative to the two nearest printed numbers, as specified above — not just list the tick numbers visible in frame.
+- For a shoe or clothing label, report every size system actually printed on the label (EU/UK/US, or an age/height range) — do not invent one that isn't shown.`;
+
+const MEASURE_SOURCE_KINDS = ['scale', 'size_label', 'ruler_or_growth_chart', 'tape_measure', 'unknown'];
+const MEASURE_CONFIDENCES = ['high', 'medium', 'low'];
+const MEASURE_INTERPOLATED_SOURCES = new Set(['ruler_or_growth_chart', 'tape_measure']);
+
+app.post('/api/measure', async (req, res) => {
+  try {
+    if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
+
+    console.log('[measure] request from', caller.email);
+
+    const { image } = req.body || {};
+    if (!image || !image.data || !image.mimeType) {
+      return res.status(400).json({ error: 'No image provided.' });
+    }
+
+    const gRes = await generateContent(MODEL_TEXT, {
+      systemInstruction: { parts: [{ text: MEASURE_SYSTEM }] },
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: 'Read any measurement or size shown in this photo, following every rule exactly.' },
+          { inlineData: { mimeType: image.mimeType, data: image.data } },
+        ],
+      }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+    });
+
+    const gData = await gRes.json();
+    const text = (gData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
+    if (!text) {
+      console.error('[measure] empty response:', JSON.stringify(gData).slice(0, 400));
+      return res.status(502).json({ error: 'Could not read the photo — please try again or enter details manually.' });
+    }
+
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch { return res.status(502).json({ error: 'Could not parse the reading — please try again.' }); }
+
+    const sourceKind = MEASURE_SOURCE_KINDS.includes(parsed?.sourceKind) ? parsed.sourceKind : 'unknown';
+    let confidence = MEASURE_CONFIDENCES.includes(parsed?.confidence) ? parsed.confidence : 'low';
+    // The model can self-report "high" confidence while interpolating a mark
+    // against a ruler/growth-chart and be a centimetre off (verified against
+    // real test photos during development — a wall-chart mark at true 122cm
+    // came back 123 with self-reported "high" confidence). Reading a
+    // printed/displayed digit (scale, size label) and interpolating a mark
+    // against a ruled scale are different reliability classes that the model
+    // conflates — clamp here rather than trust its self-report. Mirrored
+    // client-side in src/utils/measureReading.ts's isInterpolatedSource(),
+    // which additionally drives the UI to show these as an editable
+    // "check against the wall" value instead of a one-tap accept.
+    if (MEASURE_INTERPOLATED_SOURCES.has(sourceKind) && confidence === 'high') confidence = 'medium';
+
+    const sawText = typeof parsed?.sawText === 'string' && parsed.sawText.trim() ? parsed.sawText.trim().slice(0, 400) : '';
+    const note = typeof parsed?.note === 'string' ? parsed.note.trim().slice(0, 300) : '';
+
+    // Deterministic, exact unit conversion in CODE — never the model's own
+    // arithmetic — mirrors src/utils/measurementUnits.ts's
+    // toCanonicalHeightCm/toCanonicalWeightKg (same mirroring precedent as
+    // sunSignFromBirthdate/astrology.ts above: server.js has no TS build step,
+    // so the two copies must be kept in sync by hand, not imported). Never
+    // fabricate: a reading is only forwarded when confidence isn't 'low' —
+    // "leave the field empty" on a low-confidence read, per the feature's
+    // design rule.
+    const readings = {};
+    if (confidence !== 'low') {
+      const r = parsed?.readings || {};
+      const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : (typeof v === 'string' && v.trim() && Number.isFinite(Number(v)) ? Number(v) : null));
+      const str = (v, max) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+      const round1 = (n) => Math.round(n * 10) / 10;
+
+      const heightValue = num(r.heightValue);
+      if (heightValue && heightValue > 0 && (r.heightUnit === 'cm' || r.heightUnit === 'in')) {
+        const cm = r.heightUnit === 'in' ? heightValue * 2.54 : heightValue;
+        readings.heightCm = round1(cm);
+        readings.heightRaw = { value: heightValue, unit: r.heightUnit };
+      }
+      const weightValue = num(r.weightValue);
+      if (weightValue && weightValue > 0 && (r.weightUnit === 'kg' || r.weightUnit === 'lb')) {
+        const kg = r.weightUnit === 'lb' ? weightValue * 0.453592 : weightValue;
+        readings.weightKg = round1(kg);
+        readings.weightRaw = { value: weightValue, unit: r.weightUnit };
+      }
+
+      // Shoe systems are reported exactly as printed, never numerically
+      // cross-converted (no exact, brand-independent EU/UK/US formula
+      // exists) — same "never fabricate" posture as the height/weight path.
+      const shoeEu = num(r.shoeSizeEu);
+      const shoeUk = str(r.shoeSizeUk, 10);
+      const shoeUs = str(r.shoeSizeUs, 10);
+      if (shoeEu || shoeUk || shoeUs) {
+        readings.shoeSize = [
+          shoeEu ? `EU ${shoeEu}` : null,
+          shoeUk ? `UK ${shoeUk}` : null,
+          shoeUs ? `US ${shoeUs}` : null,
+        ].filter(Boolean).join(' / ');
+      }
+
+      const clothingAge = str(r.clothingAge, 40);
+      const clothingHeightCm = num(r.clothingHeightCm);
+      if (clothingAge || clothingHeightCm) {
+        readings.clothingSize = [clothingAge, clothingHeightCm ? `${clothingHeightCm}cm` : null].filter(Boolean).join(' · ');
+      }
+    }
+
+    res.json({ sourceKind, confidence, sawText, note, readings });
+  } catch (e) {
+    console.error('[measure] error', e);
+    res.status(502).json({ error: 'Something went wrong reading the photo — please try again.' });
   }
 });
 
