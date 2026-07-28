@@ -1,0 +1,54 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// Lockdown rules for the ORPHAN Firestore database in project
+// gen-lang-client-0384516171:
+//
+//     ai-studio-7d2aeabe-3158-4d85-bee2-107c0f4568df
+//
+// This is NOT the Family Vault database (that one is
+// ai-studio-393d7146-0d1a-431e-bd58-b2a1478b5ff5, governed by firestore.rules
+// in this folder). It belongs to a different, unrelated AI Studio app in the
+// same GCP project.
+//
+// WHY THIS FILE EXISTS
+// Its deployed rules grant `allow read: if isSignedIn()` on `transactions`,
+// `incomeEntries`, `cryptoAssets` and `userProfiles`. The database is currently
+// EMPTY, so nothing leaks today. But "signed in" in that project includes every
+// Family Vault user — each of them gets a Firebase identity in this same
+// project — so any Family Vault member could read those collections the moment
+// anything is written to them. That turns a dormant misconfiguration into a
+// live cross-app data leak with no code change and no warning.
+//
+// Locking it to deny-all is safe precisely because it is empty: there is no
+// client that can be broken by it. If the other app is ever revived, it needs
+// its own properly-scoped rules written then — not this permissive default.
+//
+// !! NOT DEPLOYED BY THE AGENT THAT WROTE IT !!
+// Deploying touches live infrastructure belonging to a different project of
+// yours, so it is your call. The exact command, run from this folder:
+//
+//     firebase deploy \
+//       --project gen-lang-client-0384516171 \
+//       --only firestore:ai-studio-7d2aeabe-3158-4d85-bee2-107c0f4568df
+//
+// That requires a matching entry in firebase.json's `firestore` array, which
+// has deliberately NOT been added — adding it would put this database into the
+// blast radius of every future `firebase deploy` of the Family Vault. Either
+// add it temporarily for the one deploy and remove it again, or paste these
+// rules straight into the Firebase console for that database (Firestore →
+// pick the ai-studio-7d2aeabe… database → Rules → Publish), which is simpler
+// and touches nothing else.
+//
+// Verify afterwards: signed-in reads of `transactions` in that database should
+// fail with PERMISSION_DENIED.
+// ---------------------------------------------------------------------------
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Deny everything. No client, no collection, no exception.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

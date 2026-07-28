@@ -949,6 +949,29 @@ export async function loadFamilyRoles(familyId: string): Promise<Record<string, 
 }
 
 /**
+ * Remove someone from the caller's ACTIVE space. Server-only (the Admin SDK
+ * deletes the authoritative families/{id}/roles/{uid} doc, rewrites their
+ * users/{uid} mirror and re-mints their custom claims) — Firestore rules block
+ * clients from doing any of that. Admin-only and self-removal-proof, both
+ * enforced server-side. Throws with a human-readable message on failure.
+ */
+export async function removeFamilyMember(targetUid: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to remove a member');
+  const trimmed = targetUid.trim();
+  if (!trimmed) throw new Error('Missing member');
+
+  const token = await user.getIdToken();
+  const res = await fetch('/api/remove-member', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ uid: trimmed }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not remove that member. Please try again.');
+}
+
+/**
  * Update a family member's role in Firestore.
  * Callers must prevent admin self-demotion before calling this.
  */

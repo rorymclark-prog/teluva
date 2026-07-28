@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp } from 'lucide-react';
+import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp, UserMinus } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { loadFamilyRoles, setFamilyMemberRole, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, loadBusinessMilestones, saveBusinessMilestones } from '../utils/db';
+import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, loadBusinessMilestones, saveBusinessMilestones } from '../utils/db';
 import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
@@ -237,6 +237,32 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
       setRolesError(err?.message ?? 'Could not update role');
     } finally {
       setSavingUid(null);
+    }
+  }
+
+  // --- Removing a member ---
+  // Two-step: the row's "Remove" button arms a confirmation panel that NAMES
+  // the person and spells out exactly what they lose, because this is the one
+  // irreversible action in this panel (they can only come back via a fresh
+  // invite code). removingUid = armed; removeBusyUid = in flight.
+  const [removingUid, setRemovingUid] = useState<string | null>(null);
+  const [removeBusyUid, setRemoveBusyUid] = useState<string | null>(null);
+
+  async function handleRemoveMember(targetUid: string) {
+    setRemoveBusyUid(targetUid);
+    setRolesError(null);
+    try {
+      await removeFamilyMember(targetUid);
+      setRoles((prev) => {
+        const next = { ...prev };
+        delete next[targetUid];
+        return next;
+      });
+      setRemovingUid(null);
+    } catch (err: any) {
+      setRolesError(err?.message ?? 'Could not remove that member');
+    } finally {
+      setRemoveBusyUid(null);
     }
   }
 
@@ -544,41 +570,94 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
               const isSaving = savingUid === memberUid;
               const avatarText = initials(member.displayName, member.email);
 
+              const personLabel = member.displayName || member.email;
+              const isRemoving = removeBusyUid === memberUid;
+
               return (
-                <div key={memberUid} className="flex items-center gap-3">
-                  {/* Avatar */}
-                  <div className="w-9 h-9 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center text-xs font-bold shrink-0">
-                    {avatarText}
-                  </div>
-
-                  {/* Name + email */}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-medium text-ink-800 truncate">
-                      {member.displayName || member.email}
-                      {isSelf && <span className="ml-1 text-ink-400 font-normal">(you)</span>}
+                <div key={memberUid} className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    {/* Avatar */}
+                    <div className="w-9 h-9 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center text-xs font-bold shrink-0">
+                      {avatarText}
                     </div>
-                    <div className="text-[11px] text-ink-400 truncate">{member.email}</div>
+
+                    {/* Name + email */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-ink-800 truncate">
+                        {personLabel}
+                        {isSelf && <span className="ml-1 text-ink-400 font-normal">(you)</span>}
+                      </div>
+                      <div className="text-[11px] text-ink-400 truncate">{member.email}</div>
+                    </div>
+
+                    {/* Role selector */}
+                    <div className="relative shrink-0">
+                      {isSaving
+                        ? <Loader2 size={16} className="animate-spin text-ink-400" />
+                        : (
+                          <select
+                            value={member.role}
+                            onChange={(e) => handleRoleChange(memberUid, e.target.value as FamilyRole)}
+                            disabled={isSelf}
+                            className="field text-xs py-1 px-2 pr-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={isSelf ? 'Cannot change your own role' : undefined}
+                          >
+                            {ROLE_OPTIONS.map((r) => (
+                              <option key={r} value={r}>{r}</option>
+                            ))}
+                          </select>
+                        )
+                      }
+                    </div>
+
+                    {/* Remove — never offered for yourself (the server refuses
+                        self-removal too, so a space can't be orphaned). */}
+                    {!isSelf && (
+                      <button
+                        type="button"
+                        onClick={() => setRemovingUid(removingUid === memberUid ? null : memberUid)}
+                        disabled={isRemoving}
+                        title={`Remove ${personLabel}`}
+                        aria-label={`Remove ${personLabel}`}
+                        className="shrink-0 btn-quiet p-2 rounded-xl text-rosa-600 disabled:opacity-40"
+                      >
+                        {isRemoving ? <Loader2 size={15} className="animate-spin" /> : <UserMinus size={15} />}
+                      </button>
+                    )}
                   </div>
 
-                  {/* Role selector */}
-                  <div className="relative shrink-0">
-                    {isSaving
-                      ? <Loader2 size={16} className="animate-spin text-ink-400" />
-                      : (
-                        <select
-                          value={member.role}
-                          onChange={(e) => handleRoleChange(memberUid, e.target.value as FamilyRole)}
-                          disabled={isSelf}
-                          className="field text-xs py-1 px-2 pr-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                          title={isSelf ? 'Cannot change your own role' : undefined}
+                  {removingUid === memberUid && (
+                    <div className="rounded-xl bg-rosa-50 border border-rosa-200 p-3 space-y-2">
+                      <p className="text-[13px] font-medium text-rosa-800">
+                        Remove {personLabel} from {isBusinessSpace ? 'this business' : 'this family'}?
+                      </p>
+                      <p className="text-[11px] text-rosa-700 leading-relaxed">
+                        They immediately lose access to everything in {isBusinessSpace ? 'this business space' : 'this family vault'} —
+                        every member profile, document scan, passport and ID record, the calendar,
+                        household and finance details, and the assistant. Anything they added stays here.
+                        They can only come back with a new invite code.
+                      </p>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setRemovingUid(null)}
+                          disabled={isRemoving}
+                          className="btn-quiet flex-1 justify-center text-[13px] disabled:opacity-40"
                         >
-                          {ROLE_OPTIONS.map((r) => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
-                        </select>
-                      )
-                    }
-                  </div>
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMember(memberUid)}
+                          disabled={isRemoving}
+                          className="btn-danger flex-1 justify-center gap-2 text-[13px] disabled:opacity-40"
+                        >
+                          {isRemoving && <Loader2 size={14} className="animate-spin" />}
+                          {isRemoving ? 'Removing…' : 'Remove'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

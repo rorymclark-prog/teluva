@@ -1,7 +1,8 @@
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import admin from 'firebase-admin';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { resolveMembership, checkRemoveMember, profileAfterRemoval } from './authz.mjs';
 import { GoogleAuth } from 'google-auth-library';
 import crypto from 'crypto';
 import path from 'path';
@@ -149,10 +150,20 @@ if (PUSH_READY) {
 
 // ---------------------------------------------------------------------------
 // Membership auth: verify the Firebase ID token, require a verified email,
-// and resolve the caller's family from users/{uid} (written ONLY by the
-// server-side create/join flows below). Replaces the old 3-email allowlist so
-// AI features work for every real family. Also lazily backfills the familyId
+// resolve which space the caller is POINTING AT from users/{uid} (their active-
+// space pointer), then AUTHORISE that pointer against the authoritative
+// families/{familyId}/roles/{uid} doc. Also lazily backfills the familyId
 // custom claim that Storage rules use.
+//
+// SECURITY (why the roles doc and not the users/{uid} mirror): users/{uid} is a
+// CACHE for fast UI listing — the same thing /api/switch-space's own comment
+// says must never be an access-control source. It is written by the server on
+// join/create and never cleaned up by anything that removes a member, so a
+// revoked member's mirror keeps naming the space forever. Reading role/membership
+// from the roles doc — the SAME doc firestore.rules' isMemberOf() checks — is
+// what makes revocation actually take effect on the API surface, not just in
+// the client SDK. The mirror is still used for ONE thing: deciding WHICH space
+// the caller means (their active pointer). It can no longer grant access to it.
 // ---------------------------------------------------------------------------
 async function requireMember(req) {
   const authHeader = req.headers.authorization || '';
@@ -163,8 +174,30 @@ async function requireMember(req) {
   catch { return { status: 401, error: 'Your session expired — sign in again.' }; }
   if (!decoded.email_verified) return { status: 403, error: 'Please verify your Google account email first.' };
   const snap = await adminDb.doc(`users/${decoded.uid}`).get();
-  if (!snap.exists) return { status: 403, error: 'This account is not part of a family yet — create or join one first.' };
-  const profile = snap.data();
+  const profile = snap.exists ? snap.data() : undefined;
+
+  // ── The authorisation decision (pure — see authz.mjs / authz.test.mjs) ──────
+  // The mirror only says WHICH space; the roles doc says WHETHER, and AS WHAT.
+  const roleSnap = profile?.familyId && typeof profile.familyId === 'string'
+    ? await adminDb.doc(`families/${profile.familyId}/roles/${decoded.uid}`).get()
+    : null;
+  const verdict = resolveMembership({
+    profileExists: snap.exists,
+    profile,
+    roleDocExists: !!roleSnap?.exists,
+    roleDoc: roleSnap?.exists ? roleSnap.data() : undefined,
+  });
+  if (!verdict.ok) {
+    if (snap.exists && profile?.familyId && !roleSnap?.exists) {
+      // Logged distinctly so an un-backfilled legacy member is unmistakable in
+      // Cloud Run logs (see scripts/backfill-member-roles.mjs) and is never
+      // confused with an ordinary "not signed in yet" failure.
+      console.warn(`[requireMember] DENIED: no roles doc for uid=${decoded.uid} familyId=${profile.familyId} (mirror says role=${profile.role})`);
+    }
+    return { status: verdict.status, error: verdict.error };
+  }
+  const role = verdict.role;
+
   // Storage rules read these claims; backfill whenever the legacy familyId
   // claim is stale OR the familyIds array claim is missing/out of sync with
   // profile.spaces (e.g. an account minted before the array claim existed, or
@@ -185,7 +218,7 @@ async function requireMember(req) {
     email: (decoded.email || '').toLowerCase(),
     displayName: decoded.name || (decoded.email || ''),
     familyId: profile.familyId,
-    role: profile.role,
+    role, // from families/{familyId}/roles/{uid} — NEVER the users/{uid} mirror
     aiConsent: profile.aiConsent?.granted === true && (profile.aiConsent?.version ?? 0) >= AI_CONSENT_VERSION,
   };
 }
@@ -987,10 +1020,28 @@ app.post('/api/vault/protect', async (req, res) => {
   }
 });
 
+// Decrypting a stored secret is an ADMIN action, checked HERE and not only in
+// the UI — the ciphertext itself sits on the member profile, which firestore.rules
+// lets every member (including a 'child') read, so anyone who can read Firestore
+// can post that ciphertext straight at this endpoint. Hiding the Secrets tab
+// alone would close nothing.
+//
+// Why admin-only rather than adult-only: these are per-member credentials
+// (digitalAccounts[].passwordPlain — someone's own email/bank/school logins),
+// not shared household facts. A non-admin adult in a family vault is a sibling,
+// a grandparent, a flatmate, an employee in a business space — there is no
+// reason they should be able to decrypt ANOTHER member's saved passwords, and
+// the app's own precedent already says so: families/{id}/passwords is
+// isAdminOf-only in firestore.rules, and FamilyPasswords.tsx is isAdmin-gated.
+// This makes per-member secrets match the shared password vault instead of
+// being the one credential store with a weaker gate. It is deliberately
+// STRICTER than "block children": blocking only children would still leave
+// every adult able to read every other adult's credentials.
 app.post('/api/vault/reveal', async (req, res) => {
   try {
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can reveal saved secrets.' });
     const values = Array.isArray(req.body?.values) ? req.body.values : [];
     res.json({ values: values.map((v) => decryptSecret(v, caller.familyId)) });
   } catch (e) {
@@ -1146,7 +1197,16 @@ app.post('/api/create-invite', async (req, res) => {
 });
 
 // --- Join a family with an invite code ---
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+//
+// SECURITY: an admin-issued invite code is the ONLY way in. There used to be a
+// fallback that accepted a bare family UUID as a join credential; it was removed
+// because a family UUID is NOT a secret — it is printed inside every Storage
+// download URL the family's own documents live at
+// (.../o/families%2F{FAMILY_ID}%2Fdocuments%2F...), and sharing a scan out of
+// the app is a first-class feature. That made "anyone who has ever seen a shared
+// document URL" equivalent to "permanent member of the vault", with no invite,
+// no expiry, no single use and no notification. Invite codes (single-use,
+// 14-day, admin-issued, role-pinned) supersede it entirely.
 app.post('/api/join-family', async (req, res) => {
   try {
     const caller = await requireSignedIn(req);
@@ -1171,33 +1231,95 @@ app.post('/api/join-family', async (req, res) => {
       return res.json({ ok: true, familyId: inv.familyId });
     }
 
-    // Legacy path: a raw family UUID (unguessable). Short ids like 'household'
-    // are deliberately NOT joinable this way. Predates invite codes (added in
-    // the same v39 hardening commit as a deliberate fallback, not leftover
-    // cruft) — kept for any pre-existing family that might still rely on an
-    // old bookmarked link, but explicitly GATED to type:'family' spaces only.
-    // Business/Personal spaces (Business Hub) are brand new and postdate
-    // invite codes entirely — there is no legacy reason for one to accept a
-    // raw-UUID join, and every real business join should go through an
-    // admin-issued invite code. Fails with the SAME generic 404 either way so
-    // a prober can't distinguish "no such id" from "that id is a business".
-    if (UUID_RE.test(raw)) {
-      const rolesSnap = await adminDb.collection(`families/${raw}/roles`).limit(1).get();
-      if (!rolesSnap.empty) {
-        const targetInfo = await adminDb.doc(`families/${raw}/info/info`).get();
-        const targetData = targetInfo.exists ? targetInfo.data() : {};
-        const targetType = targetData.type || 'family';
-        if (targetType === 'family') {
-          await grantMembership(caller.uid, caller.email, caller.displayName, raw, 'member', targetType, targetData.name);
-          return res.json({ ok: true, familyId: raw });
-        }
-      }
-    }
-
+    // No raw-UUID fallback: see the SECURITY note above this handler. Anything
+    // that is not a live, unused, unexpired invite code falls through to the
+    // same generic 404, so a prober learns nothing about which ids exist.
     return res.status(404).json({ error: 'Invite code not found — ask your family admin to share a fresh one.' });
   } catch (err) {
     console.error('/api/join-family error:', err);
     res.status(500).json({ error: 'Could not join family. Please try again.' });
+  }
+});
+
+// --- Remove a member from the caller's ACTIVE space (admins only) ---
+// The counterpart to join-family that never existed: until now membership could
+// be granted but never taken away, which is what made every other access control
+// in the app advisory. Always operates on caller.familyId (server-verified via
+// requireMember), never a client-supplied space id, so an admin of space A can
+// never evict someone from space B.
+//
+// Removal is 4 writes and they matter in this order:
+//   1. DELETE families/{familyId}/roles/{targetUid} — the authoritative record.
+//      This alone ends their access to Firestore (rules' isMemberOf) and to
+//      every server route (requireMember now reads this doc).
+//   2. Rewrite users/{targetUid} — drop the space from spaces[] and move/clear
+//      the active pointer, so the space switcher stops offering a space they
+//      can no longer open.
+//   3. Re-mint custom claims — Storage rules gate vault FILES on familyIds.
+//   4. Revoke refresh tokens — forces their next token refresh to pick up (3)
+//      instead of coasting on a cached claim.
+app.post('/api/remove-member', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+
+    const familyId = caller.familyId;
+    const targetUid = String((req.body || {}).uid || '').trim();
+
+    const rolesCol = adminDb.collection(`families/${familyId}/roles`);
+    const targetRoleSnap = targetUid ? await rolesCol.doc(targetUid).get() : null;
+    const targetRole = targetRoleSnap?.exists ? targetRoleSnap.data().role : undefined;
+    // Count admins INCLUDING the target — checkRemoveMember reasons about the
+    // pre-removal state so the "would this orphan the space?" rule is explicit.
+    const adminsSnap = await rolesCol.where('role', '==', 'admin').get();
+
+    const verdict = checkRemoveMember({
+      callerUid: caller.uid,
+      callerRole: caller.role,
+      targetUid,
+      targetIsMember: !!targetRoleSnap?.exists,
+      targetRole,
+      adminCount: adminsSnap.size,
+    });
+    if (!verdict.ok) return res.status(verdict.status).json({ error: verdict.error });
+
+    // 1. The authoritative membership record.
+    await rolesCol.doc(targetUid).delete();
+
+    // 2. The mirror. Transactional because it read-modify-writes spaces[].
+    const targetUserRef = adminDb.doc(`users/${targetUid}`);
+    let nextClaims = { familyId: null, familyIds: [] };
+    await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(targetUserRef);
+      if (!snap.exists) return; // nothing to clean up
+      const data = snap.data();
+      const next = profileAfterRemoval(data.spaces, familyId, data.familyId);
+      const update = { spaces: next.spaces };
+      if (next.familyId) {
+        update.familyId = next.familyId;
+        update.role = next.role;
+      } else {
+        // No spaces left — clear the pointer entirely rather than leaving it
+        // aimed at a space they can no longer read. requireMember then returns
+        // "not part of a family yet", which is the create/join onboarding path.
+        update.familyId = FieldValue.delete();
+        update.role = FieldValue.delete();
+      }
+      tx.set(targetUserRef, update, { merge: true });
+      nextClaims = { familyId: next.familyId, familyIds: next.spaces.map((s) => s.id) };
+    });
+
+    // 3. Storage rules read these. 4. Force a refresh so (3) actually lands —
+    // without it their existing ID token keeps the old familyIds claim (and so
+    // keeps Storage read access to this space's files) until it expires.
+    await admin.auth().setCustomUserClaims(targetUid, nextClaims).catch(() => {});
+    await admin.auth().revokeRefreshTokens(targetUid).catch(() => {});
+
+    console.info(`[remove-member] uid=${targetUid} removed from familyId=${familyId} by uid=${caller.uid}`);
+    res.json({ ok: true, removed: targetUid });
+  } catch (err) {
+    console.error('/api/remove-member error:', err);
+    res.status(500).json({ error: 'Could not remove that member. Please try again.' });
   }
 });
 

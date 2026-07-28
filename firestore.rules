@@ -64,20 +64,38 @@ service cloud.firestore {
 
     match /families/{familyId} {
 
-      // Family metadata doc — readable by any signed-in user so the join flow
-      // can validate a family exists before writing the roles doc.
+      // Family metadata doc — MEMBERS ONLY. It carries the space's name and,
+      // for a business space, its address and registration number, so a plain
+      // `signedIn()` read let any Google account that guessed or was shown a
+      // space id read those. The join flow does NOT need this rule: it reads
+      // this doc SERVER-side with the Admin SDK (/api/join-family), which
+      // bypasses rules entirely — so tightening it here costs the join flow
+      // nothing. Every client-side reader (loadSpaceInfo, ImportantInfo,
+      // FamilySettings) only ever runs for the active space, of which the
+      // caller is by definition a member.
       match /info/{doc} {
-        allow read: if signedIn();
+        allow read: if isMemberOf(familyId);
         allow write: if isAdminOf(familyId);
       }
 
       // Role assignments — one doc per uid. Created ONLY by the server
       // (create-family / join-family with the Admin SDK). Self-create would let
       // any signed-in stranger add themselves to any family — so it's closed.
+      // This doc is the AUTHORITATIVE membership record — server-side auth
+      // (requireMember) and isMemberOf() below both key off its existence, and
+      // its `role` field is the only role anything trusts.
+      //
+      // DELETE is server-only (/api/remove-member). A client-side delete would
+      // remove membership WITHOUT the three other things a removal has to do —
+      // strip the space from users/{uid}.spaces[], re-point/clear their active
+      // familyId, and re-mint their custom claims (which is what Storage rules
+      // gate vault FILES on). A half-removed member keeps their file access and
+      // is left pointing at a space they can no longer open.
       match /roles/{uid} {
         allow read:   if isMemberOf(familyId);
         allow create: if false;
-        allow update, delete: if isAdminOf(familyId);
+        allow update: if isAdminOf(familyId);
+        allow delete: if false;
       }
 
       // Family member profiles (name, medical, sizes, education, documents, etc.)

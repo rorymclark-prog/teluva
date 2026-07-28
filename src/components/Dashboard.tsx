@@ -1686,7 +1686,13 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                         </div>
 
                         <div className="flex flex-wrap gap-1 bg-cream-200 p-1 rounded-2xl w-fit self-start md:self-auto select-none">
-                          {TABS.filter(tab => (tab.id !== 'growth' || selectedMember.role === 'Child') && !(isBusinessSpace && HIDDEN_IN_BUSINESS.includes(tab.id)) && !(!isBusinessSpace && HIDDEN_IN_FAMILY.includes(tab.id))).map(tab => (
+                          {/* 'secrets' is admin-only — it holds this person's saved
+                              logins (digitalAccounts[].passwordPlain). Same gate as
+                              the shared password vault ('passwords' in the nav filter
+                              above). The real enforcement is server-side in
+                              /api/vault/reveal; this just stops showing a tab that
+                              can no longer decrypt anything. */}
+                          {TABS.filter(tab => (tab.id !== 'growth' || selectedMember.role === 'Child') && !(tab.id === 'secrets' && !isAdmin) && !(isBusinessSpace && HIDDEN_IN_BUSINESS.includes(tab.id)) && !(!isBusinessSpace && HIDDEN_IN_FAMILY.includes(tab.id))).map(tab => (
                             <button
                               key={tab.id}
                               type="button"
@@ -1766,7 +1772,17 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                 />
                               )}
                               {activeTab === 'secrets' && (
-                                <SecureSecrets member={selectedMember} onUpdateMember={handleUpdateMember} />
+                                isAdmin
+                                  ? <SecureSecrets member={selectedMember} onUpdateMember={handleUpdateMember} />
+                                  : (
+                                    <div className="card text-center py-16 px-4">
+                                      <div className="w-12 h-12 rounded-2xl bg-cream-200 text-ink-400 flex items-center justify-center mx-auto mb-3">
+                                        <Key className="w-6 h-6" />
+                                      </div>
+                                      <h3 className="text-sm font-semibold text-ink-800">Admins only</h3>
+                                      <p className="text-[13px] text-ink-400 mt-1">Saved logins can only be viewed by a family admin.</p>
+                                    </div>
+                                  )
                               )}
                               {activeTab === 'cv' && (
                                 <MemberCV

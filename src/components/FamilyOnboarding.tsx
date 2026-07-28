@@ -188,20 +188,27 @@ export default function FamilyOnboarding() {
           <form onSubmit={handleJoin} className="space-y-4">
             <div className="space-y-1">
               <label htmlFor="join-code" className="text-sm font-medium text-ink-700">
-                Join code
+                Invite code
               </label>
+              {/* Placeholder shows the SHAPE of a real invite code (8 chars,
+                  A–Z/0–9 — see /api/create-invite). It used to show a UUID
+                  pattern, which taught people to paste a family UUID — the one
+                  thing that must never work as a join credential, because a
+                  family UUID appears inside every document download URL the
+                  family shares. */}
               <input
                 id="join-code"
                 type="text"
-                className="field w-full font-mono text-sm"
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                className="field w-full font-mono text-sm tracking-widest uppercase"
+                placeholder="ABCD1234"
+                maxLength={12}
                 value={joinCode}
                 onChange={(e) => { setJoinCode(e.target.value); resetError(); }}
                 autoFocus
                 disabled={busy}
               />
               <p className="text-xs text-ink-400">
-                Ask your family admin for the join code — it's shown in Family Settings inside the vault.
+                Ask your family admin for an invite code — they create one in Family Settings. Each code works once and expires after 14 days.
               </p>
             </div>
 

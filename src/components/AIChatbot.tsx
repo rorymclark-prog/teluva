@@ -8,6 +8,7 @@ import {
   uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
+import { redactHousehold, redactFinances, redactMember } from '../utils/aiRedact';
 // Edit/delete-existing-records feature: display labels + apply-time re-resolution
 // live here (this shared component only gets append-only wiring).
 import { annotateDestructiveEdits } from '../utils/aiDestructive';
@@ -148,7 +149,10 @@ function slimMembers(members: FamilyMember[]) {
   return members.map(m => {
     const { avatarUrl, documents, digitalAccounts, favorites, growthHistory, ...rest } = m as any;
     return {
-      ...rest,
+      // Government identity numbers (identifiers) and bank/routing numbers
+      // (financialAccounts) were riding along inside ...rest — see aiRedact.ts
+      // for exactly what goes and what deliberately stays.
+      ...redactMember(rest),
       // id is included so the AI can reference a specific member document for delete_record.
       documents: (documents || []).map((d: any) => ({ id: d.id, name: d.name, category: d.category, uploadedAt: d.uploadedAt })),
       // NEVER send stored passwords to the AI; keep only what lets it answer "what accounts does X have"
@@ -444,7 +448,12 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     const expiries = insights.expiries.map((n) => ({ text: n.text, daysUntil: n.days }));
     const gaps = insights.gaps.map((n) => ({ text: n.text }));
     // slips carry ids so the AI can target one for delete_record/update_record ("bin that Media Markt receipt").
-    return { members: slimMembers(members), info, household, finances, timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [] };
+    // Door/garage codes + the Wi-Fi password, and bank IBAN/BIC, are removed
+    // here — the LAST point before this object is POSTed to /api/chat and on to
+    // Gemini. Redacting at the boundary (rather than at each loader) means every
+    // future caller of loadHousehold/loadFinances keeps the full record for the
+    // UI, and only the AI path loses them. See aiRedact.ts.
+    return { members: slimMembers(members), info, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [] };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {
