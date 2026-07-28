@@ -119,6 +119,17 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
       const uid = user.uid;
       const displayName = user.displayName ?? email;
 
+      /* Publish the identity the moment auth resolves, before the profile read
+         below goes to the network. Everything after this point is a Firestore
+         round trip with no local cache behind it, so on a cold start — the one
+         right after an update, when the service worker has just been replaced —
+         it can hang for a long time. While it hung, `uid` was still null, and a
+         null uid is what the app uses to decide you are a stranger. So a signed-
+         in person sat looking at the sign-in screen until the read came back.
+         `loading` stays true, so the app shows its spinner rather than a
+         half-populated dashboard. */
+      setValue(v => ({ ...v, uid, email }));
+
       try {
         const userRef = doc(db, 'users', uid);
         const userSnap = await getDoc(userRef);

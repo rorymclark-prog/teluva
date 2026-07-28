@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Users, Briefcase, User, ChevronDown, Check, Loader2, Plus, X, Sparkles } from 'lucide-react';
 import { SpaceMembership, SpaceType } from '../types';
 import { NewBusinessExtra, suggestBusinessInfo } from '../utils/db';
@@ -22,17 +22,33 @@ function SuggestedTag({ onClear }: { onClear: () => void }) {
 }
 
 /**
- * Switch the active space (Family / Business / Personal), and create a new
- * Business space. Always renders — even with one space — so "create a
- * business" is discoverable; it's just a plain button until a second space
- * actually exists, at which point it becomes a real switcher too.
+ * The header's one left-hand control: who you are and where you are.
+ *
+ * It used to be a grey pill sitting NEXT TO the hub title, which meant a
+ * one-space household read its own name twice in a row — "Clark-Home Tribe"
+ * as the heading and "Clark-Home Tribe" again in the pill beside it. So the
+ * title itself is now the trigger, the way a workspace name is in Slack,
+ * Notion or Linear: one name, tap it to switch or to reach the settings behind
+ * it.
+ *
+ * `footer` is where the account actions live (settings, backup, sign out).
+ * They were previously five unlabelled icon buttons occupying a permanent row
+ * of the header — prime space for things you touch once a year.
+ *
+ * Still renders with a single space, so "create a business" stays reachable.
  */
-export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, onCreate }: {
+export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, onCreate, avatar, title, footer }: {
   spaces: SpaceMembership[];
   activeId: string | null;
   canCreate: boolean;
   onSwitch: (spaceId: string) => Promise<void>;
   onCreate: (name: string, extra?: NewBusinessExtra) => Promise<void>;
+  /** The hub photo / shield, rendered inside the trigger. */
+  avatar?: React.ReactNode;
+  /** The hub name. Falls back to the active space's own name. */
+  title?: string;
+  /** Account actions, appended below the spaces list. */
+  footer?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -129,19 +145,24 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
   const ActiveIcon = active ? (TYPE_ICON[active.type] || Users) : Briefcase;
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative min-w-0">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         disabled={busy}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-1.5 bg-cream-200 hover:bg-cream-300 text-ink-800 font-semibold text-[12.5px] rounded-xl pl-2.5 pr-2 py-1.5 transition-colors cursor-pointer disabled:opacity-60"
-        title="Switch space"
+        className="flex min-w-0 items-center gap-2.5 rounded-2xl -m-1 p-1 pr-2 transition-colors hover:bg-cream-200/70 cursor-pointer disabled:opacity-60"
+        title="Spaces, settings and account"
       >
-        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ActiveIcon className="w-3.5 h-3.5 shrink-0" />}
-        <span className="max-w-[8rem] truncate">{active?.name || TYPE_LABEL[active?.type || 'family']}</span>
-        <ChevronDown className={`w-3.5 h-3.5 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        {avatar ?? (busy
+          ? <Loader2 className="w-4 h-4 animate-spin" />
+          : <ActiveIcon className="w-4 h-4 shrink-0" />)}
+        <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight truncate">
+          {title || active?.name || TYPE_LABEL[active?.type || 'family']}
+        </h1>
+        {busy && avatar && <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-ink-400" />}
+        <ChevronDown className={`w-4 h-4 shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
@@ -253,6 +274,16 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
             <div className="flex items-start gap-1.5 mt-1 px-2.5 py-1.5 text-[11px] text-rosa-600">
               <span className="flex-1">{error}</span>
               <button type="button" onClick={() => setError(null)}><X className="w-3 h-3" /></button>
+            </div>
+          )}
+
+          {/* Account actions. Closing on click is handled here rather than in
+              each item, so the caller can pass plain buttons and a <label>
+              file-picker without every one of them knowing about this menu. */}
+          {footer && !creating && (
+            <div onClick={() => setOpen(false)}>
+              <div className="my-1.5 border-t border-cream-200" />
+              {footer}
             </div>
           )}
         </div>

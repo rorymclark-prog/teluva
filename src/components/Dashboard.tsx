@@ -118,7 +118,7 @@ import {
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
-  Loader2, UserMinus, ChevronDown
+  Loader2, UserMinus, ChevronDown, Settings
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -337,6 +337,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // self-loads the full FamilyInfo doc (numbers/contacts/providers) for editing.
   const [contacts, setContacts] = useState<ContactEntry[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
+  const [signingIn, setSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
 
   /* Collapsed family list. On a phone the list and the profile are stacked, so
      with eight people you scroll past the whole household every time you want
@@ -1475,10 +1477,27 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               ? 'Someone has invited you to join their family vault on Teluva. Sign in with Google to accept — you\'ll land straight in it.'
               : 'Sizes, documents, growth and plans for the whole family — together in one private place.'}
           </p>
-          <button onClick={loginWithGoogle} className="btn-primary w-full py-3">
-            <LogIn className="w-4 h-4" />
-            <span>Sign in with Google</span>
+          <button
+            onClick={async () => {
+              setSigningIn(true);
+              setSignInError(null);
+              const problem = await loginWithGoogle();
+              setSignInError(problem);
+              setSigningIn(false);
+            }}
+            disabled={signingIn}
+            className="btn-primary w-full py-3 disabled:opacity-60"
+          >
+            {signingIn ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+            <span>{signingIn ? 'Signing in…' : 'Sign in with Google'}</span>
           </button>
+
+          {/* A failure used to be console-only, so the button just did nothing. */}
+          {signInError && (
+            <p role="alert" className="mt-3 rounded-2xl border border-rosa-200 bg-rosa-50 px-3 py-2 text-left text-[12.5px] text-rosa-700">
+              {signInError}
+            </p>
+          )}
           <a href="?demo=1" className="inline-block mt-5 text-xs text-ink-400 underline underline-offset-2 hover:text-ink-600">
             or take a peek at the demo
           </a>
@@ -1494,46 +1513,80 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     );
   }
 
+  const hubAvatar = settings.familyPhotoUrl ? (
+    <img src={settings.familyPhotoUrl} alt="" className="w-9 h-9 rounded-2xl object-cover shrink-0 border border-cream-300 shadow-soft" />
+  ) : (
+    <span className="w-9 h-9 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0">
+      <ShieldCheck className="w-5 h-5 text-sage-600" />
+    </span>
+  );
+
+  /* The account actions, as menu rows rather than a permanent row of six
+     unlabelled icons in the header. Export, restore, leave and sign out are
+     once-a-year controls that were holding prime real estate; naming them also
+     fixes the guessing game of what each icon did. */
+  const menuRow = 'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-semibold text-ink-700 hover:bg-cream-100 transition-colors cursor-pointer';
+  const accountMenuItems = !demo ? (
+    <>
+      <button type="button" onClick={() => setIsSettingsOpen(true)} className={menuRow}>
+        <Settings className="w-4 h-4 shrink-0" />
+        <span className="flex-1 text-left">{isBusinessSpace ? 'Business settings' : 'Hub settings'}</span>
+      </button>
+
+      {familySettingsButton}
+
+      <button type="button" onClick={handleExportAllData} disabled={exportingBackup} className={`${menuRow} disabled:opacity-50`}>
+        {exportingBackup ? <Loader2 className="w-4 h-4 shrink-0 animate-spin" /> : <Download className="w-4 h-4 shrink-0" />}
+        <span className="flex-1 text-left">{exportingBackup ? 'Preparing backup…' : 'Download a backup'}</span>
+      </button>
+
+      <label className={menuRow}>
+        <Upload className="w-4 h-4 shrink-0" />
+        <span className="flex-1 text-left">Restore from a backup</span>
+        <input type="file" accept=".zip,.json,application/zip,application/json" onChange={handleImportAllData} className="hidden" />
+      </label>
+
+      <div className="my-1.5 border-t border-cream-200" />
+
+      <button type="button" onClick={handleLeaveFamily} className={`${menuRow} text-rosa-600 hover:bg-rosa-50`}>
+        <UserMinus className="w-4 h-4 shrink-0" />
+        <span className="flex-1 text-left">{isBusinessSpace ? 'Leave this business' : 'Leave this family'}</span>
+      </button>
+
+      <button type="button" onClick={logout} className={menuRow}>
+        <LogOut className="w-4 h-4 shrink-0" />
+        <span className="flex-1 text-left">Sign out</span>
+      </button>
+    </>
+  ) : null;
+
   return (
     <div className="min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans">
       {/* Header */}
       <header className="bg-cream-50/90 backdrop-blur border-b border-cream-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {settings.familyPhotoUrl ? (
-              <button
-                type="button"
-                onClick={() => setLightboxImage(settings.familyPhotoUrl!)}
-                className="w-9 h-9 rounded-2xl overflow-hidden shrink-0 border border-cream-300 shadow-soft cursor-zoom-in"
-                title="View family photo"
-              >
-                <img src={settings.familyPhotoUrl} alt="Family" className="w-full h-full object-cover" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => !demo && setIsSettingsOpen(true)}
-                className={`w-9 h-9 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0 transition-colors ${demo ? '' : 'hover:bg-sage-200 cursor-pointer'}`}
-                title={demo ? undefined : 'Hub settings — add a family photo'}
-              >
-                <ShieldCheck className="w-5 h-5 text-sage-600" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => !demo && setIsSettingsOpen(true)}
-              className={`text-left rounded-2xl -m-1 p-1 transition-colors ${demo ? '' : 'hover:bg-cream-200/60 cursor-pointer'}`}
-              title={demo ? undefined : 'Hub settings — name &amp; family photo'}
-            >
-              <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight">{hubName}</h1>
-              <p className="hidden sm:block text-[11px] text-ink-400 font-medium leading-tight">{isBusinessSpace ? 'Everything for the business, in one place' : 'Everything for the family, in one place'}</p>
-            </button>
-          </div>
-
-          {/* Space switcher (Family / Business / Personal) — renders nothing
-              until an account belongs to more than one space. Not shown in demo
-              (demo isn't a real signed-in account, nothing to switch to). */}
-          {!demo && <SpaceSwitcher spaces={spaces} activeId={activeSpaceId} canCreate={canWrite} onSwitch={handleSwitchSpace} onCreate={handleCreateSpace} />}
+          {/* One control, not seven. The hub name IS the menu: spaces, settings,
+              backup and sign-out all live behind it, the way a workspace name
+              works in Slack or Notion. Everything here used to be laid out
+              across the header as a title, a space pill repeating that same
+              title, and a permanent row of five unlabelled icon buttons. */}
+          {demo ? (
+            <div className="flex items-center gap-3 min-w-0">
+              {hubAvatar}
+              <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight truncate">{hubName}</h1>
+            </div>
+          ) : (
+            <SpaceSwitcher
+              spaces={spaces}
+              activeId={activeSpaceId}
+              canCreate={canWrite}
+              onSwitch={handleSwitchSpace}
+              onCreate={handleCreateSpace}
+              avatar={hubAvatar}
+              title={hubName}
+              footer={accountMenuItems}
+            />
+          )}
 
           {/* The way out of the demo. There is one in the footer too, but the
               footer is a long scroll down from here and an installed app has no
@@ -1562,44 +1615,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             />
           </div>
 
-          <div className="flex items-center gap-2 ml-auto sm:ml-0">
+          {/* Only what changes how you read the screen stays out here: a
+              reminder that you can't edit, if you can't. */}
+          <div className="flex items-center gap-2">
             {role === 'child' && (
               <span className="text-xs bg-sage-100 text-sage-700 rounded-full px-2 py-0.5 font-semibold">View only</span>
             )}
             {role === 'member' && (
               <span className="text-xs bg-sage-100 text-sage-700 rounded-full px-2 py-0.5 font-semibold">Member</span>
-            )}
-
-            {isAdmin && (
-              <button onClick={() => setIsAddModalOpen(true)} className="btn-primary px-4 py-2" title={t.btn_add} aria-label={t.btn_add}>
-                <UserPlus className="w-4 h-4" />
-                <span className="hidden sm:inline">{t.btn_add}</span>
-              </button>
-            )}
-
-            {familySettingsButton}
-
-            {!demo && (
-              <div data-tour="data-controls" className="contents">
-                <button
-                  onClick={handleExportAllData}
-                  disabled={exportingBackup}
-                  className="btn-quiet px-3 py-2 disabled:opacity-50"
-                  title="Download a zip backup: members, calendar, household, finances, wills & estate, In Memory, slips, assets, recipes, shopping list, settings, and every document/photo as a real file. Saved passwords are not included."
-                >
-                  {exportingBackup ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                </button>
-                <label className="btn-quiet px-3 py-2 cursor-pointer" title="Restore from a backup file">
-                  <Upload className="w-4 h-4" />
-                  <input type="file" accept=".zip,.json,application/zip,application/json" onChange={handleImportAllData} className="hidden" />
-                </label>
-                <button onClick={handleLeaveFamily} className="btn-quiet px-3 py-2" title={isBusinessSpace ? 'Leave this business' : 'Leave this family'}>
-                  <UserMinus className="w-4 h-4" />
-                </button>
-                <button onClick={logout} className="btn-quiet px-3 py-2" title="Sign out">
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
             )}
           </div>
         </div>
@@ -1747,7 +1770,21 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 <section className="lg:col-span-4 space-y-5">
                   <div data-tour="family-list" className="card p-5 space-y-4">
                     <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
-                      <h4 className="section-label">{isBusinessSpace ? 'Your team' : 'Your family'}</h4>
+                      <h4 className="section-label flex-1">{isBusinessSpace ? 'Your team' : 'Your family'}</h4>
+                      {/* Adding a person belongs beside the list of people, not
+                          in the app header where it used to sit. */}
+                      {isAdmin && (
+                        <button
+                          data-tour="add-first-member"
+                          type="button"
+                          onClick={() => setIsAddModalOpen(true)}
+                          title={t.btn_add}
+                          aria-label={t.btn_add}
+                          className="mr-2 flex items-center justify-center w-7 h-7 rounded-full bg-clay-500 text-white transition-colors hover:bg-clay-600 cursor-pointer"
+                        >
+                          <UserPlus className="w-4 h-4" />
+                        </button>
+                      )}
                       {/* Below four people the list is short enough that a
                           collapse control is just another thing to read. */}
                       {members.length >= 4 ? (

@@ -30,7 +30,13 @@
         // the smallest size instead of the default.
         var i = localStorage.getItem('teluva.textScale');
         var s = i === null ? null : [0.9, 1, 1.1, 1.2, 1.35][Number(i)];
-        if (s) document.documentElement.style.setProperty('--type-user', String(s));
+        if (s) {
+          // Root font size scales Tailwind's rem-based icons and spacing; the
+          // variable scales the app's hardcoded px text. Both, or the interface
+          // grows while the words stay put. Mirrors src/utils/textScale.ts.
+          document.documentElement.style.fontSize = 16 * s + 'px';
+          document.documentElement.style.setProperty('--type-user', String(s));
+        }
       } catch (e) { /* private mode — ship the default size */ }
     </script>
   </head>

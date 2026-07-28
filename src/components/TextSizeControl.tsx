@@ -9,7 +9,7 @@ import {
 } from '../utils/textScale';
 
 /**
- * Text size — a slider with detents rather than a free one.
+ * Display size — a slider with detents rather than a free one.
  *
  * A continuous slider sounds friendlier but hands back arbitrary values like
  * 1.07x, which nobody can hit twice and which land text on half-pixels. Five
@@ -24,7 +24,7 @@ export default function TextSizeControl() {
 
   return (
     <div>
-      <label className="field-label" htmlFor="text-size">Text size</label>
+      <label className="field-label" htmlFor="text-size">Display size</label>
 
       {/* Sample line. Sized in the app's own body size, so it grows with the
           rest of the screen instead of pretending to be a preview. */}
@@ -59,7 +59,7 @@ export default function TextSizeControl() {
       <p className="mt-2 text-[12px] text-ink-400">
         {TEXT_SCALE_LABELS[index]}
         {index === 1 && ' — what the app ships with'}
-        <span className="block">Applies to this device only.</span>
+        <span className="block">Scales text, icons and spacing. This device only.</span>
       </p>
     </div>
   );

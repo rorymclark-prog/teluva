@@ -45,12 +45,11 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-2 bg-cream-200 hover:bg-cream-300 text-ink-800 font-semibold text-[13px] rounded-2xl pl-3 pr-2.5 py-2 transition-colors cursor-pointer"
+        title={currentView?.label ? `Sections — you're in ${currentView.label}` : 'Sections'}
+        aria-label={currentView?.label ? `Sections. Current: ${currentView.label}` : 'Sections'}
+        className="flex items-center justify-center w-10 h-10 bg-cream-200 hover:bg-cream-300 text-ink-800 rounded-2xl transition-colors cursor-pointer"
       >
-        <Menu className="w-4 h-4 shrink-0" />
-        {CurrentIcon && <CurrentIcon className="w-4 h-4 shrink-0" />}
-        <span className="max-w-[9rem] truncate">{currentView?.label ?? 'Menu'}</span>
-        <ChevronDown className={`w-4 h-4 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <Menu className="w-5 h-5 shrink-0" />
       </button>
 
       {open && (

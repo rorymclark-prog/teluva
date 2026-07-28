@@ -32,10 +32,30 @@ export function getTextScaleIndex(): number {
   return raw;
 }
 
-/** Push a step to the document. Separate from persistence so the settings
- *  slider can preview a value live while it is being dragged. */
+/**
+ * Push a step to the document. Separate from persistence so the settings
+ * slider can preview a value live while it is being dragged.
+ *
+ * Two knobs, because the app sizes things two different ways:
+ *
+ *  · The ROOT FONT SIZE. Tailwind expresses widths, heights, padding, gaps and
+ *    radii in rem, so an icon at `w-4` is 1rem and grows with this. That is
+ *    what makes the setting scale the interface rather than only the words.
+ *    Breakpoints stay in px and are untouched, so the layout does not jump to
+ *    a different arrangement just because the text got bigger.
+ *
+ *  · `--type-user`, for the ~1,350 hardcoded `text-[Npx]` sizes, which are
+ *    immune to a rem change and have to be scaled explicitly (see index.css).
+ *
+ * CSS `zoom` would have done both in one line, and was measured and rejected:
+ * it leaves `100vh` unscaled, so every full-height screen and modal backdrop
+ * in the app ends up taller than the window it is in.
+ */
+const ROOT_FONT_PX = 16;
+
 export function applyTextScale(index: number): void {
   const scale = TEXT_SCALES[index] ?? TEXT_SCALES[DEFAULT_INDEX];
+  document.documentElement.style.fontSize = `${ROOT_FONT_PX * scale}px`;
   document.documentElement.style.setProperty('--type-user', String(scale));
 }
 

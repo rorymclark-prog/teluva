@@ -55,33 +55,64 @@ getRedirectResult(auth).catch((error) => {
   console.error('Redirect sign-in could not be completed', error);
 });
 
-export const loginWithGoogle = async () => {
+/** Plain English for the failures a person can actually do something about. */
+function signInMessage(code: string): string {
+  switch (code) {
+    case 'auth/unauthorized-domain':
+      return `This address (${location.hostname}) isn't on the app's approved sign-in list, so Google refused the request. It needs adding under Authentication → Settings → Authorized domains.`;
+    case 'auth/popup-blocked':
+      return 'Your browser blocked the Google sign-in window. Allow pop-ups for this app and try again.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'The sign-in window closed before it finished. Try again.';
+    case 'auth/network-request-failed':
+      return "Couldn't reach Google. Check your connection and try again.";
+    case 'auth/web-storage-unsupported':
+      return 'This browser is blocking the storage sign-in needs. Turn off private browsing or allow cookies for this app.';
+    default:
+      return `Sign-in failed${code ? ` (${code})` : ''}. Please try again.`;
+  }
+};
+
+/**
+ * Sign in, and SAY SO when it doesn't work.
+ *
+ * Every failure here used to end at console.error, so a person tapped the
+ * button, nothing happened, and the app looked broken with no clue why — which
+ * is exactly how it presented in the installed Mac app. The caller now gets a
+ * message to put on screen.
+ *
+ * A redirect is tried whenever the popup path fails for any reason, not just
+ * for a hand-listed set of codes: an installed PWA window is its own top-level
+ * context and popups behave differently there than in a tab.
+ *
+ * @returns null on success (or when a redirect is under way), otherwise a
+ *          human-readable reason.
+ */
+export const loginWithGoogle = async (): Promise<string | null> => {
   try {
     if (isIOS) {
       await signInWithRedirect(auth, provider);
-      return;
+      return null;
     }
     await signInWithPopup(auth, provider);
+    return null;
   } catch (error: any) {
     const code = error?.code || '';
-    const popupFailed = [
-      'auth/popup-blocked',
-      'auth/popup-closed-by-user',
-      'auth/cancelled-popup-request',
-      'auth/operation-not-supported-in-this-environment',
-      'auth/web-storage-unsupported',
-    ].includes(code);
+    console.error('Popup sign-in failed', code, error);
 
-    if (popupFailed) {
-      // Popup was blocked (common on mobile/in-app browsers) — fall back to redirect.
+    // A domain Google won't accept fails the same way through either path, so
+    // there is nothing to gain by bouncing the user out to a redirect first.
+    if (code !== 'auth/unauthorized-domain') {
       try {
         await signInWithRedirect(auth, provider);
-        return;
-      } catch (redirectError) {
-        console.error('Redirect sign-in failed', redirectError);
+        return null;
+      } catch (redirectError: any) {
+        console.error('Redirect sign-in failed', redirectError?.code, redirectError);
+        return signInMessage(redirectError?.code || code);
       }
     }
-    console.error('Login failed', error);
+    return signInMessage(code);
   }
 };
 
