@@ -1,6 +1,8 @@
 {
-  "label": "v126",
+  "label": "v128",
   "changes": [
+    "Bigger text throughout on phones. It was running about 20% smaller than the apps sitting next to it on your home screen, which is why it felt cramped",
+    "Fixed: if you tapped \"take a peek at the demo\" inside the installed app, there was no way back — no address bar to edit, and no sign-in button anywhere. There is now one in the footer and one in the assistant panel",
     "The app is now called Teluva. Same app, same data, nothing to do at your end — you'll see the new name and icon. If you've added it to your Home Screen, the icon will refresh on its own",
     "A guided setup the first time you sign in: it asks the fifteen or so things worth knowing, in the order a person would actually ask them. Stop halfway and it picks up where you left off",
     "It now offers to add itself to your Home Screen — which is also the only way an iPhone will let it send you a birthday or expiry reminder. It asks once, backs off if you say no, and stops asking after the third time",
