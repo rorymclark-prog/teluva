@@ -82,6 +82,12 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
                 <p className="text-[13px] text-ink-500 max-w-[240px]">
                   Sign in to chat with your family assistant — ask questions, scan documents, and update details by voice.
                 </p>
+                {/* Same one-way-door problem as the footer: this told people to sign
+                    in without giving them anywhere to do it, and an installed app
+                    has no address bar to escape the demo with. */}
+                <a href="/" className="btn-primary px-4 py-2 text-[13px] no-underline">
+                  Sign in with Google
+                </a>
               </div>
             ) : (
               <AIChatbot

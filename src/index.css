@@ -256,3 +256,42 @@
   color: transparent;
   animation: fv-shimmer 1.6s linear infinite;
 }
+
+/* ---------------------------------------------------------------------------
+   Phone type scale
+   ---------------------------------------------------------------------------
+   Measured on a real phone viewport against the live app: the main content
+   text — the "Needs attention" rows, the thing you actually read — was 13.5px,
+   with most secondary text at 12–13px. iOS sets body copy at 17pt and Android's
+   body-large is 16sp, so this app was running roughly 20% under what every
+   native app beside it uses. That is exactly what "it seems too small compared
+   to other apps" feels like.
+
+   Fixing it at the call site would mean editing 976 arbitrary `text-[Npx]`
+   utilities across the codebase, which is a lot of blast radius for a change we
+   want to be able to tune. So instead this scales the utilities themselves, in
+   one place, by ~1.12x — one clean knob to turn, and one clean thing to revert.
+
+   Two deliberate constraints:
+     · It stops at 639.98px, exactly where Tailwind's `sm:` variants begin, so
+       a component that sets a different size at `sm:` is never fighting this.
+     · These rules are UNLAYERED, which in Tailwind v4 puts them above the
+       layered utilities in the cascade regardless of source order. That is
+       what makes a same-specificity override reliable rather than
+       order-dependent.
+
+   The floor sizes (9px, 10px) move least — they are uppercase micro-labels and
+   badges, and bumping them to body size would flatten the hierarchy rather than
+   improve it.
+--------------------------------------------------------------------------- */
+@media (max-width: 639.98px) {
+  .text-\[10px\]   { font-size: 11px; }
+  .text-\[11px\]   { font-size: 12px; }
+  .text-\[11\.5px\]{ font-size: 13px; }
+  .text-\[12px\]   { font-size: 13.5px; }
+  .text-\[12\.5px\]{ font-size: 14px; }
+  .text-\[13px\]   { font-size: 14.5px; }
+  .text-\[13\.5px\]{ font-size: 15px; }
+  .text-\[14px\]   { font-size: 15.5px; }
+  .text-\[15px\]   { font-size: 16.5px; }
+}

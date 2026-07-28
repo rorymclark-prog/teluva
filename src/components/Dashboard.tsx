@@ -2005,6 +2005,17 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             <>
               <span className="w-2 h-2 bg-honey-500 rounded-full"></span>
               <span>Demo preview — nothing is saved</span>
+              {/* Demo mode is entered by adding ?demo=1 and left ONLY by removing it
+                  again. In a browser tab you can edit the address bar. In an
+                  INSTALLED app — the whole point of this being a PWA — there is no
+                  address bar, so tapping "take a peek at the demo" was a one-way
+                  door with no way back to signing in. Hence a real button. */}
+              <a
+                href="/"
+                className="ml-1 pl-3 border-l border-cream-300 text-clay-600 hover:text-clay-700 font-semibold"
+              >
+                Sign in
+              </a>
             </>
           ) : cloudSynced === false ? (
             <>
