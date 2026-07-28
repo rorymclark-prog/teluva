@@ -4,6 +4,7 @@ import { PasswordEntry } from '../types';
 import { loadPasswords, savePassword, deletePassword } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import SheetGrabber from './SheetGrabber';
 
 const BLANK: PasswordEntry = {
   id: '',
@@ -269,7 +270,7 @@ export default function FamilyPasswords() {
         <div className="fixed inset-0 z-50 anim-fade flex items-end justify-center sm:items-center px-4 sm:p-4 overflow-y-auto">
           <div className="anim-sheet sm:anim-pop w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl max-h-[90vh] sm:max-h-none overflow-y-auto">
             {/* Mobile grabber */}
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden mb-4" />
+            <SheetGrabber onClose={closeForm} className="mb-4" />
 
             {/* Modal header */}
             <div className="flex items-center justify-between mb-5">

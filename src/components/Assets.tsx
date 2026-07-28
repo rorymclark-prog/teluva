@@ -8,6 +8,7 @@ import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { parseAmount } from '../utils/money';
 import AssetClaimExport from './AssetClaimExport';
+import SheetGrabber from './SheetGrabber';
 
 const CATEGORIES: AssetItem['category'][] = [
   'Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other',
@@ -383,7 +384,7 @@ export default function Assets() {
       {isFormOpen && editing && (
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={closeForm} />
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
               <h3 className="font-display text-lg font-semibold text-ink-900">{editing.id ? 'Edit asset' : 'New asset'}</h3>
               <button onClick={closeForm} className="btn-quiet p-2"><X className="w-4 h-4" /></button>

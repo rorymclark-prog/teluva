@@ -118,7 +118,7 @@ import {
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
-  Loader2, UserMinus
+  Loader2, UserMinus, ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -337,6 +337,23 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // self-loads the full FamilyInfo doc (numbers/contacts/providers) for editing.
   const [contacts, setContacts] = useState<ContactEntry[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
+
+  /* Collapsed family list. On a phone the list and the profile are stacked, so
+     with eight people you scroll past the whole household every time you want
+     to look at one of them. Collapsing leaves the selected person visible —
+     hiding the list entirely would lose your place, which is the usual failure
+     of an accordion here. Per-device, so a phone can stay collapsed while a
+     laptop (where the list is a side column that costs nothing) stays open. */
+  const [listCollapsed, setListCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('teluva.familyListCollapsed') === '1'; } catch { return false; }
+  });
+  const toggleListCollapsed = () => {
+    // Written outside the state updater: React may invoke an updater twice, and
+    // a setState callback is not the place for a side effect.
+    const next = !listCollapsed;
+    try { localStorage.setItem('teluva.familyListCollapsed', next ? '1' : '0'); } catch { /* private mode */ }
+    setListCollapsed(next);
+  };
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -1518,6 +1535,17 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               (demo isn't a real signed-in account, nothing to switch to). */}
           {!demo && <SpaceSwitcher spaces={spaces} activeId={activeSpaceId} canCreate={canWrite} onSwitch={handleSwitchSpace} onCreate={handleCreateSpace} />}
 
+          {/* The way out of the demo. There is one in the footer too, but the
+              footer is a long scroll down from here and an installed app has no
+              address bar to escape with — so on the laptop it read as an app
+              with nowhere to sign in. It takes the slot the space switcher
+              would occupy, which is empty in demo mode anyway. */}
+          {demo && (
+            <a href="/" className="btn-primary shrink-0 px-3 py-1.5 text-[13px] no-underline">
+              Sign in
+            </a>
+          )}
+
           {/* Main view switcher — a burger dropdown so all sections are reachable
               in one tap, no horizontal sliding. */}
           {/* data-tour anchor wraps the trigger only ("contents" keeps it
@@ -1720,12 +1748,47 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                   <div data-tour="family-list" className="card p-5 space-y-4">
                     <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
                       <h4 className="section-label">{isBusinessSpace ? 'Your team' : 'Your family'}</h4>
-                      <span className="chip bg-cream-200 text-ink-600 tabular-nums">
-                        {members.length} member{members.length !== 1 ? 's' : ''}
-                      </span>
+                      {/* Below four people the list is short enough that a
+                          collapse control is just another thing to read. */}
+                      {members.length >= 4 ? (
+                        <button
+                          type="button"
+                          onClick={toggleListCollapsed}
+                          aria-expanded={!listCollapsed}
+                          title={listCollapsed ? 'Show everyone' : 'Collapse the list'}
+                          className="chip flex items-center gap-1 bg-cream-200 text-ink-600 tabular-nums transition-colors hover:bg-cream-300 cursor-pointer"
+                        >
+                          <span>{members.length} member{members.length !== 1 ? 's' : ''}</span>
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${listCollapsed ? '-rotate-90' : ''}`} />
+                        </button>
+                      ) : (
+                        <span className="chip bg-cream-200 text-ink-600 tabular-nums">
+                          {members.length} member{members.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
                     </div>
 
-                    <Reorder.Group axis="y" values={members} onReorder={handleReorder} className="space-y-2.5">
+                    {listCollapsed && members.length >= 4 ? (
+                      /* Collapsed: the person you are actually looking at, and a
+                         way back to everyone else. Reordering is a whole-list
+                         action, so it belongs to the expanded state only. */
+                      <div className="space-y-2.5">
+                        {selectedMember && (
+                          <div className={cardClass(selectedMember)}>
+                            {memberCardInner(selectedMember)}
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={toggleListCollapsed}
+                          className="btn-quiet w-full justify-center text-[13px]"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                          <span>Show all {members.length}</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <Reorder.Group axis="y" values={members} onReorder={handleReorder} className="space-y-2.5">
                         {members.map((member) => (
                           <DraggableRow
                             key={member.id}
@@ -1737,6 +1800,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                           />
                         ))}
                       </Reorder.Group>
+                    )}
                   </div>
                 </section>
 

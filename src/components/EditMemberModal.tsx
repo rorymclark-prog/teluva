@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { BUSINESS_ROLE_PRESETS } from '../utils/businessRoles';
+import SheetGrabber from './SheetGrabber';
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -234,7 +235,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
             className="card relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl p-6 z-10 anim-pop"
           >
             {/* Mobile grabber bar */}
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={handleCancelClose} />
 
             {/* Header */}
             <div className="flex items-center justify-between pb-4 border-b border-cream-200">

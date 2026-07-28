@@ -11,6 +11,7 @@ import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { INSURANCE_READER_ENABLED } from '../config/features';
 import { isFuneralPolicy, inWaitingPeriod, daysUntilWaitingPeriodEnd } from '../utils/funeralCover';
+import SheetGrabber from './SheetGrabber';
 
 const OBLIGATION_TOPICS = ['Lock', 'Storage', 'Travel', 'Safety', 'Deadline', 'Documents', 'General'] as const;
 
@@ -464,7 +465,7 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
       {isFormOpen && editing && (
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={closeForm} />
             <RemoteChangeHint show={remoteWaiting} className="mx-6 mt-4" />
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
               <h3 className="font-display text-lg font-semibold text-ink-900">{editing.id ? 'Edit policy' : 'New policy'}</h3>

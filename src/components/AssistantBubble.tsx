@@ -4,6 +4,7 @@ import AIChatbot, { AiEdit } from './AIChatbot';
 import type { UndoRecord } from '../utils/aiUndo';
 import type { FamilyMember, FamilyDocument } from '../types';
 import { useT } from '../i18n/LangContext';
+import SheetGrabber from './SheetGrabber';
 
 interface Props {
   members: FamilyMember[];
@@ -71,7 +72,7 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
                        sm:w-[400px] sm:h-[min(620px,calc(100vh-9rem))]"
           >
             {/* Mobile grabber bar */}
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={() => setOpen(false)} />
 
             {demo ? (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-6 gap-3">

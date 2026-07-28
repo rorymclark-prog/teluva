@@ -6,6 +6,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import LanguageSelector from './LanguageSelector';
 import PushOptInCard from './PushOptInCard';
+import SheetGrabber from './SheetGrabber';
+import TextSizeControl from './TextSizeControl';
 
 export const COUNTRY_OPTIONS: { value: IdCountry; label: string }[] = [
   { value: 'AT', label: 'Austria' },
@@ -109,7 +111,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
             className="card relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl p-6 z-10 anim-pop"
           >
             {/* Mobile grabber bar */}
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={onClose} />
 
             {/* Header */}
             <div className="flex items-center justify-between pb-4 border-b border-cream-200">
@@ -140,6 +142,10 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
                 <label className="field-label">App language</label>
                 <LanguageSelector />
               </div>
+
+              {/* Text size — same class of thing as language: a per-device
+                  display preference, not a household setting. */}
+              <TextSizeControl />
 
               {/* Redo the guided setup interview — reachable any time it's
                   wired up, not just on day one. See FamilyInterview.tsx. */}

@@ -9,6 +9,7 @@ import {
 import { initAuth, googleSignIn, logout, getAccessToken } from '../utils/firebase';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
+import SheetGrabber from './SheetGrabber';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -613,7 +614,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="anim-fade fixed inset-0 bg-ink-900/60 backdrop-blur-sm" onClick={() => setNoticeResult(null)} />
           <div className="anim-pop relative bg-white border border-cream-300/70 rounded-3xl p-6 shadow-lift w-full max-w-md space-y-4">
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={() => setNoticeResult(null)} />
             <div className="flex items-center justify-between pb-3 border-b border-cream-200">
               <h3 className="text-lg font-display font-semibold text-ink-900">Events found</h3>
               <button onClick={() => setNoticeResult(null)} className="p-1 hover:bg-cream-100 rounded-xl text-ink-400"><X className="w-4 h-4" /></button>
@@ -1038,7 +1039,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
           <div className="anim-fade fixed inset-0 bg-ink-900/60 backdrop-blur-sm" onClick={() => setIsFormOpen(false)} />
 
           <div className="anim-pop relative bg-white border border-cream-300/70 rounded-3xl p-6 shadow-lift w-full max-w-md space-y-4">
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={() => setIsFormOpen(false)} />
             <div className="flex items-center justify-between pb-3 border-b border-cream-200">
               <h3 className="text-lg font-display font-semibold text-ink-900">
                 {editingEventId ? 'Edit event' : 'New event'}

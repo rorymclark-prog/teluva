@@ -5,6 +5,7 @@ import { loadHousehold, saveHousehold } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { vehicleDeadlines, vehicleLabel, VehicleDeadline } from '../utils/vehicle';
+import SheetGrabber from './SheetGrabber';
 
 const FUEL_TYPES = ['Petrol', 'Diesel', 'Electric', 'Hybrid', 'Plug-in Hybrid', 'LPG', 'Other'];
 const DEADLINE_WINDOW = 42; // days
@@ -237,7 +238,7 @@ export default function VehiclesView(
       {isFormOpen && v && (
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={close} />
             <RemoteChangeHint show={remoteWaiting} className="mx-6 mt-4" />
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
               <h3 className="font-display text-lg font-semibold text-ink-900">{v.id ? 'Edit vehicle' : 'New vehicle'}</h3>

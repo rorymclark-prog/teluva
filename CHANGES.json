@@ -1,16 +1,17 @@
 {
-  "label": "v128",
+  "label": "v129",
   "changes": [
-    "Bigger text throughout on phones. It was running about 20% smaller than the apps sitting next to it on your home screen, which is why it felt cramped",
-    "Fixed: if you tapped \"take a peek at the demo\" inside the installed app, there was no way back — no address bar to edit, and no sign-in button anywhere. There is now one in the footer and one in the assistant panel",
+    "Text size is now yours to set. Hub settings has a slider — five steps from Smaller to Biggest. It applies to the whole app, and to the device you set it on, so your phone and your laptop can disagree.",
+    "Fixed: the last release's bigger phone text only reached about half the app. Tailwind's named sizes (used 380 times) were never touched, which is why it looked like nothing had changed. Both families of sizes are covered now.",
+    "The grey line at the top of a pop-up is now a real handle — grab it and swipe down to close. It has looked draggable since the day it was drawn; now it is, in all 23 places it appears.",
+    "You can collapse the family list. With eight people you were scrolling past the whole household to reach one person. Tap the member count to fold it down to whoever you're looking at, and it stays folded until you unfold it.",
+    "Sign in is now in the header while you're in the demo, not just at the bottom of the page. On a laptop the footer was a long scroll away, which made it look like the app had nowhere to sign in.",
+    "Fixed: the page background is now painted on the document itself. On desktop, a window resize could leave a strip of app beside a band of plain white.",
     "The app is now called Teluva. Same app, same data, nothing to do at your end — you'll see the new name and icon. If you've added it to your Home Screen, the icon will refresh on its own",
     "A guided setup the first time you sign in: it asks the fifteen or so things worth knowing, in the order a person would actually ask them. Stop halfway and it picks up where you left off",
     "It now offers to add itself to your Home Screen — which is also the only way an iPhone will let it send you a birthday or expiry reminder. It asks once, backs off if you say no, and stops asking after the third time",
     "Funeral cover and repatriation: waiting periods, claim deadlines, who the beneficiary is, and the burial society contact. It warns you before a claim window closes",
     "A household vendor list — plumber, electrician, the person who actually fixes the boiler — so it isn't only in one person's phone",
-    "Fixed: a backup you exported couldn't be imported again. The export became a zip while the import still expected the old format, so the file wouldn't even open. Both ends now agree, and older backups still restore",
-    "A doctor's referral that never got booked now nudges you — gently at two weeks, less gently at six",
-    "Free spaces get 30 AI requests a month and up to 10 people, with a meter in Settings so you can see where you are. Nothing is deleted or locked if you reach it",
-    "Every tab in a person's profile now has a proper name for screen readers. On a phone they were unlabelled icons, which made the app close to unusable if you rely on one"
+    "Fixed: a backup you exported couldn't be imported again. The export became a zip while the import still expected the old format, so the file wouldn't even open. Both ends now agree, and older backups still restore"
   ]
 }

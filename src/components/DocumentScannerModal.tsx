@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { scanDocument, extractDocument, createCornerEditor, type CornerPoints, type CornerEditor } from 'scanic';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { compileImagesToPdf } from '../utils/pdfCompile';
+import SheetGrabber from './SheetGrabber';
 
 export interface ScannedFile {
   data: string;
@@ -417,7 +418,7 @@ export default function DocumentScannerModal({
         className="card rounded-3xl sm:rounded-2xl max-w-lg w-full sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col anim-sheet"
       >
         {/* Mobile grabber bar */}
-        <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+        <SheetGrabber onClose={handleClose} />
 
         {/* Modal Header */}
         <div className="p-4 bg-white border-b border-cream-200 flex items-center justify-between">

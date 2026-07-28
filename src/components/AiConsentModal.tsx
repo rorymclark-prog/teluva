@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Sparkles, X, Check, Globe2, Eye, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import SheetGrabber from './SheetGrabber';
 
 interface Props {
   open: boolean;
@@ -80,7 +81,7 @@ export default function AiConsentModal({ open, onEnable, onClose, onOpenPrivacy 
             className="card relative w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-6 z-10"
           >
             {/* Mobile grabber bar */}
-            <div className="mx-auto -mt-1 mb-3 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={onClose} className="mb-3" />
 
             {/* Header */}
             <div className="flex items-start justify-between gap-3 pb-4 border-b border-cream-200">

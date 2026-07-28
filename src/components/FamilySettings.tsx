@@ -5,6 +5,7 @@ import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings,
 import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog, AiUsage } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
+import SheetGrabber from './SheetGrabber';
 
 const MILESTONE_KINDS: BusinessMilestoneKind[] = ['First customer', 'New location', 'Certification / licence', 'Revenue target', 'Product launch', 'Funding', 'Award / recognition', 'Other'];
 
@@ -327,7 +328,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
       {/* Panel */}
       <div className="relative ml-auto w-full max-w-md h-full bg-cream-50 shadow-2xl flex flex-col overflow-y-auto anim-sheet">
         {/* Mobile grabber bar */}
-        <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 shrink-0 sm:hidden" />
+        <SheetGrabber onClose={onClose} className="shrink-0" />
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-cream-200 shrink-0">

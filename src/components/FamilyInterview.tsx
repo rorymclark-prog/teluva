@@ -8,6 +8,7 @@ import { loadFamilyInfo, saveFamilyInfo, loadHousehold, saveHousehold } from '..
 import { getInterviewState, saveInterviewStep, markInterviewSeen } from '../utils/interview';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import SheetGrabber from './SheetGrabber';
 
 // ---------------------------------------------------------------------------
 // Why this exists, and how it decides what to ask
@@ -220,7 +221,7 @@ export default function FamilyInterview({
         tabIndex={-1}
         className="card relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl p-6 anim-pop outline-none"
       >
-        <div className="mx-auto mt-[-8px] mb-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+        <SheetGrabber onClose={pause} className="mb-2" />
 
         {/* Header: honest progress + pause */}
         <div className="flex items-center justify-between gap-3 mb-4">

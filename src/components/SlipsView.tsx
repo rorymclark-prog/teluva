@@ -8,6 +8,7 @@ import { useFamilyCtx } from '../contexts/FamilyContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { slipIsArchived, slipReturnClosed, suggestReturnBy } from '../utils/slip';
 import { daysUntil } from '../utils/vehicle';
+import SheetGrabber from './SheetGrabber';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -396,7 +397,7 @@ export default function SlipsView() {
             className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={() => setViewingId(null)} />
             {viewing.photoUrl && (
               <img src={viewing.photoUrl} alt={viewing.item} className="w-full max-h-64 object-cover" />
             )}
@@ -486,7 +487,7 @@ export default function SlipsView() {
       {isFormOpen && form && (
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={closeForm} />
             <RemoteChangeHint show={remoteWaiting} className="mx-6 mt-4" />
 
             <div className="flex items-center justify-between p-6 border-b border-cream-200">

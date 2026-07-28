@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import SheetGrabber from './SheetGrabber';
 
 interface MemberFavoritesProps {
   member: FamilyMember;
@@ -745,7 +746,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white rounded-3xl overflow-hidden max-w-lg w-full shadow-lift border border-cream-300/70 anim-pop"
             >
-              <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+              <SheetGrabber onClose={() => setViewingItem(null)} />
               <div className="p-5 border-b border-cream-200 bg-cream-50 flex justify-between items-center">
                 <div>
                   <span className={`chip ${

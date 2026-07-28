@@ -18,6 +18,21 @@
     <meta name="theme-color" content="#EA5A3B" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Teluva" />
+    <!-- Text size, applied before the first paint. It has to run here rather
+         than in React: the app's own bundle loads after the first frame, so a
+         reader on the largest size would otherwise watch the whole screen
+         resize a moment after it appeared. Kept in lockstep with the steps in
+         src/utils/textScale.ts. -->
+    <script>
+      try {
+        // Read as a string and bail on a missing key: Number(null) is 0, which
+        // is a VALID index, so the shortcut would hand every first-time reader
+        // the smallest size instead of the default.
+        var i = localStorage.getItem('teluva.textScale');
+        var s = i === null ? null : [0.9, 1, 1.1, 1.2, 1.35][Number(i)];
+        if (s) document.documentElement.style.setProperty('--type-user', String(s));
+      } catch (e) { /* private mode — ship the default size */ }
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -13,6 +13,7 @@ import { ESTATE_DOC_KINDS, isReviewStale, reviewAgeLabel } from '../utils/willsE
 import { isFuneralPolicy } from '../utils/funeralCover';
 import DocumentViewer from './DocumentViewer';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import SheetGrabber from './SheetGrabber';
 
 const FUNERAL_WISHES_KIND = 'Funeral wishes';
 
@@ -382,7 +383,7 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
             className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={() => setViewingId(null)} />
             <div className="flex items-start justify-between p-6 pb-3 gap-3">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -507,7 +508,7 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
       {isFormOpen && form && (
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
-            <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <SheetGrabber onClose={closeForm} />
             <RemoteChangeHint show={remoteWaiting} className="mx-6 mt-4" />
 
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
