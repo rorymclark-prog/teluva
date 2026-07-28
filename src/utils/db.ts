@@ -1,7 +1,14 @@
 import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { mergeShared, mergeIdList } from './mergeShared';
+
+// Merge-base keys for the two id-index documents (metadata/members,
+// metadata/events). Namespaced away from the reference-doc keys so they can
+// never collide with a document called 'members'.
+const MEMBER_IDS_KEY = 'metadata:members';
+const EVENT_IDS_KEY = 'metadata:events';
 
 // One shared vault for the whole household. Every authorised family account
 // (see firestore.rules) reads and writes this same path, so Mama, Papa and the
@@ -11,6 +18,7 @@ export let FAMILY_ID = 'household';
 
 /** Called by FamilyProvider once it resolves the user's familyId. */
 export function setFamilyId(id: string): void {
+  if (id !== FAMILY_ID) resetSharedDocBaselines();
   FAMILY_ID = id;
 }
 
@@ -44,7 +52,9 @@ export function setFamilyId(id: string): void {
 // silently undone by a stale local cache.
 const membersKey = () => `family_members_v2_${FAMILY_ID}`;
 const calendarKey = () => `family_calendar_v2_${FAMILY_ID}`;
-const infoKey = () => `family_info_v2_${FAMILY_ID}`;
+// (Important Info's key is `family_info_v2_${FAMILY_ID}` too — it is now built
+// by the shared reference-doc store from the localKey 'family_info_v2', see
+// SHARED_DOCS below, so the byte-identical key keeps every existing cache valid.)
 const migratedFlagKey = (kind: string) => `family_migrated_v2_${kind}_${FAMILY_ID}`;
 const hintSeenKey = (hint: string) => `family_seen_hint_${hint}_v1_${FAMILY_ID}`;
 
@@ -66,19 +76,28 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
 
   if (user) {
     try {
-      const batch = writeBatch(db);
-
-      for (const member of members) {
-        if (!member.id) continue;
-        const docRef = doc(db, 'families', FAMILY_ID, 'family_members', member.id);
-        batch.set(docRef, member, { merge: true });
-      }
-
-      // Handle deleted members by maintaining a list of active IDs in a metadata doc
+      // The per-member documents are already safe — one document each, written
+      // with {merge:true}, so two people editing two different members never
+      // collide. The INDEX was not: `{ids: [...]}` was written as a whole array,
+      // so a stale device could drop a member somebody else had just added. The
+      // member's document survived, but nothing listed it, so it vanished from
+      // every screen. Merge the index the same way the reference docs are
+      // merged, inside a transaction so read-merge-write is atomic.
       const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'members');
-      batch.set(metaRef, { ids: members.map(m => m.id) });
+      const localIds = members.map(m => m.id).filter(Boolean);
+      const mergedIds = await runTransaction(db, async (tx) => {
+        const metaSnap = await tx.get(metaRef);                 // reads must precede writes
+        const serverIds = (metaSnap.exists() ? (metaSnap.data().ids as string[]) : undefined) || [];
+        const ids = mergeIdList(getSeen<string[]>(MEMBER_IDS_KEY), localIds, serverIds);
 
-      await batch.commit();
+        for (const member of members) {
+          if (!member.id) continue;
+          tx.set(doc(db, 'families', FAMILY_ID, 'family_members', member.id), member as any, { merge: true });
+        }
+        tx.set(metaRef, { ids });
+        return ids;
+      });
+      noteSeen(MEMBER_IDS_KEY, mergedIds);
       cloudOk = true;
     } catch (error) {
       console.error('Error saving to Firestore:', error);
@@ -105,6 +124,7 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
 
       if (metaSnap.exists()) {
         const ids = metaSnap.data().ids as string[];
+        noteSeen(MEMBER_IDS_KEY, ids);   // merge base for the next index write
         const membersReqs = ids.map(id => getDoc(doc(db, 'families', FAMILY_ID, 'family_members', id)));
         const snaps = await Promise.all(membersReqs);
         const members = snaps.map(s => s.data() as FamilyMember).filter(Boolean);
@@ -155,18 +175,22 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boole
 
   if (user) {
     try {
-      const batch = writeBatch(db);
-
-      for (const event of events) {
-        if (!event.id) continue;
-        const docRef = doc(db, 'families', FAMILY_ID, 'calendar_events', event.id);
-        batch.set(docRef, event, { merge: true });
-      }
-
+      // Same index merge as saveFamilyMembers above — see the note there.
       const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'events');
-      batch.set(metaRef, { ids: events.map(e => e.id) });
+      const localIds = events.map(e => e.id).filter(Boolean);
+      const mergedIds = await runTransaction(db, async (tx) => {
+        const metaSnap = await tx.get(metaRef);
+        const serverIds = (metaSnap.exists() ? (metaSnap.data().ids as string[]) : undefined) || [];
+        const ids = mergeIdList(getSeen<string[]>(EVENT_IDS_KEY), localIds, serverIds);
 
-      await batch.commit();
+        for (const event of events) {
+          if (!event.id) continue;
+          tx.set(doc(db, 'families', FAMILY_ID, 'calendar_events', event.id), event as any, { merge: true });
+        }
+        tx.set(metaRef, { ids });
+        return ids;
+      });
+      noteSeen(EVENT_IDS_KEY, mergedIds);
       cloudOk = true;
     } catch (error) {
       console.error('Error saving to Firestore:', error);
@@ -192,6 +216,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
 
       if (metaSnap.exists()) {
         const ids = metaSnap.data().ids as string[];
+        noteSeen(EVENT_IDS_KEY, ids);    // merge base for the next index write
         const eventReqs = ids.map(id => getDoc(doc(db, 'families', FAMILY_ID, 'calendar_events', id)));
         const snaps = await Promise.all(eventReqs);
         const events = snaps.map(s => s.data() as CalendarEvent).filter(Boolean);
@@ -234,73 +259,114 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
 }
 
 // --- Important Info: one shared doc for the whole household ---
-export async function saveFamilyInfo(info: FamilyInfo): Promise<boolean> {
-  const user = auth.currentUser;
-  let cloudOk = false;
-
-  if (user) {
-    try {
-      await setDoc(doc(db, 'families', FAMILY_ID, 'reference', 'info'), info);
-      cloudOk = true;
-    } catch (error) {
-      console.error('Error saving family info:', error);
-    }
-  }
-
-  try {
-    localStorage.setItem(infoKey(), JSON.stringify(info));
-  } catch (e) {
-    console.error('LocalStorage fallback failed', e);
-  }
-
-  return cloudOk;
-}
-
-export async function loadFamilyInfo(): Promise<FamilyInfo | null> {
-  const user = auth.currentUser;
-
-  if (user) {
-    try {
-      const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', 'info'));
-      if (snap.exists()) {
-        const info = snap.data() as FamilyInfo;
-        localStorage.setItem(infoKey(), JSON.stringify(info));
-        return info;
-      }
-    } catch (error) {
-      console.error('Error loading family info:', error);
-    }
-  }
-
-  const local = localStorage.getItem(infoKey());
-  if (local) {
-    try {
-      return JSON.parse(local);
-    } catch (e) {
-      return null;
-    }
-  }
-  return null;
-}
+// Same store, same document (families/{FAMILY_ID}/reference/info) and the same
+// localStorage key as before — it just goes through the merging writer below
+// now, instead of its own hand-rolled copy of the old overwrite. Declared after
+// saveReferenceDoc/loadReferenceDoc, which are hoisted function declarations.
+export const saveFamilyInfo = (info: FamilyInfo, base?: FamilyInfo) =>
+  saveReferenceDoc('info', info, 'family_info_v2', base);
+export const loadFamilyInfo = () => loadReferenceDoc<FamilyInfo>('info', 'family_info_v2');
 
 // --- Generic shared single-doc reference store (household / finances / timeline) ---
 // Each lives at families/{FAMILY_ID}/reference/{key}, shared across the household.
 // localKey is scoped by FAMILY_ID internally (see membersKey/calendarKey/infoKey
 // above for why) — callers keep passing their existing plain 'family_household'-
 // style constant, no call-site change needed.
-async function saveReferenceDoc<T>(key: string, value: T, localKey: string): Promise<boolean> {
+//
+// ── CONCURRENT WRITERS ──────────────────────────────────────────────────────
+// These documents each hold a WHOLE array (the shopping list, the recipe book,
+// the document vault…) and are written by every adult in the household from
+// their own phone. The original implementation was a bare
+// `setDoc(ref, value)` — last writer wins, whole document — and every view
+// loads its array ONCE into React state and never refetches. That combination
+// destroyed data in completely ordinary use:
+//
+//   Mama loads ["Milk"] · Papa loads ["Milk"] a minute later
+//   Mama adds Eggs  → ["Milk","Eggs"]
+//   Papa adds Bread → ["Milk","Bread"]   ← writes his stale array over hers
+//   "Eggs" is gone, with no error anywhere.
+//
+// Wrapping that same write in a transaction would NOT have fixed it. A
+// transaction only guarantees the document did not change between the
+// transaction's own read and its commit — microseconds. Papa's array is
+// minutes old, and a transaction that reads the document and then writes
+// `value` anyway commits the identical destructive result, just atomically.
+//
+// The fix is therefore a three-way merge (see utils/mergeShared.ts) run INSIDE
+// a transaction:
+//
+//   base   what this client last saw   (its screen was built from this)
+//   value  what this client wants to save
+//   server what Firestore holds right now, read in the transaction
+//
+// The diff of `value` against `base` is the writer's actual intent, and only
+// that intent is applied on top of `server`. The transaction is still needed —
+// it makes read-merge-write atomic so two merges cannot interleave — but it is
+// the base, not the transaction, that closes the hole.
+//
+// Every ambiguous case resolves toward keeping data (see mergeShared.ts for the
+// full policy); this vault holds passports and children's medical records.
+
+// The base: the last value this client saw for a document, per space. Written
+// when a value is HANDED TO THE APP (a load, an applied live snapshot) or
+// committed by this client — i.e. it always equals what the user's screen was
+// built from, which is exactly what a merge base has to be.
+const lastSeen = new Map<string, unknown>();
+const seenKey = (key: string) => `${FAMILY_ID}::${key}`;
+
+function noteSeen<T>(key: string, value: T): void {
+  lastSeen.set(seenKey(key), value);
+}
+
+function getSeen<T>(key: string): T | undefined {
+  return lastSeen.get(seenKey(key)) as T | undefined;
+}
+
+/**
+ * Forget the merge base for every document. Called on sign-out / space switch:
+ * a base from another account or another space must never be diffed against.
+ */
+export function resetSharedDocBaselines(): void {
+  lastSeen.clear();
+}
+
+/**
+ * @param base Optional explicit merge base — the exact value this writer's
+ *   state was built from. Callers that hold a live subscription pass it (see
+ *   hooks/useSharedDoc.ts); everything else falls back to the module-level
+ *   `lastSeen`, which is correct for the load-mutate-save callers (Dashboard's
+ *   AI apply paths, aiDestructive, deleteDocumentEverywhere) because they
+ *   re-read the document immediately before writing it.
+ */
+async function saveReferenceDoc<T>(key: string, value: T, localKey: string, base?: T): Promise<boolean> {
   const user = auth.currentUser;
   let cloudOk = false;
+  // What actually ends up stored — the merge may legitimately differ from
+  // `value` (it can carry another device's items), and the local cache must
+  // hold the merged truth, not this device's half of it.
+  let persisted: T = value;
+
   if (user) {
+    const mergeBase = base !== undefined ? base : getSeen<T>(key);
     try {
-      await setDoc(doc(db, 'families', FAMILY_ID, 'reference', key), value as any);
+      const docRef = doc(db, 'families', FAMILY_ID, 'reference', key);
+      persisted = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(docRef);
+        const server = snap.exists() ? (snap.data() as T) : undefined;
+        const merged = mergeShared<T>(mergeBase, value, server);
+        tx.set(docRef, merged as any);
+        return merged;
+      });
       cloudOk = true;
+      noteSeen(key, persisted);
     } catch (error) {
       console.error(`Error saving ${key}:`, error);
+      persisted = value;
     }
   }
+
   try {
-    localStorage.setItem(`${localKey}_${FAMILY_ID}`, JSON.stringify(value));
+    localStorage.setItem(`${localKey}_${FAMILY_ID}`, JSON.stringify(persisted));
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
@@ -316,6 +382,7 @@ async function loadReferenceDoc<T>(key: string, localKey: string): Promise<T | n
       if (snap.exists()) {
         const data = snap.data() as T;
         localStorage.setItem(scopedKey, JSON.stringify(data));
+        noteSeen(key, data);
         return data;
       }
     } catch (error) {
@@ -324,38 +391,110 @@ async function loadReferenceDoc<T>(key: string, localKey: string): Promise<T | n
   }
   const local = localStorage.getItem(scopedKey);
   if (local) {
-    try { return JSON.parse(local); } catch (e) { return null; }
+    try {
+      const parsed = JSON.parse(local) as T;
+      noteSeen(key, parsed);
+      return parsed;
+    } catch (e) { return null; }
   }
   return null;
 }
 
-export const saveHousehold = (h: HouseholdInfo) => saveReferenceDoc('household', h, 'family_household');
+// --- Live subscriptions -----------------------------------------------------
+// The merge above is only as good as its base, and the base is only fresh if
+// the screen is. A view that loaded once at mount and never refetched is
+// exactly the "minutes stale" writer the merge has to defend against; a view
+// that listens is never more than a moment behind, so its writes are clean
+// diffs and its user sees the other phone's changes arrive.
+//
+// `commit()` is deliberately NOT called for the subscriber: a view that is
+// mid-edit defers applying a snapshot, and until it applies it, that snapshot
+// is NOT what its state was built from and must not become the merge base.
+// Callers invoke commit() at the moment they actually adopt the value.
+
+export interface SharedDocMeta { readonly key: string; readonly localKey: string }
+
+/** Every shared reference document, so views can subscribe by name. */
+export const SHARED_DOCS = {
+  info:           { key: 'info',           localKey: 'family_info_v2' },
+  household:      { key: 'household',      localKey: 'family_household' },
+  finances:       { key: 'finances',       localKey: 'family_finances' },
+  timeline:       { key: 'timeline',       localKey: 'family_timeline' },
+  familyWords:    { key: 'familyWords',    localKey: 'family_words' },
+  willsEstate:    { key: 'willsEstate',    localKey: 'family_wills_estate' },
+  travelTimeline: { key: 'travelTimeline', localKey: 'family_travel_timeline' },
+  settings:       { key: 'settings',       localKey: 'family_settings' },
+  inMemory:       { key: 'inMemory',       localKey: 'family_in_memory' },
+  documents:      { key: 'documents',      localKey: 'family_documents' },
+  shopping:       { key: 'shopping',       localKey: 'family_shopping' },
+  recipes:        { key: 'recipes',        localKey: 'family_recipes' },
+  slips:          { key: 'slips',          localKey: 'family_slips' },
+} as const satisfies Record<string, SharedDocMeta>;
+
+export type SharedDocName = keyof typeof SHARED_DOCS;
+
+/**
+ * Watch a shared reference document. `cb` receives the server's value (null
+ * when the document does not exist) plus a `commit` callback the subscriber
+ * MUST call once it has adopted that value into its own state — that is what
+ * makes it the merge base for the subscriber's next write.
+ *
+ * Returns an unsubscribe function. Safe to call when signed out (no-op).
+ */
+export function subscribeReferenceDoc<T>(
+  name: SharedDocName,
+  cb: (value: T | null, commit: () => void) => void,
+): () => void {
+  if (!auth.currentUser) return () => { /* not signed in: nothing to watch */ };
+  const { key, localKey } = SHARED_DOCS[name];
+  const scopedKey = `${localKey}_${FAMILY_ID}`;
+  const docRef = doc(db, 'families', FAMILY_ID, 'reference', key);
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      const value = snap.exists() ? (snap.data() as T) : null;
+      cb(value, () => {
+        if (value === null) return;
+        noteSeen(key, value);
+        try { localStorage.setItem(scopedKey, JSON.stringify(value)); } catch { /* quota */ }
+      });
+    },
+    (error) => console.error(`Live updates for ${key} stopped:`, error),
+  );
+}
+
+// Every save below takes an OPTIONAL `base` — the exact value the caller's
+// state was built from. Passing it makes the three-way merge exact; omitting it
+// falls back to the last value this client loaded/applied for that document,
+// which is what every existing call site already effectively has (they all
+// load-mutate-save). No call site had to change.
+export const saveHousehold = (h: HouseholdInfo, base?: HouseholdInfo) => saveReferenceDoc('household', h, 'family_household', base);
 export const loadHousehold = () => loadReferenceDoc<HouseholdInfo>('household', 'family_household');
 
-export const saveFinances = (f: FinancesInfo) => saveReferenceDoc('finances', f, 'family_finances');
+export const saveFinances = (f: FinancesInfo, base?: FinancesInfo) => saveReferenceDoc('finances', f, 'family_finances', base);
 export const loadFinances = () => loadReferenceDoc<FinancesInfo>('finances', 'family_finances');
 
-export const saveTimeline = (t: FamilyTimeline) => saveReferenceDoc('timeline', t, 'family_timeline');
+export const saveTimeline = (t: FamilyTimeline, base?: FamilyTimeline) => saveReferenceDoc('timeline', t, 'family_timeline', base);
 export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', 'family_timeline');
 
 // Family Dictionary (invented/mangled words the family adopted) — family-level.
-export const saveFamilyWords = (w: FamilyWordsDoc) => saveReferenceDoc('familyWords', w, 'family_words');
+export const saveFamilyWords = (w: FamilyWordsDoc, base?: FamilyWordsDoc) => saveReferenceDoc('familyWords', w, 'family_words', base);
 export const loadFamilyWords = () => loadReferenceDoc<FamilyWordsDoc>('familyWords', 'family_words');
 
 // Wills & estate — family-wide, store-and-recall only (see WillsEstateView).
-export const saveWillsEstate = (w: WillsEstateDoc) => saveReferenceDoc('willsEstate', w, 'family_wills_estate');
+export const saveWillsEstate = (w: WillsEstateDoc, base?: WillsEstateDoc) => saveReferenceDoc('willsEstate', w, 'family_wills_estate', base);
 export const loadWillsEstate = () => loadReferenceDoc<WillsEstateDoc>('willsEstate', 'family_wills_estate');
 
-export const saveTravelTimeline = (t: TravelTimelineDoc) => saveReferenceDoc('travelTimeline', t, 'family_travel_timeline');
+export const saveTravelTimeline = (t: TravelTimelineDoc, base?: TravelTimelineDoc) => saveReferenceDoc('travelTimeline', t, 'family_travel_timeline', base);
 export const loadTravelTimeline = () => loadReferenceDoc<TravelTimelineDoc>('travelTimeline', 'family_travel_timeline');
 
-export const saveSettings = (s: HubSettings) => saveReferenceDoc('settings', s, 'family_settings');
+export const saveSettings = (s: HubSettings, base?: HubSettings) => saveReferenceDoc('settings', s, 'family_settings', base);
 export const loadSettings = () => loadReferenceDoc<HubSettings>('settings', 'family_settings');
 
 // In Memory: an archive of deceased parents/grandparents — their documents and
 // a few remembered things. Family-level, one shared reference doc like every
 // other feature here.
-export const saveInMemory = (v: InMemoryDoc) => saveReferenceDoc('inMemory', v, 'family_in_memory');
+export const saveInMemory = (v: InMemoryDoc, base?: InMemoryDoc) => saveReferenceDoc('inMemory', v, 'family_in_memory', base);
 export const loadInMemory = () => loadReferenceDoc<InMemoryDoc>('inMemory', 'family_in_memory');
 
 // Business Milestones (business spaces only) — the company growth timeline
@@ -567,7 +706,8 @@ export async function deleteReferralFile(storagePath: string): Promise<void> {
   }
 }
 
-export const saveDocuments = (docs: VaultDocument[]) => saveReferenceDoc('documents', { docs }, 'family_documents');
+export const saveDocuments = (docs: VaultDocument[], base?: VaultDocument[]) =>
+  saveReferenceDoc('documents', { docs }, 'family_documents', base ? { docs: base } : undefined);
 export async function loadDocuments(): Promise<VaultDocument[]> {
   const data = await loadReferenceDoc<{ docs: VaultDocument[] }>('documents', 'family_documents');
   return data?.docs || [];
@@ -577,7 +717,8 @@ export const DEFAULT_EVENTS: CalendarEvent[] = [];
 export const DEFAULT_FAMILY: FamilyMember[] = [];
 
 // --- Shopping list ---
-export const saveShopping = (items: ShoppingItem[]) => saveReferenceDoc('shopping', { items }, 'family_shopping');
+export const saveShopping = (items: ShoppingItem[], base?: ShoppingItem[]) =>
+  saveReferenceDoc('shopping', { items }, 'family_shopping', base ? { items: base } : undefined);
 export async function loadShopping(): Promise<ShoppingItem[]> {
   const data = await loadReferenceDoc<{ items: ShoppingItem[] }>('shopping', 'family_shopping');
   return data?.items || [];
@@ -585,7 +726,8 @@ export async function loadShopping(): Promise<ShoppingItem[]> {
 
 // --- Recipe Book: one shared doc for the whole household, same shape as
 // documents/shopping above. ---
-export const saveRecipes = (recipes: Recipe[]) => saveReferenceDoc('recipes', { recipes }, 'family_recipes');
+export const saveRecipes = (recipes: Recipe[], base?: Recipe[]) =>
+  saveReferenceDoc('recipes', { recipes }, 'family_recipes', base ? { recipes: base } : undefined);
 export async function loadRecipes(): Promise<Recipe[]> {
   const data = await loadReferenceDoc<RecipeBookDoc>('recipes', 'family_recipes');
   return data?.recipes || [];
@@ -613,7 +755,8 @@ export async function uploadRecipePhoto(dataUrl: string): Promise<string> {
 // photo itself lives in Storage (see uploadSlipPhoto), never inlined as
 // base64, so a fast-accumulating pile of slips never risks the ~1MB
 // Firestore document cap. ---
-export const saveSlips = (slips: SlipItem[]) => saveReferenceDoc('slips', { slips }, 'family_slips');
+export const saveSlips = (slips: SlipItem[], base?: SlipItem[]) =>
+  saveReferenceDoc('slips', { slips }, 'family_slips', base ? { slips: base } : undefined);
 export async function loadSlips(): Promise<SlipItem[]> {
   const data = await loadReferenceDoc<SlipsDoc>('slips', 'family_slips');
   return data?.slips || [];

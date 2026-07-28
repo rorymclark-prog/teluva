@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyTimeline, TimelineEntry } from '../types';
 import { loadTimeline, saveTimeline } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
 import {
   CalendarHeart, Plus, Trash2, Pencil, Check, X,
   Cloud, CloudOff
@@ -39,6 +40,11 @@ export default function TimelineView() {
     })();
     return () => { active = false; };
   }, []);
+
+  // Live updates from other family members. Applied silently: the add/edit
+  // forms live in the child rows below and keep their own draft state, so a
+  // list refresh never disturbs what someone is typing.
+  useSharedDoc<FamilyTimeline>('timeline', (v) => setTimeline({ entries: v.entries || [] }));
 
   const persist = async (next: FamilyTimeline) => {
     setTimeline(next);

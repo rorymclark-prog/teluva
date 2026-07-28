@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import { FamilyMember, FinancesInfo, InsurancePolicy, InsuranceCoverage, AssetItem, PolicyObligation } from '../types';
 import { loadFinances, saveFinances, loadAssets } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
+import RemoteChangeHint from './RemoteChangeHint';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { INSURANCE_READER_ENABLED } from '../config/features';
@@ -120,6 +122,15 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
     })();
     return () => { active = false; };
   }, []);
+
+  // Live updates for the shared finances document (this view owns its
+  // `insurance` array; FinancesView owns banks/benefits in the same document).
+  // Held while the policy form or the recall-only reader is busy.
+  const remoteWaiting = useSharedDoc<FinancesInfo>(
+    'finances',
+    (f) => setFinances({ banks: f.banks || [], insurance: f.insurance || [], benefits: f.benefits || [] }),
+    { hold: isFormOpen || readerLoading || pasteOpen },
+  );
 
   const policies = finances.insurance || [];
 
@@ -441,6 +452,7 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
             <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <RemoteChangeHint show={remoteWaiting} className="mx-6 mt-4" />
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
               <h3 className="font-display text-lg font-semibold text-ink-900">{editing.id ? 'Edit policy' : 'New policy'}</h3>
               <button onClick={closeForm} className="btn-quiet p-2"><X className="w-4 h-4" /></button>

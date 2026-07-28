@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Car, Plus, Pencil, Trash2, X, CalendarClock, User, Gauge, ShieldCheck, Wrench, MapPin, Sparkles } from 'lucide-react';
 import { FamilyMember, HouseholdInfo, Vehicle, ServiceRecord } from '../types';
 import { loadHousehold, saveHousehold } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
+import RemoteChangeHint from './RemoteChangeHint';
 import { vehicleDeadlines, vehicleLabel, VehicleDeadline } from '../utils/vehicle';
 
 const FUEL_TYPES = ['Petrol', 'Diesel', 'Electric', 'Hybrid', 'Plug-in Hybrid', 'LPG', 'Other'];
@@ -46,6 +48,13 @@ export default function VehiclesView(
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [demo, refreshKey]);
+
+  // Live updates for the shared household document (this view owns its
+  // `vehicles` array; HouseholdView owns the rest of the same document — the
+  // merge in utils/db.ts keeps both). Held while the vehicle form is open.
+  const remoteWaiting = useSharedDoc<HouseholdInfo>(
+    'household', (h) => setHousehold(h || {}), { hold: isFormOpen, disabled: demo },
+  );
 
   const vehicles = household.vehicles || [];
 
@@ -229,6 +238,7 @@ export default function VehiclesView(
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
             <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <RemoteChangeHint show={remoteWaiting} className="mx-6 mt-4" />
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
               <h3 className="font-display text-lg font-semibold text-ink-900">{v.id ? 'Edit vehicle' : 'New vehicle'}</h3>
               <button onClick={close} className="btn-quiet p-2"><X className="w-4 h-4" /></button>

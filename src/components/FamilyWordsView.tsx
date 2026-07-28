@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { BookHeart, Plus, X, Trash2, Pencil, Sparkles, CalendarDays } from 'lucide-react';
 import { FamilyMember, FamilyWord } from '../types';
 import { loadFamilyWords, saveFamilyWords } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
+import RemoteChangeHint from './RemoteChangeHint';
 import { ageLabelAt, todayISO } from '../utils/age';
 
 const newId = () => 'word-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -28,6 +30,15 @@ export default function FamilyWordsView({ members, canEdit = false, demo = false
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [demo, refreshKey]);
+
+  // Live updates, held back while the add/edit sheet is open so the list cannot
+  // change under an open form. Whatever arrived lands the moment it closes.
+  // Never in demo mode — that sandbox must not touch the real family's data.
+  const remoteWaiting = useSharedDoc<{ words: FamilyWord[] }>(
+    'familyWords',
+    (v) => setWords(v.words || []),
+    { hold: isOpen, disabled: demo },
+  );
 
   const sorted = [...words].sort((a, b) => a.word.localeCompare(b.word));
 
@@ -106,6 +117,7 @@ export default function FamilyWordsView({ members, canEdit = false, demo = false
       {/* Add / edit form */}
       {isOpen && canWrite && (
         <div className="card p-5 space-y-4">
+          <RemoteChangeHint show={remoteWaiting} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="field-label">The word <span className="text-rosa-600">*</span></label>

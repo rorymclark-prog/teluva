@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TravelTimelineDoc, TravelTimelineEntry } from '../types';
 import { loadTravelTimeline, saveTravelTimeline, uploadTravelPhoto, deleteTravelPhoto } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
+import RemoteChangeHint from './RemoteChangeHint';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { extractTravelMeta } from '../utils/travelGeo';
 import { emojiFlag } from '@rapideditor/country-coder';
@@ -63,6 +65,14 @@ export default function TravelTimelineView() {
     })();
     return () => { active = false; };
   }, []);
+
+  // Live updates from other family members, held while an entry is being
+  // drafted/edited or a photo is being processed, and applied once that ends.
+  const remoteWaiting = useSharedDoc<TravelTimelineDoc>(
+    'travelTimeline',
+    (v) => setDoc({ entries: v.entries || [] }),
+    { hold: !!draft || !!editId || processing },
+  );
 
   const persist = async (next: TravelTimelineDoc) => {
     setDoc(next);
@@ -258,6 +268,8 @@ export default function TravelTimelineView() {
         <div className="flex items-center justify-between pb-4 border-b border-cream-200">
           <h3 className="section-label">Trips</h3>
         </div>
+
+        <RemoteChangeHint show={remoteWaiting} className="mt-4" />
 
         {draft && (
           <TravelEntryForm

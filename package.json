@@ -8,8 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit",
-    "test:server": "node --test server/*.test.mjs"
+    "lint": "tsc --noEmit && npm run check:colors",
+    "check:colors": "node scripts/check-colors.mjs",
+    "test:server": "node --test server/*.test.mjs",
+    "test": "tsx src/utils/speechLocale.test.ts && tsx src/utils/mergeShared.test.ts && tsx src/utils/emergencyNumbers.test.ts && tsx src/utils/measureReading.test.ts && tsx src/utils/measurementUnits.test.ts && tsx src/utils/sizeStaleness.test.ts && tsx src/utils/businessMilestone.test.ts && tsx src/utils/aiRedact.test.ts && node authz.test.mjs && npm run test:server"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

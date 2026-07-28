@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType, FamilyInfoDoc } from '../types';
 import { loadFamilyInfo, saveFamilyInfo, loadSpaceInfo } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
 import { auth } from '../lib/firebase';
 import { yearsSinceFounding, ordinal } from '../utils/businessMilestone';
 import {
@@ -40,6 +41,15 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
+
+  // Live updates from other family members. Applied silently — the number /
+  // contact / provider forms are child components holding their own draft
+  // state, so a list refresh never disturbs what someone is typing.
+  useSharedDoc<FamilyInfo>('info', (d) => {
+    const next = { numbers: d.numbers || [], contacts: d.contacts || [], providers: d.providers || [] };
+    setInfo(next);
+    onContactsChange?.(next.contacts);
+  });
 
   const persist = async (next: FamilyInfo) => {
     setInfo(next);

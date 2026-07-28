@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FinancesInfo, BankAccount, BenefitInfo } from '../types';
 import { loadFinances, saveFinances } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
 import {
   Landmark, Plus, Trash2, Pencil, Check, X,
   Cloud, CloudOff
@@ -33,6 +34,13 @@ export default function FinancesView({ isBusinessSpace, refreshKey }: FinancesVi
     })();
     return () => { active = false; };
   }, [refreshKey]);
+
+  // Live updates from other family members (and from InsuranceView, which
+  // writes the `insurance` array of this same shared document). Applied
+  // silently — the bank/benefit forms are child components with their own
+  // draft state, so a list refresh never disturbs a typed form.
+  useSharedDoc<FinancesInfo>('finances', (f) =>
+    setFinances({ banks: f.banks || [], insurance: f.insurance || [], benefits: f.benefits || [] }));
 
   const persist = async (next: FinancesInfo) => {
     setFinances(next);

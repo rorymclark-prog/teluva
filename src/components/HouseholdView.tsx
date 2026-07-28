@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { HouseholdInfo, UtilityProvider, Pet, BusinessLocation } from '../types';
 import { loadHousehold, saveHousehold } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
 import {
   Home, Plug, PawPrint, Plus, Trash2, Pencil, Check, X,
   Cloud, CloudOff, MapPin, Building2,
@@ -40,6 +41,11 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
     })();
     return () => { active = false; };
   }, [refreshKey]);
+
+  // Live updates from other family members. Applied silently: the add/edit
+  // forms for utilities, vehicles, pets and locations are child components with
+  // their own draft state, so refreshing the lists never disturbs a typed form.
+  useSharedDoc<HouseholdInfo>('household', (h) => setInfo({ ...EMPTY, ...h }));
 
   const persist = async (next: HouseholdInfo) => {
     setInfo(next);

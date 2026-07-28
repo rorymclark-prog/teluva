@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import { EstateRecord, FamilyMember, VaultDocument, FamilyDocument } from '../types';
 import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
+import RemoteChangeHint from './RemoteChangeHint';
 import { auth } from '../lib/firebase';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { ESTATE_DOC_KINDS, isReviewStale, reviewAgeLabel } from '../utils/willsEstate';
@@ -86,6 +88,17 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
     })();
     return () => { active = false; };
   }, [refreshKey]);
+
+  // Live updates for BOTH shared documents this view writes: the estate records
+  // and the shared Document Vault it attaches legal files into. Held while the
+  // record form is open or a file is being attached.
+  const busy = isFormOpen || attaching;
+  const remoteWaiting = useSharedDoc<{ records: EstateRecord[] }>(
+    'willsEstate', (v) => setRecords(v.records || []), { hold: busy },
+  );
+  useSharedDoc<{ docs: VaultDocument[] }>(
+    'documents', (v) => setDocuments(v.docs || []), { hold: busy },
+  );
 
   const persist = async (updated: EstateRecord[]) => {
     setRecords(updated);
@@ -429,6 +442,7 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
             <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <RemoteChangeHint show={remoteWaiting} className="mx-6 mt-4" />
 
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
               <h3 className="font-display text-lg font-semibold text-ink-900">

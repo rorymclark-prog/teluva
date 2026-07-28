@@ -39,6 +39,11 @@
   --color-clay-500: #EA5A3B;
   --color-clay-600: #D64A2E;
   --color-clay-700: #B93E24;
+  /* 800/900 were used as deep-ember TEXT (MemberIDs, DocumentVault,
+     MemberDocuments) but never defined, so those labels silently inherited
+     their parent's colour. Continues the ramp's own darkening step past 700. */
+  --color-clay-800: #9C341F;
+  --color-clay-900: #7F2B1A;
 
   /* Sage → "Fern" — secondary accent */
   --color-sage-50: #EAF4EF;
@@ -49,30 +54,57 @@
   --color-sage-500: #2E7D5B;
   --color-sage-600: #256A4C;
   --color-sage-700: #1D543C;
+  /* 800: darkest fern, used for quiz result text (FamilyQuiz). */
+  --color-sage-800: #17422F;
 
   /* Honey — warning amber (now actually reads as a warning) */
   --color-honey-50: #FCF4E6;
   --color-honey-100: #F8E4C0;
   --color-honey-200: #EFC97E;
+  /* 300/400 fill the gap between the pale 200 and the saturated 500 — used for
+     amber icons and borders (MemberMedical, MemberSayings, ImportantInfo). */
+  --color-honey-300: #E9B35E;
+  --color-honey-400: #E39D3D;
   --color-honey-500: #D97706;
   --color-honey-700: #A85A05;
+  /* 800 sits between 700 and 900; it is the warning TEXT colour on honey-50
+     chips in five files (AIChatbot, DocumentVault, FamilyWordsView, …). */
+  --color-honey-800: #8B4A04;
   --color-honey-900: #6E3B03;
 
-  /* Dusk — info blue */
+  /* Dusk — info blue.
+     Only 50/100/500/700 existed; 200/300/400/600 were used across 9 files
+     (chip borders, hover states, the 600 text on info panels) and emitted
+     nothing. Interpolated along this ramp's own 100 → 500 curve. */
   --color-dusk-50: #EFF4FE;
   --color-dusk-100: #DBE7FD;
+  --color-dusk-200: #BBD0FA;
+  --color-dusk-300: #89ACF5;
+  --color-dusk-400: #4F81EF;
   --color-dusk-500: #2563EB;
+  --color-dusk-600: #2158E2;
   --color-dusk-700: #1D4ED8;
 
   /* Rosa — danger rose */
   --color-rosa-50: #FDEDF1;
   --color-rosa-100: #FBDCE4;
+  /* 200/300/400: the light half of the ramp (BabysitterMode, FamilyQuiz,
+     FamilyCalendar) — same interpolation as dusk above. */
+  --color-rosa-200: #F7C1CE;
+  --color-rosa-300: #F192A7;
+  --color-rosa-400: #E95777;
   --color-rosa-500: #E11D48;
   /* rosa-600 was used in ~50 places (mostly hover:text-rosa-600 on delete/danger
      controls) but never defined, so those controls never actually turned red.
      Sits between 500 and 700 so a 700-resting / 600-hover pair lightens on hover. */
   --color-rosa-600: #CF1740;
   --color-rosa-700: #BE123C;
+  /* rosa-800 is the worst instance of this whole class of bug: it is the
+     "this document has EXPIRED" colour in TravelPack.tsx and
+     MemberOverview.tsx. Undefined, it emitted no rule, so the single visual
+     cue that a passport is out of date was not red — it was whatever colour
+     the surrounding text happened to be. Darkest step of the ramp. */
+  --color-rosa-800: #9F1239;
 
   /* Signature avatar ring: amber → ember → magenta (Instagram story-ring technique) */
   --gradient-ring: linear-gradient(45deg, #FFC24B 0%, #EA5A3B 45%, #C13584 100%);

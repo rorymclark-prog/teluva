@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ShoppingCart, Plus, X, Check, Trash2 } from 'lucide-react';
 import { ShoppingItem } from '../types';
 import { loadShopping, saveShopping } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
 
 export default function ShoppingList() {
   const [items, setItems] = useState<ShoppingItem[]>([]);
@@ -15,6 +16,12 @@ export default function ShoppingList() {
       setLoading(false);
     });
   }, []);
+
+  // Live: the shopping list is the most concurrently-edited thing in the app —
+  // one person in the shop, one at home. Updates land silently and immediately;
+  // there is no editor to interrupt (the "add an item" box is separate state
+  // and is never touched), so holding them back would only make the list wrong.
+  useSharedDoc<{ items: ShoppingItem[] }>('shopping', (v) => setItems(v.items || []));
 
   const persist = async (updated: ShoppingItem[]) => {
     setItems(updated);

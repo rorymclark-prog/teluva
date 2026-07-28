@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Receipt, Plus, Pencil, Trash2, Camera, X, Loader2, RotateCcw, ShieldCheck, Check, ChevronDown, Info } from 'lucide-react';
 import { SlipItem } from '../types';
 import { loadSlips, saveSlips, uploadSlipPhoto, deleteSlipPhoto } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
+import RemoteChangeHint from './RemoteChangeHint';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { slipIsArchived, slipReturnClosed, suggestReturnBy } from '../utils/slip';
@@ -94,6 +96,14 @@ export default function SlipsView() {
       setLoading(false);
     });
   }, []);
+
+  // Live updates from other family members, held while the slip form is open
+  // (or a receipt photo is uploading) and applied the moment it closes.
+  const remoteWaiting = useSharedDoc<{ slips: SlipItem[] }>(
+    'slips',
+    (v) => setSlips(v.slips || []),
+    { hold: isFormOpen || photoUploading },
+  );
 
   const persist = async (updated: SlipItem[]) => {
     setSlips(updated);
@@ -477,6 +487,7 @@ export default function SlipsView() {
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
             <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <RemoteChangeHint show={remoteWaiting} className="mx-6 mt-4" />
 
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
               <h3 className="font-display text-lg font-semibold text-ink-900">

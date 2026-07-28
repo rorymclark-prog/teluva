@@ -9,6 +9,8 @@ import {
   uploadVaultFile, deleteVaultFile,
 } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
+import { useSharedDoc } from '../hooks/useSharedDoc';
+import RemoteChangeHint from './RemoteChangeHint';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 import DocumentViewer from './DocumentViewer';
@@ -120,6 +122,15 @@ export default function InMemoryView() {
       setLoading(false);
     });
   }, []);
+
+  // Live updates from other family members. Held while any editor is open — the
+  // person form, a document upload, the scanner, or a note being typed in the
+  // detail view — and applied the moment the last of them closes.
+  const remoteWaiting = useSharedDoc<{ people: DepartedRelative[] }>(
+    'inMemory',
+    (v) => setPeople(v.people || []),
+    { hold: isFormOpen || addingDoc || scannerOpen || docUploading || photoUploading || noteDraft.trim() !== '' },
+  );
 
   const persist = async (updated: DepartedRelative[]) => {
     setPeople(updated);
@@ -617,6 +628,7 @@ export default function InMemoryView() {
         <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
           <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
             <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-cream-400 sm:hidden" />
+            <RemoteChangeHint show={remoteWaiting} className="mx-6 mt-4" />
 
             <div className="flex items-center justify-between p-6 border-b border-cream-200">
               <h3 className="font-display text-lg font-semibold text-ink-900">

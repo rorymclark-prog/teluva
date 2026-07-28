@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { VaultDocument, VaultCategory, FamilyMember, FamilyDocument } from '../types';
 import { loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, uploadVaultPhoto, deleteDocumentEverywhere } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
 import { auth } from '../lib/firebase';
 import DocumentViewer from './DocumentViewer';
 import {
@@ -577,6 +578,16 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
     })();
     return () => { active = false; };
   }, []);
+
+  // Live updates for the shared vault. Held while an upload/import dialog is
+  // open, a delete is being confirmed, an export is running, or the user is
+  // part-way through a multi-select — in every one of those the list changing
+  // underneath would act on the wrong rows. Applied the moment they finish.
+  useSharedDoc<{ docs: VaultDocument[] }>(
+    'documents',
+    (v) => setDocs(v.docs || []),
+    { hold: showUpload || showBulkImport || !!deletingId || selectMode || exporting !== null },
+  );
 
   const persist = async (next: VaultDocument[]) => {
     setDocs(next);
