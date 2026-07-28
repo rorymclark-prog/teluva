@@ -108,6 +108,7 @@ import MemberCV from './MemberCV';
 import WillsEstateView from './WillsEstateView';
 import SlipsView from './SlipsView';
 import CelebrationOverlay from './CelebrationOverlay';
+import FirstRunTour from './FirstRunTour';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
@@ -368,6 +369,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [exportingBackup, setExportingBackup] = useState(false);
+  // First-run tour readiness: flips true once the initial members/events/
+  // settings load has actually resolved (real data, so the tour's "add your
+  // first member" vs "your family" copy is correct instead of guessing while
+  // Firestore is still in flight). Set at the end of both the demo and
+  // signed-in load paths below. `tourReplayKey` is bumped by "Replay the
+  // welcome tour" in Hub settings to force FirstRunTour to run again.
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [tourReplayKey, setTourReplayKey] = useState(0);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -381,6 +390,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       setEvents(DEMO_EVENTS);
       setContacts(DEMO_CONTACTS);
       setSelectedMemberId(DEMO_MEMBERS[0].id);
+      setInitialLoadDone(true);
       return;
     }
 
@@ -418,6 +428,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         setMembers([]);
         setEvents([]);
         setContacts([]);
+        setInitialLoadDone(true);
         return;
       }
 
@@ -443,6 +454,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
       const info = await loadFamilyInfo();
       setContacts(info?.contacts || []);
+      setInitialLoadDone(true);
     }
     init();
   }, [currentUser, ctxLoading, activeSpaceId]);
@@ -1433,14 +1445,19 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
           {/* Main view switcher — a burger dropdown so all sections are reachable
               in one tap, no horizontal sliding. */}
-          <SectionMenu
-            views={VIEWS
-              .filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin))
-              .filter(view => !(isBusinessSpace && HIDDEN_VIEWS_IN_BUSINESS.includes(view.id)))
-              .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t, isBusinessSpace) }))}
-            current={mainView}
-            onSelect={(id) => setMainView(id as ViewId)}
-          />
+          {/* data-tour anchor wraps the trigger only ("contents" keeps it
+              layout-transparent) — FirstRunTour spotlights the closed burger
+              button itself, it doesn't need to open the menu. */}
+          <div data-tour="section-menu" className="contents">
+            <SectionMenu
+              views={VIEWS
+                .filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin))
+                .filter(view => !(isBusinessSpace && HIDDEN_VIEWS_IN_BUSINESS.includes(view.id)))
+                .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t, isBusinessSpace) }))}
+              current={mainView}
+              onSelect={(id) => setMainView(id as ViewId)}
+            />
+          </div>
 
           <div className="flex items-center gap-2 ml-auto sm:ml-0">
             {role === 'child' && (
@@ -1460,7 +1477,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             {familySettingsButton}
 
             {!demo && (
-              <>
+              <div data-tour="data-controls" className="contents">
                 <button
                   onClick={handleExportAllData}
                   disabled={exportingBackup}
@@ -1479,7 +1496,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 <button onClick={logout} className="btn-quiet px-3 py-2" title="Sign out">
                   <LogOut className="w-4 h-4" />
                 </button>
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -1571,7 +1588,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             {/* Quick actions — one-tap entry into the full-screen feature modals (family-only) */}
             {!isBusinessSpace && (
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={() => setShowEmergency(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                <button data-tour="quick-emergency" type="button" onClick={() => setShowEmergency(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
                   <Siren className="w-4 h-4" />
                   <span>Emergency</span>
                 </button>
@@ -1610,7 +1627,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                     : "Keep everyone's clothing sizes, documents, growth history and wish lists in one tidy, private place."}
                 </p>
                 {isAdmin && (
-                  <button onClick={() => setIsAddModalOpen(true)} className="btn-primary">
+                  <button data-tour="add-first-member" onClick={() => setIsAddModalOpen(true)} className="btn-primary">
                     <UserPlus className="w-4 h-4" />
                     <span>{isBusinessSpace ? 'Add your first team member' : 'Add your first family member'}</span>
                   </button>
@@ -1620,7 +1637,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 {/* Family directory */}
                 <section className="lg:col-span-4 space-y-5">
-                  <div className="card p-5 space-y-4">
+                  <div data-tour="family-list" className="card p-5 space-y-4">
                     <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
                       <h4 className="section-label">{isBusinessSpace ? 'Your team' : 'Your family'}</h4>
                       <span className="chip bg-cream-200 text-ink-600 tabular-nums">
@@ -1975,6 +1992,23 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         isBusinessSpace={isBusinessSpace}
         onClose={() => setIsSettingsOpen(false)}
         onSave={handleSaveSettings}
+        onReplayTour={() => { setIsSettingsOpen(false); setTourReplayKey((k) => k + 1); }}
+      />
+
+      {/* First-run tour: highlights the handful of things worth knowing on
+          day one (see FirstRunTour.tsx for the full stop list and why each
+          one earned its place). `ready` withholds it until real data has
+          loaded AND the AI consent prompt (if any) has been dealt with, so
+          the two never fight for the screen at once. */}
+      <FirstRunTour
+        uid={auth.currentUser?.uid ?? null}
+        demo={demo}
+        ready={initialLoadDone && !consentOpen}
+        hubName={hubName}
+        isBusinessSpace={isBusinessSpace}
+        membersCount={members.length}
+        canUseAI={canUseAI}
+        forceKey={tourReplayKey}
       />
 
       <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />

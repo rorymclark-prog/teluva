@@ -698,6 +698,9 @@ export interface UserProfile {
   spaces?: SpaceMembership[]; // every space this user belongs to (family + business). Absent/empty on
                               // pre-multi-space accounts — callers should fall back to a single-entry
                               // list built from familyId/role.
+  tourSeenAt?: string; // ISO timestamp — set once the first-run tour (FirstRunTour.tsx) is completed
+                        // or skipped, so it never shows twice for this PERSON (cross-device, unlike a
+                        // per-device localStorage flag). See src/utils/tour.ts.
 }
 
 // Firestore doc at families/{familyId}/info

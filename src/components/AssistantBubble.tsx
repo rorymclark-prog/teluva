@@ -101,6 +101,7 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
 
       <button
         ref={launcherRef}
+        data-tour="ai-assistant"
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? t.btn_close : t.nav_assistant}
