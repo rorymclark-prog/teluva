@@ -409,6 +409,25 @@ export function computeNudges(members: FamilyMember[]): Nudge[] {
       else if (due.status === 'due-soon') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'warn', text: `${first}'s ${item.kind} is due soon`, tab: 'care', date: dueDate, days: dueDays });
     }
 
+    // Referrals still sitting on "open" — a referral you never booked is the
+    // exact thing the open/booked/done marker exists to catch, and the one most
+    // likely to be quietly forgotten (it arrives as a piece of paper on a day
+    // you're already busy). Only referrals that ASK for an appointment count;
+    // a lab result or a sick note has nothing to book, so it never nags.
+    for (const r of m.referrals || []) {
+      if (r.status !== 'open' || !r.date) continue;
+      if (r.kind === 'Lab result' || r.kind === 'Sick note') continue;
+      const d = daysUntil(r.date);
+      if (d === null) continue;
+      const age = -d; // days SINCE the referral was written
+      const what = r.reason ? `${r.kind.toLowerCase()} for ${r.reason}` : r.kind.toLowerCase();
+      if (age >= 42) {
+        out.push({ key: `ref-${m.id}-${r.id}`, memberId: m.id, icon: Stethoscope, tone: 'urgent', text: `${first}'s ${what} still isn't booked — ${Math.round(age / 7)} weeks now`, tab: 'medical', date: r.date, days: d });
+      } else if (age >= 14) {
+        out.push({ key: `ref-${m.id}-${r.id}`, memberId: m.id, icon: Stethoscope, tone: 'warn', text: `${first}'s ${what} isn't booked yet`, tab: 'medical', date: r.date, days: d });
+      }
+    }
+
     // Transit pass expiry (Jahreskarte, Klimaticket, rail passes …)
     for (const pass of m.travel?.transitPasses || []) {
       if (!pass.validUntil) continue;
