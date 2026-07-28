@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -887,6 +887,28 @@ export async function suggestBusinessInfo(): Promise<NewBusinessExtra & { name?:
     return (data && typeof data.suggestion === 'object' && data.suggestion) || {};
   } catch {
     return {};
+  }
+}
+
+// Reads the caller's ACTIVE space's AI usage this month — a GET to
+// /api/ai-usage (server-computed, from families/{id}/usage/{YYYY-MM} +
+// families/{id}/info/info.plan). Used ONLY for the honest usage indicator
+// ("12 of 30 AI actions used this month") — never for enforcement, which
+// happens server-side on every AI endpoint regardless of what this returns.
+// Never throws: a failed/loading read just means the indicator doesn't show
+// yet, same "pure enhancement" contract as suggestBusinessInfo above.
+export async function loadAiUsage(): Promise<AiUsage | null> {
+  try {
+    const user = auth.currentUser;
+    if (!user) return null;
+    const token = await user.getIdToken();
+    const res = await fetch('/api/ai-usage', { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (!data || typeof data.used !== 'number' || typeof data.limit !== 'number') return null;
+    return { plan: data.plan === 'paid' ? 'paid' : 'free', used: data.used, limit: data.limit, resetsOn: String(data.resetsOn || '') };
+  } catch {
+    return null;
   }
 }
 

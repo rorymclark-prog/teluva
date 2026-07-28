@@ -717,6 +717,10 @@ export interface AiConsent {
 // Family preset, a Business preset, or (later) a Personal preset on top of it.
 export type SpaceType = 'family' | 'business' | 'personal';
 
+// Plan tier — groundwork for the future €5/month paid plan (no billing yet).
+// See FamilyInfoDoc.plan below for where this lives and how it's set.
+export type Plan = 'free' | 'paid';
+
 // One entry in a user's space list — every space (family/business) they belong
 // to, with their role in THAT space (roles are per-space, not global).
 export interface SpaceMembership {
@@ -739,6 +743,11 @@ export interface UserProfile {
   tourSeenAt?: string; // ISO timestamp — set once the first-run tour (FirstRunTour.tsx) is completed
                         // or skipped, so it never shows twice for this PERSON (cross-device, unlike a
                         // per-device localStorage flag). See src/utils/tour.ts.
+  interviewSeenAt?: string; // ISO timestamp — set once the guided setup interview (FamilyInterview.tsx)
+                             // is completed or explicitly skipped, so it never auto-launches again for
+                             // this PERSON. See src/utils/interview.ts.
+  interviewStep?: string;   // resume token while the interview is in progress (not yet seen) — which
+                             // question to reopen on. Meaningless once interviewSeenAt is set.
 }
 
 // Firestore doc at families/{familyId}/info
@@ -761,6 +770,14 @@ export interface FamilyInfoDoc {
   // admin changes the founding date.
   foundingDate?: string; // YYYY-MM-DD
   milestoneNote?: { text: string; generatedAt: string; forFoundingDate: string };
+  // Plan tier — groundwork for the future €5/month paid plan (NO billing/
+  // checkout exists yet). Absent/anything-other-than-"paid" means "free".
+  // There is no client UI to change this: the owner flips it by hand in
+  // Firestore (families/{familyId}/info/info.plan) until real billing ships.
+  // firestore.rules explicitly blocks clients (even admins) from writing this
+  // field — see the /info/{doc} match there — so it can ONLY be set
+  // server-side. See server.js's PLAN_LIMITS for what each plan gets.
+  plan?: Plan;
 }
 
 export interface FamilyMemberRole {
@@ -1080,4 +1097,17 @@ export interface HeadcountLog {
 export interface BusinessMilestonesDoc {
   milestones: BusinessMilestoneEntry[];
   headcount: HeadcountLog[];
+}
+
+// --- AI usage meter (groundwork for the future paid plan) ---
+// Shape returned by GET /api/ai-usage — read-only, server-computed. The
+// client displays these numbers verbatim; it must never recompute the limit
+// itself (see src/utils/planLimits.ts for the shared, unit-tested pure logic
+// server.js's own duplicate is built from — display formatting only, never
+// enforcement, which is 100% server-side).
+export interface AiUsage {
+  plan: Plan;
+  used: number;
+  limit: number;
+  resetsOn: string; // human label, e.g. "1 August"
 }

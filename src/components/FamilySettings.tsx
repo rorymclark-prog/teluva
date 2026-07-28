@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp, UserMinus, AlertTriangle } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, loadBusinessMilestones, saveBusinessMilestones, deleteFamily } from '../utils/db';
-import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog } from '../types';
+import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, loadBusinessMilestones, saveBusinessMilestones, deleteFamily, loadAiUsage } from '../utils/db';
+import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog, AiUsage } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
 
@@ -268,6 +268,15 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
   // --- AI assistant consent (GDPR opt-in/withdrawal) ---
   const [aiSaving, setAiSaving] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // Honest usage indicator — same server-read numbers as the assistant sheet
+  // (AIChatbot.tsx), never recomputed client-side. Loaded once per space.
+  const [aiUsage, setAiUsage] = useState<AiUsage | null>(null);
+  useEffect(() => {
+    let active = true;
+    loadAiUsage().then((u) => { if (active) setAiUsage(u); });
+    return () => { active = false; };
+  }, [familyId]);
 
   async function handleToggleAi() {
     if (aiSaving) return;
@@ -726,6 +735,15 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
                   />
                 </button>
               </div>
+
+              {/* Honest usage indicator — server numbers only, shown quietly
+                  (no warning colours, no nagging) below the toggle. Hidden on
+                  the paid plan's effectively-unlimited ceiling. */}
+              {aiUsage && aiUsage.plan === 'free' && (
+                <p className="text-[11px] text-ink-400 border-t border-cream-200 pt-3">
+                  {aiUsage.used} of {aiUsage.limit} AI actions used this month · resets {aiUsage.resetsOn}
+                </p>
+              )}
             </div>
           )}
 

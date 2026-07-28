@@ -238,6 +238,138 @@ function aiGateBlocked(caller) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Plan limits, AI-usage metering & seat cap — groundwork for the future
+// €5/month paid plan. NO billing/checkout exists yet; this is only: know what
+// plan a space is on, meter what it uses, enforce the free limits, and let
+// the client show the user honestly where they stand.
+//
+// Per SPACE (families/{familyId}), not per user. The plan lives on the
+// space's own info doc:
+//   families/{familyId}/info/info   field "plan": "free" (default/absent) | "paid"
+// There is no UI to change it yet — the owner flips this field BY HAND in the
+// Firestore console until real billing ships. firestore.rules explicitly
+// blocks the client (even an admin) from ever writing "plan" itself — see the
+// /info/{doc} match there — so this field can only ever change from here
+// (the Admin SDK) or a human editing Firestore directly.
+//
+// Mirrors src/utils/planLimits.ts (pure logic, unit-tested there). server.js
+// ships standalone (see Dockerfile — only server.js + dist are copied into
+// the runtime image, no TypeScript), so it can't import that file directly;
+// this is the plain-JS duplicate, kept in sync by hand — same precedent as
+// sunSignFromBirthdate / yearsSinceFoundingServer above.
+// ---------------------------------------------------------------------------
+const PLAN_LIMITS = {
+  free: { aiActionsPerMonth: 30, seats: 10 },
+  paid: { aiActionsPerMonth: 2000, seats: 200 },
+};
+function planOf(infoData) {
+  return infoData && infoData.plan === 'paid' ? 'paid' : 'free';
+}
+// UTC-based (YYYY-MM) — a space has members who may be in different
+// timezones and there is no stored "space timezone" to key off, so UTC is
+// the only value every reader/writer can agree on unambiguously. Same
+// reasoning as the "tomorrowUtc" slack check in /api/set-founding-date below.
+// A new month is simply a new document; nothing ever has to reset this.
+function monthKeyUtc(date = new Date()) {
+  return date.toISOString().slice(0, 7); // "YYYY-MM"
+}
+// Human label for the 1st of the month AFTER `date`, e.g. "1 August".
+function resetDateLabelUtc(date = new Date()) {
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+  return next.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+
+// Read-only status check: this month's usage count for a space vs its plan's
+// limit. Used both by the enforcement gate below (checkAiUsage) and by the
+// GET /api/ai-usage endpoint the client reads to show "12 of 30 used".
+//
+// FAILS OPEN: if Firestore itself can't be read, this returns blocked:false
+// (never counted, never denied) and logs the error — a handful of uncounted
+// AI actions during an outage is a far smaller harm than breaking the
+// assistant for a family who is (or isn't) paying for it.
+async function getAiUsageStatus(familyId) {
+  const key = monthKeyUtc();
+  try {
+    const [infoSnap, usageSnap] = await Promise.all([
+      adminDb.doc(`families/${familyId}/info/info`).get(),
+      adminDb.doc(`families/${familyId}/usage/${key}`).get(),
+    ]);
+    const plan = planOf(infoSnap.exists ? infoSnap.data() : null);
+    const used = usageSnap.exists ? Number(usageSnap.data().count || 0) : 0;
+    const limit = PLAN_LIMITS[plan].aiActionsPerMonth;
+    return { plan, used, limit, blocked: used >= limit, failedOpen: false };
+  } catch (e) {
+    console.error('[ai-usage] status read failed — failing open', e);
+    return { plan: 'free', used: 0, limit: PLAN_LIMITS.free.aiActionsPerMonth, blocked: false, failedOpen: true };
+  }
+}
+
+// Enforcement gate — call BEFORE the Gemini request. Returns null to
+// proceed, or an object to send straight back to the client (402, distinct
+// from the existing 429 rate-limit so the client can tell "slow down" apart
+// from "you're out for the month").
+async function checkAiUsage(familyId) {
+  const status = await getAiUsageStatus(familyId);
+  if (!status.blocked) return null;
+  return {
+    status: 402,
+    body: {
+      error: `You've used all ${status.limit} AI actions this month. They reset on ${resetDateLabelUtc()}. Everything else — documents, warnings, the emergency card — still works as normal.`,
+      limitReached: true,
+      plan: status.plan,
+      used: status.used,
+      limit: status.limit,
+    },
+  };
+}
+
+// Call ONLY after the Gemini call itself succeeded — NEVER for a failed/
+// errored generation (the user must not lose an action they got nothing
+// for). Atomic increment means two concurrent requests can't both read 29
+// and both slip through.
+async function recordAiUsage(familyId) {
+  try {
+    const key = monthKeyUtc();
+    await adminDb.doc(`families/${familyId}/usage/${key}`).set(
+      { count: FieldValue.increment(1), updatedAt: new Date().toISOString() },
+      { merge: true },
+    );
+  } catch (e) {
+    console.error('[ai-usage] increment failed', e);
+  }
+}
+
+// Seat-cap check — call BEFORE grantMembership for a NEW join (never for
+// create-family/create-space, where the caller is the space's first/founding
+// member). Deliberately does nothing to already-existing members: it counts
+// the roles collection and refuses the join if that count is already at or
+// over the plan's limit — a space that somehow already has MORE members than
+// its plan allows (e.g. downgraded from paid) simply keeps refusing new
+// joins forever, without this ever touching anyone already in.
+// Fails open on a Firestore read error, same principle as checkAiUsage.
+async function seatCapCheck(familyId) {
+  try {
+    const [infoSnap, rolesSnap] = await Promise.all([
+      adminDb.doc(`families/${familyId}/info/info`).get(),
+      adminDb.collection(`families/${familyId}/roles`).get(),
+    ]);
+    const plan = planOf(infoSnap.exists ? infoSnap.data() : null);
+    const limit = PLAN_LIMITS[plan].seats;
+    const existing = rolesSnap.size;
+    if (existing >= limit) {
+      return {
+        status: 403,
+        body: { error: `This space already has ${existing} members — the maximum allowed on the ${plan} plan is ${limit}. Ask an admin to upgrade before inviting more.` },
+      };
+    }
+    return null;
+  } catch (e) {
+    console.error('[seat-cap] read failed — failing open', e);
+    return null;
+  }
+}
+
 // --- Same-origin Firebase Auth helper proxy (keeps iOS Safari sign-in working) ---
 // Mounted at root with a pathFilter so the FULL /__/auth/... path is forwarded
 // (mounting on the path would strip the prefix and 404 on Firebase Hosting).
@@ -363,6 +495,23 @@ function aiRateLimited(uid) {
   return arr.length > AI_MAX_PER_WINDOW;
 }
 
+// Read-only usage status for the client's honest usage indicator ("12 of 30
+// AI actions used this month"). No consent/AI-gate check here on purpose —
+// showing someone how much of their OWN quota they've used is not itself an
+// AI action, and a family with AI turned off should still be able to see
+// this in Settings. Any signed-in member of the space may read it.
+app.get('/api/ai-usage', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const status = await getAiUsageStatus(caller.familyId);
+    res.json({ plan: status.plan, used: status.used, limit: status.limit, resetsOn: resetDateLabelUtc() });
+  } catch (e) {
+    console.error('/api/ai-usage error', e);
+    res.status(500).json({ error: 'Could not load AI usage.' });
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
   try {
     if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
@@ -372,6 +521,8 @@ app.post('/api/chat', async (req, res) => {
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
+    const usageBlock = await checkAiUsage(caller.familyId);
+    if (usageBlock) return res.status(usageBlock.status).json(usageBlock.body);
 
     const { message, context, history, image, images, lang } = req.body || {};
     // "images" (array) is the current shape; "image" (singular) is kept for any
@@ -463,6 +614,7 @@ app.post('/api/chat', async (req, res) => {
     if (!parsed || typeof parsed.reply !== 'string') parsed = { reply: String(text), edits: [] };
     if (!Array.isArray(parsed.edits)) parsed.edits = [];
 
+    await recordAiUsage(caller.familyId); // successful call — count it
     res.json(parsed);
   } catch (e) {
     console.error('chat error', e);
@@ -479,6 +631,8 @@ app.post('/api/scan-asset', async (req, res) => {
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
+    const usageBlock = await checkAiUsage(caller.familyId);
+    if (usageBlock) return res.status(usageBlock.status).json(usageBlock.body);
 
     console.log('[scan-asset] request from', caller.email);
 
@@ -517,6 +671,7 @@ Use empty string "" for any field not visible. category must be one of the enum 
     try { parsed = JSON.parse(text); }
     catch { return res.status(502).json({ error: 'Could not parse the scan result — please try again.' }); }
 
+    await recordAiUsage(caller.familyId);
     res.json(parsed);
   } catch (e) {
     console.error('[scan-asset] error', e);
@@ -719,6 +874,8 @@ app.post('/api/insurance-read', async (req, res) => {
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
+    const usageBlock = await checkAiUsage(caller.familyId);
+    if (usageBlock) return res.status(usageBlock.status).json(usageBlock.body);
 
     console.log('[insurance-read] request from', caller.email);
 
@@ -779,6 +936,7 @@ app.post('/api/insurance-read', async (req, res) => {
           .slice(0, 40)
       : [];
 
+    await recordAiUsage(caller.familyId);
     res.json({ obligations });
   } catch (e) {
     console.error('[insurance-read] error', e);
@@ -806,6 +964,8 @@ app.post('/api/restyle-avatar', async (req, res) => {
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
+    const usageBlock = await checkAiUsage(caller.familyId);
+    if (usageBlock) return res.status(usageBlock.status).json(usageBlock.body);
 
     const { image, style, customPrompt } = req.body || {};
     if (!image || !image.data || !image.mimeType) {
@@ -857,6 +1017,7 @@ app.post('/api/restyle-avatar', async (req, res) => {
       return res.status(502).json({ error: 'The AI didn\'t return an image — please try again or pick another style.' });
     }
 
+    await recordAiUsage(caller.familyId);
     res.json({ image: `data:image/png;base64,${outData}` });
   } catch (e) {
     console.error('[restyle-avatar] error', e);
@@ -873,6 +1034,8 @@ app.post('/api/astrology-blurb', async (req, res) => {
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
+    const usageBlock = await checkAiUsage(caller.familyId);
+    if (usageBlock) return res.status(usageBlock.status).json(usageBlock.body);
 
     const { birthdate, birthTime, placeOfBirth, previousBlurb } = req.body || {};
     const sign = sunSignFromBirthdate(birthdate);
@@ -915,6 +1078,7 @@ app.post('/api/astrology-blurb', async (req, res) => {
     }
 
     if (!text) return res.status(502).json({ error: 'Could not generate a blurb right now — please try again.' });
+    await recordAiUsage(caller.familyId);
     res.json({ blurb: text, sign });
   } catch (e) {
     console.error('[astrology-blurb] error', e);
@@ -973,6 +1137,8 @@ app.post('/api/business-milestone-note', async (req, res) => {
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
+    const usageBlock = await checkAiUsage(caller.familyId);
+    if (usageBlock) return res.status(usageBlock.status).json(usageBlock.body);
 
     // Read name/foundingDate/previous-note straight from the info doc
     // server-side — never trusted from the client.
@@ -1013,6 +1179,7 @@ app.post('/api/business-milestone-note', async (req, res) => {
 
     const note = { text: candidate.trim(), generatedAt: new Date().toISOString(), forFoundingDate: infoData.foundingDate };
     await infoRef.set({ milestoneNote: note }, { merge: true });
+    await recordAiUsage(familyId);
     res.json({ ok: true, note });
   } catch (e) {
     console.error('[business-milestone-note] error', e);
@@ -1054,6 +1221,13 @@ app.post('/api/suggest-business-info', async (req, res) => {
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
+    // This endpoint's whole contract is "AI-side failure never blocks manual
+    // entry" — it always degrades to 200 + an empty suggestion rather than an
+    // error. Being out of AI actions for the month is exactly that kind of
+    // failure: skip the (paid) Gemini call entirely rather than returning the
+    // usual 402, and let the user fill the form in by hand as normal.
+    const usageStatus = await getAiUsageStatus(caller.familyId);
+    if (usageStatus.blocked) return res.json({ suggestion: {} });
 
     const sourceParts = [];
 
@@ -1106,6 +1280,7 @@ app.post('/api/suggest-business-info', async (req, res) => {
     };
     Object.keys(suggestion).forEach((k) => suggestion[k] === undefined && delete suggestion[k]);
 
+    await recordAiUsage(caller.familyId); // Gemini call succeeded (parsed a real response) — count it
     res.json({ suggestion });
   } catch (e) {
     console.error('[suggest-business-info] error', e);
@@ -1399,6 +1574,12 @@ app.post('/api/join-family', async (req, res) => {
       }
       const targetInfo = await adminDb.doc(`families/${inv.familyId}/info/info`).get();
       const targetData = targetInfo.exists ? targetInfo.data() : {};
+      // Seat cap — checked here, at the actual grant, not when the invite was
+      // created (an invite can sit unused for up to 14 days; the space's
+      // headcount at redemption time is what matters). Never touches anyone
+      // already a member — see seatCapCheck's comment.
+      const seatBlock = await seatCapCheck(inv.familyId);
+      if (seatBlock) return res.status(seatBlock.status).json(seatBlock.body);
       await grantMembership(caller.uid, caller.email, caller.displayName, inv.familyId, inv.role || 'member', targetData.type || 'family', targetData.name);
       await inviteRef.set({ usedBy: caller.uid, usedAt: new Date().toISOString() }, { merge: true });
       return res.json({ ok: true, familyId: inv.familyId });

@@ -110,6 +110,7 @@ import SlipsView from './SlipsView';
 import CelebrationOverlay from './CelebrationOverlay';
 import InstallPrompt from './InstallPrompt';
 import FirstRunTour from './FirstRunTour';
+import FamilyInterview from './FamilyInterview';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
@@ -349,7 +350,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
   const [mainView, setMainView] = useState<ViewId>('profiles');
   const [restyleMemberId, setRestyleMemberId] = useState<string | null>(null);
-  const [astroBlurb, setAstroBlurb] = useState<Record<string, { text: string; loading: boolean; error: string | null }>>({});
+  // limitReached: this month's AI-action quota was hit on the last attempt for
+  // this member — stops the auto-generate effect below from silently retrying
+  // (and re-hitting the limit endpoint) every time the member is re-viewed
+  // this session. Session-only; a fresh session/reload tries again naturally.
+  const [astroBlurb, setAstroBlurb] = useState<Record<string, { text: string; loading: boolean; error: string | null; limitReached?: boolean }>>({});
   const [legalTab, setLegalTab] = useState<LegalTab | null>(null);
   // Bumped after the AI chatbot applies edits so the self-loading views
   // (household / info / finances / timeline / assets / shopping) remount and
@@ -378,6 +383,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // welcome tour" in Hub settings to force FirstRunTour to run again.
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [tourReplayKey, setTourReplayKey] = useState(0);
+  // Guided setup interview (FamilyInterview.tsx) runs BEFORE the first-run tour
+  // for a genuinely empty vault — see that file's header comment for why. Gates
+  // FirstRunTour's `ready` below so the two never show at once; opens as soon
+  // as the interview settles (whether it actually ran or not).
+  const [interviewGateOpen, setInterviewGateOpen] = useState(false);
+  const [interviewReplayKey, setInterviewReplayKey] = useState(0);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -678,6 +689,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         }),
       });
       const data = await res.json();
+      // Monthly AI-action limit reached — a normal, expected state (the
+      // message already says so plainly and that everything else still
+      // works), not a broken-app error. Tag it so the auto-generate effect
+      // below stops silently retrying every time this member is re-viewed.
+      if (res.status === 402 && data?.limitReached) {
+        setAstroBlurb((s) => ({ ...s, [memberId]: { text: s[memberId]?.text || '', loading: false, error: data.error, limitReached: true } }));
+        return;
+      }
       if (!res.ok || !data.blurb) throw new Error(data.error || 'Could not generate a blurb.');
       setAstroBlurb((s) => ({ ...s, [memberId]: { text: data.blurb, loading: false, error: null } }));
       const forInputs = `${member.birthdate || ''}|${member.birthTime || ''}|${member.placeOfBirth || ''}`;
@@ -724,6 +743,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const handlePatchSelectedMember = async (patch: Partial<FamilyMember>) => {
     if (!selectedMemberId) return;
     await persistChanges(members.map(m => (m.id === selectedMemberId ? { ...m, ...patch } : m)));
+  };
+
+  // Same as handlePatchSelectedMember, but for a member that isn't necessarily
+  // the one currently open — the guided setup interview (FamilyInterview.tsx)
+  // walks through several people in one sitting, not just whichever profile
+  // happens to be selected.
+  const handlePatchMember = async (memberId: string, patch: Partial<FamilyMember>) => {
+    await persistChanges(members.map(m => (m.id === memberId ? { ...m, ...patch } : m)));
   };
 
   // Apply edits proposed by the AI assistant (after the user confirms).
@@ -1334,6 +1361,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     const zodiac = sunSign(selectedMember.birthdate);
     if (!zodiac) return;
     if (astroBlurb[selectedMember.id]?.loading) return;
+    // Already told this session it's out of AI actions for the month — don't
+    // keep re-hitting the endpoint every time this member is re-viewed.
+    if (astroBlurb[selectedMember.id]?.limitReached) return;
     const forInputs = `${selectedMember.birthdate || ''}|${selectedMember.birthTime || ''}|${selectedMember.placeOfBirth || ''}`;
     const stored = selectedMember.astrologyBlurb;
     const isFresh = !!stored && stored.forInputs === forInputs
@@ -2034,17 +2064,40 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         onClose={() => setIsSettingsOpen(false)}
         onSave={handleSaveSettings}
         onReplayTour={() => { setIsSettingsOpen(false); setTourReplayKey((k) => k + 1); }}
+        onOpenInterview={!isBusinessSpace && (demo || canWrite) ? () => { setIsSettingsOpen(false); setInterviewReplayKey((k) => k + 1); } : undefined}
+      />
+
+      {/* Guided setup interview: fills an empty vault with the highest-value
+          facts (who's in the family, blood group/allergies, who to call, a
+          passport) before the tour ever runs — see FamilyInterview.tsx's
+          header comment for the full reasoning. Family spaces only, and only
+          for someone who can actually write (children can't). `onSettled`
+          opens the FirstRunTour gate below whether or not it actually ran. */}
+      <FamilyInterview
+        uid={auth.currentUser?.uid ?? null}
+        demo={demo}
+        ready={initialLoadDone && !consentOpen}
+        enabled={!isBusinessSpace && (demo || canWrite)}
+        members={members}
+        settings={settings}
+        onAddMember={handleAddMember}
+        onPatchMember={handlePatchMember}
+        onAddDocument={handleAddDocument}
+        onSaveSettings={handleSaveSettings}
+        onSettled={() => setInterviewGateOpen(true)}
+        forceKey={interviewReplayKey}
       />
 
       {/* First-run tour: highlights the handful of things worth knowing on
           day one (see FirstRunTour.tsx for the full stop list and why each
           one earned its place). `ready` withholds it until real data has
-          loaded AND the AI consent prompt (if any) has been dealt with, so
-          the two never fight for the screen at once. */}
+          loaded, the AI consent prompt (if any) has been dealt with, AND the
+          guided setup interview above has settled — so at most one of the
+          three ever has the screen. */}
       <FirstRunTour
         uid={auth.currentUser?.uid ?? null}
         demo={demo}
-        ready={initialLoadDone && !consentOpen}
+        ready={initialLoadDone && !consentOpen && interviewGateOpen}
         hubName={hubName}
         isBusinessSpace={isBusinessSpace}
         membersCount={members.length}

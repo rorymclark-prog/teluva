@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem } from '../types';
+import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage } from '../types';
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
   loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto, loadSpaceInfo, uploadSlipPhoto,
-  uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen,
+  uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen, loadAiUsage,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
 import { redactHousehold, redactFinances, redactMember } from '../utils/aiRedact';
@@ -285,6 +285,11 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   // sources NeedsAttention uses) to feed the deterministic expiry/gap index.
   const [hVehicles, setHVehicles] = useState<Vehicle[]>([]);
   const [hSlips, setHSlips] = useState<SlipItem[]>([]);
+  // Honest usage indicator ("12 of 30 AI actions used this month") — read
+  // from the server, never recomputed client-side. null while loading/
+  // unavailable, in which case the indicator just doesn't show.
+  const [aiUsage, setAiUsage] = useState<AiUsage | null>(null);
+  const refreshAiUsage = () => { loadAiUsage().then(setAiUsage).catch(() => {}); };
   // Dismiss persists per-day via the existing isHintSeen/markHintSeen convention
   // (per space + device). A fresh key each day means the card returns tomorrow if
   // there's still something to surface, but stays gone for the rest of today.
@@ -380,6 +385,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     let cancelled = false;
     loadHousehold().then((h) => { if (!cancelled) setHVehicles(h?.vehicles || []); }).catch(() => { if (!cancelled) setHVehicles([]); });
     loadSlips().then((s) => { if (!cancelled) setHSlips(s || []); }).catch(() => { if (!cancelled) setHSlips([]); });
+    loadAiUsage().then((u) => { if (!cancelled) setAiUsage(u); }).catch(() => { if (!cancelled) setAiUsage(null); });
     return () => { cancelled = true; };
   }, [familyId]);
 
@@ -708,6 +714,16 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         uploadPromise,
       ]);
       const data = await res.json();
+      // Monthly AI-action limit reached — a normal, expected state, not a
+      // broken-app error. Show it as a plain assistant reply (its text
+      // already says what happened and that everything else still works)
+      // rather than the red error banner, and refresh the usage indicator so
+      // it immediately reads e.g. "30 of 30" without waiting for a reload.
+      if (res.status === 402 && data?.limitReached) {
+        setMessages(prev => [...prev, { role: 'assistant', text: data.error || "You've used all your AI actions this month." }]);
+        refreshAiUsage();
+        return;
+      }
       if (!res.ok) throw new Error(data?.error || 'The assistant is unavailable right now.');
 
       const rawEdits: AiEdit[] = Array.isArray(data.edits) ? data.edits : [];
@@ -770,6 +786,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         return updatedMessages;
       });
       startStreaming(assistantMsg.text);
+      refreshAiUsage(); // this call just counted against this month's quota — keep the indicator honest
       // A failed attachment upload used to only console.error, so the user found
       // out much later — when Apply mysteriously couldn't file the document.
       // Say it now, while the photo is still on their screen to re-send.
@@ -1238,6 +1255,15 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
         <div className="min-w-0 hidden sm:block">
           <h2 className="font-display text-xl font-semibold text-ink-900">{isBusinessSpace ? 'Business assistant' : 'Family assistant'}</h2>
           <p className="text-[13px] text-ink-500 font-medium truncate">Ask, tell me a fact, or attach a document to scan.</p>
+          {/* Honest usage indicator — shown quietly, never as a nag. Numbers come
+              straight from the server (loadAiUsage); the client never computes
+              the limit itself. Hidden entirely on the paid plan's effectively-
+              unlimited ceiling and while still loading, so it never distracts. */}
+          {aiUsage && aiUsage.plan === 'free' && (
+            <p className="text-[11px] text-ink-400 truncate mt-0.5" title={`Resets on ${aiUsage.resetsOn}`}>
+              {aiUsage.used} of {aiUsage.limit} AI actions used this month
+            </p>
+          )}
         </div>
         <h2 className="font-display text-lg font-semibold text-ink-900 sm:hidden">Assistant</h2>
         <button

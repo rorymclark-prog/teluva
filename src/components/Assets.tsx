@@ -130,7 +130,16 @@ export default function Assets() {
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ image: { mimeType, data: base64Data } }),
       });
-      if (!resp.ok) { const text = await resp.text(); throw new Error(text || `Scan failed (${resp.status})`); }
+      if (!resp.ok) {
+        // Parse as JSON first — the server always responds with { error }
+        // (e.g. the AI-usage-limit message, "You've used all 30 AI actions
+        // this month…"). Falling back to raw response text previously meant
+        // a limit/error response's raw JSON body was shown to the user
+        // verbatim instead of that human message.
+        let msg = `Scan failed (${resp.status})`;
+        try { const j = await resp.json(); if (j?.error) msg = j.error; } catch { /* keep default */ }
+        throw new Error(msg);
+      }
       const scanned = await resp.json();
       setEditingItem(prev => {
         const base = prev ?? { ...BLANK };

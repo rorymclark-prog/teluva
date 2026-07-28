@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Settings, Users, Upload, Save, Compass } from 'lucide-react';
+import { X, Settings, Users, Upload, Save, Compass, ListChecks } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { HubSettings, IdCountry } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -23,9 +23,11 @@ interface HubSettingsModalProps {
   onSave: (s: HubSettings) => void;
   /** Runs the first-run tour again, on demand — "replayable from somewhere sensible" means here, since (unlike admin-only Family Settings) every signed-in member can open this modal. Omit to hide the row (e.g. no caller wired up yet). */
   onReplayTour?: () => void;
+  /** Reopens the guided setup interview (FamilyInterview.tsx) from the start — "reachable again from settings after completion" per its brief. Omit to hide the row (business spaces, or a caller with no write access). */
+  onOpenInterview?: () => void;
 }
 
-export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, onClose, onSave, onReplayTour }: HubSettingsModalProps) {
+export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, onClose, onSave, onReplayTour, onOpenInterview }: HubSettingsModalProps) {
   const [hubName, setHubName] = useState('');
   const [photo, setPhoto] = useState<string>('');
   const [uploadFileName, setUploadFileName] = useState('');
@@ -138,6 +140,19 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
                 <label className="field-label">App language</label>
                 <LanguageSelector />
               </div>
+
+              {/* Redo the guided setup interview — reachable any time it's
+                  wired up, not just on day one. See FamilyInterview.tsx. */}
+              {onOpenInterview && (
+                <button
+                  type="button"
+                  onClick={onOpenInterview}
+                  className="btn-quiet w-full justify-center text-[13px]"
+                >
+                  <ListChecks className="w-3.5 h-3.5" />
+                  <span>Redo the guided setup</span>
+                </button>
+              )}
 
               {/* Replay the first-run tour — reachable by anyone, any time,
                   not just on day one. See FirstRunTour.tsx. */}

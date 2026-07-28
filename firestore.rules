@@ -73,9 +73,19 @@ service cloud.firestore {
       // nothing. Every client-side reader (loadSpaceInfo, ImportantInfo,
       // FamilySettings) only ever runs for the active space, of which the
       // caller is by definition a member.
+      //
+      // `plan` ("free"/"paid") is EXCLUDED from client writes even for an
+      // admin. It is billing-authoritative and must only ever be set
+      // server-side via the Admin SDK, which bypasses these rules. Without
+      // this, a space's own admin could set plan:'paid' on themselves from
+      // the browser console and defeat the AI-usage and seat-cap enforcement
+      // entirely. The comparison errors (and so DENIES, failing closed) on a
+      // client-side create that tries to set plan — which is correct; the
+      // info doc is only ever created server-side.
       match /info/{doc} {
         allow read: if isMemberOf(familyId);
-        allow write: if isAdminOf(familyId);
+        allow write: if isAdminOf(familyId)
+          && (!('plan' in request.resource.data) || request.resource.data.plan == resource.data.plan);
       }
 
       // Role assignments — one doc per uid. Created ONLY by the server
