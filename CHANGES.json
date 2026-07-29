@@ -1,6 +1,9 @@
 {
-  "label": "v135",
+  "label": "v136",
   "changes": [
+    "A family status — one line at the top of the home screen for whatever's happening right now. \"Everyone at Oma's until Sunday.\" \"Mia has chickenpox, don't visit.\" It shows who wrote it and when. It replaces rather than piles up, so it stays something you read at a glance instead of another feed to keep up with. Business spaces get it too.",
+    "Fixed: tapping the family photo opened the menu instead of the photo. That was my mistake when the header was rebuilt. It opens the photo again.",
+    "The family photo in the header is bigger.",
     "The sections menu is grouped now — Everyday, Documents & IDs, Money & cover, Home & things, Memories — with Family and Emergency pinned at the top. Twenty-one sections in one flat list meant you had to already know the app to find anything.",
     "On a phone it opens as a full sheet instead of a small panel with a hidden cap, so you can see there's more below rather than having to guess.",
     "And there's a search box at the top of it: type three letters instead of reading the whole list.",
@@ -9,9 +12,6 @@
     "Removed personal email addresses that were being shipped inside the app's code.",
     "\"Needs attention\" now ranks by how soon something actually needs you, not just by how loud it is. A passport expiring on Friday could previously fall out of the visible six while a long-dead one sat above it.",
     "A birthday is no longer announced three times on one screen. The gift reminder now stops on the day itself, where it had nothing left to suggest.",
-    "The \"add to Home Screen\" card now sits at the bottom of the screen instead of appearing at the top two seconds after you started reading and pushing everything down.",
-    "Fixed: sizes you typed were thrown away if you switched tab before pressing Save — and nothing told you Save was the only way to keep them. They now save as you leave each field. Tabbing through without changing anything no longer marks old sizes as freshly measured.",
-    "Fixed: opening the app cold showed \"Add your first family member\" to families that already had eight. It was drawing the empty state before it had finished loading. Your family now appears instantly from the last known copy.",
-    "Fixed: ten forms threw away everything you'd typed if one key field was blank — silently, with no message. They now stay open and tell you which field they need."
+    "The \"add to Home Screen\" card now sits at the bottom of the screen instead of appearing at the top two seconds after you started reading and pushing everything down."
   ]
 }

@@ -583,6 +583,18 @@ export interface HubSettings {
   // turn it off here; a single person who's fine with it generally but wants
   // out personally uses FamilyMember.noCelebrations instead.
   celebrationsEnabled?: boolean;
+
+  /**
+   * The family's current status — the fridge whiteboard. One line, replaced
+   * rather than accumulated, so it never becomes a feed nobody reads.
+   * Attributed and dated, because "Shyam is at his gran's this week" is only
+   * useful if you know who said it and when.
+   */
+  status?: {
+    text: string;
+    by: string;   // display name of whoever set it
+    at: string;   // ISO timestamp
+  };
 }
 
 // --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---

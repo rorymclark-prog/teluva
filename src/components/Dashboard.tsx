@@ -48,6 +48,7 @@ import SectionMenu from './SectionMenu';
 import LegalModal, { LegalTab } from './LegalModal';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import HubSettingsModal from './HubSettingsModal';
+import FamilyStatus from './FamilyStatus';
 import ImageLightbox from './ImageLightbox';
 import { HubSettings } from '../types';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
@@ -1535,12 +1536,29 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     );
   }
 
+  /* Its own button, deliberately outside the space-switcher trigger: tapping a
+     family photo should show the family photo. Bigger than the old 36px too —
+     it is the one personal thing in the header and it was the size of an icon. */
   const hubAvatar = settings.familyPhotoUrl ? (
-    <img src={settings.familyPhotoUrl} alt="" className="w-9 h-9 rounded-2xl object-cover shrink-0 border border-cream-300 shadow-soft" />
+    <button
+      type="button"
+      onClick={() => setLightboxImage(settings.familyPhotoUrl!)}
+      title="View family photo"
+      aria-label="View family photo"
+      className="w-12 h-12 rounded-2xl overflow-hidden shrink-0 border border-cream-300 shadow-soft cursor-zoom-in transition-transform hover:scale-105"
+    >
+      <img src={settings.familyPhotoUrl} alt="Family" className="w-full h-full object-cover" />
+    </button>
   ) : (
-    <span className="w-9 h-9 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0">
-      <ShieldCheck className="w-5 h-5 text-sage-600" />
-    </span>
+    <button
+      type="button"
+      onClick={() => !demo && setIsSettingsOpen(true)}
+      title={demo ? undefined : 'Add a family photo'}
+      aria-label={demo ? 'Family' : 'Add a family photo'}
+      className={`w-12 h-12 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0 transition-colors ${demo ? '' : 'hover:bg-sage-200 cursor-pointer'}`}
+    >
+      <ShieldCheck className="w-6 h-6 text-sage-600" />
+    </button>
   );
 
   /* The account actions, as menu rows rather than a permanent row of six
@@ -1592,23 +1610,22 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               works in Slack or Notion. Everything here used to be laid out
               across the header as a title, a space pill repeating that same
               title, and a permanent row of five unlabelled icon buttons. */}
-          {demo ? (
-            <div className="flex items-center gap-3 min-w-0">
-              {hubAvatar}
+          <div className="flex items-center gap-3 min-w-0">
+            {hubAvatar}
+            {demo ? (
               <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight truncate">{hubName}</h1>
-            </div>
-          ) : (
-            <SpaceSwitcher
-              spaces={spaces}
-              activeId={activeSpaceId}
-              canCreate={canWrite}
-              onSwitch={handleSwitchSpace}
-              onCreate={handleCreateSpace}
-              avatar={hubAvatar}
-              title={hubName}
-              footer={accountMenuItems}
-            />
-          )}
+            ) : (
+              <SpaceSwitcher
+                spaces={spaces}
+                activeId={activeSpaceId}
+                canCreate={canWrite}
+                onSwitch={handleSwitchSpace}
+                onCreate={handleCreateSpace}
+                title={hubName}
+                footer={accountMenuItems}
+              />
+            )}
+          </div>
 
           {/* The way out of the demo. There is one in the footer too, but the
               footer is a long scroll down from here and an installed app has no
@@ -1725,6 +1742,20 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 an install prompt over an empty vault is asking for commitment
                 before showing any value. Silent in demo mode. */}
             {!demo && <InstallPrompt hasContent={members.length > 0} />}
+
+            {/* The whiteboard line. Above the digest deliberately: a human
+                wrote it about right now, which outranks anything computed. */}
+            <FamilyStatus
+              // The demo carries a sample line so the feature is visible to
+              // someone taking a look, rather than hidden behind write access.
+              status={demo
+                ? { text: 'Everyone at Oma’s until Sunday — Ben’s party is Saturday 3pm.', by: 'Mama', at: new Date(Date.now() - 5 * 3600_000).toISOString() }
+                : settings.status}
+              canWrite={!demo && canWrite}
+              authorName={currentUser?.displayName || currentUser?.email || 'Someone'}
+              onSave={(next) => { void handleSaveSettings({ ...settings, status: next }); }}
+              isBusinessSpace={isBusinessSpace}
+            />
 
             <NeedsAttention members={members} contacts={contacts} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
             <CelebrationOverlay members={members} />
