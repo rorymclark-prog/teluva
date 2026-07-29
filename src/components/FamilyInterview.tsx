@@ -211,7 +211,7 @@ export default function FamilyInterview({
   const isLast = idx === seq.length - 1;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-ink-900/55 backdrop-blur-sm anim-fade" />
       <div
         ref={cardRef}
@@ -219,7 +219,7 @@ export default function FamilyInterview({
         aria-modal="true"
         aria-labelledby="interview-step-title"
         tabIndex={-1}
-        className="card relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl p-6 anim-pop outline-none"
+        className="card relative w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-3xl p-6 anim-pop outline-none"
       >
         <SheetGrabber onClose={pause} className="mb-2" />
 

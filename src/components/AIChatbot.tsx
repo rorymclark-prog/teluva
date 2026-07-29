@@ -21,7 +21,7 @@ import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMat
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
-  ClipboardPaste, ChevronRight, CalendarClock, Undo2,
+  ClipboardPaste, ChevronRight, CalendarClock, Undo2, ChevronDown,
 } from 'lucide-react';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 import { speechLocaleFor } from '../utils/speechLocale';
@@ -272,6 +272,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   const [error, setError] = useState<string | null>(null);
   // Undo-last-apply: which applied card is asking "Undo this?" for confirmation,
   // and which is mid-undo (so its control shows a spinner and can't double-fire).
+  // Which edit cards are expanded, keyed by message index. Undefined means
+  // "use the default", which is collapsed once there are more than two.
+  const [expandedEdits, setExpandedEdits] = useState<Record<number, boolean>>({});
   const [confirmingUndoIdx, setConfirmingUndoIdx] = useState<number | null>(null);
   const [undoingIdx, setUndoingIdx] = useState<number | null>(null);
   const [listening, setListening] = useState(false);
@@ -1450,17 +1453,43 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
 
               {m.edits && m.edits.length > 0 && (
                 <div className="rounded-2xl border border-clay-200 bg-clay-50/70 p-3 space-y-2">
-                  <p className="text-[12px] font-semibold text-clay-700 flex items-center gap-1.5">
-                    <Wand2 className="w-3.5 h-3.5" /> I'd like to save these — apply?
-                  </p>
-                  <ul className="space-y-1">
-                    {m.edits.map((e, j) => (
-                      <li key={j} className="text-[13px] text-ink-700 flex items-start gap-1.5">
-                        <span className="text-clay-400 mt-0.5">•</span>
-                        <span>{describeEdit(e)}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  {/* Collapsed by default past two items. A long list pushed the
+                      Apply button down past the bottom of the panel, which on a
+                      phone made it unreachable — the list is the detail, the
+                      decision is the point, so the decision stays on screen. */}
+                  {(() => {
+                    const many = m.edits!.length > 2;
+                    const open = expandedEdits[i] ?? !many;
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedEdits((prev) => ({ ...prev, [i]: !open }))}
+                          aria-expanded={open}
+                          className={`w-full flex items-center gap-1.5 text-[12px] font-semibold text-clay-700 text-left ${many ? 'cursor-pointer' : 'cursor-default'}`}
+                          disabled={!many}
+                        >
+                          <Wand2 className="w-3.5 h-3.5 shrink-0" />
+                          <span className="flex-1">
+                            {m.applied
+                              ? `${m.edits!.length} ${m.edits!.length === 1 ? 'change' : 'changes'}`
+                              : `I'd like to save ${m.edits!.length} ${m.edits!.length === 1 ? 'thing' : 'things'} — apply?`}
+                          </span>
+                          {many && <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? '' : '-rotate-90'}`} />}
+                        </button>
+                        {open && (
+                          <ul className="space-y-1">
+                            {m.edits!.map((e, j) => (
+                              <li key={j} className="text-[13px] text-ink-700 flex items-start gap-1.5">
+                                <span className="text-clay-400 mt-0.5">•</span>
+                                <span>{describeEdit(e)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    );
+                  })()}
                   {!m.applied && docDuplicates[i]?.some(f => !f.resolution) && (
                     <div className="space-y-2 pt-1">
                       {docDuplicates[i]!.filter(f => !f.resolution).map((f) => (

@@ -469,7 +469,7 @@ export default function FamilyStats({ members, events, onClose }: {
           </div>
         </div>
 
-        <div className="p-5 sm:p-7 max-h-[calc(100vh-9rem)] sm:max-h-[calc(100vh-11rem)] overflow-y-auto print:max-h-none print:overflow-visible">
+        <div className="p-5 sm:p-7 max-h-[calc(100dvh-9rem)] sm:max-h-[calc(100dvh-11rem)] overflow-y-auto print:max-h-none print:overflow-visible">
           {isEmpty ? (
             <div className="p-8 sm:p-10 text-center">
               <div className="w-14 h-14 rounded-2xl bg-clay-50 flex items-center justify-center mx-auto mb-4">

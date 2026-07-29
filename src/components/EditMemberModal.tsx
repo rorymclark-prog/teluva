@@ -219,7 +219,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   return (
     <AnimatePresence>
       {isOpen && member && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -232,7 +232,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
             initial={{ opacity: 0, scale: 0.95, y: 15 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 15 }}
-            className="card relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl p-6 z-10 anim-pop"
+            className="card relative w-full max-w-md max-h-[90dvh] overflow-y-auto rounded-3xl p-6 z-10 anim-pop"
           >
             {/* Mobile grabber bar */}
             <SheetGrabber onClose={handleCancelClose} />

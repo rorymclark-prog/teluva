@@ -203,7 +203,7 @@ export default function TravelPack({ members, onClose }: { members: FamilyMember
           exit={{ opacity: 0, y: 24, scale: 0.98 }}
           transition={{ type: 'spring', stiffness: 260, damping: 28 }}
           onClick={(e) => e.stopPropagation()}
-          className="relative m-auto w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-2xl flex flex-col bg-cream-50 sm:rounded-[28px] border-0 sm:border sm:border-cream-300/60 shadow-2xl overflow-hidden print:static print:max-h-none print:max-w-none print:h-auto print:rounded-none print:border-0 print:shadow-none print:bg-white"
+          className="relative m-auto w-full h-full sm:h-auto sm:max-h-[90dvh] sm:max-w-2xl flex flex-col bg-cream-50 sm:rounded-[28px] border-0 sm:border sm:border-cream-300/60 shadow-2xl overflow-hidden print:static print:max-h-none print:max-w-none print:h-auto print:rounded-none print:border-0 print:shadow-none print:bg-white"
         >
           {/* Header */}
           <div className="flex items-start gap-3 p-5 sm:p-6 pb-4 border-b border-cream-200 shrink-0 print:border-ink-900/20">

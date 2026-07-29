@@ -226,7 +226,7 @@ export default function MemberBelongings(
               ><ChevronLeft className="w-6 h-6" /></button>
             )}
             <div className="flex flex-col items-center gap-3">
-              <img src={gallery[galleryIdx].src} alt={gallery[galleryIdx].label} className="max-h-[80vh] max-w-full rounded-xl object-contain" />
+              <img src={gallery[galleryIdx].src} alt={gallery[galleryIdx].label} className="max-h-[80dvh] max-w-full rounded-xl object-contain" />
               <div className="flex items-center gap-2">
                 <span className="chip bg-white/90 text-ink-700">{gallery[galleryIdx].label}</span>
                 {gallery.length > 1 && <span className="text-[12px] text-white/80 tabular-nums">{galleryIdx + 1} / {gallery.length}</span>}

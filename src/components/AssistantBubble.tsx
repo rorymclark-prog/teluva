@@ -16,6 +16,8 @@ interface Props {
   onGo?: (memberId: string, tab: string) => void;
   onGoView?: (view: string) => void;
   onUndoEdits?: (records: UndoRecord[]) => Promise<{ undone: number; missing: number }>;
+  /** Bump to open the panel from outside — e.g. the pending-changes banner. */
+  openSignal?: number;
 }
 
 /**
@@ -24,11 +26,15 @@ interface Props {
  * launcher toggles to a close (X); clicking anywhere outside the panel (or Esc,
  * or the mobile backdrop) also closes it.
  */
-export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, demo, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits }: Props) {
+export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, demo, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits, openSignal }: Props) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
+
+  // Opened from outside. Guarded on a truthy signal so the initial render
+  // doesn't pop the panel open on every page load.
+  useEffect(() => { if (openSignal) setOpen(true); }, [openSignal]);
 
   // Close on any click outside the panel (the launcher is excluded — it toggles
   // itself) and on Escape. This is what makes clicking the page dismiss the chat.
@@ -61,15 +67,24 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
           />
           {/* Chat panel — bottom sheet on mobile, anchored popover on desktop.
               Sits above the launcher (bottom-24) so the launcher's X stays tappable.
-              Frosted glass — the one sanctioned .glass surface in the app. */}
+              Frosted glass — the one sanctioned .glass surface in the app.
+
+              Height is an explicit dvh figure, NOT a top+bottom inset pair. A
+              fixed element's containing block on iOS Safari is the LARGE
+              viewport — the one you get with the toolbars retracted — so
+              `top-16 bottom-24` produced a panel whose bottom edge sat behind
+              the browser chrome whenever the toolbars were showing. The message
+              list scrolled fine; the part you needed was simply off-screen, and
+              no amount of scrolling brings back something the viewport does not
+              reach. That is what made "Apply" untappable on an iPhone. */}
           <div
             ref={panelRef}
             role="dialog"
             aria-label={t.nav_assistant}
             className="fixed z-40 flex flex-col glass rounded-2xl overflow-hidden border border-cream-300 shadow-lift anim-sheet
-                       inset-x-3 top-16 bottom-24
-                       sm:inset-auto sm:right-4 sm:bottom-24 sm:top-auto
-                       sm:w-[400px] sm:h-[min(620px,calc(100vh-9rem))]"
+                       inset-x-3 bottom-24 h-[min(72dvh,calc(100dvh-8rem))]
+                       sm:inset-auto sm:right-4 sm:bottom-24 sm:top-auto sm:h-[min(620px,calc(100dvh-9rem))]
+                       sm:w-[400px]"
           >
             {/* Mobile grabber bar */}
             <SheetGrabber onClose={() => setOpen(false)} />

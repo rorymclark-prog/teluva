@@ -624,7 +624,7 @@ function ReferralPreview({ record, memberName, onClose }: { record: ReferralReco
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div onClick={onClose} className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm" />
-      <div className="relative w-full max-w-2xl card rounded-3xl overflow-hidden max-h-[90vh] flex flex-col">
+      <div className="relative w-full max-w-2xl card rounded-3xl overflow-hidden max-h-[90dvh] flex flex-col">
         <div className="p-4 border-b border-cream-200 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-ink-900 truncate">{record.reason || record.kind}</p>
@@ -636,9 +636,9 @@ function ReferralPreview({ record, memberName, onClose }: { record: ReferralReco
         </div>
         <div className="flex-1 overflow-y-auto bg-cream-100 flex items-center justify-center p-4">
           {isPdf ? (
-            <iframe src={record.downloadUrl} title={record.fileName} className="w-full h-[70vh] border-0 rounded-xl bg-white" />
+            <iframe src={record.downloadUrl} title={record.fileName} className="w-full h-[70dvh] border-0 rounded-xl bg-white" />
           ) : (
-            <img src={record.downloadUrl} alt={record.fileName} className="max-w-full max-h-[70vh] object-contain rounded-xl" referrerPolicy="no-referrer" />
+            <img src={record.downloadUrl} alt={record.fileName} className="max-w-full max-h-[70dvh] object-contain rounded-xl" referrerPolicy="no-referrer" />
           )}
         </div>
         <div className="p-4 border-t border-cream-200 flex items-center justify-between gap-3">

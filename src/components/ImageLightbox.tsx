@@ -72,7 +72,7 @@ export default function ImageLightbox({ src, onClose, name = 'Teluva document', 
               alt={name}
               onClick={(e) => e.stopPropagation()}
               style={{ width: 'min(92vw, 90vh)' }}
-              className="max-w-[92vw] max-h-[90vh] rounded-3xl shadow-2xl object-contain bg-white"
+              className="max-w-[92vw] max-h-[90dvh] rounded-3xl shadow-2xl object-contain bg-white"
             />
           )}
           <div className="absolute top-5 right-5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>

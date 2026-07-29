@@ -108,7 +108,7 @@ export default function MemberCalendarDates({ member, isBusinessSpace, onClose, 
           animate={{ scale: 1, opacity: 1, y: 0 }}
           transition={{ type: 'spring', stiffness: 260, damping: 26 }}
           onClick={(e) => e.stopPropagation()}
-          className="relative card w-full max-w-lg max-h-[85vh] rounded-3xl overflow-hidden flex flex-col"
+          className="relative card w-full max-w-lg max-h-[85dvh] rounded-3xl overflow-hidden flex flex-col"
         >
           {/* Header */}
           <div className="flex items-start justify-between gap-3 p-5 sm:p-6 border-b border-cream-200 shrink-0">

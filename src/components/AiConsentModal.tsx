@@ -78,7 +78,7 @@ export default function AiConsentModal({ open, onEnable, onClose, onOpenPrivacy 
             role="dialog"
             aria-modal="true"
             aria-labelledby="ai-consent-title"
-            className="card relative w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-6 z-10"
+            className="card relative w-full sm:max-w-md max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-6 z-10"
           >
             {/* Mobile grabber bar */}
             <SheetGrabber onClose={onClose} className="mb-3" />

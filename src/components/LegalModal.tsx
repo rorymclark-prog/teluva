@@ -26,7 +26,7 @@ export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: (
       onClick={onClose}
     >
       <div
-        className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl shadow-lift max-h-[92vh] flex flex-col"
+        className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl shadow-lift max-h-[92dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header + tabs */}

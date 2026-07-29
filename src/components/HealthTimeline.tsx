@@ -159,7 +159,7 @@ export default function HealthTimeline({ members, events, onClose }: Props) {
           animate={{ scale: 1, opacity: 1, y: 0 }}
           transition={{ type: 'spring', stiffness: 260, damping: 26 }}
           onClick={(e) => e.stopPropagation()}
-          className="relative card w-full max-w-2xl max-h-[92vh] rounded-3xl overflow-hidden flex flex-col print:max-h-none print:shadow-none print:rounded-none print:border-0"
+          className="relative card w-full max-w-2xl max-h-[92dvh] rounded-3xl overflow-hidden flex flex-col print:max-h-none print:shadow-none print:rounded-none print:border-0"
         >
           {/* Header */}
           <div className="flex items-start justify-between gap-3 p-5 sm:p-6 border-b border-cream-200 shrink-0">

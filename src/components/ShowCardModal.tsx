@@ -91,13 +91,13 @@ export default function ShowCardModal({ open, onClose, title, subtitle, fields =
                   <iframe
                     src={scanSrc}
                     title={title}
-                    className="w-full h-[42vh] rounded-2xl bg-white border border-cream-200"
+                    className="w-full h-[42dvh] rounded-2xl bg-white border border-cream-200"
                   />
                 ) : (
                   <img
                     src={scanSrc}
                     alt={title}
-                    className="w-full max-h-[42vh] rounded-2xl object-contain bg-white border border-cream-200"
+                    className="w-full max-h-[42dvh] rounded-2xl object-contain bg-white border border-cream-200"
                   />
                 )
               )}

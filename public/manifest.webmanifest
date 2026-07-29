@@ -26,5 +26,31 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Emergency card",
+      "short_name": "Emergency",
+      "description": "Blood groups, allergies and who to call",
+      "url": "/?do=emergency",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Babysitter mode",
+      "short_name": "Babysitter",
+      "description": "The one screen a sitter needs",
+      "url": "/?do=babysitter",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

@@ -490,7 +490,7 @@ export default function DocumentScannerModal({
                   aspect ratio, and positions its Apply/Cancel toolbar relative
                   to THAT box. A tighter cap here than scanic's own would clip
                   the toolbar out of view for a tall/portrait photo — happened
-                  live at max-h-[55vh] vs scanic's 70vh. Let it size itself;
+                  live at max-h-[55dvh] vs scanic's 70vh. Let it size itself;
                   the modal body around this is already scrollable. */}
               <div className="relative rounded-2xl overflow-hidden bg-black border border-cream-200">
                 <div ref={cornerEditorHostRef} className="w-full" />
@@ -523,7 +523,7 @@ export default function DocumentScannerModal({
                   shape (e.g. a card back is much wider than tall), and forcing that into a
                   4:3 box via object-contain just letterboxed it with black bars. */}
               <div className="relative rounded-2xl overflow-hidden bg-black border border-cream-200 shadow-inner flex items-center justify-center">
-                <img src={capturedPhoto} alt="Captured document scan" className="max-w-full max-h-[55vh] w-auto h-auto" />
+                <img src={capturedPhoto} alt="Captured document scan" className="max-w-full max-h-[55dvh] w-auto h-auto" />
                 <div className="absolute top-3 left-3 chip bg-sage-700/80 text-sage-100 border border-sage-600/50">
                   {requireBothSides ? `${side === 'front' ? 'Front' : 'Back'} captured` : 'Captured'}
                 </div>

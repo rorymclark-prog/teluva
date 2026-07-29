@@ -1,17 +1,17 @@
 {
-  "label": "v137",
+  "label": "v138",
   "changes": [
+    "Fixed the big one: on an iPhone you couldn't reach the Apply button to accept the assistant's changes. The panel was sized against Safari's tallest possible screen, so its bottom sat behind the browser bar — nothing you could scroll to, because it was off-screen entirely. Every pop-up in the app had the same flaw and all of them are fixed.",
+    "Nothing was ever lost when that happened: changes are only saved when you tap Apply, and un-applied ones stay in the chat.",
+    "And now they come and find you — a bar on the home screen says how many changes are waiting, and opens them.",
+    "Long lists of changes start collapsed, so the Apply button is always the first thing you can reach rather than the last.",
+    "Android: long-press the app icon for Emergency card and Babysitter mode.",
     "Star-sign blurbs read like a person now, not a fortune cookie. They were being told to paint the sky and the mood of the hour you were born — that instruction is gone, along with \"cosmic\", \"the universe\", \"energy\", \"destined\" and the rest. They're concrete and observational instead, flaws included, which is what stops them sounding like they'd fit anyone.",
     "A family status — one line at the top of the home screen for whatever's happening right now. \"Everyone at Oma's until Sunday.\" \"Mia has chickenpox, don't visit.\" It shows who wrote it and when. It replaces rather than piles up, so it stays something you read at a glance instead of another feed to keep up with. Business spaces get it too.",
     "Fixed: tapping the family photo opened the menu instead of the photo. That was my mistake when the header was rebuilt. It opens the photo again.",
     "The family photo in the header is bigger.",
     "The sections menu is grouped now — Everyday, Documents & IDs, Money & cover, Home & things, Memories — with Family and Emergency pinned at the top. Twenty-one sections in one flat list meant you had to already know the app to find anything.",
     "On a phone it opens as a full sheet instead of a small panel with a hidden cap, so you can see there's more below rather than having to guess.",
-    "And there's a search box at the top of it: type three letters instead of reading the whole list.",
-    "Fixed: our privacy note claimed that opening your files always requires signing in. That wasn't true — an uploaded document has a private link that works on its own, which is what makes sharing and exporting work. The note now says so plainly, so you can judge for yourself how to treat a backup.",
-    "Backup files no longer carry those direct links to your documents. The documents themselves are still in the backup; the links were an extra copy of the key, travelling with the lock.",
-    "Removed personal email addresses that were being shipped inside the app's code.",
-    "\"Needs attention\" now ranks by how soon something actually needs you, not just by how loud it is. A passport expiring on Friday could previously fall out of the visible six while a long-dead one sat above it.",
-    "A birthday is no longer announced three times on one screen. The gift reminder now stops on the day itself, where it had nothing left to suggest."
+    "And there's a search box at the top of it: type three letters instead of reading the whole list."
   ]
 }

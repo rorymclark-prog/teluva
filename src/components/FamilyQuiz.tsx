@@ -375,7 +375,7 @@ export default function FamilyQuiz({ members, events, onClose }: { members: Fami
             exit={{ scale: 0.96, opacity: 0, y: 12 }}
             transition={{ type: 'spring', stiffness: 260, damping: 26 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg max-h-[90vh] bg-white rounded-3xl shadow-lift flex flex-col overflow-hidden"
+            className="w-full max-w-lg max-h-[90dvh] bg-white rounded-3xl shadow-lift flex flex-col overflow-hidden"
           >
             {/* Header */}
             <div className="flex items-center justify-between gap-3 p-4 sm:p-5 border-b border-cream-200 shrink-0">

@@ -666,7 +666,7 @@ export default function BirthdayTimelapse({ member, onUpdateMember }: BirthdayTi
                 controls
                 autoPlay
                 playsInline
-                className="w-full bg-ink-900 max-h-[70vh]"
+                className="w-full bg-ink-900 max-h-[70dvh]"
               />
               <div className="px-5 py-3 border-t border-cream-200 flex items-center justify-between gap-3">
                 <span className="text-[12px] text-ink-400 flex items-center gap-1.5">

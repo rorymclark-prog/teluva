@@ -150,7 +150,7 @@ export default function BabysitterMode({ members, events, country, onClose }: Pr
           exit={{ scale: 0.96, opacity: 0, y: 8 }}
           transition={{ type: 'spring', stiffness: 260, damping: 26 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-2xl max-h-[94vh] bg-cream-50 rounded-3xl shadow-lift flex flex-col overflow-hidden print:max-h-none print:max-w-full print:rounded-none print:shadow-none"
+          className="w-full max-w-2xl max-h-[94dvh] bg-cream-50 rounded-3xl shadow-lift flex flex-col overflow-hidden print:max-h-none print:max-w-full print:rounded-none print:shadow-none"
         >
           {/* Header */}
           <div className="shrink-0 p-4 sm:p-5 border-b border-cream-200 bg-white flex items-center justify-between gap-3 print:hidden">

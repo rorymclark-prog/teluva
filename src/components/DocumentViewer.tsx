@@ -73,11 +73,11 @@ export default function DocumentViewer({ document: doc, memberName, onClose }: D
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="relative w-full max-w-4xl card rounded-3xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 max-h-[90vh] anim-pop"
+            className="relative w-full max-w-4xl card rounded-3xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 max-h-[90dvh] anim-pop"
           >
             {/* Left panel: File viewer */}
             <div className="lg:col-span-8 bg-cream-100 flex items-center justify-center p-6 border-b lg:border-b-0 lg:border-r border-cream-200 overflow-y-auto">
-              <div className={`w-full bg-white rounded-2xl shadow-soft overflow-hidden border border-cream-300 relative flex items-center justify-center ${isPdf ? 'max-w-2xl h-[80vh]' : 'max-w-md aspect-[4/5.6]'}`}>
+              <div className={`w-full bg-white rounded-2xl shadow-soft overflow-hidden border border-cream-300 relative flex items-center justify-center ${isPdf ? 'max-w-2xl h-[80dvh]' : 'max-w-md aspect-[4/5.6]'}`}>
                 {isPdf ? (
                   <iframe src={getDocSource()} title={doc.name} className="w-full h-full border-0" />
                 ) : (doc.fileType?.startsWith('image/') || doc.fileData === 'PLACEHOLDER' || !doc.fileType) ? (

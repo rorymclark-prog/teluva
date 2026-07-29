@@ -109,7 +109,7 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
       onClick={onClose}
     >
       <div
-        className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-lift max-h-[90vh] overflow-y-auto"
+        className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-lift max-h-[90dvh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-cream-200 sticky top-0 bg-white z-10">

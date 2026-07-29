@@ -622,7 +622,7 @@ export default function Assets() {
             {gallery.length > 1 && (
               <button onClick={() => setGalleryIdx(i => (i - 1 + gallery.length) % gallery.length)} className="w-10 h-10 rounded-full bg-white/90 text-ink-800 flex items-center justify-center hover:bg-white shrink-0" aria-label="Previous"><ChevronLeft className="w-5 h-5" /></button>
             )}
-            <img src={gallery[galleryIdx].src} alt={gallery[galleryIdx].label} className="max-w-[78vw] max-h-[78vh] object-contain rounded-2xl shadow-2xl bg-white" />
+            <img src={gallery[galleryIdx].src} alt={gallery[galleryIdx].label} className="max-w-[78vw] max-h-[78dvh] object-contain rounded-2xl shadow-2xl bg-white" />
             {gallery.length > 1 && (
               <button onClick={() => setGalleryIdx(i => (i + 1) % gallery.length)} className="w-10 h-10 rounded-full bg-white/90 text-ink-800 flex items-center justify-center hover:bg-white shrink-0" aria-label="Next"><ChevronRight className="w-5 h-5" /></button>
             )}

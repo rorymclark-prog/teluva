@@ -86,7 +86,7 @@ import MemberFavoriteQuotes from './MemberFavoriteQuotes';
 import FamilyWordsView from './FamilyWordsView';
 import VehiclesView from './VehiclesView';
 import SpaceSwitcher from './SpaceSwitcher';
-import { switchSpace, createSpace, renameSpace, readCachedFamilyMembers, NewBusinessExtra } from '../utils/db';
+import { switchSpace, createSpace, renameSpace, readCachedFamilyMembers, loadChatHistory, NewBusinessExtra } from '../utils/db';
 import TimelineView from './TimelineView';
 import TravelTimelineView from './TravelTimelineView';
 import DocumentVault from './DocumentVault';
@@ -119,8 +119,7 @@ import {
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
-  Loader2, UserMinus, ChevronDown, Settings, CalendarClock
-} from 'lucide-react';
+  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2} from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
 export function calculateAge(birthdate?: string): string | null {
@@ -386,6 +385,48 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // family/profiles landing view.
   const [showEmergency, setShowEmergency] = useState(false);
   const [showBabysitter, setShowBabysitter] = useState(false);
+
+  /* Changes the assistant offered but nobody accepted.
+     These live in the saved chat with `applied: false`, so they already survive
+     closing the app — but they survive INSIDE the chat, which means finding
+     them again required knowing to look. Surfaced on the home screen instead,
+     as a banner rather than a blocking modal: someone who wants to decline the
+     suggestions must be able to get on with their day. */
+  const [pendingEditCount, setPendingEditCount] = useState(0);
+  const [assistantOpenSignal, setAssistantOpenSignal] = useState(0);
+
+  useEffect(() => {
+    if (demo || !currentUser) { setPendingEditCount(0); return; }
+    let cancelled = false;
+    void loadChatHistory(currentUser.uid).then((history) => {
+      if (cancelled || !Array.isArray(history)) return;
+      const n = history.reduce(
+        (sum, m: { applied?: boolean; edits?: unknown[] }) =>
+          sum + (!m.applied && Array.isArray(m.edits) ? m.edits.length : 0),
+        0,
+      );
+      setPendingEditCount(n);
+    }).catch(() => { /* a banner is not worth failing a page load over */ });
+    return () => { cancelled = true; };
+  }, [demo, currentUser]);
+
+  /* Android home-screen shortcuts (manifest `shortcuts`) land here as ?do=…
+     Read once on mount and stripped from the URL immediately, so a refresh
+     doesn't reopen the overlay and the parameter can't leak into a shared link.
+     There is no ?do=scan case: the scanner lives inside a member's Documents
+     tab and needs a member chosen first, so that shortcut deliberately opens
+     the app rather than pretending. */
+  useEffect(() => {
+    const want = new URLSearchParams(window.location.search).get('do');
+    if (!want) return;
+    if (want === 'emergency') setShowEmergency(true);
+    if (want === 'babysitter') setShowBabysitter(true);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('do');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    } catch { /* history is a nicety here, never worth throwing over */ }
+  }, []);
   const [showTravelPack, setShowTravelPack] = useState(false);
   const [showFamilyStats, setShowFamilyStats] = useState(false);
   const [showFamilyQuiz, setShowFamilyQuiz] = useState(false);
@@ -1743,6 +1784,23 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 before showing any value. Silent in demo mode. */}
             {!demo && <InstallPrompt hasContent={members.length > 0} />}
 
+            {pendingEditCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setAssistantOpenSignal((n) => n + 1)}
+                className="card flex w-full items-center gap-2.5 border-clay-200 bg-clay-50/70 p-3 text-left transition-colors hover:bg-clay-50 cursor-pointer"
+              >
+                <Wand2 className="w-4 h-4 shrink-0 text-clay-600" />
+                <span className="flex-1 text-[13px] text-ink-800">
+                  <b className="font-semibold">
+                    {pendingEditCount} {pendingEditCount === 1 ? 'change' : 'changes'}
+                  </b>{' '}
+                  from the assistant {pendingEditCount === 1 ? 'is' : 'are'} waiting to be saved
+                </span>
+                <span className="shrink-0 text-[13px] font-semibold text-clay-700">Review</span>
+              </button>
+            )}
+
             {/* The whiteboard line. Above the digest deliberately: a human
                 wrote it about right now, which outranks anything computed. */}
             <FamilyStatus
@@ -2301,6 +2359,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           onOpenFunAvatar={isAdmin && selectedMember ? () => setRestyleMemberId(selectedMember.id) : undefined}
           onGo={goToMemberTab}
           onGoView={(v) => setMainView(v as ViewId)}
+          openSignal={assistantOpenSignal}
         />
       )}
 

@@ -267,8 +267,8 @@ export default function FamilyPasswords() {
 
       {/* Form modal */}
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 anim-fade flex items-end justify-center sm:items-center px-4 sm:p-4 overflow-y-auto">
-          <div className="anim-sheet sm:anim-pop w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl max-h-[90vh] sm:max-h-none overflow-y-auto">
+        <div className="fixed inset-0 z-50 anim-fade flex items-end justify-center sm:items-center px-4 sm:p-4">
+          <div className="anim-sheet sm:anim-pop w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl max-h-[90dvh] sm:max-h-none overflow-y-auto">
             {/* Mobile grabber */}
             <SheetGrabber onClose={closeForm} className="mb-4" />
 
