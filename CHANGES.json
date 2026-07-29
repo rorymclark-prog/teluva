@@ -1,8 +1,8 @@
 {
-  "label": "v163",
+  "label": "v164",
   "changes": [
-    "Teluva can now appear inside your own calendar. Create a link in the calendar panel, paste it into Apple Calendar, Outlook or Google as a subscribed calendar, and these events show up alongside everything else and keep themselves up to date.",
-    "You choose what the link shows: full details, or busy-only with no titles at all. It can be turned off again at any time, and it only ever carries calendar entries — never documents, IDs or medical records.",
-    "Events Teluva brought in from another calendar are never published back out, so nothing bounces around and shows up twice."
+    "The calendar now spots appointments that were saved twice and offers to tidy them up. You see exactly what would go before anything is removed, and one copy of each is always kept — the one with the most detail on it.",
+    "Anything coming from a calendar you subscribed to is left alone, since removing it would only bring it back on the next refresh.",
+    "Small fix: the new \"show Teluva in your own calendar\" section no longer appears with nothing under it while it is still loading."
   ]
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { CalendarEvent, FamilyMember } from '../types';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
@@ -18,6 +18,9 @@ import {
   GoogleCalendarAuthError,
 } from '../utils/googleCalendarSync';
 import { partitionNewEvents } from '../utils/calendarDedup';
+import {
+  findDuplicateGroups, duplicateCount, removeDuplicates, describeGroup,
+} from '../utils/calendarDuplicates';
 import { resolveEventMembers } from '../utils/eventMemberMatch';
 import { parseIcs, buildIcs } from '../utils/ics';
 import {
@@ -303,6 +306,28 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     } catch {
       setIcsNote('Could not copy — select the link and copy it manually.');
     }
+  };
+
+  // --- Duplicate cleanup ----------------------------------------------------
+  //
+  // calendarDedup stops new duplicates arriving; this clears out the ones that
+  // got in before it existed. Nothing is deleted without the person seeing
+  // exactly what goes and pressing the button.
+  const duplicateGroups = useMemo(() => findDuplicateGroups(events), [events]);
+  const duplicatesToRemove = duplicateCount(duplicateGroups);
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [duplicatesDismissed, setDuplicatesDismissed] = useState(false);
+
+  const handleRemoveDuplicates = () => {
+    const summary = duplicateGroups.map(describeGroup).join('\n');
+    if (!window.confirm(
+      `Remove ${duplicatesToRemove} duplicate ${duplicatesToRemove === 1 ? 'entry' : 'entries'}?\n\n`
+      + `${summary}\n\nOne copy of each is kept — the one with the most detail on it.`,
+    )) return;
+    const { events: cleaned, removed } = removeDuplicates(events, duplicateGroups);
+    onSaveEvents(cleaned);
+    setShowDuplicates(false);
+    setIcsNote(`Removed ${removed} duplicate ${removed === 1 ? 'entry' : 'entries'}. One copy of each was kept.`);
   };
 
   // Refresh every subscription once per mount. Quietly — nobody opened the
@@ -1137,6 +1162,54 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           )}
         </div>
 
+        {/* Duplicates already in the vault. Only shown when there are some —
+            a permanent "0 duplicates" row would be noise. */}
+        {duplicatesToRemove > 0 && !duplicatesDismissed && canWrite && (
+          <div className="mt-4 rounded-xl border border-cream-300 bg-cream-100 px-3 py-2.5">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-clay-600" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[12.5px] font-semibold text-ink-800">
+                  {duplicatesToRemove} duplicate {duplicatesToRemove === 1 ? 'entry' : 'entries'} in your calendar
+                </p>
+                <p className="text-[11.5px] text-ink-500 leading-snug">
+                  The same appointment saved more than once. One copy of each is kept — the one with the most detail.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDuplicates((v) => !v)}
+                className="text-[11px] font-semibold text-clay-600 hover:text-clay-800 shrink-0 cursor-pointer"
+              >
+                {showDuplicates ? 'Hide' : 'Review'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDuplicatesDismissed(true)}
+                className="text-[11px] font-semibold text-ink-400 hover:text-ink-700 shrink-0 cursor-pointer"
+                title="Leave them as they are"
+              >
+                Not now
+              </button>
+            </div>
+            {showDuplicates && (
+              <>
+                <ul className="mt-2 space-y-1 pl-6 list-disc text-[11.5px] text-ink-600">
+                  {duplicateGroups.map((g) => <li key={g.key}>{describeGroup(g)}</li>)}
+                </ul>
+                <button
+                  type="button"
+                  onClick={handleRemoveDuplicates}
+                  className="btn-primary mt-2.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Remove {duplicatesToRemove} duplicate {duplicatesToRemove === 1 ? 'entry' : 'entries'}</span>
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Any other calendar — Apple, Outlook, Proton, anything.
             Google is the only calendar Teluva talks to over an API. Every other
             one is reached two ways: a SUBSCRIPTION (a link that keeps itself up
@@ -1273,7 +1346,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               and these events appear alongside everything else — updating by themselves about once an hour.
             </p>
 
-            {publishedLinks !== null && publishedLinks.length === 0 && (
+            {/* Shown while the list is still loading (or signed out) as well as
+                when it is genuinely empty — a heading with no controls under
+                it reads as a broken panel. `canWrite` keeps the button inert
+                until there is actually somebody who may press it. */}
+            {(publishedLinks === null || publishedLinks.length === 0) && (
               <>
                 <div className="flex gap-2 flex-wrap items-center">
                   <label className="flex items-center gap-1.5 text-[12px] text-ink-600 cursor-pointer">
