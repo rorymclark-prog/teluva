@@ -6,11 +6,17 @@ import {
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X, Info,
   Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine
 } from 'lucide-react';
-import { initAuth, googleSignIn, logout, getAccessToken } from '../utils/firebase';
+import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken } from '../utils/firebase';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import SheetGrabber from './SheetGrabber';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import {
+  pushEventToGoogleCalendar,
+  isGoogleOriginEventId,
+  isEligibleForGooglePush,
+  GoogleCalendarAuthError,
+} from '../utils/googleCalendarSync';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -19,9 +25,15 @@ interface FamilyCalendarProps {
   members: FamilyMember[];
   events: CalendarEvent[];
   onSaveEvents: (events: CalendarEvent[]) => void;
+  // Opt-in outbound sync switch (HubSettings.autoSyncEventsToGoogle, owned by
+  // Dashboard). Default OFF — see the toggle in the Google Calendar Sync
+  // Panel below and the auto-sync effect further down this file for what
+  // flipping it on actually does and does not do.
+  autoSyncEnabled: boolean;
+  onToggleAutoSync: (enabled: boolean) => void;
 }
 
-export default function FamilyCalendar({ members, events, onSaveEvents }: FamilyCalendarProps) {
+export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync }: FamilyCalendarProps) {
   const { isAdmin, canWrite, aiEligible, aiConsent } = useFamilyCtx();
   const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
   // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
@@ -86,104 +98,140 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
     }
   };
 
+  // Manual, single-event "push this to Google" — the cloud icon next to an
+  // event in the agenda list. Also the function the automatic sync effect
+  // (further down) calls for each newly-created event once the opt-in
+  // toggle is on, so this is the ONE place a Teluva event actually leaves
+  // the app. isGoogleOriginEventId() is checked as a hard stop before any
+  // network call, not just as a UI hint — see the comment in
+  // src/utils/googleCalendarSync.ts for why an event Teluva imported FROM
+  // Google must never be sent back to Google.
   const pushEventToGoogle = async (ev: CalendarEvent) => {
     if (!token) {
       triggerReminderNotification('Please connect Google Calendar first.');
+      return;
+    }
+    if (isGoogleOriginEventId(ev.id)) {
+      // The cloud button is hidden for imported events in the JSX below, so
+      // this only fires if something calls pushEventToGoogle directly (e.g.
+      // the auto-sync effect) — kept as a second line of defence rather than
+      // trusting the UI alone to prevent the export/import loop.
+      triggerReminderNotification('This event came from Google Calendar already — nothing to export.');
       return;
     }
 
     setIsGoogleCalendarSyncing(true);
     setCalendarSyncError(null);
     try {
-      const startDateTime = ev.time ? `${ev.date}T${ev.time}:00` : `${ev.date}T09:00:00`;
-      let [h, m] = (ev.time || '09:00').split(':').map(Number);
-      const endH = String((h + 1) % 24).padStart(2, '0');
-      const endM = String(m).padStart(2, '0');
-      const endDateTime = `${ev.date}T${endH}:${endM}:00`;
-
-      const body = {
-        summary: `[Family Hub] ${ev.title}`,
-        description: `${ev.description || ''}\n\nSynced from Family Hub.\nCategory: ${ev.category}`,
-        start: {
-          dateTime: startDateTime,
-          // Bug fix #4: was 'UTC', changed to Vienna local time
-          timeZone: 'Europe/Vienna'
-        },
-        end: {
-          dateTime: endDateTime,
-          // Bug fix #4: was 'UTC', changed to Vienna local time
-          timeZone: 'Europe/Vienna'
-        }
-      };
-
-      const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          setNeedsAuth(true);
-          setToken(null);
-          throw new Error('Authorization expired. Please re-authenticate.');
-        }
-        throw new Error(`Google API returned status ${response.status}`);
-      }
-
+      await pushEventToGoogleCalendar(ev, token);
+      // Mark this event as synced so it's never pushed a second time — by a
+      // repeat click of this same button, or by the auto-sync effect if the
+      // opt-in toggle is also on for future events.
+      onSaveEvents(events.map(e => (e.id === ev.id ? { ...e, googleSynced: true } : e)));
       triggerReminderNotification(`Exported "${ev.title}" to Google Calendar!`);
     } catch (err: any) {
       console.error(err);
+      if (err instanceof GoogleCalendarAuthError) {
+        setNeedsAuth(true);
+        setToken(null);
+        // Also clear the SHARED token cache (utils/firebase.ts), not just
+        // this component's local `token` state — Dashboard.tsx's automatic
+        // sync effect reads that same cache independently via
+        // getAccessToken(), and without this it would keep retrying the
+        // exact token that just failed here.
+        invalidateAccessToken();
+      }
       setCalendarSyncError(err.message || 'Error exporting to Google Calendar.');
     } finally {
       setIsGoogleCalendarSyncing(false);
     }
   };
 
+  // NOTE ON WHERE THE AUTOMATIC PUSH ACTUALLY HAPPENS: it is NOT in this
+  // component. An earlier version of this feature lived entirely here, as a
+  // useEffect watching `events` with a React ref tracking "ids seen so far."
+  // That was broken: this component is only mounted while the user is on
+  // the Calendar tab (see `{mainView === 'calendar' && <FamilyCalendar .../>}`
+  // in Dashboard.tsx), so an event created via the AI chat while the user
+  // was looking at a profile never reached this effect at all — and the
+  // moment the user DID open Calendar, the ref started fresh and treated
+  // that already-pending event as part of the "existing" baseline, so it
+  // was silently never pushed. A per-mount ref cannot be the mechanism that
+  // decides "is this new" for a component that isn't always mounted.
+  //
+  // The automatic push now lives in Dashboard.tsx, which owns `events` and
+  // is mounted for the app's entire session regardless of which tab is
+  // showing, and it reads the Google access token via
+  // utils/firebase.ts's getAccessToken() — the same module-level token this
+  // component's handleLoginGoogle populates — rather than duplicating the
+  // connect/refresh flow. See the comment on that effect for the full
+  // reasoning, and utils/googleCalendarSync.ts's file header for why the
+  // "never bulk-push history" guarantee is now a persisted id snapshot
+  // (HubSettings.autoSyncBaselineIds) instead of in-memory "seen" state.
+  //
+  // This component still owns: the manual per-event push button and the
+  // manual "export all" bulk button just below, and the opt-in toggle UI in
+  // the Sync Panel (autoSyncEnabled / onToggleAutoSync props) — Dashboard
+  // is what actually persists the toggle and captures the baseline snapshot
+  // when it flips on.
+
+  // Bulk "export all" — a manual, explicitly-confirmed action, distinct from
+  // the automatic per-new-event sync below. IMPORTANT: this used to loop
+  // over the raw `events` array and push every single one, which for a
+  // household whose calendar is mostly events already IMPORTED from Google
+  // (id prefix "gcal-") meant every "Export all" click created a fresh
+  // duplicate of nearly the entire calendar on the Google side — the exact
+  // export/import corruption risk this integration has to avoid. It now
+  // only ever touches events that pass isEligibleForGooglePush: Teluva-
+  // native (never "gcal-") and not already marked googleSynced from a
+  // previous push. Re-clicking this button is therefore safe — the second
+  // click has nothing left to do for events the first click already sent.
   const handleExportAllToGoogle = async () => {
     if (!token) return;
-    const confirmPush = window.confirm(`Ready to push all ${events.length} Family Hub events to your Google Calendar?`);
+    const eligible = events.filter(isEligibleForGooglePush);
+    if (eligible.length === 0) {
+      triggerReminderNotification('Nothing to export — every Family Hub event is already on Google Calendar or came from there.');
+      return;
+    }
+    const skipped = events.length - eligible.length;
+    const confirmPush = window.confirm(
+      `Ready to push ${eligible.length} event${eligible.length !== 1 ? 's' : ''} to your Google Calendar?` +
+      (skipped > 0 ? ` (${skipped} already came from Google or were exported before, so they'll be skipped.)` : '')
+    );
     if (!confirmPush) return;
 
     setIsGoogleCalendarSyncing(true);
     setCalendarSyncError(null);
-    let successCount = 0;
-    for (const ev of events) {
+    const syncedIds = new Set<string>();
+    let authExpired = false;
+    for (const ev of eligible) {
       try {
-        const startDateTime = ev.time ? `${ev.date}T${ev.time}:00` : `${ev.date}T09:00:00`;
-        let [h, m] = (ev.time || '09:00').split(':').map(Number);
-        const endH = String((h + 1) % 24).padStart(2, '0');
-        const endM = String(m).padStart(2, '0');
-        const endDateTime = `${ev.date}T${endH}:${endM}:00`;
-
-        const body = {
-          summary: `[Family Hub] ${ev.title}`,
-          description: `${ev.description || ''}\nCategory: ${ev.category}`,
-          // Bug fix #4: was 'UTC' in both, changed to Vienna local time
-          start: { dateTime: startDateTime, timeZone: 'Europe/Vienna' },
-          end: { dateTime: endDateTime, timeZone: 'Europe/Vienna' }
-        };
-
-        const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(body)
-        });
-        if (response.ok) {
-          successCount++;
-        }
+        await pushEventToGoogleCalendar(ev, token);
+        syncedIds.add(ev.id);
       } catch (e) {
         console.error('Batch sync failure for event id ' + ev.id, e);
+        if (e instanceof GoogleCalendarAuthError) {
+          // Stop the batch rather than burning through the rest of a
+          // (potentially large) confirmed export against a token already
+          // known to be dead, and clear the shared cache so Dashboard's
+          // independent auto-sync effect doesn't retry it either.
+          authExpired = true;
+          break;
+        }
       }
     }
+    if (syncedIds.size > 0) {
+      onSaveEvents(events.map(e => (syncedIds.has(e.id) ? { ...e, googleSynced: true } : e)));
+    }
     setIsGoogleCalendarSyncing(false);
-    triggerReminderNotification(`Successfully exported ${successCount} events to Google Calendar!`);
+    if (authExpired) {
+      setNeedsAuth(true);
+      setToken(null);
+      invalidateAccessToken();
+      setCalendarSyncError(`Authorization expired after ${syncedIds.size} of ${eligible.length} events — reconnect to send the rest.`);
+    } else {
+      triggerReminderNotification(`Successfully exported ${syncedIds.size} event${syncedIds.size !== 1 ? 's' : ''} to Google Calendar!`);
+    }
   };
 
   const handleImportFromGoogle = async () => {
@@ -673,6 +721,32 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                 : `Active connection with ${user?.email || 'Google account'}.`
               }
             </p>
+
+            {/* Opt-in outbound sync toggle. Deliberately only shown once
+                connected (no token, nothing to push to) and only to
+                canWrite members (matches the edit/delete/manual-push
+                controls elsewhere in this component — this is a setting
+                that changes what happens to EVERY new event the whole
+                family adds, not a personal preference). Off by default:
+                HubSettings.autoSyncEventsToGoogle is undefined until
+                someone deliberately flips this, so nothing is ever pushed
+                to a family's Google account without them asking for it. */}
+            {!needsAuth && canWrite && (
+              <label className="flex items-center gap-2 mt-2 cursor-pointer select-none">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoSyncEnabled}
+                  onClick={() => onToggleAutoSync(!autoSyncEnabled)}
+                  className={`relative w-9 h-5 rounded-full shrink-0 transition-colors ${autoSyncEnabled ? 'bg-clay-500' : 'bg-cream-300'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-soft transition-transform ${autoSyncEnabled ? 'translate-x-4' : ''}`} />
+                </button>
+                <span className="text-[12px] font-semibold text-ink-600">
+                  Automatically send new events to Google Calendar
+                </span>
+              </label>
+            )}
           </div>
         </div>
 
@@ -971,7 +1045,12 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
                               Alert on
                             </span>
                           )}
-                          {!needsAuth && canWrite && (
+                          {/* Hidden (not just disabled) for anything not eligible — a
+                              "gcal-" event Teluva imported FROM Google, or an event
+                              already pushed out — so there's no button on screen that
+                              would create a duplicate if tapped. See
+                              isEligibleForGooglePush in utils/googleCalendarSync.ts. */}
+                          {!needsAuth && canWrite && isEligibleForGooglePush(ev) && (
                             <button
                               onClick={() => pushEventToGoogle(ev)}
                               className="p-1 hover:bg-cream-100 rounded-lg text-sage-600 transition-colors"

@@ -77,6 +77,20 @@ export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
 };
 
+// Clears the cached Google OAuth access token WITHOUT signing the user out
+// of Firebase Auth (that's logout() below, a much bigger action). Exists for
+// exactly one reason: this token is read from more than one place now
+// (FamilyCalendar.tsx's own connect/import/export UI, and Dashboard.tsx's
+// automatic outbound calendar sync — see googleCalendarSync.ts), and a 401
+// from the Google Calendar API means the token is dead everywhere, not just
+// wherever happened to notice first. Whichever call site discovers the
+// expiry calls this so every other reader of getAccessToken() immediately
+// sees null too, instead of every reader independently retrying the same
+// already-known-bad token until it individually hits its own 401.
+export const invalidateAccessToken = () => {
+  cachedAccessToken = null;
+};
+
 export const logout = async () => {
   await auth.signOut();
   cachedAccessToken = null;

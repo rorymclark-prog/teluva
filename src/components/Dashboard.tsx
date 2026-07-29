@@ -53,6 +53,16 @@ import FamilyStatus from './FamilyStatus';
 import ImageLightbox from './ImageLightbox';
 import { HubSettings } from '../types';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
+// getAccessToken reads the SAME module-level Google OAuth token cache that
+// FamilyCalendar.tsx's connect/import/export UI already populates via
+// googleSignIn() (see utils/firebase.ts) — importing it here does not
+// duplicate any sign-in or token-refresh logic, it just lets the outbound
+// auto-sync effect below (which needs to run regardless of which tab is on
+// screen — see that effect's comment for why) read the same cached token
+// FamilyCalendar uses. invalidateAccessToken clears that shared cache on a
+// 401 so neither component keeps retrying a token already known to be dead.
+import { getAccessToken, invalidateAccessToken } from '../utils/firebase';
+import { pushEventToGoogleCalendar, isEligibleForAutoSync, GoogleCalendarAuthError } from '../utils/googleCalendarSync';
 import { onAuthStateChanged } from 'firebase/auth';
 import { DEMO_MEMBERS, DEMO_EVENTS, DEMO_CONTACTS, isDemoMode } from '../utils/demoData';
 import { warmAvatarColor, AVATAR_COLORS } from '../utils/avatarPalette';
@@ -797,6 +807,129 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     setCloudSynced(ok);
     if (!ok) showToast("Saved on this device — couldn't back up to the cloud. Check your connection and re-save.");
   };
+
+  // Pure UX de-dupe for the batch-cap warning below — stops it re-toasting
+  // on every unrelated `events` change while the app is "stuck" above the
+  // cap, and resets once the stuck condition clears. It plays no part in
+  // correctness: the never-push-history and never-double-push guarantees
+  // are enforced entirely by the persisted HubSettings.autoSyncBaselineIds
+  // snapshot and CalendarEvent.googleSynced flag (see isEligibleForAutoSync
+  // in utils/googleCalendarSync.ts), neither of which this ref touches.
+  const autoSyncCapWarnedRef = useRef(false);
+
+  // AUTOMATIC OUTBOUND SYNC — pushes newly-created Teluva events to the
+  // owner's connected Google Calendar when HubSettings.autoSyncEventsToGoogle
+  // is on (toggle lives in FamilyCalendar.tsx's Sync Panel; captured/
+  // persisted via onToggleAutoSync just above).
+  //
+  // THIS DELIBERATELY LIVES HERE, NOT IN FamilyCalendar.tsx. An earlier
+  // version put the whole thing in FamilyCalendar, watching `events` with a
+  // React ref tracking "ids seen so far." That was broken for the exact
+  // scenario this feature exists for: FamilyCalendar only mounts while
+  // `mainView === 'calendar'` (see the render below), so an event the AI
+  // chat added while the user was on the Profiles tab was never "seen" —
+  // and the moment the user next opened Calendar, the ref started fresh,
+  // silently folding that already-pending event into its new "this is
+  // history" baseline. It was never pushed, ever. Dashboard, by contrast,
+  // is mounted for the app's entire session no matter which tab is showing,
+  // and it already owns `events` directly — no prop drilling needed.
+  //
+  // Getting the Google token here does NOT duplicate FamilyCalendar's
+  // connect/refresh flow: getAccessToken() (imported from utils/firebase.ts
+  // above) just reads the same module-level cache googleSignIn() already
+  // populates when the user connects from the Sync Panel. If nobody has
+  // connected yet, it resolves to null and this effect quietly no-ops.
+  //
+  // CORRECTNESS HERE DOES NOT DEPEND ON *WHEN* THIS EFFECT RUNS, only on it
+  // eventually running again while the app is open. isEligibleForAutoSync
+  // is a pure function of the event, the persisted autoSyncBaselineIds
+  // snapshot, and the persisted googleSynced flag — there is no "did I
+  // already look at this" in-memory state that a remount, tab switch, or
+  // reload could lose. Practically: an event created while this effect
+  // couldn't reach Google (app closed, offline, not yet connected) still
+  // syncs the next time `events` changes after that condition clears — for
+  // the common case (Dashboard already open and connected when the AI chat
+  // adds the event) that's within moments of the save; there can be a
+  // real delay for the "app wasn't open" case, and that's an accepted,
+  // stated trade-off rather than a silent gap.
+  useEffect(() => {
+    if (demo) return; // never send fabricated demo appointments to a real Google account
+    if (!settings.autoSyncEventsToGoogle) return;
+
+    // A MISSING baseline is not an empty one. The two are written together in
+    // one settings object when the toggle flips on, so this should never
+    // happen — but if it ever did (a partial write, a doc hand-edited in the
+    // console, a future migration that adds the flag without the snapshot),
+    // treating `undefined` as "an empty set" would mean every event in the
+    // family's history looks newly-created and gets pushed to a real Google
+    // Calendar. There is no undo for that. Absent baseline therefore means
+    // "not initialised" and syncs NOTHING, which the user can fix by toggling
+    // off and on again to re-snapshot.
+    if (!Array.isArray(settings.autoSyncBaselineIds)) return;
+    const baseline = new Set<string>(settings.autoSyncBaselineIds);
+    const eligible = events.filter(ev => isEligibleForAutoSync(ev, baseline));
+    if (eligible.length === 0) {
+      autoSyncCapWarnedRef.current = false;
+      return;
+    }
+
+    // Same restore-from-backup backstop as the original design: a burst
+    // this large in one go is far more likely to be the "restore from
+    // backup" flow below (which calls this same handleSaveEvents path,
+    // wholesale-replacing `events`) than someone adding an appointment.
+    // Refuses to auto-push any of them — "Export all events" on the
+    // Calendar tab (which shows an honest count and asks for confirmation)
+    // is the correct tool for a deliberate bulk send.
+    const AUTO_SYNC_BATCH_CAP = 15;
+    if (eligible.length > AUTO_SYNC_BATCH_CAP) {
+      if (!autoSyncCapWarnedRef.current) {
+        autoSyncCapWarnedRef.current = true;
+        showToast(`${eligible.length} events are pending Google Calendar sync at once (likely a restore, not a new appointment) — skipped auto-sync for all of them. Use "Export all events" on the Calendar tab if you want to send them.`);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const token = await getAccessToken();
+      if (!token || cancelled) return; // not connected right now — will retry once `events` next changes or the user reconnects
+
+      const syncedIds = new Set<string>();
+      let authExpired = false;
+      for (const ev of eligible) {
+        try {
+          await pushEventToGoogleCalendar(ev, token);
+          syncedIds.add(ev.id);
+        } catch (err) {
+          console.error('Auto-sync to Google Calendar failed for event ' + ev.id, err);
+          if (err instanceof GoogleCalendarAuthError) {
+            authExpired = true;
+            break; // token is known bad now — stop, don't burn the rest of the batch against it
+          }
+          // Any other failure: leave this one event un-synced (it stays
+          // eligible and gets retried on a future run) and keep going with
+          // the rest of the batch rather than letting one bad event block
+          // everything else in it.
+        }
+      }
+      if (cancelled) return;
+      if (syncedIds.size > 0) {
+        await handleSaveEvents(events.map(e => (syncedIds.has(e.id) ? { ...e, googleSynced: true } : e)));
+      }
+      if (authExpired) {
+        invalidateAccessToken();
+        showToast('Google Calendar authorization expired — new events are still saved in Family Hub, but stopped syncing. Reconnect on the Calendar tab to resume.');
+      }
+    })();
+    return () => { cancelled = true; };
+    // handleSaveEvents/showToast intentionally excluded: both are stable
+    // per render via closures over state already listed below, and this
+    // effect's own handleSaveEvents call is guarded against re-triggering
+    // itself via the persisted googleSynced flag (once true, the event
+    // drops out of `eligible` on the very next run), not via a dependency
+    // omission trick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, settings.autoSyncEventsToGoogle, settings.autoSyncBaselineIds, demo]);
 
   const handleAddMember = async (newMember: Omit<FamilyMember, 'documents'>) => {
     const fullMember: FamilyMember = { ...newMember, documents: [] };
@@ -1769,7 +1902,42 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
         {mainView === 'calendar' && (
-          <FamilyCalendar members={members} events={events} onSaveEvents={handleSaveEvents} />
+          <FamilyCalendar
+            members={members}
+            events={events}
+            onSaveEvents={handleSaveEvents}
+            // Opt-in outbound Google Calendar sync — persisted on the shared
+            // HubSettings doc (same store as astrology/celebrations toggles)
+            // so it's remembered across devices/reloads, not a per-tab
+            // preference. Default off: settings.autoSyncEventsToGoogle is
+            // undefined until someone explicitly flips the switch in the
+            // Sync Panel, and handleSaveSettings below persists it the same
+            // way every other Hub setting is saved. This component only
+            // owns the toggle's on/off UI; the actual push happens in the
+            // auto-sync effect further down this file (search
+            // "AUTOMATIC OUTBOUND SYNC"), because that effect must keep
+            // running even while the user isn't on the Calendar tab.
+            autoSyncEnabled={!!settings.autoSyncEventsToGoogle}
+            onToggleAutoSync={(enabled) => {
+              // Turning it ON captures a snapshot of every event id that
+              // exists RIGHT NOW as the "history" boundary — see
+              // HubSettings.autoSyncBaselineIds in types.ts for the full
+              // reasoning. This is the one and only place that boundary is
+              // ever written, and it always overwrites whatever was there
+              // before: re-enabling after a period of being off must not
+              // resurrect the OLD boundary (which could otherwise make
+              // something created while it was off look like "history" and
+              // get silently skipped) — the current live event list is
+              // always the correct new boundary at the moment of opt-in.
+              // Turning it off leaves the stored boundary untouched; it's
+              // simply not consulted while the toggle is off, and gets
+              // replaced outright the next time it's turned back on.
+              const next: HubSettings = enabled
+                ? { ...settings, autoSyncEventsToGoogle: true, autoSyncBaselineIds: events.map(e => e.id) }
+                : { ...settings, autoSyncEventsToGoogle: false };
+              void handleSaveSettings(next);
+            }}
+          />
         )}
 
         {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onContactsChange={setContacts} />}

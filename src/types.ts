@@ -595,6 +595,40 @@ export interface HubSettings {
     by: string;   // display name of whoever set it
     at: string;   // ISO timestamp
   };
+
+  // Opt-in outbound Google Calendar sync (default OFF — undefined/false means
+  // "don't touch the user's Google account"). When true, a NEW event created
+  // inside Teluva (typed into the calendar form, extracted from a scanned
+  // notice, or added by the AI chat — from ANY screen, not just while the
+  // Calendar tab happens to be open, since the push itself runs in
+  // Dashboard.tsx, which is always mounted) gets copied out to the
+  // connected Google account so it shows up on the owner's phone. It never
+  // touches events that were imported FROM Google in the first place (their
+  // id is prefixed "gcal-", checked in src/utils/googleCalendarSync.ts), so
+  // there's no export/import ping-pong.
+  autoSyncEventsToGoogle?: boolean;
+
+  // The set of calendar event ids that already existed at the exact moment
+  // autoSyncEventsToGoogle was last switched from off to on — captured once,
+  // in Dashboard.tsx's onToggleAutoSync, from the live `events` state at
+  // that instant. This is what stops flipping the switch on from bulk-
+  // exporting a family's entire existing history (this app's owner has 555
+  // events, almost all imported from Google already): anything in this set
+  // is "pre-existing" and permanently excluded from auto-sync, no matter how
+  // long ago it was created or how long the app has been open since.
+  //
+  // Deliberately a PERSISTED snapshot rather than in-memory state — an
+  // earlier version of this feature tracked "already seen" with a React ref
+  // that reset to empty on every remount, which meant the boundary was only
+  // as good as "has the component watching it been mounted continuously
+  // since opt-in," and it was not: FamilyCalendar unmounts the moment the
+  // user leaves the Calendar tab, so an in-memory boundary is worthless for
+  // an app whose whole use case is "the AI chat adds something while I'm
+  // looking at someone's profile." Re-toggling the switch off and back on
+  // replaces this array with a fresh snapshot, so old history never leaks
+  // back in and nothing that arrived while it was off gets treated as
+  // pre-existing either.
+  autoSyncBaselineIds?: string[];
 }
 
 // --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---
@@ -625,6 +659,16 @@ export interface CalendarEvent {
   category: 'Milestone' | 'Appointment' | 'School' | 'Travel' | 'Other';
   remindMe: boolean;
   memberIds?: string[]; // Tagged family members
+
+  // Set once this event has been successfully copied out to the owner's
+  // connected Google Calendar (manually via the per-event cloud button, or
+  // automatically when HubSettings.autoSyncEventsToGoogle is on). This is a
+  // one-way breadcrumb, not a two-way sync flag — a "gcal-" prefixed id
+  // (something Teluva imported FROM Google) never gets this field set,
+  // because src/utils/googleCalendarSync.ts refuses to push those back out.
+  // Its purpose is purely to stop the SAME event being pushed to Google a
+  // second time (e.g. on a page reload, or if the auto-sync effect re-runs).
+  googleSynced?: boolean;
 }
 
 // --- Important Info tab: a shared family quick-reference sheet ---
