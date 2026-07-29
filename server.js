@@ -23,6 +23,7 @@ import {
   publicationState,
   PUBLISH_MODES,
 } from './server/calendarPublish.mjs';
+import { trimContext } from './server/chatContext.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -634,45 +635,15 @@ app.post('/api/chat', async (req, res) => {
 
     const LANG_NAMES = { en:'English',de:'German',es:'Spanish',fr:'French',pt:'Portuguese',it:'Italian',nl:'Dutch',pl:'Polish',af:'Afrikaans' };
     const langName = LANG_NAMES[lang] || 'English';
-    /* Trim by DROPPING WHOLE SECTIONS, never by cutting the string.
-     *
-     * This was `JSON.stringify(context).slice(0, 120000)` — a blind character
-     * cut. It was already firing on a real family: ~156k characters in, ~36k
-     * silently gone. Two things wrong with that. The model received JSON that
-     * simply stopped mid-structure, and what fell off the end was whatever
-     * happened to serialise last — which included `expiries` and `gaps`, the
-     * blocks this file's own comments call the AUTHORITATIVE answer for "when
-     * does X expire?". The assistant was being starved of exactly the data it
-     * needed, invisibly, and only for the families with the most in their vault.
-     *
-     * Now: keep the whole thing when it fits, and when it doesn't, drop entire
-     * low-value keys in a deliberate order until it does — so the payload is
-     * always valid JSON, and what survives is chosen rather than accidental.
-     * The model is told what was dropped, so it can say "I can't see that here"
-     * instead of confidently answering from a hole. */
-    const CTX_LIMIT = 120000;
-    // Least useful to the assistant first. `expiries`, `gaps` and `members` are
-    // never dropped — losing them is the bug this replaced.
-    const CTX_DROP_ORDER = ['timeline', 'calendar', 'finances', 'slips', 'documents', 'household'];
-    let ctxObj = { ...(context ?? {}) };
-    const dropped = [];
-    let ctxJson = JSON.stringify(ctxObj);
-    for (const key of CTX_DROP_ORDER) {
-      if (ctxJson.length <= CTX_LIMIT) break;
-      if (!(key in ctxObj)) continue;
-      delete ctxObj[key];
-      dropped.push(key);
-      ctxJson = JSON.stringify(ctxObj);
-    }
+    // See server/chatContext.mjs for the reasoning: keep the whole vault when
+    // it fits (which is now the overwhelming majority of the model's real
+    // input budget, not a tight cap), and when it doesn't, drop entire
+    // low-value sections in a deliberate order rather than ever truncating
+    // the JSON string mid-structure.
+    const { ctxJson, dropped } = trimContext(context);
     if (dropped.length) {
       console.warn(`[chat] context ${JSON.stringify(context ?? {}).length} chars — dropped: ${dropped.join(', ')}`);
-      ctxObj._omitted = dropped;
-      ctxJson = JSON.stringify(ctxObj);
     }
-    // Last resort: a single section is somehow still over the limit on its own.
-    // Cutting here is still wrong, but an oversized valid-ish payload beats
-    // failing the request outright, and the log above says it happened.
-    if (ctxJson.length > CTX_LIMIT) ctxJson = ctxJson.slice(0, CTX_LIMIT);
     const today = new Date().toISOString().slice(0, 10);
     const userText = (message && typeof message === 'string') ? message
       : 'Please read the attached document(s) and extract any useful family info.';

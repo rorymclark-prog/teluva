@@ -1,6 +1,6 @@
 {
-  "label": "v165",
+  "label": "v166",
   "changes": [
-    "Behind-the-scenes groundwork for Google Drive: the app is now ready to let you pick files or a whole folder using Google's own picker window, rather than browsing your Drive inside Teluva. Nothing changes for you yet — today's folder browser keeps working exactly as it does now until this is switched on."
+    "The chat assistant can now see much more of a large family's history at once before anything gets left out. The old limit was far more cautious than it needed to be for the size of vault this app actually holds."
   ]
 }
