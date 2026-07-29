@@ -3,6 +3,7 @@ import { Sparkles, X } from 'lucide-react';
 import AIChatbot, { AiEdit } from './AIChatbot';
 import type { UndoRecord } from '../utils/aiUndo';
 import type { FamilyMember, FamilyDocument, ReferralRecord } from '../types';
+import type { PackRequest } from '../utils/exportPack';
 import { useT } from '../i18n/LangContext';
 import SheetGrabber from './SheetGrabber';
 
@@ -16,6 +17,8 @@ interface Props {
   onOpenFunAvatar?: () => void;
   onGo?: (memberId: string, tab: string) => void;
   onGoView?: (view: string) => void;
+  /** Open the confirm screen for a folder the assistant offered to prepare. */
+  onPrepareExport?: (request: PackRequest) => void;
   onUndoEdits?: (records: UndoRecord[]) => Promise<{ undone: number; missing: number }>;
   /** Bump to open the panel from outside — e.g. the pending-changes banner. */
   openSignal?: number;
@@ -27,7 +30,7 @@ interface Props {
  * launcher toggles to a close (X); clicking anywhere outside the panel (or Esc,
  * or the mobile backdrop) also closes it.
  */
-export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, onAddReferral, demo, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits, openSignal }: Props) {
+export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc, onAddReferral, demo, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits, onPrepareExport, openSignal }: Props) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -117,6 +120,7 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
                 onGo={onGo ? (memberId, tab) => { setOpen(false); onGo(memberId, tab); } : undefined}
                 onGoView={onGoView ? (view) => { setOpen(false); onGoView(view); } : undefined}
                 onUndoEdits={onUndoEdits}
+                onPrepareExport={onPrepareExport ? (req) => { setOpen(false); onPrepareExport(req); } : undefined}
               />
             )}
           </div>

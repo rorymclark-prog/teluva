@@ -12,6 +12,7 @@ import { redactHousehold, redactFinances, redactMember } from '../utils/aiRedact
 // Edit/delete-existing-records feature: display labels + apply-time re-resolution
 // live here (this shared component only gets append-only wiring).
 import { annotateDestructiveEdits } from '../utils/aiDestructive';
+import { PackRequest, resolveTopics } from '../utils/exportPack';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -22,6 +23,7 @@ import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
   ClipboardPaste, ChevronRight, CalendarClock, Undo2, ChevronDown, ScanLine,
+  FolderDown,
 } from 'lucide-react';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 import { speechLocaleFor } from '../utils/speechLocale';
@@ -155,6 +157,12 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   edits?: AiEdit[];
+  /* A folder the assistant offered to prepare — "all Sophie's medical reports
+   * and results". Deliberately NOT an AiEdit: every edit WRITES something and
+   * rides the Apply pipeline, and an export writes nothing at all. Giving it
+   * the same card would mean an "Apply" button that changes no data, and an
+   * Undo that has nothing to undo. See utils/exportPack.ts. */
+  exportRequest?: PackRequest;
   applied?: boolean;
   image?: string;             // legacy single dataUrl preview — kept for messages persisted before multi-attach
   images?: string[];          // dataUrl previews on a user message — swapped to Storage URLs once uploaded, see send()
@@ -175,6 +183,8 @@ interface Props {
   isBusinessSpace?: boolean;
   /** Open the "fun avatar" generator for whichever profile is currently active. Omitted (no chip shown) when the caller can't use it (not admin, or nothing selected). */
   onOpenFunAvatar?: () => void;
+  /** Open the confirm screen for a folder the assistant offered to prepare. */
+  onPrepareExport?: (request: PackRequest) => void;
   /** Jump to a member's own profile tab — used by the heads-up card to make each item tappable. */
   onGo?: (memberId: string, tab: string) => void;
   /** Jump to a top-level view (e.g. 'vehicles', 'slips') — the view-nudge counterpart of onGo. */
@@ -307,7 +317,7 @@ function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): s
   ]));
 }
 
-export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAddReferral, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits }: Props) {
+export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAddReferral, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits, onPrepareExport }: Props) {
   const { uid, familyId } = useFamilyCtx();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
@@ -930,10 +940,34 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         const owner = resolveMemberByName((e as Extract<AiEdit, { kind: 'document' }>).member);
         return `Looks like ${owner ? owner.name + "'s" : 'a'} passport, but no passport record was extracted — check ID & Passports and add it if it's missing.`;
       });
+      // A folder the assistant offered to gather. Member NAMES are resolved to
+      // ids here, against the live member list — the server never sees ids and
+      // the model is never trusted with one. A name that matches nobody is
+      // dropped rather than guessed at; if that empties the list the request is
+      // discarded entirely, because an empty member list legitimately means
+      // "the whole household" and quietly turning "Sophie's records" into
+      // everyone's would be the worst possible failure here.
+      let exportRequest: PackRequest | undefined;
+      const rawExport = data.export;
+      if (rawExport && onPrepareExport) {
+        const topics = resolveTopics(rawExport.preset, rawExport.topics);
+        const names: string[] = Array.isArray(rawExport.members) ? rawExport.members : [];
+        const ids = names.map((n) => resolveMemberByName(n)?.id).filter((id): id is string => !!id);
+        const askedForPeople = names.length > 0;
+        if (topics.length && (!askedForPeople || ids.length > 0)) {
+          exportRequest = {
+            title: typeof rawExport.title === 'string' ? rawExport.title : '',
+            memberIds: ids,
+            topics,
+          };
+        }
+      }
+
       const assistantMsg: ChatMessage = {
         role: 'assistant',
         text: data.reply || '…',
         edits: edits.length ? edits : undefined,
+        exportRequest,
         sourceImages: persistedAtts.length ? persistedAtts : undefined,
         warnings: warnings.length ? warnings : undefined,
       };
@@ -1640,6 +1674,32 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
               >
                 {shownText}
               </div>
+
+              {m.exportRequest && onPrepareExport && (
+                /* Not an Apply card. Nothing is being written, so there is
+                   nothing to confirm here — the confirmation that matters is
+                   the one on the export screen, where the user sees the real
+                   counts and can change the selection before anything leaves
+                   the device. */
+                <button
+                  type="button"
+                  onClick={() => onPrepareExport(m.exportRequest!)}
+                  className="w-full rounded-2xl border border-dusk-200 bg-dusk-50/70 p-3 flex items-center gap-2.5 text-left cursor-pointer hover:bg-dusk-50"
+                >
+                  <span className="w-8 h-8 rounded-xl bg-white border border-dusk-200 flex items-center justify-center shrink-0">
+                    <FolderDown className="w-4 h-4 text-dusk-600" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-semibold text-dusk-700 truncate">
+                      {m.exportRequest.title?.trim() || 'Prepare this folder'}
+                    </span>
+                    <span className="block text-[12px] text-ink-500">
+                      See what's in it, then share or download
+                    </span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-dusk-500 shrink-0" />
+                </button>
+              )}
 
               {m.edits && m.edits.length > 0 && (
                 <div className="rounded-2xl border border-clay-200 bg-clay-50/70 p-3 space-y-2">

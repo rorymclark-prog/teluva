@@ -1,8 +1,9 @@
 {
-  "label": "v157",
+  "label": "v158",
   "changes": [
-    "Appointments for your children now show up under your children. Anything imported from Google Calendar arrived tagged to nobody — Google doesn't know who lives in your house — so \"Ganga – Orthodontist\" sat on the calendar and appeared on nobody's Check-ups or Medical screen. The app now reads the name in the title and files it under that person.",
-    "It works on everything already in your calendar, not just new imports, so the appointments that were missing are there now without you doing anything.",
-    "Where a person was worked out from the title rather than tagged by hand, it says so. If it ever guesses wrong, open the event and assign it properly — your choice always wins from then on."
+    "Ask the assistant for a folder and it gathers one. \"Prepare a folder with all Sophie's medical reports and results\" pulls her medical record, vaccinations, every referral and result, appointments, check-ups, growth and her doctors into one place — with the actual files, not just a list of them.",
+    "It isn't only medical. Ask for a school folder, her passport and visas for a visa appointment, or everything about someone so you can hand it to another AI — you name what it's for and it collects what fits.",
+    "You see exactly what's in it before anything leaves your phone: every topic listed with a real count, so \"nothing on file\" never hides behind a missing section. Tick things off or add them.",
+    "Then Share it straight into Mail, WhatsApp or another app, or download it as one zip. A written summary travels with the files so whoever opens it can read what they're looking at. If it's too big to email, it says so rather than letting you find out from a bounce."
   ]
 }

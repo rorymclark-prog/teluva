@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, VaultDocument, ReferralRecord } from '../types';
+import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, VaultDocument, ReferralRecord, HealthcareProvider } from '../types';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -38,6 +38,8 @@ import {
 // EDIT/DELETE existing records (confirm-before-destroy) — real logic lives here.
 import { hasDestructiveEdits, applyDestructiveEdits } from '../utils/aiDestructive';
 import { AiEdit } from './AIChatbot';
+import ExportPackModal from './ExportPackModal';
+import type { PackRequest } from '../utils/exportPack';
 import {
   UndoRecord, UndoDomain,
   diffMemberUndo, diffInfoUndo, diffHouseholdUndo, diffFinancesUndo, mapNewIds,
@@ -1400,6 +1402,31 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // arguably worse than not exporting them at all. That choice is recorded
   // in the JSON itself (passwordVault.included = false) and in the button's
   // tooltip below, rather than silently omitted.
+  // A folder the assistant offered to gather. Vault documents and the provider
+  // directory are NOT kept in Dashboard state — they are loaded on demand
+  // elsewhere too — so they are fetched here, once, when an export is actually
+  // asked for. A failure to load either is survivable: the pack is built from
+  // whatever did load and the confirm screen shows the real counts, so the user
+  // sees a short list rather than being told everything is there when it isn't.
+  const [exportRequest, setExportRequest] = useState<PackRequest | null>(null);
+  const [exportVaultDocs, setExportVaultDocs] = useState<VaultDocument[]>([]);
+  const [exportProviders, setExportProviders] = useState<HealthcareProvider[]>([]);
+
+  const handlePrepareExport = async (request: PackRequest) => {
+    setExportRequest(request);
+    try {
+      const [docs, info] = await Promise.all([
+        loadDocuments().catch(() => []),
+        loadFamilyInfo().catch(() => null),
+      ]);
+      setExportVaultDocs(docs || []);
+      setExportProviders(info?.providers || []);
+    } catch {
+      setExportVaultDocs([]);
+      setExportProviders([]);
+    }
+  };
+
   const handleExportAllData = async () => {
     setExportingBackup(true);
     try {
@@ -2640,9 +2667,21 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           onOpenFunAvatar={isAdmin && selectedMember ? () => setRestyleMemberId(selectedMember.id) : undefined}
           onGo={goToMemberTab}
           onGoView={(v) => setMainView(v as ViewId)}
+          onPrepareExport={handlePrepareExport}
           openSignal={assistantOpenSignal}
         />
       )}
+
+      <ExportPackModal
+        open={!!exportRequest}
+        request={exportRequest}
+        members={members}
+        events={events}
+        vaultDocuments={exportVaultDocs}
+        providers={exportProviders}
+        spaceName={settings.familyName}
+        onClose={() => setExportRequest(null)}
+      />
 
       <AiConsentModal
         open={consentOpen}

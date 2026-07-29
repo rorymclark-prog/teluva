@@ -414,13 +414,38 @@ app.use(authProxy);
 
 app.use(express.json({ limit: '25mb' }));
 
+const EXPORT_TOPICS = new Set([
+  'contact', 'medical', 'vaccinations', 'referrals', 'appointments', 'checkups',
+  'growth', 'providers', 'identity', 'education', 'travel', 'financial', 'legal',
+  'documents',
+]);
+const EXPORT_PRESETS = new Set(['medical', 'identity', 'school', 'travel', 'everything']);
+
+// Narrow whatever the model returned down to the shape the client expects.
+// Returns null for anything that is not a usable request, so the client never
+// has to defend against a half-formed one.
+function sanitizeExportRequest(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const str = (v) => (typeof v === 'string' ? v.trim() : '');
+  const arr = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').map((x) => x.trim()).filter(Boolean) : []);
+  const preset = EXPORT_PRESETS.has(str(raw.preset).toLowerCase()) ? str(raw.preset).toLowerCase() : '';
+  const topics = arr(raw.topics).map((t) => t.toLowerCase()).filter((t) => EXPORT_TOPICS.has(t));
+  if (!preset && topics.length === 0) return null;
+  return {
+    title: str(raw.title).slice(0, 120),
+    members: arr(raw.members).slice(0, 25),
+    preset,
+    topics,
+  };
+}
+
 const SYSTEM_INSTRUCTION = `You are the assistant inside a private family records app ("Teluva").
 You do two things:
 1) ANSWER questions by recalling from the provided FAMILY DATA (read-only).
 2) EXTRACT facts the user states into structured edits to store in the right place.
 
 Output ONLY valid JSON of the form:
-{"reply": string, "edits": Edit[]}
+{"reply": string, "edits": Edit[], "export": ExportRequest | null}
 
 Edit is one of:
 - {"kind":"new_member","name":<string>,"role":__ROLE_ENUM__,"nickname":<string or "">,"birthdate":<YYYY-MM-DD or "">}  // create a brand-new family member
@@ -475,6 +500,17 @@ Each member's Medical tab also has a "Referrals & Results" section (referral let
 
 RULES:
 - If the user is ASKING/recalling/planning: answer helpfully from FAMILY DATA; edits = [].
+PREPARING A FOLDER TO SEND SOMEONE
+The user can ask you to gather records into one folder they can share or download: "prepare a folder with all Sophie's medical reports and results", "put together everything for the school", "get her passport and visas ready for the visa appointment", "export everything about Vita so I can ask another AI about it". When they do, set "export" and keep "edits" empty — an export CHANGES NOTHING, it only gathers.
+
+ExportRequest is {"title": <short name for the folder, e.g. "Sophie's medical records">, "members": [<existing member names>], "preset": "medical"|"identity"|"school"|"travel"|"everything"|"", "topics": [<topic names>]}
+Topics are exactly: "contact","medical","vaccinations","referrals","appointments","checkups","growth","providers","identity","education","travel","financial","legal","documents".
+- Use "preset" for the common asks — "medical" covers the whole medical picture (record, vaccinations, referrals and results, appointments, check-ups, growth, doctors), and is what "all her medical stuff" means.
+- Use "topics" to add anything extra they named, or on its own for a narrow ask ("just her vaccination records" is topics ["vaccinations"]).
+- "members" holds existing member names. Leave it EMPTY only when they clearly mean the whole household ("export all our legal documents"). If you cannot tell WHO they mean, ASK and set "export" to null.
+- "financial" and "legal" carry account numbers and contracts. Only ever include them when the user actually asked for them — never as part of a general "everything medical" or "everything for school".
+- You are choosing WHAT goes in, nothing more. You never read, list or summarise the files themselves — the app gathers them from the vault. The user is shown your selection with the real counts and can change it before anything is sent, so say in your reply what you have gathered and that they can adjust it, and never claim it has been sent.
+
 - If the user is TELLING you info to store: produce edits and a short reply confirming what you'll set.
 - "member" MUST match an existing family member name (case-insensitive). If you cannot tell which member, ASK in reply and return edits=[].
 - If the user introduces a NEW person who is NOT already in the family, FIRST add a {"kind":"new_member"} edit, then you may add {"kind":"member"} edits referencing that same new name to fill in their details.
@@ -690,6 +726,12 @@ app.post('/api/chat', async (req, res) => {
     catch { parsed = { reply: text, edits: [] }; }
     if (!parsed || typeof parsed.reply !== 'string') parsed = { reply: String(text), edits: [] };
     if (!Array.isArray(parsed.edits)) parsed.edits = [];
+    // An export request only ever names topics and people — it never carries
+    // file contents, so there is nothing here to leak and nothing to trust
+    // beyond a whitelist. Anything unrecognised is dropped rather than passed
+    // on, and the client shows the user the resulting selection before a
+    // single byte leaves their device.
+    parsed.export = sanitizeExportRequest(parsed.export);
 
     await recordAiUsage(caller.familyId); // successful call — count it
     res.json(parsed);
