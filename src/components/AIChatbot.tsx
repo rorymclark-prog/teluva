@@ -83,6 +83,12 @@ export type AiEdit =
    * many years. Those become several records off a single scan, so they cannot
    * ride on one document edit the way a referral does. */
   | { kind: 'vaccination'; member: string; name: string; date?: string; notes?: string }
+  /* A visa or residence permit. The third section found to be unreachable by the
+   * assistant — after referrals and vaccinations — and the first one a test
+   * caught rather than a user. A permit sticker is one of the highest-stakes
+   * expiry dates a family has; being unable to file it from a scan was the worst
+   * of the three gaps. */
+  | { kind: 'visa'; member: string; country: string; number?: string; expiryDate?: string; permitType?: string; issuingAuthority?: string; sponsor?: string; conditions?: string; notes?: string }
   | { kind: 'favorite_quote'; member: string; text: string; source?: string; note?: string }
   | { kind: 'family_word'; word: string; meaning: string; coinedBy?: string; approxDate?: string }
   | {
@@ -1854,6 +1860,7 @@ function describeEdit(e: AiEdit): string {
   // Name the third destination too. The card is the only chance the user gets
   // to see where something is about to land, so a referral that quietly also
   // files into Referrals & Results should say so before they tap Apply.
+  if (e.kind === 'visa') return `Record ${e.permitType || 'visa'} for ${e.country}${e.expiryDate ? `, expires ${e.expiryDate}` : ''} on ${e.member}’s profile`;
   if (e.kind === 'vaccination') return `Record ${e.name}${e.date ? ` (${e.date})` : ''} in ${e.member}’s vaccinations`;
   if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}${e.referralKind ? ` + Referrals & Results (${String(e.referralKind).toLowerCase()}${e.referralDate ? `, ${e.referralDate}` : ''})` : ''}`;
   if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;

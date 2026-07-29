@@ -157,17 +157,9 @@ const COVERAGE_MAP: Record<string, Coverage> = {
     "deliberate one-at-a-time ritual, not something a document scan produces."
   ),
 
-  // --- Known gap: genuinely missing, tracked on purpose -------------------
-  'travel.visas': knownGap(
-    "NOT YET WIRED. Found during the 2026-07-29 audit that added this test — the " +
-    "same bug pattern this test exists to catch (VisaRecord has its own manual add " +
-    "form in MemberTravel.tsx, but no AiEdit kind, so a scanned visa/residence-permit " +
-    "sticker can't be filed by the assistant). To fix: (1) add a 'visa' kind to the " +
-    "AiEdit union in src/components/AIChatbot.tsx, (2) handle it in " +
-    "src/utils/aiApply.ts's applyMemberEdits + hasMemberEdits, (3) document it in the " +
-    "server.js system prompt, (4) add it to aiDestructive.ts's MEMBER_ARRAY/UPDATE_FIELDS " +
-    "so delete/update-by-voice work too. Then move this entry up to the covered section."
-  ),
+  // Was the third instance of the AI-invisible-section bug, and the first one
+  // this test caught rather than a user. Wired up the same day it was found.
+  'travel.visas': covered('visa'),
 };
 
 // timelapseGuide is NOT a collection (TimelapseGuide is a single fixed-shape

@@ -48,6 +48,18 @@ const MEMBER_ARRAY: Record<string, { get: (m: any) => any[]; set: (m: any, arr: 
   care_schedule: { get: m => m.careSchedule || [], set: (m, arr) => ({ ...m, careSchedule: arr }) },
   saying: { get: m => m.sayings || [], set: (m, arr) => ({ ...m, sayings: arr }) },
   favorite_quote: { get: m => m.favoriteQuotes || [], set: (m, arr) => ({ ...m, favoriteQuotes: arr }) },
+  // The three sections the assistant could not reach until v145-v148. Adding
+  // them here is what makes "delete that expired visa" work by voice — filing
+  // something the user then cannot remove the same way is a half-built feature.
+  vaccination: {
+    get: m => (m.medical?.vaccinations) || [],
+    set: (m, arr) => ({ ...m, medical: { ...(m.medical || {}), vaccinations: arr } }),
+  },
+  visa: {
+    get: m => (m.travel?.visas) || [],
+    set: (m, arr) => ({ ...m, travel: { ...(m.travel || {}), visas: arr } }),
+  },
+  referral: { get: m => m.referrals || [], set: (m, arr) => ({ ...m, referrals: arr }) },
 };
 
 // Per-kind whitelist of update fields: incoming field name -> the real record
@@ -60,6 +72,11 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   care_schedule: { careKind: 'kind', kind: 'kind', provider: 'provider', lastVisit: 'lastVisit', intervalMonths: 'intervalMonths', nextDue: 'nextDue', notes: 'notes' },
   saying: { text: 'text', said: 'said', context: 'context' },
   favorite_quote: { text: 'text', source: 'source', note: 'note' },
+  vaccination: { name: 'name', date: 'date', notes: 'notes' },
+  visa: { country: 'country', number: 'number', expiryDate: 'expiryDate', expiry: 'expiryDate', permitType: 'permitType', issuingAuthority: 'issuingAuthority', sponsor: 'sponsor', conditions: 'conditions', status: 'status', notes: 'notes' },
+  // A referral's STATUS is the field that actually changes over time — open ->
+  // booked -> done — so "mark that X-ray as done" is the whole point of this row.
+  referral: { kind: 'kind', date: 'date', reason: 'reason', status: 'status', appointmentDate: 'appointmentDate', providerName: 'providerName', notes: 'notes' },
   contact: { name: 'name', relation: 'relation', phone: 'phone', email: 'email', birthdate: 'birthdate', note: 'note' },
   provider: { name: 'name', type: 'type', specialty: 'specialty', practiceName: 'practiceName', phone: 'phone', afterHoursPhone: 'afterHoursPhone', email: 'email', address: 'address', forMember: 'forMember', note: 'note' },
   number: { label: 'label', value: 'value', note: 'note' },
