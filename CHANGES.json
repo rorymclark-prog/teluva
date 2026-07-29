@@ -1,6 +1,7 @@
 {
-  "label": "v136",
+  "label": "v137",
   "changes": [
+    "Star-sign blurbs read like a person now, not a fortune cookie. They were being told to paint the sky and the mood of the hour you were born — that instruction is gone, along with \"cosmic\", \"the universe\", \"energy\", \"destined\" and the rest. They're concrete and observational instead, flaws included, which is what stops them sounding like they'd fit anyone.",
     "A family status — one line at the top of the home screen for whatever's happening right now. \"Everyone at Oma's until Sunday.\" \"Mia has chickenpox, don't visit.\" It shows who wrote it and when. It replaces rather than piles up, so it stays something you read at a glance instead of another feed to keep up with. Business spaces get it too.",
     "Fixed: tapping the family photo opened the menu instead of the photo. That was my mistake when the header was rebuilt. It opens the photo again.",
     "The family photo in the header is bigger.",
@@ -11,7 +12,6 @@
     "Backup files no longer carry those direct links to your documents. The documents themselves are still in the backup; the links were an extra copy of the key, travelling with the lock.",
     "Removed personal email addresses that were being shipped inside the app's code.",
     "\"Needs attention\" now ranks by how soon something actually needs you, not just by how loud it is. A passport expiring on Friday could previously fall out of the visible six while a long-dead one sat above it.",
-    "A birthday is no longer announced three times on one screen. The gift reminder now stops on the day itself, where it had nothing left to suggest.",
-    "The \"add to Home Screen\" card now sits at the bottom of the screen instead of appearing at the top two seconds after you started reading and pushing everything down."
+    "A birthday is no longer announced three times on one screen. The gift reminder now stops on the day itself, where it had nothing left to suggest."
   ]
 }

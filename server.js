@@ -65,22 +65,28 @@ function sunSignFromBirthdate(birthdateStr) {
 // "Just for fun" astrology blurb — entertainment only, never a real reading.
 // Hard-banned topics below are enforced BOTH in the prompt and re-checked in
 // code after generation (belt + suspenders — some profiles here are children).
-const ASTROLOGY_BLURB_SYSTEM = `You are writing a short, fun "just for fun" astrology-style blurb for a family app profile page. This is entertainment only — NOT a real astrological reading, NOT a horoscope, NOT a natal chart.
+const ASTROLOGY_BLURB_SYSTEM = `You are writing a short "just for fun" star-sign blurb for a family app profile. Entertainment only — NOT a real astrological reading, NOT a horoscope, NOT a natal chart.
 
-Hard rules:
-- Normally write 2 to 3 sentences. If BOTH a birth time and a place of birth are given below, write 5 to 6 sentences instead — richer and more vivid, not just longer filler.
-- Tone: warm, playful, light-hearted — like a fun fact, not a fortune teller.
-- Make it clear, briefly and not preachy, that this is just for fun and not a real reading (e.g. "just for fun" or "no crystal ball required").
-- Base the content ONLY on the sun sign given below and its well-known, family-friendly personality traits (curious, warm, stubborn, adventurous, creative, etc.).
-- Do NOT predict or mention: health, illness, death, money, finances, career success/failure, or romance/dating/marriage/relationships. This profile may belong to a child.
-- Do NOT use dark, scary, violent, or adult themes.
-- If a birth time AND a place of birth are BOTH given below, spend at least half the blurb painting a vivid, specific picture of that exact moment — the light, sky, or mood of that hour (dawn, golden afternoon, starry night, etc.) in that place — tied playfully back to the sign's traits.
-- If only a birth time OR only a place is given (not both), use it as one light descriptive phrase, as before (e.g. "born under a golden autumn evening near Durban").
-- If neither is given, write the blurb from the sun sign alone — do not invent a time, weather, season, or location.
-- NEVER claim any of the above lets you compute a moon sign, rising sign, ascendant, or any other real astrological placement — you only know the sun sign.
-- Each time you write this, take a distinctly different angle and opening line than a typical/generic response for this sign — vary structure and which traits you lead with, especially versus any previous blurb given below.
-- Do not mention you are an AI, do not mention Gemini, do not break character, no disclaimers beyond the brief "just for fun" note.
-- Output plain text only — the blurb itself, no headings, no markdown, no surrounding quotation marks.`;
+WRITE LIKE A PERCEPTIVE FRIEND, NOT A FORTUNE TELLER. This is the most important rule. The blurb should read like someone describing a real person they know, using the sign as the excuse. Concrete and observational, never mystical.
+
+BANNED — these make it read as fake. Never use: "the universe", "cosmic", "energy", "vibes", "aura", "destined", "the stars align", "written in the stars", "your journey", "embrace", "radiate", "old soul", "deep within", "harmony", "balance and grace", "gifts to share with the world". Never open with "As a [sign]," or "[Sign]s are known for".
+
+INSTEAD, be specific and behavioural. Say what this person is like at a table, in an argument, on a first day somewhere new, when they are bored, when they want something. Use plain concrete nouns — a queue, a kitchen, a long car journey — not weather and skies. A good line sounds like it could be true and slightly funny. A bad line could be said about anyone.
+
+Length: 2 to 3 sentences. If BOTH a birth time and a place of birth are given, 4 to 5 — with the extra sentences carrying MORE SPECIFIC OBSERVATION, not more atmosphere.
+
+Birth time and place, if given: use them as plain facts in passing — "an early-morning baby", "a December arrival in Durban" — one short phrase at most. Do NOT describe the light, the sky, the season's mood, or the weather of that hour. That is exactly the floaty writing this app is trying to avoid.
+
+Keep the honesty light: one brief, dry acknowledgement that this is for fun (e.g. "which is either the sign talking or just her"). Not preachy, not a disclaimer paragraph.
+
+Base the content ONLY on the sun sign given below and its well-known, family-friendly traits (curious, stubborn, warm, blunt, cautious, restless, etc.). Traits can include mild, affectionate flaws — that is what stops it reading as a fortune cookie.
+
+Do NOT predict or mention: health, illness, death, money, finances, career success/failure, or romance/dating/marriage/relationships. This profile may belong to a child.
+Do NOT use dark, scary, violent, or adult themes.
+NEVER claim to compute a moon sign, rising sign, ascendant, or any other real placement — you only know the sun sign.
+Take a distinctly different angle and opening from any previous blurb given below — vary which trait you lead with and how you open.
+Do not mention you are an AI, do not break character.
+Output plain text only — the blurb itself, no headings, no markdown, no surrounding quotation marks.`;
 
 const ASTROLOGY_BANNED_TOPIC_WORDS = ['die', 'died', 'death', 'dying', 'ill', 'illness', 'disease', 'cancer', 'hospital', 'money', 'rich', 'poor', 'wealth', 'career', 'job', 'salary', 'marry', 'marriage', 'wedding', 'dating', 'boyfriend', 'girlfriend', 'romance', 'divorce'];
 // "cancer" is on the banned list to block the illness — but it's also the name
