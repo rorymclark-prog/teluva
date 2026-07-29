@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { HouseholdInfo, UtilityProvider, Pet, BusinessLocation } from '../types';
 import { loadHousehold, saveHousehold } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
+import EmptyState from './EmptyState';
 import {
   Home, Plug, PawPrint, Plus, Trash2, Pencil, Check, X,
   Cloud, CloudOff, MapPin, Building2,
@@ -209,12 +210,7 @@ function LocationsSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <div className="py-6 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
-            <MapPin className="w-5 h-5" />
-          </div>
-          <p className="text-[13px] text-ink-400">No other locations yet — branches, sites, warehouses…</p>
-        </div>
+        <EmptyState icon={MapPin} title="No other locations yet — branches, sites, warehouses…" />
       ) : (
         <div className="space-y-2.5">
           {entries.map(l => editId === l.id ? (
@@ -328,12 +324,7 @@ function UtilitiesSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <div className="py-6 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
-            <Plug className="w-5 h-5" />
-          </div>
-          <p className="text-[13px] text-ink-400">No utilities yet — electricity, gas, internet, water…</p>
-        </div>
+        <EmptyState icon={Plug} title="No utilities yet — electricity, gas, internet, water…" />
       ) : (
         <div className="space-y-2.5">
           {entries.map(u => editId === u.id ? (
@@ -436,12 +427,7 @@ function PetsSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <div className="py-6 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
-            <PawPrint className="w-5 h-5" />
-          </div>
-          <p className="text-[13px] text-ink-400">No pets yet — dogs, cats, birds, fish…</p>
-        </div>
+        <EmptyState icon={PawPrint} title="No pets yet — dogs, cats, birds, fish…" />
       ) : (
         <div className="space-y-2.5">
           {entries.map(p => editId === p.id ? (

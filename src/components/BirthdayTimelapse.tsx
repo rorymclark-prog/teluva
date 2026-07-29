@@ -15,6 +15,7 @@ import {
   Clapperboard, Film, ImagePlus, Upload, Trash2, Download, Play,
   Loader2, Cake, Check, X, AlertCircle, Calendar, Camera, RefreshCcw, Lightbulb,
 } from 'lucide-react';
+import EmptyState from './EmptyState';
 
 // Default alignment guide for a member who hasn't dragged one into place yet —
 // roughly where a head-and-shoulders portrait's eyes fall in a portrait-ish frame.
@@ -597,21 +598,13 @@ export default function BirthdayTimelapse({ member, onUpdateMember }: BirthdayTi
 
       {/* Empty / single-photo friendly states */}
       {photos.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-cream-300 rounded-2xl bg-cream-50 p-5 space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-dusk-50 text-dusk-500 border border-dusk-100 flex items-center justify-center mx-auto">
-            <Film className="w-6 h-6" />
-          </div>
-          <div className="max-w-md mx-auto space-y-1">
-            <h4 className="text-[13px] font-semibold text-ink-800">No birthday photos yet</h4>
-            <p className="text-[13px] text-ink-400 leading-relaxed">
-              Add one photo of {firstName(member)} each birthday. Once there are a couple of years,
-              you can watch a little growing-up film.
-            </p>
-          </div>
-          <button onClick={() => setIsAdding(true)} className="btn-primary mx-auto">
-            Add the first birthday photo
-          </button>
-        </div>
+        <EmptyState
+          icon={Film}
+          dashed
+          title="No birthday photos yet"
+          description={<>Add one photo of {firstName(member)} each birthday. Once there are a couple of years, you can watch a little growing-up film.</>}
+          action={{ label: 'Add the first birthday photo', onClick: () => setIsAdding(true) }}
+        />
       ) : (
         <>
           {/* Watch / generate panel */}

@@ -31,6 +31,7 @@ import {
   hasFamilyWordsEdits, applyFamilyWordsEdits,
   hasRecipeEdits, applyRecipeEdits,
   hasEstateEdits, applyEstateEdits,
+  hasSuccessorEdits, applySuccessorEdit, hasInstructionsEdits, applyInstructionsEdit,
   hasSlipEdits, applySlipEdits,
   hasServiceRecordEdits, applyServiceRecordEdits,
 } from '../utils/aiApply';
@@ -952,10 +953,19 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       if (!ok) failures.push('recipes');
       else undo.push(...mapNewIds(current, after, 'recipe', (r: any) => r.title || 'recipe'));
     }
-    if (hasEstateEdits(edits)) {
+    // All three parts of the wills & estate doc are loaded, applied and saved in
+    // ONE write. They are siblings on the same Firestore document, and
+    // saveReferenceDoc diffs `value` against `base` to work out the writer's
+    // intent — so saving `{ records }` alone reads as "the successor and the
+    // instructions were deleted" and silently drops them. Passing `doc` as the
+    // explicit base as well means the merge sees exactly what this screen was
+    // built from rather than whatever getSeen happens to be holding.
+    if (hasEstateEdits(edits) || hasSuccessorEdits(edits) || hasInstructionsEdits(edits)) {
       const doc = (await loadWillsEstate()) || { records: [] };
-      const after = applyEstateEdits(doc.records || [], edits);
-      const ok = await saveWillsEstate({ records: after });
+      const after = hasEstateEdits(edits) ? applyEstateEdits(doc.records || [], edits) : (doc.records || []);
+      const successor = hasSuccessorEdits(edits) ? applySuccessorEdit(doc.successor, edits) : doc.successor;
+      const instructions = hasInstructionsEdits(edits) ? applyInstructionsEdit(doc.instructions, edits) : doc.instructions;
+      const ok = await saveWillsEstate({ ...doc, records: after, successor, instructions }, doc);
       if (!ok) failures.push('wills & estate');
       else undo.push(...mapNewIds(doc.records, after, 'estate', (r: any) => r.kind || 'estate record'));
     }
@@ -991,6 +1001,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       hasInfoEdits(edits) || hasHouseholdEdits(edits) || hasFinancesEdits(edits) ||
       hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
       hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasEstateEdits(edits) || hasSlipEdits(edits) ||
+      hasSuccessorEdits(edits) || hasInstructionsEdits(edits) ||
       hasServiceRecordEdits(edits) || hasDestructiveEdits(edits)
     ) {
       setAiDataVersion(v => v + 1);
@@ -1543,10 +1554,16 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           />
           <img src="/icons/wordmark.svg" alt="Teluva" width={110} height={32} className="mx-auto mb-4 h-8 w-auto" />
           <h1 className="text-display-md text-ink-900 mb-3">{joinLinkVisit ? "You've been invited" : hubName}</h1>
-          <p className="text-sm text-ink-500 leading-relaxed mb-8">
+          <p className="text-sm text-ink-500 leading-relaxed mb-3">
             {joinLinkVisit
-              ? 'Someone has invited you to join their family vault on Teluva. Sign in with Google to accept — you\'ll land straight in it.'
+              ? 'Someone has invited you to join their family vault on Teluva — a private place to keep passports, insurance, medical notes and more, all in one spot. Sign in with Google to accept and you\'ll land straight inside.'
               : 'Sizes, documents, growth and plans for the whole family — together in one private place.'}
+          </p>
+          {/* The multi-device story is a real differentiator and it was only ever
+              written down in the pamphlet Rory sends separately — so anyone who
+              gets a bare link forwarded to them never saw it. */}
+          <p className="text-[12.5px] text-ink-400 leading-relaxed mb-8">
+            Works right here in your browser — on your phone, tablet or computer. No app store, nothing to download first.
           </p>
           <button
             onClick={async () => {
@@ -1569,14 +1586,49 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               {signInError}
             </p>
           )}
+          {/* Google's "hasn't verified this app" screen genuinely frightens
+              people, and until now the only place we explained it was an
+              external pamphlet. The invite mechanic actively encourages
+              forwarding a bare link, so most arrivals never read that. Kept
+              collapsed so it doesn't compete with the button — and a plain
+              <details> so it needs no state and works before hydration. */}
+          <details className="group mt-4 text-left">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[12.5px] text-ink-400 transition-colors hover:text-ink-600">
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" />
+              What you&rsquo;ll see next
+            </summary>
+            <div className="mt-2 space-y-2 rounded-2xl bg-cream-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-ink-500">
+              <p>
+                Google will probably show a screen saying &ldquo;Google hasn&rsquo;t verified this app.&rdquo; That&rsquo;s normal for a
+                small, new app like this one — it just means we haven&rsquo;t paid Google to formally review it yet. Tap{' '}
+                <strong className="font-medium text-ink-700">Advanced</strong>, then{' '}
+                <strong className="font-medium text-ink-700">Go to Teluva (unsafe)</strong>. It&rsquo;s safe; that wording is
+                Google&rsquo;s generic warning, not a judgement about Teluva.
+              </p>
+              <p>
+                If sign-in fails outright instead, send Rory the Gmail address you&rsquo;re using and he&rsquo;ll add you — it takes
+                two minutes.
+              </p>
+            </div>
+          </details>
           <a href="?demo=1" className="inline-block mt-5 text-xs text-ink-400 underline underline-offset-2 hover:text-ink-600">
             or take a peek at the demo
           </a>
-          <div className="mt-6 pt-4 border-t border-cream-200 text-[12px] text-ink-400">
-            By signing in you agree to our{' '}
+          <div className="mt-6 pt-4 border-t border-cream-200 text-left text-[12px] leading-relaxed text-ink-400">
+            {/* The honest security position belongs at the point of decision,
+                not only on a page you reach after already signing in. Kept to
+                one short sentence — any longer and this grey block outweighs
+                the button above it. */}
+            Encrypted in transit and at rest, and your family&rsquo;s vault stays separate from every other family&rsquo;s —{' '}
+            <button onClick={() => setLegalTab('security')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">how we keep it safe</button>.
+            {' '}By signing in you agree to our{' '}
             <button onClick={() => setLegalTab('terms')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">Terms</button>
             {' '}and{' '}
-            <button onClick={() => setLegalTab('privacy')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">Privacy Policy</button>.
+            {/* The full stop is glued to the link: as two separate inline nodes
+                it wrapped onto a line of its own at 375px. */}
+            <span className="whitespace-nowrap">
+              <button onClick={() => setLegalTab('privacy')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">Privacy Policy</button>.
+            </span>
           </div>
         </div>
         {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
@@ -1773,7 +1825,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         )}
 
         {mainView === 'willsEstate' && (
-          <WillsEstateView refreshKey={aiDataVersion} members={members} />
+          demo ? <DemoUnavailable label="Wills & estate" /> : <WillsEstateView refreshKey={aiDataVersion} members={members} />
         )}
 
         {mainView === 'slips' && (

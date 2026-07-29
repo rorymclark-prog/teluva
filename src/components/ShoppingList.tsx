@@ -3,6 +3,8 @@ import { ShoppingCart, Plus, X, Check, Trash2 } from 'lucide-react';
 import { ShoppingItem } from '../types';
 import { loadShopping, saveShopping } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
+import { SkeletonHeader, SkeletonRows } from './Skeleton';
+import EmptyState from './EmptyState';
 
 export default function ShoppingList() {
   const [items, setItems] = useState<ShoppingItem[]>([]);
@@ -59,8 +61,15 @@ export default function ShoppingList() {
 
   if (loading) {
     return (
-      <div className="card p-8 text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-clay-500 mx-auto"></div>
+      <div className="max-w-lg">
+        <div className="card overflow-hidden">
+          <div className="p-5 sm:p-6 border-b border-cream-200">
+            <SkeletonHeader />
+          </div>
+          <div className="p-4 sm:p-5">
+            <SkeletonRows rows={5} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -114,23 +123,25 @@ export default function ShoppingList() {
         {/* Items */}
         <div className="p-4 sm:p-5">
           {items.length === 0 ? (
-            <div className="text-center py-10">
-              <ShoppingCart className="w-10 h-10 text-ink-200 mx-auto mb-3" />
-              <p className="text-[13px] text-ink-400">Add items above or ask the assistant.</p>
-            </div>
+            <EmptyState
+              icon={ShoppingCart}
+              tone="sage"
+              title="Nothing on the list yet"
+              description="Add items above, or ask the assistant to add them for you."
+            />
           ) : (
             <div className="space-y-1">
               {/* Unchecked */}
               {unchecked.map(item => (
-                <div key={item.id} className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors">
+                <div key={item.id} className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 active:bg-cream-100 group transition-colors">
                   <button
                     onClick={() => toggleItem(item.id)}
-                    className="w-5 h-5 rounded-full border-2 border-cream-400 shrink-0 flex items-center justify-center hover:border-sage-500 transition-colors cursor-pointer"
+                    className="w-5 h-5 rounded-full border-2 border-cream-400 shrink-0 flex items-center justify-center hover:border-sage-500 active:scale-90 transition-all cursor-pointer"
                   />
                   <span className="flex-1 text-[14px] text-ink-800 font-medium leading-tight">{item.name}</span>
                   <button
                     onClick={() => deleteItem(item.id)}
-                    className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 p-1 rounded-lg text-ink-300 hover:text-rosa-500 transition-all cursor-pointer"
+                    className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 p-1 rounded-lg text-ink-300 hover:text-rosa-500 active:scale-90 transition-all cursor-pointer"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -143,17 +154,17 @@ export default function ShoppingList() {
                   {unchecked.length > 0 && <div className="border-t border-cream-200 my-3" />}
                   <p className="text-[11px] font-bold text-ink-400 px-2 mb-1">Done</p>
                   {checked.map(item => (
-                    <div key={item.id} className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors">
+                    <div key={item.id} className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 active:bg-cream-100 group transition-colors">
                       <button
                         onClick={() => toggleItem(item.id)}
-                        className="w-5 h-5 rounded-full border-2 border-sage-400 bg-sage-400 shrink-0 flex items-center justify-center hover:bg-sage-500 transition-colors cursor-pointer"
+                        className="w-5 h-5 rounded-full border-2 border-sage-400 bg-sage-400 shrink-0 flex items-center justify-center hover:bg-sage-500 active:scale-90 transition-all cursor-pointer"
                       >
                         <Check className="w-3 h-3 text-white" />
                       </button>
                       <span className="flex-1 text-[14px] text-ink-400 font-medium line-through leading-tight">{item.name}</span>
                       <button
                         onClick={() => deleteItem(item.id)}
-                        className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 p-1 rounded-lg text-ink-300 hover:text-rosa-500 transition-all cursor-pointer"
+                        className="[@media(hover:hover)]:opacity-0 group-hover:opacity-100 p-1 rounded-lg text-ink-300 hover:text-rosa-500 active:scale-90 transition-all cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>

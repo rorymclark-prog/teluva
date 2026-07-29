@@ -9,6 +9,8 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import { parseAmount } from '../utils/money';
 import AssetClaimExport from './AssetClaimExport';
 import SheetGrabber from './SheetGrabber';
+import EmptyState from './EmptyState';
+import { SkeletonHeader, SkeletonRows } from './Skeleton';
 
 const CATEGORIES: AssetItem['category'][] = [
   'Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other',
@@ -259,8 +261,15 @@ export default function Assets() {
 
   if (loading) {
     return (
-      <div className="card p-8 text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-clay-500 mx-auto" />
+      <div className="max-w-lg">
+        <div className="card overflow-hidden">
+          <div className="p-5 sm:p-6 border-b border-cream-200">
+            <SkeletonHeader />
+          </div>
+          <div className="p-4 sm:p-5">
+            <SkeletonRows rows={4} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -318,12 +327,12 @@ export default function Assets() {
 
         <div className="p-4 sm:p-5">
           {items.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center"><Package className="w-8 h-8" /></div>
-              <p className="text-[14px] font-medium text-ink-700">No assets yet</p>
-              <p className="text-[12px] text-ink-500 mt-1">Add bikes, laptops, phones and more — with photos &amp; receipts for insurance</p>
-              {isAdmin && <button onClick={openNewForm} className="btn-primary mt-5 text-xs px-4 py-2"><Plus className="w-3.5 h-3.5" /> Add asset</button>}
-            </div>
+            <EmptyState
+              icon={Package}
+              title="No assets yet"
+              description="Add bikes, laptops, phones and more — with photos & receipts for insurance"
+              action={isAdmin ? { label: 'Add asset', onClick: openNewForm, icon: Plus } : undefined}
+            />
           ) : (
             <div className="space-y-5">
               {orderedCats.map(cat => (

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { X, Shield, FileText, Lock } from 'lucide-react';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import SheetGrabber from './SheetGrabber';
 
 /**
  * Privacy Policy + Terms, shown in a modal from the sign-in footer (pre-auth) and
@@ -27,13 +28,14 @@ export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: (
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-ink-900/40 sm:p-4"
+      className="anim-fade fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-ink-900/40 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl shadow-lift max-h-[92dvh] flex flex-col"
+        className="anim-sheet bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl shadow-lift max-h-[92dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
+        <SheetGrabber onClose={onClose} className="pt-2" />
         {/* Header + tabs */}
         <div className="p-4 sm:p-5 border-b border-cream-200 flex items-center justify-between gap-3 shrink-0">
           <div className="flex bg-cream-200 p-1 rounded-2xl">

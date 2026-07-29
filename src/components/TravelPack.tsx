@@ -7,6 +7,7 @@ import {
 import { FamilyMember, CalendarEvent } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import EmptyState from './EmptyState';
 
 // A document is flagged "expires soon" inside this window — enough runway to
 // actually get a renewal appointment before a trip sneaks up on you.
@@ -244,15 +245,11 @@ export default function TravelPack({ members, onClose }: { members: FamilyMember
           {/* Scrollable body */}
           <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 print:overflow-visible print:p-0">
             {members.length === 0 ? (
-              <div className="card p-8 sm:p-10 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-clay-50 flex items-center justify-center mx-auto mb-4">
-                  <Luggage className="w-6 h-6 text-clay-600" />
-                </div>
-                <p className="text-sm font-semibold text-ink-800">No family members yet</p>
-                <p className="text-[13px] text-ink-400 mt-1.5 max-w-sm mx-auto leading-relaxed">
-                  Add family members and fill in their passports, visas and insurance details — the travel pack will build itself.
-                </p>
-              </div>
+              <EmptyState
+                icon={Luggage}
+                title="No family members yet"
+                description="Add family members and fill in their passports, visas and insurance details — the travel pack will build itself."
+              />
             ) : (
               <>
                 {/* Summary banner */}
@@ -351,9 +348,11 @@ export default function TravelPack({ members, onClose }: { members: FamilyMember
                         </div>
 
                         {rows.length === 0 ? (
-                          <p className="text-[13px] text-ink-400 py-2">
-                            Nothing on file for {first} yet — add a passport, visa or travel insurance in their Travel tab.
-                          </p>
+                          <EmptyState
+                            size="sm"
+                            title={`Nothing on file for ${first} yet`}
+                            description="Add a passport, visa or travel insurance in their Travel tab."
+                          />
                         ) : (
                           <div className="divide-y divide-cream-200">
                             {rows.map((r) => {

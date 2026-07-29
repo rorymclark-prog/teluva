@@ -7,6 +7,7 @@ import {
   Cloud, CloudOff
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import EmptyState from './EmptyState';
 
 const EMPTY: FamilyTimeline = { entries: [] };
 
@@ -134,14 +135,11 @@ function TimelineSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {sorted.length === 0 && !adding ? (
-        <div className="text-center py-12">
-          <div className="w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-3">
-            <CalendarHeart className="w-5 h-5" />
-          </div>
-          <p className="text-[13px] text-ink-400">
-            No moments yet — add births, anniversaries, graduations, and memories to build your family story.
-          </p>
-        </div>
+        <EmptyState
+          icon={CalendarHeart}
+          title="No moments yet"
+          description="Add births, anniversaries, graduations, and memories to build your family story."
+        />
       ) : (
         <div className="relative space-y-4 pt-2">
           {sorted.map((entry, idx) => (

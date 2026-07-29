@@ -7,6 +7,7 @@ import {
 import { protectSecrets, revealSecrets } from '../utils/db';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import PrivacyNote from './PrivacyNote';
+import EmptyState from './EmptyState';
 
 interface SecureSecretsProps {
   member: FamilyMember;
@@ -522,10 +523,7 @@ export default function SecureSecrets({ member, onUpdateMember, onOpenPrivacy }:
             {/* List Logins */}
             <div className="space-y-3">
               {(!member.digitalAccounts || member.digitalAccounts.length === 0) ? (
-                <div className="text-center py-8 bg-clay-50 rounded-2xl">
-                  <Key className="w-8 h-8 text-clay-600 mx-auto mb-2" />
-                  <p className="text-[13px] font-medium text-clay-700">No login accounts added yet</p>
-                </div>
+                <EmptyState icon={Key} title="No login accounts added yet" />
               ) : (
                 member.digitalAccounts.map(acc => (
                   <div key={acc.id} className="card p-4 flex flex-wrap items-start justify-between gap-3 text-sm leading-normal group">
@@ -678,10 +676,7 @@ export default function SecureSecrets({ member, onUpdateMember, onOpenPrivacy }:
             {/* List Bank Reference Logs */}
             <div className="space-y-3">
               {(!member.financialAccounts || member.financialAccounts.length === 0) ? (
-                <div className="text-center py-8 bg-clay-50 rounded-2xl">
-                  <Landmark className="w-8 h-8 text-clay-600 mx-auto mb-2" />
-                  <p className="text-[13px] font-medium text-clay-700">No reference bank accounts cataloged</p>
-                </div>
+                <EmptyState icon={Landmark} title="No reference bank accounts cataloged" />
               ) : (
                 member.financialAccounts.map(b => (
                   <div key={b.id} className="card p-4 flex flex-wrap items-start justify-between gap-3 text-sm leading-normal group">

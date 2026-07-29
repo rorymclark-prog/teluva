@@ -1,16 +1,14 @@
 {
-  "label": "v149",
+  "label": "v150",
   "changes": [
-    "The update notice was showing you v138's notes on every release since — the changelog file was hand-written and hadn't been updated in ten deploys. The build now refuses to start if it goes stale again.",
-    "Scanned referrals, lab results, X-ray requests and sick notes now file into Referrals & Results on the person's Medical tab — not just into Documents. Repeat results of the same test group together as a history you can open by date.",
-    "Vaccination cards and visas/residence permits can now be filed from a photo too. All three were invisible to the assistant before, which is why scans kept landing in the wrong place.",
-    "You can delete or amend any of those by voice now — including marking a referral as booked or done.",
-    "Reminders now cover passports, residence permits and check-ups, and tomorrow's diary the night before. They arrive at 90, 30, 7 and 0 days — never daily — and as one message, not one per item.",
-    "New Emergency readiness card: it works out what's missing from what you've already saved, rather than asking you to fill in a survey. Every gap taps through to the screen that fixes it.",
-    "There's finally a field to type an emergency contact — until now only the assistant could set one.",
-    "Fun photo lab: pick a ready-made style and it generates in the background, so you can close it and carry on. It tells you when it's ready.",
-    "Scrolling on the dimmed area behind a pop-up no longer drags the page underneath.",
-    "A new Security tab (next to Privacy and Terms) says plainly what Teluva can and cannot see. Worth a read.",
-    "Connecting Google Drive no longer asks permission to delete your files, and Calendar no longer asks to manage all your calendars."
+    "New in Wills & estate: \"Who takes over\" — name the person who should look after all this, and what you'd want them to do. It tells you honestly whether that person can actually sign in today, or whether you still need to make them an admin.",
+    "Also new there: where the keys, safes and deeds are, a letter in your own words for whoever finds it, who must be told, and the accounts to close — with tick boxes, so it doubles as a checklist for them.",
+    "You can now tell the assistant all of that out loud — \"if something happens to me, tell my sister and cancel Netflix, the safe key is behind the wardrobe\" — and it files it. It had no way to write to those fields before.",
+    "Fixed before it could bite: saving a will could have silently wiped the emergency instructions kept alongside it.",
+    "Empty sections no longer just say \"nothing yet\" in whatever style each screen happened to use — they now tell you what belongs there and give you the button to add the first one.",
+    "Lists that are still loading show the shape of what's coming instead of a spinning circle.",
+    "The avatar ring was Instagram's story-ring gradient, magenta and all. It's now our own warm one.",
+    "The Privacy, Terms and celebration pop-ups animate in like every other panel, and buttons respond to a tap on a phone rather than only to a mouse hovering.",
+    "The sign-in screen now warns you about Google's \"hasn't verified this app\" screen before you hit it, and tells you exactly what to tap. It also says you can use Teluva on a laptop, and what we do to keep your documents safe."
   ]
 }

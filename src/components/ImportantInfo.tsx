@@ -9,6 +9,7 @@ import {
   IdCard, Users, Search, Cloud, CloudOff, Stethoscope, Star, Briefcase, PartyPopper, Dices, Loader2, Wrench
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import EmptyState from './EmptyState';
 
 const EMPTY: FamilyInfo = { numbers: [], contacts: [], providers: [], vendors: [] };
 
@@ -243,9 +244,10 @@ function MilestoneSection({ spaceInfo, noteLoading, noteError, onGenerateNote }:
       <h3 className="section-label flex items-center gap-1.5"><PartyPopper className="w-3.5 h-3.5" /> Milestone</h3>
 
       {!foundingDate ? (
-        <p className="text-[13px] text-ink-400">
-          No founding date set yet — add one in Business Settings to see your anniversary here and on the calendar.
-        </p>
+        <EmptyState
+          size="sm"
+          title="No founding date set yet — add one in Business Settings to see your anniversary here and on the calendar."
+        />
       ) : (
         <>
           <p className="text-[13px] text-ink-500">
@@ -259,7 +261,7 @@ function MilestoneSection({ spaceInfo, noteLoading, noteError, onGenerateNote }:
             {note?.text ? (
               <p className="text-[13.5px] text-ink-800 leading-relaxed">{note.text}</p>
             ) : (
-              <p className="text-[13px] text-ink-400">No milestone note yet — write a short AI note for this anniversary.</p>
+              <EmptyState size="sm" title="No milestone note yet — write a short AI note for this anniversary." />
             )}
             {noteError && <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{noteError}</p>}
             <button
@@ -307,16 +309,12 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
       )}
 
       {entries.length === 0 && !adding ? (
-        <div className="text-center py-6">
-          <div className="w-10 h-10 rounded-2xl bg-sage-50 text-sage-600 flex items-center justify-center mx-auto mb-2">
-            <Hash className="w-5 h-5" />
-          </div>
-          <p className="text-[13px] text-ink-400">
-            {isBusinessSpace
-              ? 'No numbers yet — CIPC registration, SARS tax ref, UIF, COIDA, policy numbers…'
-              : 'No numbers yet — passports, social security, insurance, policy numbers…'}
-          </p>
-        </div>
+        <EmptyState
+          size="sm"
+          title={isBusinessSpace
+            ? 'No numbers yet — CIPC registration, SARS tax ref, UIF, COIDA, policy numbers…'
+            : 'No numbers yet — passports, social security, insurance, policy numbers…'}
+        />
       ) : (
         <div className="space-y-2.5">
           {entries.map(e => editId === e.id ? (
@@ -419,16 +417,12 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }
       )}
 
       {entries.length === 0 && !adding ? (
-        <div className="text-center py-6">
-          <div className="w-10 h-10 rounded-2xl bg-dusk-50 text-dusk-600 flex items-center justify-center mx-auto mb-2">
-            <Users className="w-5 h-5" />
-          </div>
-          <p className="text-[13px] text-ink-400">
-            {isBusinessSpace
-              ? 'No contacts yet — accountant, labour consultant, landlord, Dept of Labour…'
-              : 'No contacts yet — school office, teachers, doctor, friends, emergency…'}
-          </p>
-        </div>
+        <EmptyState
+          size="sm"
+          title={isBusinessSpace
+            ? 'No contacts yet — accountant, labour consultant, landlord, Dept of Labour…'
+            : 'No contacts yet — school office, teachers, doctor, friends, emergency…'}
+        />
       ) : (
         <div className="space-y-2.5">
           {entries.map(c => editId === c.id ? (
@@ -588,16 +582,12 @@ function ProvidersSection({ entries, isBusinessSpace, onAdd, onUpdate, onDelete 
       )}
 
       {entries.length === 0 && !adding ? (
-        <div className="text-center py-6">
-          <div className="w-10 h-10 rounded-2xl bg-rosa-50 text-rosa-600 flex items-center justify-center mx-auto mb-2">
-            {isBusinessSpace ? <Briefcase className="w-5 h-5" /> : <Stethoscope className="w-5 h-5" />}
-          </div>
-          <p className="text-[13px] text-ink-400">
-            {isBusinessSpace
-              ? 'No professional contacts yet — your accountant, financial adviser, lawyer/notary, insurance broker, or bank contact.'
-              : 'No doctors, advisers, or professionals yet — your GP, dentist, paediatrician, financial adviser, accountant, or anyone else the family calls.'}
-          </p>
-        </div>
+        <EmptyState
+          size="sm"
+          title={isBusinessSpace
+            ? 'No professional contacts yet — your accountant, financial adviser, lawyer/notary, insurance broker, or bank contact.'
+            : 'No doctors, advisers, or professionals yet — your GP, dentist, paediatrician, financial adviser, accountant, or anyone else the family calls.'}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {entries.map(p => editId === p.id ? (
@@ -805,14 +795,10 @@ function VendorsSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <div className="text-center py-6">
-          <div className="w-10 h-10 rounded-2xl bg-honey-50 text-honey-700 flex items-center justify-center mx-auto mb-2">
-            <Wrench className="w-5 h-5" />
-          </div>
-          <p className="text-[13px] text-ink-400">
-            No household vendors yet — your plumber, electrician, boiler service, locksmith, or the neighbour with the spare key.
-          </p>
-        </div>
+        <EmptyState
+          size="sm"
+          title="No household vendors yet — your plumber, electrician, boiler service, locksmith, or the neighbour with the spare key."
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {entries.map(v => editId === v.id ? (

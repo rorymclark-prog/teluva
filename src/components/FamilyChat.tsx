@@ -23,6 +23,7 @@ import {
   Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import EmptyState from './EmptyState';
 
 interface FamilyChatProps {
   members: FamilyMember[];
@@ -306,16 +307,12 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
                 <p className="text-[13px] text-rosa-600 max-w-xs font-medium">{loadError}</p>
               </div>
             ) : channelMessages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-3">
-                <div className="w-10 h-10 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
-                  <Hash className="w-5 h-5" />
-                </div>
-                <div className="space-y-1">
-                  <h4 className="text-[13px] font-semibold text-ink-700">No messages yet</h4>
-                  <p className="text-[13px] text-ink-400 max-w-xs font-light">
-                    Be the first to post a note or checklist in #{CHANNELS.find(c => c.id === activeChannel)?.name}!
-                  </p>
-                </div>
+              <div className="h-full flex items-center justify-center">
+                <EmptyState
+                  icon={Hash}
+                  title="No messages yet"
+                  description={`Be the first to post a note or checklist in #${CHANNELS.find(c => c.id === activeChannel)?.name}!`}
+                />
               </div>
             ) : (
               <AnimatePresence initial={false}>

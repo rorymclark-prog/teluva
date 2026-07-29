@@ -11,6 +11,7 @@ import {
   Globe2, Plus, Camera, Pencil, Check, X, Cloud, CloudOff, Loader2, MapPin, Sparkles,
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import EmptyState from './EmptyState';
 
 const EMPTY: TravelTimelineDoc = { entries: [] };
 
@@ -282,14 +283,12 @@ export default function TravelTimelineView() {
         )}
 
         {sorted.length === 0 && !draft ? (
-          <div className="text-center py-12">
-            <div className="w-12 h-12 rounded-2xl bg-dusk-50 text-dusk-600 flex items-center justify-center mx-auto mb-3">
-              <Globe2 className="w-5 h-5" />
-            </div>
-            <p className="text-[13px] text-ink-400 max-w-sm mx-auto">
-              No trips yet — add a travel photo and we'll detect the country from its location data automatically.
-            </p>
-          </div>
+          <EmptyState
+            icon={Globe2}
+            tone="dusk"
+            title="No trips yet"
+            description="Add a travel photo and we'll detect the country from its location data automatically."
+          />
         ) : (
           <div className="relative space-y-4 pt-2">
             {sorted.map((entry, idx) => (

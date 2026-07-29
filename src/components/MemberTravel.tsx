@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import ShowCardModal from './ShowCardModal';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import EmptyState from './EmptyState';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
@@ -439,14 +440,7 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
         )}
 
         {visas.length === 0 && !addingVisa ? (
-          <div className="py-8 text-center">
-            <div className="mx-auto mb-2 w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <p className="text-[13px] text-ink-400">
-              No visas added yet — track entry visas, work permits, and tourist stamps here.
-            </p>
-          </div>
+          <EmptyState icon={ShieldCheck} title="No visas added yet — track entry visas, work permits, and tourist stamps here." />
         ) : (
           <div className="space-y-2.5">
             {visas.map(v =>
@@ -536,14 +530,7 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
         )}
 
         {transitPasses.length === 0 && !addingPass ? (
-          <div className="py-8 text-center">
-            <div className="mx-auto mb-2 w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
-              <TrainFront className="w-5 h-5" />
-            </div>
-            <p className="text-[13px] text-ink-400">
-              No season tickets added yet — track a Wiener Linien Jahreskarte, ÖBB Klimaticket, or other travel pass here.
-            </p>
-          </div>
+          <EmptyState icon={TrainFront} title="No season tickets added yet — track a Wiener Linien Jahreskarte, ÖBB Klimaticket, or other travel pass here." />
         ) : (
           <div className="space-y-2.5">
             {transitPasses.map(p =>

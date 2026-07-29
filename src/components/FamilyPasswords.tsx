@@ -5,6 +5,7 @@ import { loadPasswords, savePassword, deletePassword } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import SheetGrabber from './SheetGrabber';
+import EmptyState from './EmptyState';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 const BLANK: PasswordEntry = {
@@ -147,20 +148,13 @@ export default function FamilyPasswords() {
 
       {/* Empty state */}
       {entries.length === 0 ? (
-        <div className="card p-10 text-center">
-          <div className="w-14 h-14 bg-clay-50 text-clay-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
-            <KeyRound className="w-7 h-7" />
-          </div>
-          <p className="text-[14px] font-medium text-ink-700 mb-1">No shared passwords yet</p>
-          <p className="text-[13px] text-ink-400 max-w-xs mx-auto">
-            Think Netflix, Disney+, WiFi password, school portals, the router admin login…
-          </p>
-          {isAdmin && (
-            <button onClick={openNew} className="btn-primary mt-5 mx-auto gap-1.5">
-              <Plus className="w-4 h-4" />
-              Add password
-            </button>
-          )}
+        <div className="card p-6">
+          <EmptyState
+            icon={KeyRound}
+            title="No shared passwords yet"
+            description="Think Netflix, Disney+, WiFi password, school portals, the router admin login…"
+            action={isAdmin ? { label: 'Add password', onClick: openNew, icon: Plus } : undefined}
+          />
         </div>
       ) : (
         <div className="space-y-2">

@@ -9,6 +9,7 @@ import {
 } from '../utils/measurementUnits';
 import { getUnitSystemOverride, setUnitSystemOverride } from '../utils/unitPreference';
 import { measureFromPhoto, isInterpolatedSource, MeasureResult } from '../utils/measurePhoto';
+import EmptyState from './EmptyState';
 
 interface GrowthTrackerProps {
   member: FamilyMember;
@@ -450,13 +451,11 @@ export default function GrowthTracker({ member, onUpdateMember }: GrowthTrackerP
       {/* Logs Table / Timeline */}
       <div className="card overflow-hidden">
         {logs.length === 0 ? (
-          <div className="text-center py-12 px-4">
-            <div className="w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-2">
-              <Calendar className="w-6 h-6" />
-            </div>
-            <p className="text-[13px] font-semibold text-ink-800">No growth logs yet</p>
-            <p className="text-[13px] text-ink-400 mt-0.5">Click &ldquo;Log new metrics&rdquo; above to record height and weight checkpoints.</p>
-          </div>
+          <EmptyState
+            icon={Calendar}
+            title="No growth logs yet"
+            description={<>Click &ldquo;Log new metrics&rdquo; above to record height and weight checkpoints.</>}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import PrivacyNote from './PrivacyNote';
+import EmptyState from './EmptyState';
 
 const EMPTY: FinancesInfo = { banks: [], insurance: [], benefits: [] };
 
@@ -138,10 +139,7 @@ function BankAccountsSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <div className="text-center py-8 px-4 rounded-2xl bg-clay-50">
-          <p className="text-[13px] text-clay-600 font-medium">No bank accounts yet</p>
-          <p className="text-[12px] text-clay-500 mt-1">IBAN, BIC, account details…</p>
-        </div>
+        <EmptyState size="sm" title="No bank accounts yet" description="IBAN, BIC, account details…" />
       ) : (
         <div className="space-y-2.5">
           {entries.map(e => editId === e.id ? (
@@ -247,10 +245,7 @@ function BenefitsSection({ entries, onAdd, onUpdate, onDelete }: {
       )}
 
       {entries.length === 0 && !adding ? (
-        <div className="text-center py-8 px-4 rounded-2xl bg-clay-50">
-          <p className="text-[13px] text-clay-600 font-medium">No benefits yet</p>
-          <p className="text-[12px] text-clay-500 mt-1">Familienbeihilfe, child benefit, subsidies…</p>
-        </div>
+        <EmptyState size="sm" title="No benefits yet" description="Familienbeihilfe, child benefit, subsidies…" />
       ) : (
         <div className="space-y-2.5">
           {entries.map(e => editId === e.id ? (

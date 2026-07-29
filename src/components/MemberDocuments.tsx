@@ -13,6 +13,7 @@ import { compileImageToPdf } from '../utils/pdfCompile';
 import PdfThumbnail from './PdfThumbnail';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import EmptyState from './EmptyState';
 
 interface MemberDocumentsProps {
   member: FamilyMember;
@@ -632,34 +633,22 @@ export default function MemberDocuments({
           )}
 
           {allDocs.length === 0 ? (
-            <div className="text-center py-16 px-4 rounded-2xl border border-dashed border-cream-300 bg-clay-50">
-              <div className="w-12 h-12 bg-clay-100 text-clay-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                <FileImage className="w-6 h-6" />
-              </div>
-              <p className="text-[13px] font-semibold text-clay-900">No documents stored yet</p>
-              <p className="text-[13px] text-clay-700 mt-1">
-                Upload a scan, photo, or certificate to organise {member.name}'s records.
-              </p>
-            </div>
+            <EmptyState
+              icon={FileImage}
+              title="No documents stored yet"
+              description={`Upload a scan, photo, or certificate to organise ${member.name}'s records.`}
+              dashed
+            />
           ) : visibleDocs.length === 0 ? (
             /* Never hide documents silently: say which filter is on and how
                many documents it is holding back. */
-            <div className="text-center py-16 px-4 rounded-2xl border border-dashed border-cream-300 bg-cream-50">
-              <div className="w-12 h-12 bg-cream-200 text-ink-500 rounded-2xl flex items-center justify-center mx-auto mb-3">
-                <FileImage className="w-6 h-6" />
-              </div>
-              <p className="text-[13px] font-semibold text-ink-900">Nothing filed under “{archiveFilter}”</p>
-              <p className="text-[13px] text-ink-500 mt-1">
-                {hiddenCount} other {hiddenCount === 1 ? 'document is' : 'documents are'} hidden by this filter.
-              </p>
-              <button
-                type="button"
-                onClick={() => setArchiveFilter('All')}
-                className="btn-quiet text-xs px-3 py-1.5 mt-3 mx-auto"
-              >
-                Show all {allDocs.length}
-              </button>
-            </div>
+            <EmptyState
+              icon={FileImage}
+              title={`Nothing filed under “${archiveFilter}”`}
+              description={`${hiddenCount} other ${hiddenCount === 1 ? 'document is' : 'documents are'} hidden by this filter.`}
+              action={{ label: `Show all ${allDocs.length}`, onClick: () => setArchiveFilter('All') }}
+              dashed
+            />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {visibleDocs.map((doc) => {

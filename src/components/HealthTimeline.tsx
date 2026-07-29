@@ -6,6 +6,7 @@ import {
 import { FamilyMember, CalendarEvent, CareSchedule } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import EmptyState from './EmptyState';
 
 interface Props {
   members: FamilyMember[];
@@ -234,14 +235,12 @@ export default function HealthTimeline({ members, events, onClose }: Props) {
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 print:overflow-visible">
             {!child ? (
-              <div className="card p-8 sm:p-10 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-clay-50 flex items-center justify-center mx-auto mb-4">
-                  <Users className="w-6 h-6 text-clay-600" />
-                </div>
-                <p className="text-sm font-semibold text-ink-800">No children added yet</p>
-                <p className="text-[13px] text-ink-400 mt-1.5 max-w-sm mx-auto leading-relaxed">
-                  Add a family member with the &ldquo;Child&rdquo; role to start building a health timeline.
-                </p>
+              <div className="card">
+                <EmptyState
+                  icon={Users}
+                  title="No children added yet"
+                  description={<>Add a family member with the &ldquo;Child&rdquo; role to start building a health timeline.</>}
+                />
               </div>
             ) : (
               <>
@@ -299,16 +298,13 @@ export default function HealthTimeline({ members, events, onClose }: Props) {
 
                 {/* Timeline */}
                 {items.length === 0 ? (
-                  <div className="card p-8 sm:p-10 text-center">
-                    <div className="w-14 h-14 rounded-2xl bg-rosa-50 flex items-center justify-center mx-auto mb-4">
-                      <HeartPulse className="w-6 h-6 text-rosa-500" />
-                    </div>
-                    <p className="text-sm font-semibold text-ink-800">
-                      No health history for {firstName(child.name)} yet
-                    </p>
-                    <p className="text-[13px] text-ink-400 mt-1.5 max-w-sm mx-auto leading-relaxed">
-                      Log a growth check-in or a care-schedule visit and it will appear here as a timeline.
-                    </p>
+                  <div className="card">
+                    <EmptyState
+                      icon={HeartPulse}
+                      tone="rosa"
+                      title={`No health history for ${firstName(child.name)} yet`}
+                      description="Log a growth check-in or a care-schedule visit and it will appear here as a timeline."
+                    />
                   </div>
                 ) : (
                   <div className="relative">

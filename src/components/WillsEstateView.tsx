@@ -75,8 +75,7 @@ function toFamilyDoc(v: VaultDocument): FamilyDocument {
 }
 
 export default function WillsEstateView({ members, refreshKey = 0 }: { members: FamilyMember[]; refreshKey?: number }) {
-  const { canWrite: _canWriteReal, familyId } = useFamilyCtx();
-  const canWrite = true; // TEMP-QA — reverted before handoff, see agent report
+  const { canWrite, familyId } = useFamilyCtx();
   const [records, setRecords] = useState<EstateRecord[]>([]);
   // Who takes over, and the "if something happens to you" material that
   // doesn't belong to one specific document (see EmergencyInstructions in

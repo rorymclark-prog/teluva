@@ -8,6 +8,7 @@ import {
 import type { FamilyMember, CalendarEvent, IdCountry } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import EmergencyNumbersBanner from './EmergencyNumbersBanner';
+import EmptyState from './EmptyState';
 
 // A compact, self-contained plain-text ICE summary encoded into the QR so a
 // first responder can scan it with any phone camera — no app, no network. Kept
@@ -172,9 +173,12 @@ export default function EmergencyCard({
         </div>
 
         {!selected ? (
-          <div className="p-10 text-center">
-            <p className="text-sm font-semibold text-ink-700">No family members yet.</p>
-            <p className="text-[13px] text-ink-400 mt-1">Add a member and their medical info to build an emergency card.</p>
+          <div className="p-6">
+            <EmptyState
+              size="sm"
+              title="No family members yet."
+              description="Add a member and their medical info to build an emergency card."
+            />
           </div>
         ) : (
           <>

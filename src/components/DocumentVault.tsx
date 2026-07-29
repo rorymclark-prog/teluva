@@ -14,6 +14,7 @@ import { canShare, shareMultiple, downloadZip } from '../utils/share';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import PdfThumbnail from './PdfThumbnail';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import { SkeletonHeader, SkeletonRows } from './Skeleton';
 
 const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
 
@@ -715,8 +716,13 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
 
   if (!loaded) {
     return (
-      <div className="card flex items-center justify-center py-24">
-        <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-clay-500" />
+      <div className="space-y-6 font-sans">
+        <div className="card p-5 sm:p-6">
+          <SkeletonHeader />
+        </div>
+        <div className="card p-4 sm:p-5">
+          <SkeletonRows rows={5} />
+        </div>
       </div>
     );
   }

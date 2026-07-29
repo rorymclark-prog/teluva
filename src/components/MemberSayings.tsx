@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Quote, Plus, X, Trash2, Pencil, Star, CalendarDays } from 'lucide-react';
 import { FamilyMember, Saying } from '../types';
 import { ageLabelAt, todayISO } from '../utils/age';
+import EmptyState from './EmptyState';
 
 interface Props {
   member: FamilyMember;
@@ -113,16 +114,13 @@ export default function MemberSayings({ member, onUpdateMember, canEdit = false 
 
       {/* List */}
       {sorted.length === 0 ? (
-        <div className="text-center py-14 border border-dashed border-cream-300 rounded-2xl bg-cream-50 space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-clay-50 text-clay-500 border border-clay-100 flex items-center justify-center mx-auto">
-            <Quote className="w-6 h-6" />
-          </div>
-          <div className="max-w-sm mx-auto space-y-1">
-            <h4 className="text-[13px] font-semibold text-ink-800">No sayings yet</h4>
-            <p className="text-[13px] text-ink-400 leading-relaxed">Kids say the best things — and forget them by next week. Catch one here and you&apos;ll have it forever.</p>
-          </div>
-          {canWrite && <button onClick={openAdd} className="btn-primary mx-auto">Add {first}&apos;s first saying</button>}
-        </div>
+        <EmptyState
+          icon={Quote}
+          title="No sayings yet"
+          description="Kids say the best things — and forget them by next week. Catch one here and you'll have it forever."
+          action={canWrite ? { label: `Add ${first}'s first saying`, onClick: openAdd } : undefined}
+          dashed
+        />
       ) : (
         <div className="space-y-3">
           {sorted.map((s) => {

@@ -7,6 +7,7 @@ import RemoteChangeHint from './RemoteChangeHint';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import SheetGrabber from './SheetGrabber';
+import EmptyState from './EmptyState';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -208,21 +209,12 @@ export default function RecipeBook() {
         {/* List */}
         <div className="p-4 sm:p-5">
           {recipes.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
-                <ChefHat className="w-8 h-8" />
-              </div>
-              <p className="text-[14px] font-medium text-ink-700">No recipes yet</p>
-              <p className="text-[12px] text-ink-500 mt-1">
-                Photograph a recipe card, or tell the assistant one to file it here
-              </p>
-              {canWrite && (
-                <button onClick={openNewForm} className="btn-primary mt-5 text-xs px-4 py-2">
-                  <Plus className="w-3.5 h-3.5" />
-                  Add a recipe
-                </button>
-              )}
-            </div>
+            <EmptyState
+              icon={ChefHat}
+              title="No recipes yet"
+              description="Photograph a recipe card, or tell the assistant one to file it here"
+              action={canWrite ? { label: 'Add a recipe', onClick: openNewForm, icon: Plus } : undefined}
+            />
           ) : (
             <div className="space-y-1">
               {sorted.map(r => (
@@ -339,7 +331,7 @@ export default function RecipeBook() {
                 </div>
               )}
               {viewing.ingredients.length === 0 && viewing.steps.length === 0 && (
-                <p className="text-[13px] text-ink-400">No ingredients or steps recorded yet.</p>
+                <EmptyState size="sm" title="No ingredients or steps recorded yet" />
               )}
             </div>
           </div>

@@ -2,13 +2,14 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, ShieldCheck, AlertTriangle, Pill, Stethoscope, Phone, GraduationCap,
-  Printer, Baby, Home, CalendarClock, NotebookPen, CheckCircle2,
+  Printer, Baby, Home, CalendarClock, NotebookPen,
   Link2, Copy, Check, Loader2, Clock,
 } from 'lucide-react';
 import type { ElementType } from 'react';
 import { FamilyMember, CalendarEvent, IdCountry } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import EmergencyNumbersBanner from './EmergencyNumbersBanner';
+import EmptyState from './EmptyState';
 import { auth } from '../lib/firebase';
 import { createCarerShare, revokeCarerShare, type CarerShareSnapshot } from '../utils/db';
 
@@ -221,9 +222,8 @@ export default function BabysitterMode({ members, events, country, onClose }: Pr
 
             {/* Children cards */}
             {children.length === 0 ? (
-              <div className="card p-8 text-center">
-                <p className="text-sm font-semibold text-ink-800">No children added yet</p>
-                <p className="text-[13px] text-ink-400 mt-1">Add a child profile to build their handover sheet here.</p>
+              <div className="card">
+                <EmptyState title="No children added yet" description="Add a child profile to build their handover sheet here." />
               </div>
             ) : (
               <div className="space-y-4">
@@ -389,10 +389,7 @@ function ChildCard({ child }: { child: FamilyMember }) {
           <p className="text-[15px] font-bold text-rosa-700 leading-snug">{med.allergies}</p>
         </div>
       ) : (
-        <div className="p-3 rounded-2xl bg-sage-50 border border-sage-100 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-sage-700 shrink-0" />
-          <p className="text-[13px] font-medium text-sage-700">No allergies on file for {first}.</p>
-        </div>
+        <EmptyState size="sm" title={`No allergies on file for ${first}.`} />
       )}
 
       {/* Emergency medication — equally safety-critical */}
@@ -444,7 +441,7 @@ function ChildCard({ child }: { child: FamilyMember }) {
       )}
 
       {!hasAnything && (
-        <p className="text-[13px] text-ink-400 text-center py-2">No carer notes on file for {first} yet.</p>
+        <EmptyState size="sm" title={`No carer notes on file for ${first} yet.`} />
       )}
     </div>
   );

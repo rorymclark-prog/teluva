@@ -6,6 +6,7 @@ import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { vehicleDeadlines, vehicleLabel, VehicleDeadline } from '../utils/vehicle';
 import SheetGrabber from './SheetGrabber';
+import EmptyState from './EmptyState';
 
 const FUEL_TYPES = ['Petrol', 'Diesel', 'Electric', 'Hybrid', 'Plug-in Hybrid', 'LPG', 'Other'];
 const DEADLINE_WINDOW = 42; // days
@@ -198,12 +199,13 @@ export default function VehiclesView(
       <div className="card overflow-hidden">
         <div className="p-4 sm:p-5">
           {sorted.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-dusk-50 text-dusk-600 flex items-center justify-center"><Car className="w-8 h-8" /></div>
-              <p className="text-[14px] font-medium text-ink-700">No vehicles yet</p>
-              <p className="text-[12px] text-ink-500 mt-1">Car, motorbike, e-bike… track inspection, insurance &amp; service.</p>
-              {canEdit && <button onClick={openNew} className="btn-primary mt-5 text-xs px-4 py-2"><Plus className="w-3.5 h-3.5" /> Add vehicle</button>}
-            </div>
+            <EmptyState
+              icon={Car}
+              tone="dusk"
+              title="No vehicles yet"
+              description="Car, motorbike, e-bike… track inspection, insurance & service."
+              action={canEdit ? { label: 'Add vehicle', onClick: openNew, icon: Plus } : undefined}
+            />
           ) : (
             <div className="space-y-1">
               {sorted.map((vehicle) => {

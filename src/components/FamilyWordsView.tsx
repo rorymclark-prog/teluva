@@ -4,6 +4,7 @@ import { FamilyMember, FamilyWord } from '../types';
 import { loadFamilyWords, saveFamilyWords } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
+import EmptyState from './EmptyState';
 import { ageLabelAt, todayISO } from '../utils/age';
 
 const newId = () => 'word-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -170,12 +171,13 @@ export default function FamilyWordsView({ members, canEdit = false, demo = false
       <div className="card overflow-hidden">
         <div className="p-4 sm:p-5">
           {sorted.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-dusk-50 text-dusk-600 flex items-center justify-center"><BookHeart className="w-8 h-8" /></div>
-              <p className="text-[14px] font-medium text-ink-700">No family words yet</p>
-              <p className="text-[12px] text-ink-500 mt-1">Every family invents a few — the mangled words that stuck.</p>
-              {canWrite && <button onClick={openAdd} className="btn-primary mt-5 text-xs px-4 py-2"><Plus className="w-3.5 h-3.5" /> Add your first word</button>}
-            </div>
+            <EmptyState
+              icon={BookHeart}
+              tone="dusk"
+              title="No family words yet"
+              description="Every family invents a few — the mangled words that stuck."
+              action={canWrite ? { label: 'Add your first word', onClick: openAdd, icon: Plus } : undefined}
+            />
           ) : (
             <div className="space-y-1">
               {sorted.map((w) => {

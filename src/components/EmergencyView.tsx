@@ -3,9 +3,10 @@ import { FamilyMember, IdCountry } from '../types';
 import { calculateAge } from './Dashboard';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import EmergencyNumbersBanner from './EmergencyNumbersBanner';
+import EmptyState from './EmptyState';
 import {
   Phone, Heart, AlertTriangle, Pill, Activity,
-  UserCheck, CreditCard, Leaf, Users, Briefcase
+  CreditCard, Leaf, Users, Briefcase
 } from 'lucide-react';
 
 interface EmergencyViewProps {
@@ -20,15 +21,12 @@ export default function EmergencyView({ members, country }: EmergencyViewProps) 
     return (
       <div className="space-y-6 font-sans max-w-lg mx-auto mt-8">
         <EmergencyNumbersBanner country={country} />
-        <div className="card p-10 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-4">
-            <Users className="w-6 h-6" />
-          </div>
-          <h2 className="font-display text-2xl font-semibold text-ink-900 mb-2">No members yet</h2>
-          <p className="text-sm text-ink-500 leading-relaxed">
-            Add family members and fill in their medical info first — the emergency sheet will
-            populate automatically from that data.
-          </p>
+        <div className="card">
+          <EmptyState
+            icon={Users}
+            title="No members yet"
+            description="Add family members and fill in their medical info first — the emergency sheet will populate automatically from that data."
+          />
         </div>
       </div>
     );
@@ -256,10 +254,7 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
         !hasContact &&
         !hasEmployer &&
         !hasIdentity && (
-          <div className="flex flex-col items-center gap-2 text-[13px] text-ink-400 py-3 px-3 rounded-2xl bg-cream-50">
-            <UserCheck className="w-4 h-4 shrink-0" />
-            <span>No medical or emergency data on file yet — edit this profile to add it.</span>
-          </div>
+          <EmptyState size="sm" title="No medical or emergency data on file yet — edit this profile to add it." />
         )}
     </div>
   );

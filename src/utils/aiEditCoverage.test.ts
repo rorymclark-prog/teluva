@@ -87,7 +87,42 @@ const nestedCollections = [
 // special-casing the regex for one field.
 const MANUALLY_INCLUDED_FIELDS = ['cv'];
 
-const discoveredFields = [...topLevelCollections, ...nestedCollections, ...MANUALLY_INCLUDED_FIELDS];
+// --- Step 2b: family-level shared documents --------------------------------
+// The same bug class does not stop at FamilyMember. A shared reference doc
+// (families/{id}/reference/{key}) grows new sections exactly the same way, and
+// they are just as invisible to the assistant when nobody adds an edit kind —
+// `successor` and `instructions` on WillsEstateDoc shipped that way on
+// 2026-07-29 and had to be wired afterwards.
+//
+// These docs hold single structured records as often as they hold arrays
+// (WillsEstateDoc.successor is one object, not a list), so unlike step 1 this
+// pass also picks up fields typed by a PascalCase interface of our own — while
+// deliberately ignoring scalars (string/number/boolean) and Record<> maps,
+// which are settings rather than the accumulating sections this bug hits.
+// Add a doc name here when it grows the kind of section a user would expect to
+// fill by talking to the assistant.
+const SHARED_DOC_INTERFACES = ['WillsEstateDoc'];
+
+function extractRecordFields(body: string): string[] {
+  const out: string[] = [];
+  // `name?: Thing[];` or `name?: Thing;` where Thing is one of our interfaces
+  // (PascalCase). Lowercase primitives and `Record<...>` don't match.
+  const re = /^\s*(\w+)\??:\s*([A-Z]\w*)(\[\])?;/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) out.push(m[1]);
+  return out;
+}
+
+const sharedDocCollections = SHARED_DOC_INTERFACES.flatMap((docName) =>
+  extractRecordFields(extractInterfaceBody(typesSrc, docName)).map((f) => `${docName}.${f}`),
+);
+
+const discoveredFields = [
+  ...topLevelCollections,
+  ...nestedCollections,
+  ...sharedDocCollections,
+  ...MANUALLY_INCLUDED_FIELDS,
+];
 
 // --- Step 3: pull `kind: '...'` literals out of the AiEdit union ----------
 
@@ -160,6 +195,15 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // Was the third instance of the AI-invisible-section bug, and the first one
   // this test caught rather than a user. Wired up the same day it was found.
   'travel.visas': covered('visa'),
+
+  // --- Family-level shared documents (step 2b) ---------------------------
+  'WillsEstateDoc.records': covered('estate_record'),
+  // successor and instructions were the fourth and fifth instances of this bug
+  // class: both shipped as UI-only fields, so a user could type them into Wills
+  // & Estate but the assistant could not file a word of it. Wired 2026-07-29,
+  // which is also why step 2b exists at all.
+  'WillsEstateDoc.successor': covered('designated_successor'),
+  'WillsEstateDoc.instructions': covered('emergency_instructions'),
 };
 
 // timelapseGuide is NOT a collection (TimelapseGuide is a single fixed-shape

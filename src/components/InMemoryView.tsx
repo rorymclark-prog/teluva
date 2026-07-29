@@ -15,6 +15,7 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 import DocumentViewer from './DocumentViewer';
 import SheetGrabber from './SheetGrabber';
+import EmptyState from './EmptyState';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -373,21 +374,12 @@ export default function InMemoryView() {
         {/* List */}
         <div className="p-4 sm:p-5">
           {people.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-cream-100 text-ink-400 flex items-center justify-center">
-                <Flower2 className="w-8 h-8" />
-              </div>
-              <p className="text-[14px] font-medium text-ink-700">No one archived here yet</p>
-              <p className="text-[12px] text-ink-500 mt-1 max-w-xs mx-auto">
-                Keep a parent's or grandparent's certificates, papers and a few things worth remembering, all in one place.
-              </p>
-              {canWrite && (
-                <button onClick={openNewForm} className="btn-primary mt-5 text-xs px-4 py-2">
-                  <Plus className="w-3.5 h-3.5" />
-                  Add someone
-                </button>
-              )}
-            </div>
+            <EmptyState
+              icon={Flower2}
+              title="No one archived here yet"
+              description="Keep a parent's or grandparent's certificates, papers and a few things worth remembering, all in one place."
+              action={canWrite ? { label: 'Add someone', onClick: openNewForm, icon: Plus } : undefined}
+            />
           ) : (
             <div className="space-y-1">
               {sorted.map(p => (

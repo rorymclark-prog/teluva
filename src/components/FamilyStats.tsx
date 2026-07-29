@@ -7,6 +7,7 @@ import {
 import { motion } from 'motion/react';
 import { FamilyMember, CalendarEvent } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
+import EmptyState from './EmptyState';
 
 // ── Small, dependency-free helpers (this file owns all its own math) ───────
 
@@ -471,15 +472,11 @@ export default function FamilyStats({ members, events, onClose }: {
 
         <div className="p-5 sm:p-7 max-h-[calc(100dvh-9rem)] sm:max-h-[calc(100dvh-11rem)] overflow-y-auto print:max-h-none print:overflow-visible">
           {isEmpty ? (
-            <div className="p-8 sm:p-10 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-clay-50 flex items-center justify-center mx-auto mb-4">
-                <Sparkles className="w-6 h-6 text-clay-600" />
-              </div>
-              <p className="text-sm font-semibold text-ink-800">No family members yet</p>
-              <p className="text-[13px] text-ink-400 mt-1.5 max-w-sm mx-auto leading-relaxed">
-                Add a few people to the hub and this screen fills up with fun facts and family records.
-              </p>
-            </div>
+            <EmptyState
+              icon={Sparkles}
+              title="No family members yet"
+              description="Add a few people to the hub and this screen fills up with fun facts and family records."
+            />
           ) : (
             <>
               {/* People selector */}
@@ -548,7 +545,7 @@ export default function FamilyStats({ members, events, onClose }: {
                       {personTiles.map((t, i) => <StatTile key={i} {...t} />)}
                     </div>
                   ) : (
-                    <p className="text-[13px] text-ink-400 text-center py-6">Nothing on file for {firstName(selectedMember.name)} yet.</p>
+                    <EmptyState size="sm" title={`Nothing on file for ${firstName(selectedMember.name)} yet.`} />
                   )}
 
                   {personOneLiner && (

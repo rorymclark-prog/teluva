@@ -5,6 +5,7 @@ import {
   Stethoscope, Plus, Pencil, Check, X,
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import EmptyState from './EmptyState';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
@@ -224,9 +225,10 @@ export default function CareSchedule({ member, onUpdate }: CareScheduleProps) {
         )}
 
         {items.length === 0 && !adding ? (
-          <p className="text-[13px] text-ink-400 py-6 text-center">
-            No appointments tracked yet — add a dentist, check-up, or eye test and we'll work out when the next one is due.
-          </p>
+          <EmptyState
+            size="sm"
+            title="No appointments tracked yet — add a dentist, check-up, or eye test and we'll work out when the next one is due."
+          />
         ) : (
           <div className="space-y-2.5">
             {items.map(item =>

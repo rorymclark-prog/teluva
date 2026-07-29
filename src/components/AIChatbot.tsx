@@ -100,6 +100,15 @@ export type AiEdit =
       fileDocumentId?: string; // client-only — stamped after the attached CV photo/PDF is filed; the model never supplies this
     }
   | { kind: 'estate_record'; docKind: string; forMember?: string; originalLocation?: string; heldBy?: string; notaryName?: string; notaryPhone?: string; executor?: string; lastReviewed?: string; notes?: string }
+  // Who takes over, and the instructions for whoever finds this. Store-and-recall
+  // only, exactly like estate_record — the assistant records the stated intent and
+  // never advises on it. Whether the named successor can actually sign in is
+  // COMPUTED from the live roles collection at render time (utils/successor.ts),
+  // never taken from what the AI wrote here.
+  | { kind: 'designated_successor'; name: string; whatTheyShouldDo?: string }
+  | { kind: 'emergency_instructions'; keysAndSafes?: string; letter?: string;
+      notifyContacts?: { name: string; relation?: string; phone?: string; email?: string; notes?: string }[];
+      accountsToClose?: { name: string; accountRef?: string; notes?: string }[] }
   // Append one or more service/repair records — read from a service booklet,
   // workshop invoice, or stamped maintenance page — onto an EXISTING vehicle's
   // serviceLog. The vehicle is matched (client-side, in aiApply) by VIN, then
@@ -1919,6 +1928,15 @@ function describeEdit(e: AiEdit): string {
     return `${e.member}: update CV${parts ? ` — ${parts}` : ''}`;
   }
   if (e.kind === 'estate_record') return `Save ${e.docKind}${e.forMember ? ` for ${e.forMember}` : ''}${e.originalLocation ? ` — original at ${e.originalLocation}` : ''}`;
+  if (e.kind === 'designated_successor') return `Record ${e.name} as the person who takes over`;
+  if (e.kind === 'emergency_instructions') {
+    const bits: string[] = [];
+    if (e.keysAndSafes) bits.push('where the keys are');
+    if (e.letter) bits.push('a letter');
+    if (e.notifyContacts?.length) bits.push(`${e.notifyContacts.length} to tell`);
+    if (e.accountsToClose?.length) bits.push(`${e.accountsToClose.length} to close`);
+    return `Save emergency instructions${bits.length ? ` — ${bits.join(', ')}` : ''}`;
+  }
   if (e.kind === 'service_record') {
     const n = e.records?.length || 0;
     const tgt = e.plate || e.vehicle || e.vin || 'the vehicle';

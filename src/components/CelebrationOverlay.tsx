@@ -289,7 +289,7 @@ export default function CelebrationOverlay({ members }: { members: FamilyMember[
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-ink-900/40 backdrop-blur-sm cursor-pointer"
+      className="anim-fade fixed inset-0 z-[60] flex items-center justify-center p-6 bg-ink-900/40 backdrop-blur-sm cursor-pointer"
       onClick={dismiss}
       role="dialog"
       aria-label="Celebration"
@@ -301,7 +301,7 @@ export default function CelebrationOverlay({ members }: { members: FamilyMember[
         />
       )}
       <div
-        className="relative card max-w-sm w-full text-center px-7 py-8 shadow-xl"
+        className="anim-pop relative card max-w-sm w-full text-center px-7 py-8 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <button

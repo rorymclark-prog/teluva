@@ -106,8 +106,12 @@
      the surrounding text happened to be. Darkest step of the ramp. */
   --color-rosa-800: #9F1239;
 
-  /* Signature avatar ring: amber → ember → magenta (Instagram story-ring technique) */
-  --gradient-ring: linear-gradient(45deg, #FFC24B 0%, #EA5A3B 45%, #C13584 100%);
+  /* Signature avatar ring: amber → ember → rose, all in-palette (honey-300 →
+     clay-500 → rosa-600). Used to render #FFC24B → #EA5A3B → #C13584, which is
+     Instagram's story-ring gradient verbatim, including their exact magenta —
+     someone else's brand identity, not ours. This stays warm end-to-end
+     instead of rotating into purple/magenta. */
+  --gradient-ring: linear-gradient(45deg, #EFC97E 0%, #EA5A3B 45%, #CF1740 100%);
 
   --shadow-soft: 0 1px 2px rgba(28, 25, 23, 0.05);
   --shadow-lift: 0 4px 12px rgba(28, 25, 23, 0.07), 0 12px 32px rgba(28, 25, 23, 0.07);
@@ -281,6 +285,17 @@
   50% { box-shadow: 0 0 0 5px rgba(234, 90, 59, 0); }
 }
 .anim-pulse-soft { animation: fv-pulse-soft 1.8s var(--ease-out) infinite; }
+
+/* Skeleton loading — a soft left-to-right sheen sweep, never `animate-pulse`'s
+   opacity flash. Used by <Skeleton> (src/components/Skeleton.tsx) to stand in
+   for content that's still loading, roughly the shape of what's about to
+   render, so arrival doesn't shove the layout around. */
+@keyframes fv-skeleton { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.skeleton {
+  background: linear-gradient(90deg, var(--color-cream-200) 25%, var(--color-cream-100) 40%, var(--color-cream-200) 60%);
+  background-size: 400% 100%;
+  animation: fv-skeleton 1.6s ease-in-out infinite;
+}
 
 /* AI streaming shimmer (text sweep) */
 @keyframes fv-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }

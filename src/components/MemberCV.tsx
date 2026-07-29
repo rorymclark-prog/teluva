@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import PdfThumbnail from './PdfThumbnail';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import EmptyState from './EmptyState';
 
 const newId = () => 'cv-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -205,7 +206,7 @@ function TagEditor({ values, onChange, placeholder, canEdit }: { values: string[
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
-        {values.length === 0 && <span className="text-[13px] text-ink-400">None added yet</span>}
+        {values.length === 0 && <EmptyState size="sm" title="None added yet" />}
         {values.map(v => (
           <span key={v} className="chip bg-cream-200 text-ink-700 flex items-center gap-1">
             {v}
@@ -412,10 +413,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
             </div>
           </div>
         ) : (
-          <div className="text-center py-8 px-4 rounded-2xl border border-dashed border-cream-300 bg-clay-50">
-            <FileImage className="w-6 h-6 mx-auto mb-2 text-clay-500" />
-            <p className="text-[13px] text-clay-700">No CV filed yet</p>
-          </div>
+          <EmptyState icon={FileImage} title="No CV filed yet" dashed />
         )}
         <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden"
           onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); e.target.value = ''; }} />
@@ -453,7 +451,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
         </div>
         {addingRole && <RoleForm onSave={saveRole} onCancel={() => setAddingRole(false)} />}
         {roles.length === 0 && !addingRole ? (
-          <p className="text-[13px] text-ink-400 text-center py-6">No previous roles added yet.</p>
+          <EmptyState size="sm" title="No previous roles added yet." />
         ) : (
           <div className="space-y-2.5">
             {roles.map(r => editRoleId === r.id ? (
@@ -496,7 +494,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
         </div>
         {addingEdu && <EducationForm onSave={saveEdu} onCancel={() => setAddingEdu(false)} />}
         {education.length === 0 && !addingEdu ? (
-          <p className="text-[13px] text-ink-400 text-center py-6">No education added yet.</p>
+          <EmptyState size="sm" title="No education added yet." />
         ) : (
           <div className="space-y-2.5">
             {education.map(e => editEduId === e.id ? (
@@ -538,7 +536,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
         </p>
         {addingQual && <QualificationForm onSave={saveQual} onCancel={() => setAddingQual(false)} />}
         {qualifications.length === 0 && !addingQual ? (
-          <p className="text-[13px] text-ink-400 text-center py-6">No certificates or qualifications added yet.</p>
+          <EmptyState size="sm" title="No certificates or qualifications added yet." />
         ) : (
           <div className="space-y-2.5">
             {qualifications.map(q => editQualId === q.id ? (

@@ -9,6 +9,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import SheetGrabber from './SheetGrabber';
+import EmptyState from './EmptyState';
 
 interface MemberFavoritesProps {
   member: FamilyMember;
@@ -685,7 +686,7 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
                       {item.notes}
                     </p>
                   ) : (
-                    <p className="text-[12px] text-ink-400 italic mt-1">No notes logged yet.</p>
+                    <EmptyState size="sm" title="No notes logged yet." className="italic mt-1" />
                   )}
                 </div>
 

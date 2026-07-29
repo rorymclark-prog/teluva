@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Feather, Plus, X, Trash2, Pencil } from 'lucide-react';
 import { FamilyMember, FavoriteQuote } from '../types';
+import EmptyState from './EmptyState';
 
 interface Props {
   member: FamilyMember;
@@ -111,16 +112,13 @@ export default function MemberFavoriteQuotes({ member, onUpdateMember, canEdit =
 
       {/* List */}
       {sorted.length === 0 ? (
-        <div className="text-center py-14 border border-dashed border-cream-300 rounded-2xl bg-cream-50 space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-dusk-50 text-dusk-500 border border-dusk-100 flex items-center justify-center mx-auto">
-            <Feather className="w-6 h-6" />
-          </div>
-          <div className="max-w-sm mx-auto space-y-1">
-            <h4 className="text-[13px] font-semibold text-ink-800">No favorite quotes yet</h4>
-            <p className="text-[13px] text-ink-400 leading-relaxed">A line from a book, a lyric, something Grandma always says — the words {first} keeps coming back to.</p>
-          </div>
-          {canWrite && <button onClick={openAdd} className="btn-primary mx-auto">Add {first}&apos;s first favorite quote</button>}
-        </div>
+        <EmptyState
+          icon={Feather}
+          dashed
+          title="No favorite quotes yet"
+          description={<>A line from a book, a lyric, something Grandma always says — the words {first} keeps coming back to.</>}
+          action={canWrite ? { label: `Add ${first}'s first favorite quote`, onClick: openAdd } : undefined}
+        />
       ) : (
         <div className="space-y-3">
           {sorted.map((q) => (

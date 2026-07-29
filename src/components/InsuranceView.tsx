@@ -12,6 +12,7 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import { INSURANCE_READER_ENABLED } from '../config/features';
 import { isFuneralPolicy, inWaitingPeriod, daysUntilWaitingPeriodEnd } from '../utils/funeralCover';
 import SheetGrabber from './SheetGrabber';
+import EmptyState from './EmptyState';
 
 const OBLIGATION_TOPICS = ['Lock', 'Storage', 'Travel', 'Safety', 'Deadline', 'Documents', 'General'] as const;
 
@@ -394,14 +395,12 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
       <div className="card overflow-hidden">
         <div className="p-4 sm:p-5">
           {sortedPolicies.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
-                <Shield className="w-8 h-8" />
-              </div>
-              <p className="text-[14px] font-medium text-ink-700">No insurance policies yet</p>
-              <p className="text-[12px] text-ink-500 mt-1">Home, health, car, travel, life…</p>
-              <button onClick={openNewForm} className="btn-primary mt-5 text-xs px-4 py-2"><Plus className="w-3.5 h-3.5" /> Add policy</button>
-            </div>
+            <EmptyState
+              icon={Shield}
+              title="No insurance policies yet"
+              description="Home, health, car, travel, life…"
+              action={{ label: 'Add policy', onClick: openNewForm, icon: Plus }}
+            />
           ) : (
             <div className="space-y-1">
               {sortedPolicies.map(policy => {
@@ -679,7 +678,7 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
                   <Users className="w-3.5 h-3.5" /> Covered people
                 </label>
                 {members.length === 0 ? (
-                  <p className="text-[12px] text-ink-400">No family members yet.</p>
+                  <EmptyState size="sm" title="No family members yet." />
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {members.map(m => {
@@ -705,7 +704,7 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
                   <Package className="w-3.5 h-3.5" /> Covered items
                 </label>
                 {assets.length === 0 ? (
-                  <p className="text-[12px] text-ink-400">No assets yet — add them in Assets.</p>
+                  <EmptyState size="sm" title="No assets yet — add them in Assets." />
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {assets.map(a => {

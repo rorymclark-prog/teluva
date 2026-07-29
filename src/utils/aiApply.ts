@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
@@ -555,6 +555,78 @@ export function applyEstateEdits(records: EstateRecord[], edits: AiEdit[]): Esta
     });
   }
   return [...records, ...added];
+}
+
+// --- Who takes over, and what to do (siblings of `records` on WillsEstateDoc) ---
+// Same store-and-recall boundary as applyEstateEdits: record what the user says,
+// never advise. `successor` is a single record, so it is LAST-WRITE-WINS —
+// naming a new person replaces the old one rather than accumulating, which is
+// what "who takes over" means. `instructions` patches its scalars and APPENDS to
+// its two lists, so saying "also tell my landlord" adds rather than replaces.
+export const hasSuccessorEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'designated_successor');
+
+export function applySuccessorEdit(
+  current: DesignatedSuccessor | undefined,
+  edits: AiEdit[],
+): DesignatedSuccessor | undefined {
+  let next = current;
+  for (const e of edits) {
+    if (e.kind !== 'designated_successor') continue;
+    const name = (e.name || '').trim();
+    if (!name) continue;
+    next = {
+      name,
+      // Keep the existing brief when the user only renames the person.
+      whatTheyShouldDo: e.whatTheyShouldDo?.trim() || (name === current?.name ? current?.whatTheyShouldDo || '' : ''),
+      memberId: name === current?.name ? current?.memberId : undefined,
+      setAt: new Date().toISOString(),
+    };
+  }
+  return next;
+}
+
+export const hasInstructionsEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'emergency_instructions');
+
+export function applyInstructionsEdit(
+  current: EmergencyInstructions | undefined,
+  edits: AiEdit[],
+): EmergencyInstructions | undefined {
+  let next: EmergencyInstructions | undefined = current;
+  for (const e of edits) {
+    if (e.kind !== 'emergency_instructions') continue;
+    const base: EmergencyInstructions = next ? { ...next } : {};
+    if (e.keysAndSafes?.trim()) base.keysAndSafes = e.keysAndSafes.trim();
+    if (e.letter?.trim()) base.letter = e.letter.trim();
+    const contacts = (e.notifyContacts || []).filter(c => c && (c.name || '').trim());
+    if (contacts.length) {
+      base.notifyContacts = [
+        ...(base.notifyContacts || []),
+        ...contacts.map(c => ({
+          id: newId(),
+          name: c.name.trim(),
+          relation: c.relation?.trim() || undefined,
+          phone: c.phone?.trim() || undefined,
+          email: c.email?.trim() || undefined,
+          notes: c.notes?.trim() || undefined,
+        })),
+      ];
+    }
+    const accounts = (e.accountsToClose || []).filter(a => a && (a.name || '').trim());
+    if (accounts.length) {
+      base.accountsToClose = [
+        ...(base.accountsToClose || []),
+        ...accounts.map(a => ({
+          id: newId(),
+          name: a.name.trim(),
+          accountRef: a.accountRef?.trim() || undefined,
+          notes: a.notes?.trim() || undefined,
+        })),
+      ];
+    }
+    base.updatedAt = new Date().toISOString();
+    next = base;
+  }
+  return next;
 }
 
 // --- Vehicle service history (scanned service booklet / workshop invoice) ---

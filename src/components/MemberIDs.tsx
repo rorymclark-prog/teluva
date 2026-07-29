@@ -8,6 +8,7 @@ import ShowCardModal from './ShowCardModal';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import PrivacyNote from './PrivacyNote';
+import EmptyState from './EmptyState';
 
 // Data needed to pop open the full-screen "show this to someone" card — a border
 // officer, receptionist, ticket inspector. Shared by the passport rows and the
@@ -278,14 +279,7 @@ function PassportsSection({
       )}
 
       {passports.length === 0 && !adding ? (
-        <div className="py-8 text-center">
-          <div className="mx-auto mb-2 w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
-            <Globe className="w-5 h-5" />
-          </div>
-          <p className="text-[13px] text-ink-400">
-            No passports yet — add one for each nationality.
-          </p>
-        </div>
+        <EmptyState icon={Globe} title="No passports yet — add one for each nationality." />
       ) : (
         <div className="space-y-2.5">
           {passports.map(p => editId === p.id ? (

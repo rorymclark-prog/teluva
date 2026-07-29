@@ -40,6 +40,7 @@ import {
   HardDrive
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import EmptyState from './EmptyState';
 
 interface SharedDoc {
   id: string; // matches Google Drive fileId
@@ -605,12 +606,14 @@ export default function GoogleDriveSync() {
             </div>
 
             {filteredSharedDocs.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-ink-400 border border-dashed border-cream-300 rounded-2xl bg-white">
-                <CloudLightning className="w-8 h-8 text-cream-400 mb-2.5" />
-                <h4 className="text-[13px] font-semibold text-ink-700">No docs synced yet</h4>
-                <p className="text-[13px] text-ink-400 mt-1 max-w-[240px] leading-relaxed font-light">
-                  Documents selected in your Google Drive window will sync here for family viewing instantly.
-                </p>
+              <div className="flex-1 flex items-center justify-center">
+                <EmptyState
+                  icon={CloudLightning}
+                  dashed
+                  tone="dusk"
+                  title="No docs synced yet"
+                  description="Documents selected in your Google Drive window will sync here for family viewing instantly."
+                />
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[340px] pr-1.5">

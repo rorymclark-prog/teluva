@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { FileDown, Printer, X, ShieldAlert } from 'lucide-react';
 import type { AssetItem } from '../types';
 import { parseAmount } from '../utils/money';
+import EmptyState from './EmptyState';
 
 // The canonical claim list. If the list a family gives the police differs even
 // slightly from the one they give their insurer, payouts get cut 20-40% on
@@ -166,16 +167,12 @@ export default function AssetClaimExport({ items, onClose }: { items: AssetItem[
 
         {/* Body */}
         {scoped.length === 0 ? (
-          <div className="p-10 text-center">
-            <p className="text-sm font-semibold text-ink-700">
-              {scope === 'incident' ? 'No stolen or lost items on file.' : 'No assets on file yet.'}
-            </p>
-            <p className="text-[13px] text-ink-400 mt-1">
-              {scope === 'incident'
-                ? 'Mark an asset as stolen or lost, or add incident details, and it will appear here.'
-                : 'Add an asset first, then come back to generate a claim list.'}
-            </p>
-          </div>
+          <EmptyState
+            title={scope === 'incident' ? 'No stolen or lost items on file.' : 'No assets on file yet.'}
+            description={scope === 'incident'
+              ? 'Mark an asset as stolen or lost, or add incident details, and it will appear here.'
+              : 'Add an asset first, then come back to generate a claim list.'}
+          />
         ) : (
           <div className="p-5 sm:p-7">
             <div className="overflow-x-auto rounded-2xl border border-cream-200">
