@@ -1,8 +1,8 @@
 {
-  "label": "v156",
+  "label": "v157",
   "changes": [
-    "Fixed the thing that was quietly duplicating your calendar. Nothing checked whether an event was already there, so asking the assistant for the same appointment twice, or photographing the same school notice twice, added it again. That's how four identical \"Re-test Ferritin and Vitamin D\" entries appeared. Now it recognises the same appointment — same day, same time, same name — and tells you it's already there instead.",
-    "Importing from Google no longer brings in two copies of the same thing. It was only checking Google's internal id, so a repeating appointment that had been moved once arrived twice, looking identical. Six pairs of your \"Klara\" entries came in that way.",
-    "You already have 9 duplicate entries from before this fix. They're listed and waiting for you to say the word — nothing gets deleted without you."
+    "Appointments for your children now show up under your children. Anything imported from Google Calendar arrived tagged to nobody — Google doesn't know who lives in your house — so \"Ganga – Orthodontist\" sat on the calendar and appeared on nobody's Check-ups or Medical screen. The app now reads the name in the title and files it under that person.",
+    "It works on everything already in your calendar, not just new imports, so the appointments that were missing are there now without you doing anything.",
+    "Where a person was worked out from the title rather than tagged by hand, it says so. If it ever guesses wrong, open the event and assign it properly — your choice always wins from then on."
   ]
 }

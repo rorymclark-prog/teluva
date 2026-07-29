@@ -1,4 +1,5 @@
-import { CalendarEvent } from '../types';
+import { CalendarEvent, FamilyMember } from '../types';
+import { eventBelongsToMember } from './eventMemberMatch';
 
 // Which calendar events belong on a person's health screens.
 //
@@ -34,14 +35,21 @@ import { CalendarEvent } from '../types';
  *
  * `todayIso` is passed in rather than read from the clock so this is testable
  * and so a caller rendering several members uses one consistent "today".
+ *
+ * `members` is needed because "whose appointment is this?" is not simply
+ * `memberIds.includes(id)`. Anything imported from Google Calendar arrives
+ * untagged — Google does not know who lives here — so a real appointment
+ * titled "Ganga – Orthodontist" was reaching the calendar and appearing on
+ * nobody's profile. See utils/eventMemberMatch.ts.
  */
 export function memberAppointments(
   events: readonly CalendarEvent[],
   memberId: string,
   todayIso: string,
+  members: readonly Pick<FamilyMember, 'id' | 'name'>[] = [],
 ): { upcoming: CalendarEvent[]; past: CalendarEvent[] } {
   const mine = events.filter(
-    (ev) => ev.category === 'Appointment' && (ev.memberIds || []).includes(memberId),
+    (ev) => ev.category === 'Appointment' && eventBelongsToMember(ev, memberId, members),
   );
 
   // String comparison is correct and cheap for YYYY-MM-DD, and — unlike

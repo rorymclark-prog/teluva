@@ -15,6 +15,8 @@ interface CareScheduleProps {
   onUpdate: (patch: Partial<FamilyMember>) => void;
   /** The shared family calendar — this screen READS a person's booked appointments from it. */
   events?: readonly CalendarEvent[];
+  /** Everyone in the space — lets an untagged calendar appointment be matched to a person by name. */
+  members?: readonly FamilyMember[];
   onOpenCalendar?: () => void;
 }
 
@@ -164,7 +166,7 @@ function CareForm({
 }
 
 /* ---- Main component ---- */
-export default function CareSchedule({ member, onUpdate, events = [], onOpenCalendar }: CareScheduleProps) {
+export default function CareSchedule({ member, onUpdate, events = [], members = [], onOpenCalendar }: CareScheduleProps) {
   const [items, setItems] = useState<CareItem[]>(() => member.careSchedule || []);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -217,6 +219,7 @@ export default function CareSchedule({ member, onUpdate, events = [], onOpenCale
         memberId={member.id}
         memberName={member.name}
         events={events}
+        members={members}
         onOpenCalendar={onOpenCalendar}
       />
 

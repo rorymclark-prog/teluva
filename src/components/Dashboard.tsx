@@ -2397,6 +2397,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                   onUpdate={handlePatchSelectedMember}
                                   country={settings.country || 'AT'}
                                   events={events}
+                                  members={members}
                                   onOpenCalendar={() => setMainView('calendar')}
                                 />
                               )}
@@ -2405,6 +2406,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                   member={selectedMember}
                                   onUpdate={handlePatchSelectedMember}
                                   events={events}
+                                  members={members}
                                   onOpenCalendar={() => setMainView('calendar')}
                                 />
                               )}

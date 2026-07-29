@@ -128,4 +128,22 @@ const TODAY = '2026-08-01';
   assert.equal(relativeDayLabel('2026-10-25', '2026-10-24'), 'tomorrow');
 }
 
+// --- untagged Google imports still reach the right person ------------------
+{
+  // The reported bug end-to-end: an appointment imported from Google, tagged
+  // to nobody, whose title names a child. Before the members list was passed
+  // in, this filtered to nothing and Ganga's Check-ups screen was empty.
+  const family = [{ id: 'Ganga', name: 'Ganga Clark' }, { id: 'vita', name: 'Vita Clark' }];
+  const imported = ev({
+    id: 'gcal-abc', date: '2026-08-04', time: '15:00',
+    title: 'Ganga \u2013 Orthodontist (Dr. Lena Hofer-Mayr)',
+    category: 'Appointment', memberIds: [],
+  });
+  const events = [imported];
+  assert.equal(memberAppointments(events, 'Ganga', '2026-07-29', family).upcoming.length, 1);
+  assert.equal(memberAppointments(events, 'vita', '2026-07-29', family).upcoming.length, 0);
+  // And with no members to match against, behaviour is exactly what it was.
+  assert.equal(memberAppointments(events, 'Ganga', '2026-07-29').upcoming.length, 0);
+}
+
 console.log('memberAppointments.test.ts: all assertions passed');

@@ -1,13 +1,20 @@
 import React, { useState } from 'react';
-import { CalendarEvent } from '../types';
+import { CalendarEvent, FamilyMember } from '../types';
 import { memberAppointments, todayIsoLocal, relativeDayLabel } from '../utils/memberAppointments';
-import { CalendarClock, ChevronRight, ChevronDown, Clock } from 'lucide-react';
+import { resolveEventMembers } from '../utils/eventMemberMatch';
+import { CalendarClock, ChevronRight, ChevronDown, Clock, Sparkles } from 'lucide-react';
 import EmptyState from './EmptyState';
 
 interface Props {
   memberId: string;
   memberName: string;
   events: readonly CalendarEvent[];
+  /**
+   * Everyone in the space. Needed because an appointment imported from Google
+   * arrives tagged to nobody, and is matched to a person by name in its title
+   * instead — see utils/eventMemberMatch.ts.
+   */
+  members?: readonly FamilyMember[];
   /** Jump to the shared calendar, where these can actually be edited. */
   onOpenCalendar?: () => void;
   /** 'full' for the Check-ups tab; 'compact' for the pointer block on Medical. */
@@ -23,7 +30,7 @@ const prettyDate = (iso: string) =>
   });
 
 /** One appointment. Module-level so React sees a stable component type and doesn't remount every row on each render. */
-const Row: React.FC<{ ev: CalendarEvent; today: string; dim?: boolean }> = ({ ev, today, dim }) => (
+const Row: React.FC<{ ev: CalendarEvent; today: string; dim?: boolean; byName?: boolean }> = ({ ev, today, dim, byName }) => (
   <div className={`p-3.5 rounded-2xl border bg-white flex flex-wrap items-start justify-between gap-3 ${
     dim ? 'border-cream-200 opacity-70' : 'border-cream-200 hover:border-cream-300 hover:bg-cream-50 transition-colors'
   }`}>
@@ -39,6 +46,15 @@ const Row: React.FC<{ ev: CalendarEvent; today: string; dim?: boolean }> = ({ ev
         )}
       </p>
       {ev.description && <p className="text-[12px] text-ink-400">{ev.description}</p>}
+      {byName && (
+        // Say so. This one is here because the title names this person, not
+        // because anybody tagged it — the user should be able to tell the
+        // difference, and go and correct it on the calendar if it is wrong.
+        <p className="text-[11.5px] text-ink-400 flex items-center gap-1">
+          <Sparkles className="w-3 h-3 shrink-0" />
+          Matched by name — nobody was tagged on the calendar
+        </p>
+      )}
     </div>
     <span className={`chip shrink-0 ${dim ? 'bg-cream-200 text-ink-500' : 'bg-dusk-100 text-dusk-700'}`}>
       {relativeDayLabel(ev.date, today)}
@@ -56,10 +72,11 @@ const Row: React.FC<{ ev: CalendarEvent; today: string; dim?: boolean }> = ({ ev
  * the same records, which is exactly the shape of bug this is meant to end.
  */
 export default function MemberAppointments({
-  memberId, memberName, events, onOpenCalendar, variant = 'full',
+  memberId, memberName, events, members = [], onOpenCalendar, variant = 'full',
 }: Props) {
   const today = todayIsoLocal();
-  const { upcoming, past } = memberAppointments(events, memberId, today);
+  const { upcoming, past } = memberAppointments(events, memberId, today, members);
+  const byName = (ev: CalendarEvent) => !resolveEventMembers(ev, members).explicit;
   const [showPast, setShowPast] = useState(false);
 
   // The Medical tab's version: enough to answer "is there anything coming
@@ -80,7 +97,7 @@ export default function MemberAppointments({
           )}
         </div>
         <div className="space-y-2.5">
-          {upcoming.slice(0, 3).map(ev => <Row key={ev.id} ev={ev} today={today} />)}
+          {upcoming.slice(0, 3).map(ev => <Row key={ev.id} ev={ev} today={today} byName={byName(ev)} />)}
         </div>
         {upcoming.length > 3 && (
           <p className="text-[12px] text-ink-400">
@@ -111,7 +128,7 @@ export default function MemberAppointments({
         />
       ) : (
         <div className="space-y-2.5">
-          {upcoming.map(ev => <Row key={ev.id} ev={ev} today={today} />)}
+          {upcoming.map(ev => <Row key={ev.id} ev={ev} today={today} byName={byName(ev)} />)}
         </div>
       )}
 
@@ -127,7 +144,7 @@ export default function MemberAppointments({
           </button>
           {showPast && (
             <div className="space-y-2.5 mt-3">
-              {past.slice(0, 20).map(ev => <Row key={ev.id} ev={ev} today={today} dim />)}
+              {past.slice(0, 20).map(ev => <Row key={ev.id} ev={ev} today={today} dim byName={byName(ev)} />)}
               {past.length > 20 && (
                 <p className="text-[12px] text-ink-400">
                   Showing the 20 most recent of {past.length}. The rest are on the calendar.

@@ -18,6 +18,7 @@ import {
   GoogleCalendarAuthError,
 } from '../utils/googleCalendarSync';
 import { partitionNewEvents } from '../utils/calendarDedup';
+import { resolveEventMembers } from '../utils/eventMemberMatch';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -326,7 +327,17 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           description: gEv.description || 'Imported from Google Calendar',
           category: 'Appointment',
           remindMe: true,
-          memberIds: []
+          // Google has no idea who lives in this house, so every imported
+          // event used to arrive tagged to nobody — which meant a real
+          // appointment titled "Ganga - Orthodontist" landed on the calendar
+          // and appeared on nobody's Medical or Check-ups screen. Read the
+          // person out of the title on the way in. See
+          // utils/eventMemberMatch.ts for why the title and not the
+          // description, and why an explicit tag always wins.
+          memberIds: resolveEventMembers(
+            { title: gEv.summary || '', memberIds: [] },
+            members,
+          ).memberIds,
         });
       });
 
@@ -541,7 +552,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setDescription(ev.description || '');
     setCategory(ev.category);
     setRemindMe(ev.remindMe);
-    setTaggedMemberIds(ev.memberIds || []);
+    // Pre-fill with the name-matched person when nobody was tagged, so
+    // opening an inferred event and saving it promotes the guess to a real
+    // tag — and clearing the box is how you tell the app the guess was wrong.
+    setTaggedMemberIds(resolveEventMembers(ev, members).memberIds);
     setIsFormOpen(true);
   };
 
@@ -994,7 +1008,13 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             ) : (
               <div className="space-y-3">
                 {selectedDayEvents.map(ev => {
-                  const assignedMembers = members.filter(m => ev.memberIds?.includes(m.id));
+                  // Not `ev.memberIds` directly: an event imported from
+                  // Google before this app learned to read names out of
+                  // titles has no tags at all, and showing it as "All family"
+                  // is simply wrong when the title says whose it is.
+                  const resolved = resolveEventMembers(ev, members);
+                  const assignedMembers = members.filter(m => resolved.memberIds.includes(m.id));
+                  const matchedByName = !resolved.explicit;
 
                   // Tinted-fill event chip: ~15% alpha of the category color, full-strength text, 8px radius
                   const catStyle =
@@ -1060,6 +1080,15 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                                 )
                               ))}
                             </div>
+                          )}
+                          {matchedByName && (
+                            // Shown, not hidden: this person was read out of
+                            // the event's title because nobody tagged it. If
+                            // the guess is wrong, Edit assigns it properly and
+                            // the explicit tag wins from then on.
+                            <span className="text-[11px] text-ink-400 italic" title="Nobody was tagged on this event, so the name in its title was used.">
+                              by name
+                            </span>
                           )}
                         </div>
 

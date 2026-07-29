@@ -12,6 +12,8 @@ interface MemberMedicalProps {
   country?: IdCountry;
   /** The shared family calendar — this screen READS booked appointments from it, never stores them. */
   events?: readonly CalendarEvent[];
+  /** Everyone in the space — lets an untagged calendar appointment be matched to a person by name. */
+  members?: readonly FamilyMember[];
   onOpenCalendar?: () => void;
 }
 
@@ -33,7 +35,7 @@ const initMedical = (member: FamilyMember): MedicalRecord => ({
   notes: member.medical?.notes || '',
 });
 
-export default function MemberMedical({ member, onUpdate, country = 'AT', events = [], onOpenCalendar }: MemberMedicalProps) {
+export default function MemberMedical({ member, onUpdate, country = 'AT', events = [], members = [], onOpenCalendar }: MemberMedicalProps) {
   const [medical, setMedical] = useState<MedicalRecord>(() => initMedical(member));
 
   // Reset local state when member.id changes
@@ -94,6 +96,7 @@ export default function MemberMedical({ member, onUpdate, country = 'AT', events
         memberId={member.id}
         memberName={member.name}
         events={events}
+        members={members}
         onOpenCalendar={onOpenCalendar}
       />
 
