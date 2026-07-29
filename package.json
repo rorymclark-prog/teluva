@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
+    "deploy": "bash scripts/deploy.sh",
     "lint": "tsc --noEmit && npm run check:colors",
     "check:colors": "node scripts/check-colors.mjs",
     "test:server": "node --test server/*.test.mjs",
