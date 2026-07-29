@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { X, Shield, FileText } from 'lucide-react';
+import { X, Shield, FileText, Lock } from 'lucide-react';
 
 /**
  * Privacy Policy + Terms, shown in a modal from the sign-in footer (pre-auth) and
@@ -13,7 +13,7 @@ import { X, Shield, FileText } from 'lucide-react';
  * legal/contractual position — it is a description of current behaviour.
  */
 
-export type LegalTab = 'privacy' | 'terms';
+export type LegalTab = 'privacy' | 'terms' | 'security';
 
 const UPDATED = '28 July 2026';
 
@@ -39,6 +39,12 @@ export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: (
               <Shield className="w-4 h-4" /> Privacy
             </button>
             <button
+              onClick={() => setActive('security')}
+              className={`tab-pill px-3.5 ${active === 'security' ? 'tab-pill-active' : ''}`}
+            >
+              <Lock className="w-4 h-4" /> Security
+            </button>
+            <button
               onClick={() => setActive('terms')}
               className={`tab-pill px-3.5 ${active === 'terms' ? 'tab-pill-active' : ''}`}
             >
@@ -60,7 +66,7 @@ export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: (
             This describes what Teluva actually does today, checked against the app itself. Questions
             about it — or anything here that looks out of date — go to <b>rorymclark@gmail.com</b>.
           </div>
-          {active === 'privacy' ? <Privacy /> : <Terms />}
+          {active === 'privacy' ? <Privacy /> : active === 'security' ? <Security /> : <Terms />}
         </div>
 
         <div className="p-3 border-t border-cream-200 text-center shrink-0">
@@ -148,6 +154,102 @@ function Privacy() {
 
       <H>Changes</H>
       <p>We may update this policy; material changes will be noted in the app. Continued use after an update means you accept the revised policy.</p>
+    </>
+  );
+}
+
+/**
+ * The plain answer to "can you see my stuff?".
+ *
+ * It exists because the honest answer is NO, we are not zero-knowledge, and
+ * that has to be said in the app rather than only in a policy nobody opens.
+ * Every claim below was checked against the code: server.js sends document
+ * images to Vertex AI (europe-west1) to read them; protectSecrets encrypts
+ * saved passwords with a key held in Secret Manager, which is OUR key;
+ * Firestore and Storage sit in europe-west2.
+ *
+ * Deliberately NOT reassuring. Zoom took a 20-year FTC consent order for
+ * marketing "end-to-end encryption" while holding the keys. Saying less than
+ * is true costs nothing; saying more than is true is the whole risk.
+ */
+function Security() {
+  return (
+    <>
+      <p className="text-[12px] text-ink-400">Last updated: {UPDATED}</p>
+      <p>
+        Short version: <b>your records are encrypted, but Teluva is not end-to-end encrypted.</b> Our
+        servers can read what you store. Here is exactly what that means, and why.
+      </p>
+
+      <H>What is protected</H>
+      <ul className="list-disc pl-5 space-y-1">
+        <li><b>In transit</b> — everything between your device and us travels over HTTPS.</li>
+        <li><b>At rest</b> — Google encrypts the stored database and files on disk.</li>
+        <li><b>From other people</b> — each family or business is sealed off by server-side rules. Another family cannot read yours, and your role can only be changed by an admin, never by editing something in the browser.</li>
+        <li><b>Saved passwords</b> get an extra layer: they are encrypted before being written, and if that encryption is unavailable the app refuses to save rather than quietly storing them in plain text.</li>
+      </ul>
+
+      <H>What we can see</H>
+      <p>
+        We can read your records. Not as a loophole &mdash; it is how the app works. When you
+        photograph a passport and the fields fill themselves in, something has to read that passport.
+        The image goes to Google&rsquo;s AI in the EU (Belgium), which extracts the text and sends it
+        back. That cannot happen on data we are unable to open.
+      </p>
+      <p>
+        The extra layer on saved passwords uses a key we hold, so it protects them from anyone
+        without access to our systems &mdash; but not from us. We would rather say that than imply
+        otherwise.
+      </p>
+      <p>
+        In practice one person has that access: <b>Rory Michael Clark</b>, who built and runs Teluva.
+        Not a support team, not a contractor.
+      </p>
+
+      <H>What we don&rsquo;t do</H>
+      <ul className="list-disc pl-5 space-y-1">
+        <li>We don&rsquo;t sell your data, share it, or use it for advertising.</li>
+        <li>We don&rsquo;t read your records for any purpose other than making the features work.</li>
+        <li>Your content is <b>not</b> used to train Google&rsquo;s AI models &mdash; that is contractual under Google Cloud&rsquo;s enterprise terms.</li>
+        <li>There is no analytics or tracking company embedded in the app.</li>
+      </ul>
+
+      <H>Where it lives</H>
+      <p>
+        Records and files: United Kingdom (London). AI processing: EU (Belgium). Sign-in is handled by
+        Google and may touch the United States under Standard Contractual Clauses. We never see your
+        Google password &mdash; Google handles sign-in and only tells us who you are.
+      </p>
+
+      <H>Two things worth knowing</H>
+      <p>
+        <b>Files have permanent links.</b> A document or photo you upload gets a long, unguessable web
+        address. Anyone who has that exact address can open the file without signing in &mdash; which is
+        what makes sharing and exporting work at all. Treat a copied link, or an exported backup, the
+        way you would treat the document itself.
+      </p>
+      <p>
+        <b>Your Google account is the front door.</b> Anyone who can get into it can get into your
+        vault. Turn on two-factor authentication there; it does more for your security than anything
+        we can do at this end.
+      </p>
+
+      <H>You can leave with everything</H>
+      <p>
+        Export any time from the app header: a zip with your records <i>and</i> the actual files, not
+        links that die when we do. Saved passwords are deliberately excluded &mdash; a plain-text copy
+        of them sitting in a downloads folder is its own risk. An admin can permanently delete an
+        entire family or business from Settings &rarr; Danger zone.
+      </p>
+
+      <H>If this changes</H>
+      <p>
+        If we ever move to encryption we genuinely cannot open, we will say so here and in the app.
+        Until you read that, assume everything above still applies.
+      </p>
+      <p className="text-[13px] text-ink-500">
+        Found something wrong, or think we have overstated it? <b>rorymclark@gmail.com</b>.
+      </p>
     </>
   );
 }

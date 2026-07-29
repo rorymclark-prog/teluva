@@ -27,7 +27,29 @@ const isIOS = typeof navigator !== 'undefined' &&
 // can't regress. Requires the app domain to be an authorised domain (it is) and
 // {origin}/__/auth/handler registered as an OAuth redirect URI (Firebase
 // auto-syncs this from the authorised-domains list).
-const config = isIOS && typeof window !== 'undefined'
+/* An INSTALLED app window (Add to Home Screen, or "Install" on a desktop
+ * browser) needs the same treatment as iOS, for a different reason.
+ *
+ * Its sign-in popup is a child of an app window rather than a browser tab, and
+ * password managers largely refuse to work there: on macOS the Apple Passwords
+ * menu appears, and then closes without filling anything when you pick an
+ * entry. Nothing on Google's page is ours to fix — but which window that page
+ * opens in IS. A redirect keeps sign-in in the app's own top-level window,
+ * where autofill and passkeys behave normally.
+ *
+ * Same-origin authDomain comes along with it, which also stops Google's consent
+ * screen announcing "to continue to gen-lang-client-0384516171.firebaseapp.com"
+ * — a string that reads as a phishing page to anyone being asked to trust the
+ * app with their passport. */
+const isStandalone = typeof window !== 'undefined' && (
+  window.matchMedia?.('(display-mode: standalone)').matches ||
+  window.matchMedia?.('(display-mode: window-controls-overlay)').matches ||
+  (navigator as unknown as { standalone?: boolean }).standalone === true
+);
+
+const useSameOriginAuth = (isIOS || isStandalone) && typeof window !== 'undefined';
+
+const config = useSameOriginAuth
   ? { ...firebaseConfig, authDomain: window.location.host }
   : firebaseConfig;
 
@@ -91,7 +113,9 @@ function signInMessage(code: string): string {
  */
 export const loginWithGoogle = async (): Promise<string | null> => {
   try {
-    if (isIOS) {
+    // iOS blocks the popup outright; an installed window opens it but strands
+    // the password manager inside it. Both want the redirect.
+    if (isIOS || isStandalone) {
       await signInWithRedirect(auth, provider);
       return null;
     }

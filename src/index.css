@@ -135,6 +135,25 @@
     background-color: var(--color-cream-100);
   }
 
+  /* Scroll stops at the edge of whatever you're scrolling.
+   *
+   * By default a scroll container that has hit its end hands the rest of the
+   * gesture to its parent, and on up to the page — "scroll chaining". Read the
+   * assistant to the bottom of the conversation and the next flick moves the
+   * dashboard behind it instead, which reads as the panel being stuck: the
+   * thing under your finger stops responding and something else moves.
+   *
+   * Set here rather than per-panel because it was on exactly ONE of the app's
+   * 36 overlays, and every new panel would have to remember it. Nothing in the
+   * app wants chaining, and no Tailwind utility sets this property, so there is
+   * nothing for it to collide with. */
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .overflow-auto,
+  .overflow-y-scroll {
+    overscroll-behavior: contain;
+  }
+
   /* Display headings: heavy geometric sans, tight tracking (the modern look). */
   .font-display {
     letter-spacing: -0.02em;
