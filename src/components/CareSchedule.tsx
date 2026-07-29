@@ -59,9 +59,11 @@ function CareForm({
     if (preset) setIntervalMonths(String(preset.defaultInterval));
   };
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
     const finalKind = (kind === 'Other' && customKind.trim()) ? customKind.trim() : kind;
-    if (!finalKind.trim()) { onCancel(); return; }
+    if (!finalKind.trim()) { setFormError('Choose or type what this is'); return; }
+    setFormError(null);
     const interval = parseInt(intervalMonths, 10);
     onSave({
       id: initial?.id || newId(),
@@ -143,6 +145,7 @@ function CareForm({
         onChange={e => setNotes(e.target.value)}
       />
 
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5">
           <X className="w-3.5 h-3.5" /> Cancel

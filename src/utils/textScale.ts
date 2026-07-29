@@ -55,7 +55,10 @@ const ROOT_FONT_PX = 16;
 
 export function applyTextScale(index: number): void {
   const scale = TEXT_SCALES[index] ?? TEXT_SCALES[DEFAULT_INDEX];
-  document.documentElement.style.fontSize = `${ROOT_FONT_PX * scale}px`;
+  // Clamped at 1: --type-user below still shrinks TEXT, but padding, icons and
+  // therefore every hit target can never go under the shipped size. Without this,
+  // choosing "Smaller" quietly took ~10% off every button in the app.
+  document.documentElement.style.fontSize = `${ROOT_FONT_PX * Math.max(1, scale)}px`;
   document.documentElement.style.setProperty('--type-user', String(scale));
 }
 

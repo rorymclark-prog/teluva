@@ -79,7 +79,7 @@ export default function InstallPrompt({ hasContent }: { hasContent: boolean }) {
           <p className="text-[13px] text-ink-500 mt-1 leading-relaxed">
             {platform === 'ios-safari'
               ? 'It opens like a normal app — and it’s the only way your phone can remind you before a passport expires or a birthday arrives.'
-              : 'Opens like a normal app, works offline, and can remind you before a passport expires or a birthday arrives.'}
+              : 'Opens like a normal app, and can remind you before a passport expires or a birthday arrives.'}
           </p>
 
           {platform === 'ios-safari' ? (

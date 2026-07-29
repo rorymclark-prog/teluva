@@ -85,7 +85,7 @@ import MemberFavoriteQuotes from './MemberFavoriteQuotes';
 import FamilyWordsView from './FamilyWordsView';
 import VehiclesView from './VehiclesView';
 import SpaceSwitcher from './SpaceSwitcher';
-import { switchSpace, createSpace, renameSpace, NewBusinessExtra } from '../utils/db';
+import { switchSpace, createSpace, renameSpace, readCachedFamilyMembers, NewBusinessExtra } from '../utils/db';
 import TimelineView from './TimelineView';
 import TravelTimelineView from './TravelTimelineView';
 import DocumentVault from './DocumentVault';
@@ -118,7 +118,7 @@ import {
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
-  Loader2, UserMinus, ChevronDown, Settings
+  Loader2, UserMinus, ChevronDown, Settings, CalendarClock
 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -158,7 +158,7 @@ type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'ho
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'medical', label: 'Medical', icon: HeartPulse },
-  { id: 'care', label: 'Care', icon: Stethoscope },
+  { id: 'care', label: 'Check-ups', icon: CalendarClock },
   { id: 'ids', label: 'ID & Passports', icon: IdCard },
   { id: 'sizes', label: 'Sizes', icon: Scissors },
   { id: 'favorites', label: 'Wishlist', icon: Heart },
@@ -455,6 +455,23 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     if (ctxLoading) return;
 
     async function init() {
+      // Re-armed on every run: this effect refires on space switch, and a stale
+      // `true` here would let the previous space's data decide the empty state.
+      setInitialLoadDone(false);
+
+      // Paint the last-known family immediately. loadFamilyMembers() below is
+      // network-first and can take seconds on a cold start; until it returned,
+      // `members` was [] — which the empty-state check cannot tell apart from a
+      // genuinely empty family, so an eight-person household was greeted with
+      // "Add your first family member".
+      if (currentUser) {
+        const cached = readCachedFamilyMembers();
+        if (cached && cached.length > 0) {
+          setMembers(cached);
+          setSelectedMemberId((prev) => (prev && cached.some((m) => m.id === prev)) ? prev : cached[0].id);
+        }
+      }
+
       if (!currentUser) {
         setMembers([]);
         setEvents([]);
@@ -1204,7 +1221,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const backupData = {
         version: 3,
         exportedAt: new Date().toISOString(),
-        author: 'Family Vault backup',
+        author: 'Teluva backup',
         members,
         calendarEvents: events,
         info: info || null,
@@ -1354,7 +1371,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         showToast(
           error instanceof Error && error.message === 'no-data-entry'
             ? "That zip doesn't contain family_vault_data.json — is it a Family Vault backup?"
-            : "Couldn't read that backup file — is it a Family Vault export?"
+            : "Couldn't read that backup file — is it a Teluva export?"
         );
       }
     })();
@@ -1746,7 +1763,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               </div>
             )}
 
-            {members.length === 0 ? (
+            {initialLoadDone && members.length === 0 ? (
               <div className="card text-center py-20 px-6">
                 <div className="w-16 h-16 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-5">
                   <Users className="w-8 h-8" />
@@ -1779,8 +1796,8 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                           type="button"
                           onClick={() => setIsAddModalOpen(true)}
                           title={t.btn_add}
-                          aria-label={t.btn_add}
-                          className="mr-2 flex items-center justify-center w-7 h-7 rounded-full bg-clay-500 text-white transition-colors hover:bg-clay-600 cursor-pointer"
+                          aria-label={isBusinessSpace ? "Add team member" : "Add family member"}
+                          className="mr-2 flex items-center justify-center w-11 h-11 rounded-full bg-clay-500 text-white transition-colors hover:bg-clay-600 cursor-pointer"
                         >
                           <UserPlus className="w-4 h-4" />
                         </button>
@@ -1987,7 +2004,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               className={`tab-pill px-3 ${activeTab === tab.id ? 'tab-pill-active' : ''}`}
                             >
                               <tab.icon className={`w-4 h-4 ${tab.id === 'favorites' ? 'fill-rosa-500 text-rosa-500' : ''}`} />
-                              <span className="hidden sm:inline">{tab.label}</span>
+                              <span>{tab.label}</span>
                             </button>
                           ))}
                         </div>

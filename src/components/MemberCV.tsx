@@ -6,6 +6,7 @@ import {
   Languages, Tags, Upload, FileText, Eye, RefreshCcw, AlertCircle, FileImage,
 } from 'lucide-react';
 import PdfThumbnail from './PdfThumbnail';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 const newId = () => 'cv-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -474,7 +475,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
                 {canEdit && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => { setEditRoleId(r.id); setAddingRole(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => deleteRole(r.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <ConfirmDeleteButton onConfirm={() => deleteRole(r.id)} ariaLabel={`Delete ${r.title || "this role"}`} />
                   </div>
                 )}
               </div>
@@ -513,7 +514,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
                 {canEdit && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => { setEditEduId(e.id); setAddingEdu(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => deleteEdu(e.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <ConfirmDeleteButton onConfirm={() => deleteEdu(e.id)} ariaLabel={`Delete ${e.qualification || e.institution || "this entry"}`} />
                   </div>
                 )}
               </div>
@@ -556,7 +557,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
                 {canEdit && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => { setEditQualId(q.id); setAddingQual(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => deleteQual(q.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <ConfirmDeleteButton onConfirm={() => deleteQual(q.id)} ariaLabel={`Delete ${q.name || "this certificate"}`} />
                   </div>
                 )}
               </div>

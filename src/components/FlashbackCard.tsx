@@ -51,7 +51,7 @@ function buildMemories(members: FamilyMember[], events: CalendarEvent[]): Memory
         memories.push({
           key: `growth-${m.id}`,
           icon: Ruler,
-          text: `📏 ${first} has grown ${delta}cm since ${oldest.date}`,
+          text: `📏 ${first} has grown ${delta}cm since ${monthYear(oldest.date)}`,
         });
       }
     }
@@ -79,9 +79,25 @@ function buildMemories(members: FamilyMember[], events: CalendarEvent[]): Memory
   return memories;
 }
 
+/** "2025-07-28" -> "July 2025". A raw ISO date read as prose is a machine
+ *  talking; the exact day adds nothing to "how much they've grown since". */
+function monthYear(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
 export default function FlashbackCard({ members, events }: { members: FamilyMember[]; events: CalendarEvent[] }) {
   const memories = useMemo(() => buildMemories(members, events), [members, events]);
-  const [idx, setIdx] = useState(() => (memories.length ? Math.floor(Math.random() * memories.length) : 0));
+  /* Derived per render, not seeded once in a useState initialiser. That
+     initialiser ran on the FIRST render, when `members` is still empty and
+     `memories` therefore has length 0 — so it locked to 0 and, never running
+     again, showed the same memory forever. Day-of-year gives a memory that
+     changes on its own overnight; `bump` is the dice. Matches the approach
+     FamilyWordOfDay already uses. */
+  const [bump, setBump] = useState(0);
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+  const idx = memories.length ? (dayOfYear + bump) % memories.length : 0;
 
   if (memories.length === 0) return null;
 
@@ -90,9 +106,7 @@ export default function FlashbackCard({ members, events }: { members: FamilyMemb
 
   const shuffle = () => {
     if (memories.length <= 1) return;
-    let next = idx;
-    while (next === idx) next = Math.floor(Math.random() * memories.length);
-    setIdx(next);
+    setBump((b) => b + 1);
   };
 
   return (

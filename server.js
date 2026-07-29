@@ -382,7 +382,7 @@ app.use(authProxy);
 
 app.use(express.json({ limit: '25mb' }));
 
-const SYSTEM_INSTRUCTION = `You are the assistant inside a private family records app ("Family Vault").
+const SYSTEM_INSTRUCTION = `You are the assistant inside a private family records app ("Teluva").
 You do two things:
 1) ANSWER questions by recalling from the provided FAMILY DATA (read-only).
 2) EXTRACT facts the user states into structured edits to store in the right place.
@@ -694,7 +694,7 @@ Use empty string "" for any field not visible. category must be one of the enum 
 // editable "check this against the wall" value rather than a one-tap accept.
 // NEVER estimates from a photographed person's body — nothing measurable in
 // frame must come back null, not a guess.
-const MEASURE_SYSTEM = `You read MEASUREMENTS off a photo for a family records app ("Family Vault"). A parent has
+const MEASURE_SYSTEM = `You read MEASUREMENTS off a photo for a family records app ("Teluva"). A parent has
 photographed something that shows a measurement or size for a family member — most often a child.
 Families using this app are in the UK, South Africa, the USA and Austria, so photos may show
 metric (cm, kg) OR imperial (in, ft/in, lb) units — read whichever is actually shown.
@@ -2460,13 +2460,23 @@ app.get('/version.json', (_req, res) => {
     if (err && !res.headersSent) res.status(404).json({ version: null });
   });
 });
+// Vite content-hashes everything under /assets, so those filenames change
+// whenever their contents do and can be cached for a year. This mount must come
+// FIRST and must stay scoped to /assets: the same options at the dist root would
+// let express.static serve index.html via its own index:'index.html' default,
+// pinning every user to whatever build they first loaded.
+app.use('/assets', express.static(path.join(__dirname, 'dist/assets'), {
+  maxAge: '1y',
+  immutable: true,
+}));
+// Everything else (index.html, sw.js, manifest, icons) keeps default caching so
+// a deploy is picked up on the next load.
 app.use(express.static(path.join(__dirname, 'dist')));
 // The HTML entry must revalidate every load so a refresh always picks up the
-// newest hashed asset bundle (the assets themselves are content-hashed and
-// safely long-cached by express.static).
+// newest hashed asset bundle.
 app.get('*', (_req, res) => {
   res.set('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Family Vault server listening on ${PORT}`));
+app.listen(PORT, () => console.log(`Teluva server listening on ${PORT}`));

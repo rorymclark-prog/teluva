@@ -114,6 +114,26 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
   return cloudOk;
 }
 
+/**
+ * The last-known members for THIS space, straight from localStorage, synchronously.
+ *
+ * `loadFamilyMembers` is network-first by design (its migratedFlagKey guard
+ * depends on that) and on a cold start it can take seconds. Until it returned,
+ * `members` was `[]` — indistinguishable from a genuinely empty family — so the
+ * app greeted an eight-person household with "Add your first family member".
+ * This gives the first paint something true to draw while the network catches up.
+ */
+export function readCachedFamilyMembers(): FamilyMember[] | null {
+  try {
+    const raw = localStorage.getItem(membersKey());
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as FamilyMember[]) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
   const user = auth.currentUser;
 

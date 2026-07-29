@@ -137,7 +137,7 @@ export default function AiConsentModal({ open, onEnable, onClose, onOpenPrivacy 
               </div>
 
               <p className="text-[13px] text-ink-500">
-                The rest of Family Vault works fully without AI. You can turn this off again anytime in Settings.
+                The rest of Teluva works fully without AI. You can turn this off again anytime in Settings.
               </p>
 
               {onOpenPrivacy && (

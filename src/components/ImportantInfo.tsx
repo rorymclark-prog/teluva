@@ -362,8 +362,10 @@ function NumberForm({ initial, onSave, onCancel, isBusinessSpace }: {
   const [value, setValue] = useState(initial?.value || '');
   const [note, setNote] = useState(initial?.note || '');
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
-    if (!label.trim() && !value.trim()) { onCancel(); return; }
+    if (!label.trim() && !value.trim()) { setFormError('Add a label or a value'); return; }
+    setFormError(null);
     onSave({ id: initial?.id || newId(), label: label.trim(), value: value.trim(), note: note.trim() || undefined });
   };
 
@@ -378,6 +380,7 @@ function NumberForm({ initial, onSave, onCancel, isBusinessSpace }: {
       />
       <input className="field font-mono" placeholder="Number / value" value={value} onChange={e => setValue(e.target.value)} />
       <input className="field" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} />
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
@@ -488,8 +491,10 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
   const [note, setNote] = useState(initial?.note || '');
   const [birthdate, setBirthdate] = useState(initial?.birthdate || '');
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
-    if (!name.trim() && !phone.trim() && !email.trim()) { onCancel(); return; }
+    if (!name.trim() && !phone.trim() && !email.trim()) { setFormError('Add a name, phone or email'); return; }
+    setFormError(null);
     onSave({
       id: initial?.id || newId(),
       name: name.trim(),
@@ -525,6 +530,7 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
         <label className="text-[11px] font-semibold text-ink-500 mb-1 block">Birthday (optional) — gets a reminder here even without a full profile</label>
         <input type="date" className="field" value={birthdate} onChange={e => setBirthdate(e.target.value)} />
       </div>
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
@@ -680,8 +686,10 @@ function ProviderForm({ initial, isBusinessSpace, onSave, onCancel }: {
   const [isPrimary, setIsPrimary] = useState(initial?.isPrimary || false);
   const [note, setNote] = useState(initial?.note || '');
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
-    if (!name.trim() && !practiceName.trim() && !phone.trim()) { onCancel(); return; }
+    if (!name.trim() && !practiceName.trim() && !phone.trim()) { setFormError('Add a name, practice or phone'); return; }
+    setFormError(null);
     onSave({
       id: initial?.id || newId(),
       name: name.trim(),
@@ -745,6 +753,7 @@ function ProviderForm({ initial, isBusinessSpace, onSave, onCancel }: {
         {professional ? 'This is our main point of contact for this kind of thing' : 'This is our usual GP / primary provider'}
       </label>
       <input className="field" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} />
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
@@ -871,8 +880,10 @@ function VendorForm({ initial, onSave, onCancel }: {
   const [isUsual, setIsUsual] = useState(initial?.isUsual || false);
   const [notes, setNotes] = useState(initial?.notes || '');
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
-    if (!name.trim() && !company.trim() && !phone.trim()) { onCancel(); return; }
+    if (!name.trim() && !company.trim() && !phone.trim()) { setFormError('Add a name, company or phone'); return; }
+    setFormError(null);
     onSave({
       id: initial?.id || newId(),
       name: name.trim(),
@@ -918,6 +929,7 @@ function VendorForm({ initial, onSave, onCancel }: {
         This is our usual one for this trade
       </label>
       <input className="field" placeholder="Note (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>

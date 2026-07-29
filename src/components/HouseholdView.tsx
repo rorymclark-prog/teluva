@@ -261,8 +261,10 @@ function LocationForm({ initial, onSave, onCancel }: {
   const [type, setType] = useState<BusinessLocation['type']>(initial?.type ?? 'branch');
   const [notes, setNotes] = useState(initial?.notes ?? '');
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
-    if (!label.trim() && !address.trim()) { onCancel(); return; }
+    if (!label.trim() && !address.trim()) { setFormError('Add a label or an address'); return; }
+    setFormError(null);
     onSave({
       id: initial?.id ?? newId(),
       label: label.trim(),
@@ -285,6 +287,7 @@ function LocationForm({ initial, onSave, onCancel }: {
       </div>
       <textarea className="field resize-none" rows={2} placeholder="Street, city, postcode…" value={address} onChange={e => setAddress(e.target.value)} />
       <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5">
           <X className="w-3.5 h-3.5" /> Cancel
@@ -375,8 +378,10 @@ function UtilityForm({ initial, onSave, onCancel }: {
   const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? '');
   const [notes, setNotes] = useState(initial?.notes ?? '');
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
-    if (!type.trim() && !provider.trim()) { onCancel(); return; }
+    if (!type.trim() && !provider.trim()) { setFormError('Add a type or a provider'); return; }
+    setFormError(null);
     onSave({
       id: initial?.id ?? newId(),
       type: type.trim(),
@@ -394,6 +399,7 @@ function UtilityForm({ initial, onSave, onCancel }: {
       </div>
       <input className="field font-mono" placeholder="Account number" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
       <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
@@ -486,8 +492,10 @@ function PetForm({ initial, onSave, onCancel }: {
   const [microchip, setMicrochip] = useState(initial?.microchip ?? '');
   const [notes, setNotes] = useState(initial?.notes ?? '');
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
-    if (!name.trim()) { onCancel(); return; }
+    if (!name.trim()) { setFormError('Name is required'); return; }
+    setFormError(null);
     onSave({
       id: initial?.id ?? newId(),
       name: name.trim(),
@@ -511,6 +519,7 @@ function PetForm({ initial, onSave, onCancel }: {
         <input className="field font-mono" placeholder="Microchip number" value={microchip} onChange={e => setMicrochip(e.target.value)} />
       </div>
       <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>

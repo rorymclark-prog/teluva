@@ -189,8 +189,10 @@ function BankAccountForm({ initial, onSave, onCancel }: {
   const [bic, setBic] = useState(initial?.bic || '');
   const [notes, setNotes] = useState(initial?.notes || '');
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
-    if (!bankName.trim() && !iban.trim()) { onCancel(); return; }
+    if (!bankName.trim() && !iban.trim()) { setFormError('Add a bank name or an IBAN'); return; }
+    setFormError(null);
     onSave({
       id: initial?.id || newId(),
       bankName: bankName.trim() || undefined,
@@ -208,6 +210,7 @@ function BankAccountForm({ initial, onSave, onCancel }: {
       <input className="field font-mono" placeholder="IBAN" value={iban} onChange={e => setIban(e.target.value)} />
       <input className="field font-mono" placeholder="BIC (optional)" value={bic} onChange={e => setBic(e.target.value)} />
       <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
@@ -291,8 +294,10 @@ function BenefitForm({ initial, onSave, onCancel }: {
   const [reference, setReference] = useState(initial?.reference || '');
   const [notes, setNotes] = useState(initial?.notes || '');
 
+  const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
-    if (!name.trim() && !reference.trim()) { onCancel(); return; }
+    if (!name.trim() && !reference.trim()) { setFormError('Add a name or a reference'); return; }
+    setFormError(null);
     onSave({
       id: initial?.id || newId(),
       name: name.trim() || undefined,
@@ -306,6 +311,7 @@ function BenefitForm({ initial, onSave, onCancel }: {
       <input autoFocus className="field" placeholder="Benefit name  (e.g. Familienbeihilfe)" value={name} onChange={e => setName(e.target.value)} />
       <input className="field font-mono" placeholder="Reference number (optional)" value={reference} onChange={e => setReference(e.target.value)} />
       <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>

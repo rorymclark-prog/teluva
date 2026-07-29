@@ -39,7 +39,7 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
   }, [open]);
 
   return (
-    <div ref={ref} className="relative mx-auto sm:mx-0">
+    <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -47,7 +47,7 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
         aria-expanded={open}
         title={currentView?.label ? `Sections — you're in ${currentView.label}` : 'Sections'}
         aria-label={currentView?.label ? `Sections. Current: ${currentView.label}` : 'Sections'}
-        className="flex items-center justify-center w-10 h-10 bg-cream-200 hover:bg-cream-300 text-ink-800 rounded-2xl transition-colors cursor-pointer"
+        className="flex items-center justify-center min-w-[44px] min-h-[44px] bg-cream-200 hover:bg-cream-300 text-ink-800 rounded-2xl transition-colors cursor-pointer"
       >
         <Menu className="w-5 h-5 shrink-0" />
       </button>
@@ -55,7 +55,7 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
       {open && (
         <div
           role="menu"
-          className="absolute left-1/2 -translate-x-1/2 sm:left-0 sm:translate-x-0 mt-2 w-60 max-h-[min(70vh,32rem)] overflow-y-auto bg-white rounded-2xl border border-cream-300 shadow-lift p-1.5 z-50"
+          className="absolute right-0 sm:right-auto sm:left-0 mt-2 w-60 max-h-[min(70vh,32rem)] overflow-y-auto bg-white rounded-2xl border border-cream-300 shadow-lift p-1.5 z-50"
         >
           {views.map((v) => {
             const Icon = v.icon;

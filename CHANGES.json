@@ -1,17 +1,17 @@
 {
-  "label": "v131",
+  "label": "v132",
   "changes": [
-    "Needs attention folds away too — tap its title bar and the whole card collapses to one line, count still showing. It sits at the top of the home screen and can be a dozen rows deep, so on a phone it was pushing everything else below the fold.",
-    "A Display size slider in Hub settings. It scales everything — text, icons, buttons, spacing — not just the words, in five steps. Per device, so your phone and your laptop can disagree.",
-    "The header is one line now instead of three. The hub name IS the menu: tap it for spaces, settings, backup and sign out. It used to be a title, a pill repeating that same title underneath it, and a permanent row of six unlabelled icons.",
-    "Sections are just the burger button — the icon, the current section name and the arrow beside it were four ways of saying one thing.",
-    "Add a person now sits beside the list of people rather than up in the app header.",
-    "Fixed: when sign-in failed, nothing happened at all — the reason only ever went to the developer console. It now tells you what went wrong and what to do about it.",
-    "Fixed: after an update, the app could show the sign-in screen for a long time even though you were already signed in. It was waiting on a slow first read before it would admit it knew who you were.",
-    "The grey line at the top of a pop-up is now a real handle — grab it and swipe down to close. It has looked draggable since the day it was drawn; now it is, in all 23 places it appears.",
-    "You can collapse the family list. With eight people you were scrolling past the whole household to reach one person. Tap the member count to fold it down to whoever you're looking at, and it stays folded until you unfold it.",
-    "Fixed: the page background is now painted on the document itself. On desktop, a window resize could leave a strip of app beside a band of plain white.",
-    "The app is now called Teluva. Same app, same data, nothing to do at your end — you'll see the new name and icon. If you've added it to your Home Screen, the icon will refresh on its own",
-    "A guided setup the first time you sign in: it asks the fifteen or so things worth knowing, in the order a person would actually ask them. Stop halfway and it picks up where you left off"
+    "Fixed: opening the app cold showed \"Add your first family member\" to families that already had eight. It was drawing the empty state before it had finished loading. Your family now appears instantly from the last known copy.",
+    "Fixed: ten forms threw away everything you'd typed if one key field was blank — silently, with no message. They now stay open and tell you which field they need.",
+    "Fixed: the sections menu hung 49px off the right edge of a phone screen.",
+    "Every tab on a person now shows its name on a phone instead of a bare icon. \"Care\" is now \"Check-ups\" with its own icon — it was indistinguishable from Medical.",
+    "Deleting a CV role, a qualification, a medical record or a business milestone now asks first. Four places destroyed data on a single tap.",
+    "The assistant button no longer floats over open dialogs.",
+    "Buttons, the menu and the add-person control now meet the 44px minimum for a fingertip — and choosing a smaller display size no longer shrinks them with the text.",
+    "Better contrast on primary buttons and on the focus outline, which was previously almost invisible.",
+    "Fixed: the app said it works offline. It doesn't — that claim is gone. Its assets are now genuinely cached for a year, so it loads faster after the first visit.",
+    "Fixed: the Flashback card showed the same memory forever, and printed raw dates like \"since 2025-07-28\" mid-sentence.",
+    "The app now tells your screen reader which language it's in, so German and Spanish are read in the right voice.",
+    "Last traces of the old \"Family Vault\" name are gone, including what the assistant called itself."
   ]
 }

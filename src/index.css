@@ -158,9 +158,12 @@
 
   /* Primary action button — clay gradient pill w/ glow + press */
   .btn-primary {
+    min-height: 44px;
     @apply inline-flex items-center justify-center gap-2 text-white font-semibold text-sm rounded-full px-5 py-2.5 cursor-pointer;
-    background-image: linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600));
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px -4px var(--color-clay-500);
+    /* clay-500/600 put white text at 3.49:1, under the 4.5:1 floor. 700/800
+       measures 5.56:1 and 7.18:1 with the same family of colour. */
+    background-image: linear-gradient(135deg, var(--color-clay-700), var(--color-clay-800));
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px -4px var(--color-clay-700);
     transition: all 150ms var(--ease-out);
   }
   .btn-primary:hover {
@@ -176,6 +179,7 @@
 
   /* Danger button */
   .btn-danger {
+    min-height: 44px;
     @apply inline-flex items-center justify-center gap-2 bg-rosa-500 hover:bg-rosa-700 text-white font-semibold text-sm rounded-full px-4 py-2 transition-colors cursor-pointer;
   }
 
@@ -191,6 +195,7 @@
 
   /* Segmented tab pill — active is a solid ink pill (was a quiet white pill) */
   .tab-pill {
+    min-height: 44px;
     @apply px-3.5 py-2 rounded-full text-[13px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap text-ink-500 hover:text-ink-800;
   }
   .tab-pill-active {
@@ -199,7 +204,7 @@
 
   /* Form input */
   .field {
-    @apply w-full border border-cream-300 rounded-xl px-3.5 py-2.5 text-sm bg-white text-ink-800 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-clay-300 focus:border-clay-400 transition-all;
+    @apply w-full border border-cream-300 rounded-xl px-3.5 py-2.5 text-sm bg-white text-ink-800 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-clay-700 focus:ring-offset-1 focus:ring-offset-white focus:border-clay-700 transition-all;
   }
   .field-label {
     @apply block text-[13px] font-semibold text-ink-600 mb-1.5;

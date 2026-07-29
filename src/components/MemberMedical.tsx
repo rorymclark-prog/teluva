@@ -3,6 +3,7 @@ import { FamilyMember, MedicalRecord, Vaccination, IdCountry } from '../types';
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 import HealthInsuranceRow from './HealthInsuranceRow';
 import MemberReferrals from './MemberReferrals';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 interface MemberMedicalProps {
   member: FamilyMember;
@@ -311,9 +312,7 @@ function VaccinationsSection({
                   <button onClick={() => { setEditId(v.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={() => onDelete(v.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <ConfirmDeleteButton onConfirm={() => onDelete(v.id)} ariaLabel="Delete this record" />
                 </div>
               </div>
             ))}

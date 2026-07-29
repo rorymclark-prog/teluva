@@ -113,7 +113,7 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? t.btn_close : t.nav_assistant}
         aria-expanded={open}
-        className="fixed z-50 bottom-4 right-4 w-14 h-14 rounded-full text-white flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+        className="fixed z-30 bottom-4 right-4 w-14 h-14 rounded-full text-white flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer"
         style={{
           backgroundImage: 'linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600))',
           boxShadow: 'var(--shadow-glow)',

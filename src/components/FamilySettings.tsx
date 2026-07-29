@@ -6,6 +6,7 @@ import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, Busines
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
 import SheetGrabber from './SheetGrabber';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 
 const MILESTONE_KINDS: BusinessMilestoneKind[] = ['First customer', 'New location', 'Certification / licence', 'Revenue target', 'Product launch', 'Funding', 'Award / recognition', 'Other'];
 
@@ -194,9 +195,13 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
   function handleShare() {
     if (!joinUrl) return;
     if (navigator.share) {
+      // Named after the actual space: this same sheet invites people to a
+      // BUSINESS too, and "join our family vault" was wrong for half of them.
+      const inviteName = spaces.find((sp) => sp.id === familyId)?.name
+        || (isBusinessSpace ? 'this business' : 'this family');
       navigator.share({
-        title: 'Join our Family Vault',
-        text: `Tap this link to join our private family vault (invite code ${inviteCode}).`,
+        title: `Join ${inviteName} on Teluva`,
+        text: `Tap this link to join ${inviteName} on Teluva (invite code ${inviteCode}).`,
         url: joinUrl,
       }).catch(() => {});
     } else {
@@ -459,9 +464,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
                         <p className="text-[13px] font-medium text-ink-800 truncate">{m.title}</p>
                         <p className="text-[11px] text-ink-400">{m.date} · {m.kind}</p>
                       </div>
-                      <button onClick={() => handleDeleteMilestone(m.id)} className="p-1.5 text-ink-300 hover:text-rosa-600 rounded-lg shrink-0" title="Delete">
-                        <Trash2 size={14} />
-                      </button>
+                      <ConfirmDeleteButton onConfirm={() => handleDeleteMilestone(m.id)} ariaLabel={`Delete ${m.title}`} className="shrink-0" />
                     </div>
                   ))}
                 </div>
@@ -510,9 +513,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
                     {sortedHeadcount.map((h) => (
                       <div key={h.id} className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-cream-200">
                         <p className="text-[13px] text-ink-700 flex-1">{h.date} — <span className="font-semibold">{h.count}</span></p>
-                        <button onClick={() => handleDeleteHeadcount(h.id)} className="p-1 text-ink-300 hover:text-rosa-600 rounded-lg shrink-0" title="Delete">
-                          <Trash2 size={13} />
-                        </button>
+                        <ConfirmDeleteButton onConfirm={() => handleDeleteHeadcount(h.id)} ariaLabel={`Delete headcount for ${h.date}`} className="shrink-0" />
                       </div>
                     ))}
                   </div>
