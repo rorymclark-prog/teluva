@@ -15,6 +15,14 @@ export const DEMO_MEMBERS: FamilyMember[] = [
     name: 'Mama',
     role: 'Parent',
     birthdate: '1989-04-12',
+    // Full birth details on ONE demo member, so the star-sign card shows both
+    // states side by side: a complete Sun/Moon/Rising here, and the honest
+    // "needs the time of birth" on everyone else.
+    birthTime: '07:20',
+    placeOfBirth: 'Vienna, Austria',
+    birthTimeZone: 'Europe/Vienna',
+    birthLatitude: 48.2082,
+    birthLongitude: 16.3738,
     avatarColor: 'bg-rosa-500',
     clothingSizes: { tops: 'M', bottoms: '38', shoes: '39', outerwear: 'M', notes: 'Prefers natural fabrics', lastUpdated: iso(-12) },
     documents: [],

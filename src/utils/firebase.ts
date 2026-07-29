@@ -55,17 +55,35 @@ function setToken(token: string | null, expiresAt: number | null) {
   tokenExpiresAt = token ? expiresAt : null;
 }
 
+// When the last silent attempt failed. Retrying on every getAccessToken() call
+// achieves nothing — if Google wouldn't mint a token a moment ago it won't now
+// — and each attempt writes a blocked-popup error to the console. Observed on
+// the deployed app: two identical GSI popup failures on a plain page load.
+let silentFailedAt = 0;
+const SILENT_RETRY_MS = 5 * 60_000;
+
 /**
  * Try to re-mint the Google API token without any UI. Returns null if that
  * isn't possible, which means "the user needs to press Connect" — not an error.
  */
 async function trySilentToken(): Promise<string | null> {
+  // No signed-in user means there is nobody to mint a token FOR. Without this
+  // guard the signed-out login screen fired a Google token request of its own,
+  // which the browser then blocked as an uninvited popup.
+  if (!auth.currentUser) return null;
   if (silentInFlight) return silentInFlight;
+  if (Date.now() - silentFailedAt < SILENT_RETRY_MS) return null;
+
   silentInFlight = (async () => {
     try {
       const r = await silentAccessToken();
-      if (r) setToken(r.token, r.expiresAt);
-      return r ? r.token : null;
+      if (r) {
+        setToken(r.token, r.expiresAt);
+        silentFailedAt = 0;
+        return r.token;
+      }
+      silentFailedAt = Date.now();
+      return null;
     } finally {
       silentInFlight = null;
     }
@@ -151,6 +169,10 @@ export const connectGoogleAccess = async (): Promise<string | null> => {
 // already-known-bad token until it individually hits its own 401.
 export const invalidateAccessToken = () => {
   setToken(null, null);
+  // A 401 means the token died, which is precisely the case a silent re-mint
+  // is for — so clear the back-off rather than sitting out the next five
+  // minutes with no token at all.
+  silentFailedAt = 0;
 };
 
 export const logout = async () => {

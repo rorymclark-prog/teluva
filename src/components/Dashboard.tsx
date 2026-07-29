@@ -500,6 +500,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       setEvents(DEMO_EVENTS);
       setContacts(DEMO_CONTACTS);
       setSelectedMemberId(DEMO_MEMBERS[0].id);
+      // The demo exists to show what the app looks like, and the star-sign card
+      // is off by default for real vaults (it's opt-in, and not everyone wants
+      // it). Switching it on here is the only way anybody sees it before
+      // signing up — and the demo family has the birth details to show it
+      // properly, including a rising sign.
+      setSettings((s) => ({ ...s, astrology: true }));
       setInitialLoadDone(true);
       return;
     }
