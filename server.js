@@ -2444,11 +2444,79 @@ async function sendToFamily(familyRef, payloadObj) {
 // reads families/{id}/reference/inMemory or any Departed/InMemory data, so a
 // deceased relative's birthday can NEVER trigger a notification. Do not add any
 // read of the inMemory reference doc here.
+
+/* --- Expiry reminders -------------------------------------------------------
+ *
+ * The app has always COMPUTED these (see NeedsAttention.tsx) but only ever
+ * shown them to someone who had already opened it. A reminder that requires you
+ * to open the app is not a reminder — the entire value of knowing a passport
+ * expires in a month is being told while you are not thinking about passports.
+ *
+ * Two rules keep this from becoming spam, which is the only way a reminder
+ * feature ever fails:
+ *
+ * 1. FIRES ON THRESHOLDS, NOT DAILY. A passport 89 days out sends nothing; at
+ *    exactly 90, 30, 7 and 0 days it sends. Four notifications over three
+ *    months, not ninety.
+ * 2. ONE DIGEST PER FAMILY PER DAY. Five things due becomes one notification
+ *    saying five, never five notifications. The `tag` collapses any repeat.
+ */
+const EXPIRY_THRESHOLDS = [90, 30, 7, 0];
+
+// Whole days from today (Vienna) until an ISO date. Negative = already past.
+function daysUntil(dateStr, today) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim());
+  if (!m) return null;
+  const then = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Math.round((then - today) / 86400000);
+}
+
+const dueWord = (d) => (d === 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`);
+
+/* Everything with a deadline attached to a person. Returns [{label, days}].
+ * Deliberately only the things a family is genuinely caught out by — an expired
+ * passport at an airport, a lapsed residence permit, a missed check-up. */
+function memberDeadlines(mem, today) {
+  const out = [];
+  const name = String(mem.name || 'Someone').trim();
+  const add = (dateStr, label) => {
+    const d = daysUntil(dateStr, today);
+    if (d !== null && EXPIRY_THRESHOLDS.includes(d)) out.push({ label, days: d });
+  };
+
+  for (const p of mem.passports || []) {
+    add(p.expiryDate, `${name}'s ${p.country || ''} passport expires ${dueWord(daysUntil(p.expiryDate, today))}`.replace(/\s+/g, ' '));
+  }
+  // Residence permits are the highest-stakes of the lot: letting one lapse has
+  // consequences a renewed passport does not.
+  for (const v of (mem.travel && mem.travel.visas) || []) {
+    add(v.expiryDate, `${name}'s ${v.permitType || 'permit'} for ${v.country || ''} expires ${dueWord(daysUntil(v.expiryDate, today))}`.replace(/\s+/g, ' '));
+  }
+  for (const c of mem.careSchedule || []) {
+    add(c.nextDue, `${name}'s ${String(c.kind || 'check-up').toLowerCase()} is due ${dueWord(daysUntil(c.nextDue, today))}`);
+  }
+  return out;
+}
+
+/* Calendar entries for tomorrow only. "Anniversaries and doctors appointments"
+ * in the owner's words — but the night before, which is when a reminder can
+ * still change what you do. Same-day is handled by the celebrations pass. */
+function tomorrowsEvents(events, today) {
+  return events
+    .filter((e) => daysUntil(e.date, today) === 1)
+    .map((e) => ({ label: `Tomorrow: ${String(e.title || 'an event').trim()}`, days: 1 }));
+}
+
 async function runDailyCelebrations() {
   const { month, day } = viennaMonthDay();
+  // Midnight UTC of today's Vienna date — the fixed point every deadline is
+  // measured from, so a run at 06:00 and a run at 23:00 agree.
+  const nowVienna = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
+  const todayUtc = Date.UTC(nowVienna.getFullYear(), nowVienna.getMonth(), nowVienna.getDate());
   let familiesChecked = 0;
   let celebrationsFound = 0;
   let notificationsSent = 0;
+  let remindersFound = 0;
 
   // listDocuments() returns a ref for every family — including implicit parent
   // docs that only exist because subcollections live under them.
@@ -2483,9 +2551,7 @@ async function runDailyCelebrations() {
       });
     }
 
-    if (celebrations.length === 0) continue;
     celebrationsFound += celebrations.length;
-
     for (const c of celebrations) {
       notificationsSent += await sendToFamily(familyRef, {
         title: c.title,
@@ -2494,9 +2560,34 @@ async function runDailyCelebrations() {
         tag: `celebration-${month}-${day}`,
       });
     }
+
+    /* Deadlines. Collected across everyone, then sent as ONE digest — five
+     * things due must never become five buzzes. Sorted most-urgent first so the
+     * truncated notification body still leads with what matters. */
+    const due = [];
+    for (const mDoc of membersSnap.docs) due.push(...memberDeadlines(mDoc.data() || {}, todayUtc));
+    const eventsSnap = await familyRef.collection('calendar_events').get();
+    due.push(...tomorrowsEvents(eventsSnap.docs.map((d) => d.data() || {}), todayUtc));
+
+    if (due.length === 0) continue;
+    remindersFound += due.length;
+    due.sort((a, b) => a.days - b.days);
+
+    const title = due.length === 1 ? 'Teluva reminder' : `${due.length} things need attention`;
+    // Two lines at most: a notification nobody can read at a glance is ignored,
+    // and the app is one tap away for the rest.
+    const body = due.slice(0, 2).map((d) => d.label).join('\n')
+      + (due.length > 2 ? `\n…and ${due.length - 2} more` : '');
+    notificationsSent += await sendToFamily(familyRef, {
+      title,
+      body,
+      url: '/',
+      // Date-stamped so a second run the same day replaces rather than stacks.
+      tag: `reminders-${month}-${day}`,
+    });
   }
 
-  return { familiesChecked, celebrationsFound, notificationsSent };
+  return { familiesChecked, celebrationsFound, remindersFound, notificationsSent };
 }
 
 app.post('/api/cron/daily-celebrations', async (req, res) => {
