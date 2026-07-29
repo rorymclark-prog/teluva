@@ -380,6 +380,28 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
 
   const [mainView, setMainView] = useState<ViewId>('profiles');
+
+  // Switching section must put you at the TOP of the new one.
+  //
+  // Without this, changing view leaves the window scroll exactly where it was,
+  // and every section renders into the same always-scrolled <main>. Picking
+  // Calendar from the burger while two thousand pixels down the family list
+  // dropped you two thousand pixels down the CALENDAR — past the month grid,
+  // into the footer — which reads as "I tapped Calendar and it didn't open".
+  // Reported as exactly that, and reproduced on a 375px viewport.
+  //
+  // Skips the very first run: on a reload the browser restores the previous
+  // scroll position itself, and yanking the page to the top after it does so
+  // would be its own small bug.
+  const didMountView = useRef(false);
+  useEffect(() => {
+    if (!didMountView.current) { didMountView.current = true; return; }
+    // 'auto', not 'smooth' — this is a destination change, not a nudge within
+    // a page, and a long smooth-scroll past unrelated content on the way to a
+    // section you asked for is noise. It also respects reduced-motion for free.
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [mainView]);
+
   const [restyleMemberId, setRestyleMemberId] = useState<string | null>(null);
   // limitReached: this month's AI-action quota was hit on the last attempt for
   // this member — stops the auto-generate effect below from silently retrying

@@ -21,7 +21,7 @@ import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMat
 import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
-  ClipboardPaste, ChevronRight, CalendarClock, Undo2, ChevronDown,
+  ClipboardPaste, ChevronRight, CalendarClock, Undo2, ChevronDown, ScanLine,
 } from 'lucide-react';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 import { speechLocaleFor } from '../utils/speechLocale';
@@ -355,8 +355,23 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   const [headsUpDismissed, setHeadsUpDismissed] = useState(() => isHintSeen(headsUpKey));
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Grow the composer with what's being typed, up to the max-height its class
+  // sets (past that it scrolls itself). Driven off `input` rather than the
+  // change event so dictation, "ask this about the photo" chips and anything
+  // else that writes into the box resizes it too. The reset to 'auto' is
+  // required: scrollHeight can never report SMALLER than the current fixed
+  // height, so without it the box only ever grows.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   const stopStreaming = () => {
     if (streamTimerRef.current) { clearInterval(streamTimerRef.current); streamTimerRef.current = null; }
@@ -1814,65 +1829,111 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
           </div>
         )}
 
-        <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="flex gap-2 items-center">
+        {/* Composer: the message gets its own full-width row, the tools sit
+            under it.
+            Everything used to share ONE row — mic, camera, paste, Attach, the
+            text box and Send. Five 44px controls plus gaps eat ~260px, so on a
+            375px phone the actual typing area was a ~60px slot showing about
+            two characters of what you'd written. The row split is the fix:
+            nothing competes with the message for width any more, which is also
+            what lets it be a growing textarea rather than a single line. */}
+        <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="space-y-2">
           <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple onChange={onPickFile} className="hidden" />
-          {SR && (
-            <button
-              type="button"
-              onClick={toggleVoice}
-              disabled={loading}
-              title={listening ? 'Stop recording' : 'Speak your message'}
-              className={`h-11 w-11 shrink-0 rounded-2xl border font-semibold text-sm transition-colors disabled:opacity-40 flex items-center justify-center ${
-                listening
-                  ? 'bg-rosa-500 text-white border-rosa-500 anim-pulse-soft'
-                  : 'bg-white hover:bg-cream-100 text-ink-700 border-cream-300'
-              }`}
-            >
-              {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setScannerOpen(true)}
-            disabled={loading || attachments.length >= MAX_ATTACHMENTS}
-            title="Scan a document with your camera"
-            className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
-          >
-            <Camera className="w-4 h-4" />
-          </button>
-          {typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.read === 'function' && (
-            <button
-              type="button"
-              onClick={pasteFromClipboard}
-              disabled={loading || attachments.length >= MAX_ATTACHMENTS}
-              title="Paste a copied image or PDF from your clipboard"
-              className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
-            >
-              <ClipboardPaste className="w-4 h-4" />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={loading || attachments.length >= MAX_ATTACHMENTS}
-            title={`Attach up to ${MAX_ATTACHMENTS} photos, PDFs or files at once — or paste a screenshot with Ctrl+V / Cmd+V. For Google Drive files, open the file in Drive and use File → Download first.`}
-            className="btn-quiet h-11 px-3 shrink-0 disabled:opacity-40"
-          >
-            <Paperclip className="w-4 h-4" />
-            <span className="hidden sm:inline">Attach</span>
-          </button>
-          <input
-            type="text"
+          {/* Separate input from the Attach one, and deliberately NOT `multiple`:
+              `capture` is only honoured by mobile browsers on a single-file
+              input, and it's what makes the phone open the camera straight away
+              instead of the file browser. Desktop ignores `capture` entirely and
+              falls back to a normal picker, which is the sane degradation. */}
+          <input ref={photoRef} type="file" accept="image/*" capture="environment" onChange={onPickFile} className="hidden" />
+
+          <textarea
+            ref={inputRef}
+            rows={1}
             placeholder={attachments.length > 0 ? 'Add a note, or just send to scan…' : 'Ask or tell me something…'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onPaste={onPasteImage}
+            // Enter still sends, as it did when this was an <input> — the
+            // habit is worth more than a newline key. Shift+Enter breaks a
+            // line for anyone writing something longer.
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); }
+            }}
             disabled={loading}
-            className="field flex-1 h-11"
+            className="field w-full resize-none min-h-[44px] max-h-32 leading-snug"
           />
-          <button type="submit" disabled={(!input.trim() && attachments.length === 0) || loading} className="btn-primary h-11 w-11 !p-0 shrink-0 disabled:opacity-40">
-            <Send className="w-4 h-4" />
-          </button>
+
+          <div className="flex items-center gap-2">
+            {SR && (
+              <button
+                type="button"
+                onClick={toggleVoice}
+                disabled={loading}
+                title={listening ? 'Stop recording' : 'Speak your message'}
+                aria-label={listening ? 'Stop recording' : 'Speak your message'}
+                className={`h-11 w-11 shrink-0 rounded-2xl border font-semibold text-sm transition-colors disabled:opacity-40 flex items-center justify-center ${
+                  listening
+                    ? 'bg-rosa-500 text-white border-rosa-500 anim-pulse-soft'
+                    : 'bg-white hover:bg-cream-100 text-ink-700 border-cream-300'
+                }`}
+              >
+                {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </button>
+            )}
+            {/* Camera means camera. It used to open the document scanner —
+                corner detection, crop, deskew — which is the right tool for a
+                letter on a table and the wrong one for photographing a rash, a
+                meter reading or a note on a fridge. Point-and-shoot is now the
+                plain Camera icon; the scanner keeps its own ScanLine one next
+                to it, so both are one tap away and neither is disguised as the
+                other. */}
+            <button
+              type="button"
+              onClick={() => photoRef.current?.click()}
+              disabled={loading || attachments.length >= MAX_ATTACHMENTS}
+              title="Take a photo"
+              aria-label="Take a photo"
+              className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
+            >
+              <Camera className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setScannerOpen(true)}
+              disabled={loading || attachments.length >= MAX_ATTACHMENTS}
+              title="Scan a document — finds the edges and straightens it"
+              aria-label="Scan a document"
+              className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
+            >
+              <ScanLine className="w-4 h-4" />
+            </button>
+            {typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.read === 'function' && (
+              <button
+                type="button"
+                onClick={pasteFromClipboard}
+                disabled={loading || attachments.length >= MAX_ATTACHMENTS}
+                title="Paste a copied image or PDF from your clipboard"
+                aria-label="Paste from clipboard"
+                className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
+              >
+                <ClipboardPaste className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={loading || attachments.length >= MAX_ATTACHMENTS}
+              title={`Attach up to ${MAX_ATTACHMENTS} photos, PDFs or files at once — or paste a screenshot with Ctrl+V / Cmd+V. For Google Drive files, open the file in Drive and use File → Download first.`}
+              aria-label="Attach a file"
+              className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
+
+            <button type="submit" disabled={(!input.trim() && attachments.length === 0) || loading} className="btn-primary h-11 w-11 !p-0 shrink-0 ml-auto disabled:opacity-40">
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
         </form>
         <p className="text-[11px] text-ink-400 mt-2 text-center">
           {t.ai_hint.split('Ctrl+V').length > 1

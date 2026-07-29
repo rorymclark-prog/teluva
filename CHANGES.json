@@ -1,17 +1,8 @@
 {
-  "label": "v152",
+  "label": "v153",
   "changes": [
-    "Important fix: \"Export all events\" pushed EVERY event to Google Calendar — including the hundreds it had originally imported from Google — so one tap would have filled your calendar with duplicates of your own appointments. It now only ever sends events created in Teluva, and events it can't safely send no longer show a button at all.",
-    "Appointments you add in Teluva can now appear on your phone automatically. It's off until you switch it on, in Calendar under Google Calendar sync, and it only ever sends events created after you turn it on — never your existing history.",
-    "Creating an invite now warns you first: while Teluva is in testing, Google only lets in people who have been added by name, so send Rory the Gmail address before you share the link. The shared message says the same thing, in case they hit Google's wall before they ever see our screen.",
-    "New in Wills & estate: \"Who takes over\" — name the person who should look after all this, and what you'd want them to do. It tells you honestly whether that person can actually sign in today, or whether you still need to make them an admin.",
-    "Also new there: where the keys, safes and deeds are, a letter in your own words for whoever finds it, who must be told, and the accounts to close — with tick boxes, so it doubles as a checklist for them.",
-    "You can now tell the assistant all of that out loud — \"if something happens to me, tell my sister and cancel Netflix, the safe key is behind the wardrobe\" — and it files it. It had no way to write to those fields before.",
-    "Fixed before it could bite: saving a will could have silently wiped the emergency instructions kept alongside it.",
-    "Empty sections no longer just say \"nothing yet\" in whatever style each screen happened to use — they now tell you what belongs there and give you the button to add the first one.",
-    "Lists that are still loading show the shape of what's coming instead of a spinning circle.",
-    "The avatar ring was Instagram's story-ring gradient, magenta and all. It's now our own warm one.",
-    "The Privacy, Terms and celebration pop-ups animate in like every other panel, and buttons respond to a tap on a phone rather than only to a mouse hovering.",
-    "The sign-in screen now warns you about Google's \"hasn't verified this app\" screen before you hit it, and tells you exactly what to tap. It also says you can use Teluva on a laptop, and what we do to keep your documents safe."
+    "Fixed: tapping Calendar on a phone looked like nothing happened. It was opening — but the page stayed scrolled exactly where you'd left the family list, so you landed near the bottom of the calendar instead of the top of it. Every section now opens at the top. This is why it worked on the laptop and not on the phone.",
+    "The chat message box is now full width, on its own line, and grows as you type instead of being a two-character slot squeezed between the buttons.",
+    "The camera button in chat now just takes a photo. Scanning a document — finding the edges and straightening it — has its own button next to it, so you can pick the one you actually want instead of the camera always meaning \"scan\"."
   ]
 }
