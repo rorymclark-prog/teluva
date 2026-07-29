@@ -3,6 +3,7 @@ import { X, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { looksLikePdf } from '../utils/fileType';
 import { canShare, shareFile } from '../utils/share';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 export interface ShowCardField {
   label: string;
@@ -24,6 +25,8 @@ interface Props {
 // someone (ticket inspector, receptionist, border officer). Big high-contrast
 // number, optional scan, screen kept awake. This is the teen "show my card" flow.
 export default function ShowCardModal({ open, onClose, title, subtitle, fields = [], scanSrc }: Props) {
+  useBodyScrollLock(open);
+
   const wakeRef = useRef<{ release: () => void } | null>(null);
   const scanIsPdf = !!scanSrc && looksLikePdf(scanSrc);
 

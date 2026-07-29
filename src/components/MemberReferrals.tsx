@@ -6,6 +6,7 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import { computeFileHash, hashDataUrl, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
 import PdfThumbnail from './PdfThumbnail';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import {
   FileText, Camera, Upload, Plus, Trash2, Pencil, Check, X,
   AlertCircle, AlertTriangle, Loader2, ExternalLink, Calendar,
@@ -620,6 +621,11 @@ function ReferralForm({
 /* ---------------- Preview ---------------- */
 
 function ReferralPreview({ record, memberName, onClose }: { record: ReferralRecord; memberName: string; onClose: () => void }) {
+  // Parent (MemberReferrals, above) conditionally mounts this via
+  // `{previewRecord && <ReferralPreview .../>}`, so the lock is unconditional
+  // for this component's whole lifetime.
+  useBodyScrollLock(true);
+
   const isPdf = record.fileType === 'application/pdf';
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">

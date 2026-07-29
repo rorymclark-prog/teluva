@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { X, Shield, FileText, Lock } from 'lucide-react';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 /**
  * Privacy Policy + Terms, shown in a modal from the sign-in footer (pre-auth) and
@@ -18,6 +19,10 @@ export type LegalTab = 'privacy' | 'terms' | 'security';
 const UPDATED = '28 July 2026';
 
 export default function LegalModal({ tab, onClose }: { tab: LegalTab; onClose: () => void }) {
+  // Parent (Dashboard.tsx) conditionally mounts this component (`{legalTab && <LegalModal .../>}`),
+  // so the lock is unconditional for this component's whole lifetime.
+  useBodyScrollLock(true);
+
   const [active, setActive] = useState<LegalTab>(tab);
 
   return (
@@ -105,6 +110,24 @@ function Privacy() {
         <li>Other records: clothing sizes, school info, wishlists, growth logs, documents you upload.</li>
         <li>Household &amp; account data, calendar events, family chat messages, and your conversations with the AI assistant.</li>
         <li>Technical: your Google account identifier (for sign-in) and basic device/local-storage cache.</li>
+        <li>
+          <b>Optional Google Drive &amp; Calendar sync.</b> If you connect Google Drive or Google
+          Calendar (in the Drive Sync or Calendar screens), you grant Teluva read-only access to
+          browse your Google Drive files and folders — so you can choose which ones to share with
+          your family — and read/write access to events on your <i>primary</i> Google Calendar only,
+          to import or export appointments. This does not let Teluva edit, delete, or upload
+          anything in your Drive, and it cannot see or change any calendar other than your primary
+          one. You can revoke this at any time from your Google Account&apos;s{' '}
+          <a
+            href="https://myaccount.google.com/permissions"
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+          >
+            connected apps &amp; sites
+          </a>{' '}
+          settings.
+        </li>
       </ul>
 
       <H>Why we process it &amp; the legal basis</H>

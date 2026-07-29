@@ -5,11 +5,28 @@ import { auth, db } from '../lib/firebase';
 export { auth, db };
 
 const provider = new GoogleAuthProvider();
+// Scoped to exactly what the app's code does with the token — see
+// GoogleDriveSync.tsx (read-only Drive browsing, no create/update/delete
+// calls) and FamilyCalendar.tsx (reads/writes events on the primary
+// calendar only, never manages calendars themselves).
+//
+// drive.readonly is a Google "restricted" scope (requires an annual CASA
+// security assessment before this app can go public) because it grants
+// read access to the user's ENTIRE Drive, not just files they hand to the
+// app. It is kept because the folder browser in GoogleDriveSync.tsx lists
+// arbitrary folders, which drive.file (narrow, non-sensitive) cannot do.
+// Removing that CASA requirement would mean rebuilding Drive access around
+// the Google Picker (user browses in Google's own UI, app only gets
+// drive.file access to what they pick) — a real UX rewrite, not done here.
+//
+// Removed: auth/drive (full read+write+delete of every file — nothing in
+// this app ever creates/updates/deletes a Drive file), auth/drive.file
+// (redundant — no Picker, no app-created files, so drive.readonly already
+// covers every current use), auth/calendar (full calendar management,
+// including deleting calendars — this app only ever touches events on the
+// user's "primary" calendar via calendar.events).
 provider.addScope('https://www.googleapis.com/auth/drive.readonly');
-provider.addScope('https://www.googleapis.com/auth/drive.file');
-provider.addScope('https://www.googleapis.com/auth/drive');
 provider.addScope('https://www.googleapis.com/auth/calendar.events');
-provider.addScope('https://www.googleapis.com/auth/calendar');
 
 provider.setCustomParameters({
   prompt: 'consent',

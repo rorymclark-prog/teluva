@@ -4,6 +4,7 @@ import { X, CalendarDays, ChevronRight } from 'lucide-react';
 import { FamilyMember, Vehicle } from '../types';
 import { loadHousehold } from '../utils/db';
 import { computeNudges, computeVehicleNudges, Nudge, Tone } from './NeedsAttention';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface Props {
   member: FamilyMember;
@@ -62,6 +63,11 @@ function relativeLabel(days: number): string {
 // calls computeNudges/computeVehicleNudges verbatim and only keeps entries
 // that carry a real date, sorted overdue-first then soonest-upcoming.
 export default function MemberCalendarDates({ member, isBusinessSpace, onClose, onGoTab, onGoView }: Props) {
+  // Parent (Dashboard.tsx) conditionally mounts this component
+  // (`{showMemberCalendar && selectedMember && <MemberCalendarDates .../>}`),
+  // so the lock is unconditional for this component's whole lifetime.
+  useBodyScrollLock(true);
+
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
 
   useEffect(() => {

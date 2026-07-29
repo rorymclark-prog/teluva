@@ -4,6 +4,7 @@ import { getDocumentPlaceholderSvg } from '../utils/svgPlaceholders';
 import { X, Download, Share2, Shield, Calendar, Layers, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { canShare, shareFile } from '../utils/share';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface DocumentViewerProps {
   document: FamilyDocument | null;
@@ -12,6 +13,8 @@ interface DocumentViewerProps {
 }
 
 export default function DocumentViewer({ document: doc, memberName, onClose }: DocumentViewerProps) {
+  useBodyScrollLock(!!doc);
+
   const isPdf = doc?.fileType === 'application/pdf';
   // BUG FIX #3: AnimatePresence must always render; the early `if (!doc) return null`
   // was placed before AnimatePresence, so the exit animation never fired. All helper

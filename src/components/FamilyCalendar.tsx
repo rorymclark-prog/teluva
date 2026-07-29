@@ -10,6 +10,7 @@ import { initAuth, googleSignIn, logout, getAccessToken } from '../utils/firebas
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import SheetGrabber from './SheetGrabber';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -364,6 +365,13 @@ export default function FamilyCalendar({ members, events, onSaveEvents }: Family
 
   // Form states for Add/Edit
   const [isFormOpen, setIsFormOpen] = useState(false);
+
+  // Two fixed-inset-0 overlays live in this component (the scan-notice
+  // preview and the add/edit event form). Either one open should lock the
+  // page behind it; the refcounted hook makes a single call safe even if
+  // both were somehow open at once.
+  useBodyScrollLock(!!noticeResult || isFormOpen);
+
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   // Bug fix #6: use todayLocal() instead of toISOString().split('T')[0]

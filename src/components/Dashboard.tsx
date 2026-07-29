@@ -72,6 +72,7 @@ import MemberFavorites from './MemberFavorites';
 import MemberMedical from './MemberMedical';
 import MemberOverview from './MemberOverview';
 import NeedsAttention from './NeedsAttention';
+import ReadinessCard from './ReadinessCard';
 import MemberIDs from './MemberIDs';
 import MemberTravel from './MemberTravel';
 import CareSchedule from './CareSchedule';
@@ -1820,6 +1821,19 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               onSave={(next) => { void handleSaveSettings({ ...settings, status: next }); }}
               isBusinessSpace={isBusinessSpace}
             />
+
+            {/* Family-only: scores willsEstate/emergency-style readiness, which
+                has no business-space equivalent (willsEstate itself is hidden
+                in business spaces — see HIDDEN_VIEWS_IN_BUSINESS). */}
+            {!isBusinessSpace && (
+              <ReadinessCard
+                members={members}
+                familyId={activeSpaceId}
+                demo={demo}
+                onGo={goToMemberTab}
+                onGoView={(v) => setMainView(v as ViewId)}
+              />
+            )}
 
             <NeedsAttention members={members} contacts={contacts} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
             <CelebrationOverlay members={members} />

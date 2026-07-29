@@ -11,7 +11,7 @@
     "lint": "tsc --noEmit && npm run check:colors",
     "check:colors": "node scripts/check-colors.mjs",
     "test:server": "node --test server/*.test.mjs",
-    "test": "tsx src/utils/speechLocale.test.ts && tsx src/utils/mergeShared.test.ts && tsx src/utils/emergencyNumbers.test.ts && tsx src/utils/measureReading.test.ts && tsx src/utils/measurementUnits.test.ts && tsx src/utils/sizeStaleness.test.ts && tsx src/utils/businessMilestone.test.ts && tsx src/utils/aiRedact.test.ts && node authz.test.mjs && npm run test:server && tsx src/utils/funeralCover.test.ts && tsx src/utils/installPrompt.test.ts && tsx src/utils/planLimits.test.ts && tsx src/utils/aiEditCoverage.test.ts"
+    "test": "tsx src/utils/speechLocale.test.ts && tsx src/utils/mergeShared.test.ts && tsx src/utils/emergencyNumbers.test.ts && tsx src/utils/measureReading.test.ts && tsx src/utils/measurementUnits.test.ts && tsx src/utils/sizeStaleness.test.ts && tsx src/utils/businessMilestone.test.ts && tsx src/utils/aiRedact.test.ts && node authz.test.mjs && npm run test:server && tsx src/utils/funeralCover.test.ts && tsx src/utils/installPrompt.test.ts && tsx src/utils/planLimits.test.ts && tsx src/utils/aiEditCoverage.test.ts && tsx src/utils/readiness.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

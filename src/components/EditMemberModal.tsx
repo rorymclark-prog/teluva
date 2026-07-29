@@ -7,6 +7,7 @@ import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { BUSINESS_ROLE_PRESETS } from '../utils/businessRoles';
 import SheetGrabber from './SheetGrabber';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -18,6 +19,8 @@ interface EditMemberModalProps {
 }
 
 export default function EditMemberModal({ isOpen, member, onClose, onSave, isBusinessSpace = false }: EditMemberModalProps) {
+  useBodyScrollLock(isOpen && !!member);
+
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
   const [role, setRole] = useState<MemberRole>('Child');
@@ -26,6 +29,12 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [birthTime, setBirthTime] = useState('');
   const [placeOfBirth, setPlaceOfBirth] = useState('');
   const [birthHospital, setBirthHospital] = useState('');
+  // Read by Emergency, Babysitter mode and the emergency card, and until now
+  // writable ONLY by the AI or the one-time guided interview — there was no
+  // field anywhere to type one. The readiness score surfaced that as a nudge
+  // pointing at a screen that could not fix it.
+  const [emergencyContactName, setEmergencyContactName] = useState('');
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState('');
   const [taxNumber, setTaxNumber] = useState('');
   const [startDate, setStartDate] = useState('');
   const [address, setAddress] = useState('');
@@ -71,6 +80,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setBirthTime(member.birthTime || '');
       setPlaceOfBirth(member.placeOfBirth || '');
       setBirthHospital(member.birthHospital || '');
+      setEmergencyContactName(member.emergencyContactName || '');
+      setEmergencyContactPhone(member.emergencyContactPhone || '');
       setTaxNumber(member.taxNumber || '');
       setStartDate(member.startDate || '');
       setAddress(member.address || '');
@@ -197,6 +208,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       birthTime: birthTime || undefined,
       placeOfBirth: placeOfBirth.trim() || undefined,
       birthHospital: birthHospital.trim() || undefined,
+      emergencyContactName: emergencyContactName.trim() || undefined,
+      emergencyContactPhone: emergencyContactPhone.trim() || undefined,
       taxNumber: taxNumber.trim() || undefined,
       startDate: startDate || undefined,
       address: address.trim() || undefined,
@@ -343,6 +356,21 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                 <div className="sm:col-span-2">
                   <label className="field-label">Hospital / clinic <span className="normal-case text-ink-300 font-normal">· optional</span></label>
                   <input type="text" placeholder="e.g. Rudolfstiftung, Vienna" value={birthHospital} onChange={(e) => setBirthHospital(e.target.value)} className="field" />
+                </div>
+              </div>
+
+              {/* Who to call. Deliberately here on Overview rather than buried in
+                  a medical tab: it is the first thing a babysitter, a paramedic
+                  or a school needs, and the app already shows it on the
+                  emergency card and in Babysitter mode. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="field-label">Emergency contact <span className="normal-case text-ink-300 font-normal">· who to call</span></label>
+                  <input type="text" placeholder="e.g. Maria (mum)" value={emergencyContactName} onChange={(e) => setEmergencyContactName(e.target.value)} className="field" />
+                </div>
+                <div>
+                  <label className="field-label">Their phone</label>
+                  <input type="tel" inputMode="tel" placeholder="e.g. +43 660 1234567" value={emergencyContactPhone} onChange={(e) => setEmergencyContactPhone(e.target.value)} className="field" />
                 </div>
               </div>
 

@@ -7,6 +7,7 @@ import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
 import SheetGrabber from './SheetGrabber';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 const MILESTONE_KINDS: BusinessMilestoneKind[] = ['First customer', 'New location', 'Certification / licence', 'Revenue target', 'Product launch', 'Funding', 'Award / recognition', 'Other'];
 
@@ -43,6 +44,10 @@ function initials(displayName: string, email: string): string {
  * Rendered as a slide-in modal — parent component gates rendering to isAdmin only.
  */
 export default function FamilySettings({ onClose }: FamilySettingsProps) {
+  // Always mounted only while open — parent (App.tsx) gates rendering, so
+  // the lock is unconditional for this component's whole lifetime.
+  useBodyScrollLock(true);
+
   const { familyId, uid: currentUid, aiEligible, aiConsent, setAiConsent, spaces } = useFamilyCtx();
   const isBusinessSpace = spaces.find((s) => s.id === familyId)?.type === 'business';
 

@@ -6,6 +6,7 @@ import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { BUSINESS_ROLE_PRESETS } from '../utils/businessRoles';
 import SheetGrabber from './SheetGrabber';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface AddMemberModalProps {
   isOpen: boolean;
@@ -16,6 +17,8 @@ interface AddMemberModalProps {
 }
 
 export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace = false }: AddMemberModalProps) {
+  useBodyScrollLock(isOpen);
+
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
   const [role, setRole] = useState<MemberRole>(isBusinessSpace ? 'Employee' : 'Child');

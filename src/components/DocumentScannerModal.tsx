@@ -5,6 +5,7 @@ import { scanDocument, extractDocument, createCornerEditor, type CornerPoints, t
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { compileImagesToPdf } from '../utils/pdfCompile';
 import SheetGrabber from './SheetGrabber';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 export interface ScannedFile {
   data: string;
@@ -67,6 +68,11 @@ export default function DocumentScannerModal({
   scanType,
   filePrefix,
 }: DocumentScannerModalProps) {
+  // Called unconditionally, ahead of the `if (!open) return null` below —
+  // required by the rules of hooks. The hook itself is a no-op while open
+  // is false.
+  useBodyScrollLock(open);
+
   const [pickedType, setPickedType] = useState<ScanType | null>(null);
   // capturedPhoto is the (edge-detected + perspective-corrected) result shown
   // for review; rawPhoto is the full uncropped capture kept around so "Adjust

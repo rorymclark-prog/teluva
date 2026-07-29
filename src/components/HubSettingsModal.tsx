@@ -8,6 +8,7 @@ import LanguageSelector from './LanguageSelector';
 import PushOptInCard from './PushOptInCard';
 import SheetGrabber from './SheetGrabber';
 import TextSizeControl from './TextSizeControl';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 export const COUNTRY_OPTIONS: { value: IdCountry; label: string }[] = [
   { value: 'AT', label: 'Austria' },
@@ -30,6 +31,8 @@ interface HubSettingsModalProps {
 }
 
 export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, onClose, onSave, onReplayTour, onOpenInterview }: HubSettingsModalProps) {
+  useBodyScrollLock(isOpen);
+
   const [hubName, setHubName] = useState('');
   const [photo, setPhoto] = useState<string>('');
   const [uploadFileName, setUploadFileName] = useState('');

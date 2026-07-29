@@ -8,6 +8,7 @@ import { loadFamilyInfo, saveFamilyInfo, loadHousehold, saveHousehold } from '..
 import { getInterviewState, saveInterviewStep, markInterviewSeen } from '../utils/interview';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import SheetGrabber from './SheetGrabber';
 
 // ---------------------------------------------------------------------------
@@ -107,6 +108,11 @@ export default function FamilyInterview({
   onSettled, forceKey = 0,
 }: FamilyInterviewProps) {
   const [status, setStatus] = useState<'idle' | 'checking' | 'active' | 'done'>('idle');
+  // Always mounted (Dashboard.tsx renders it unconditionally; it internally
+  // guards with `if (status !== 'active') return null`), so called
+  // unconditionally here — ahead of that early return — gated on the same
+  // boolean the guard checks.
+  useBodyScrollLock(status === 'active');
   const [token, setToken] = useState('welcome');
   const [busy, setBusy] = useState(false);
 

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { FamilyMember, CalendarEvent, CareSchedule } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface Props {
   members: FamilyMember[];
@@ -52,6 +53,11 @@ function signed(n: number, unit: string): string {
 // fit, and matches the rosa "medical" colouring already used in FamilyCalendar),
 // merged and sorted newest-first into one vertical timeline.
 export default function HealthTimeline({ members, events, onClose }: Props) {
+  // Parent (Dashboard.tsx) conditionally mounts this component
+  // (`{showHealthTimeline && <HealthTimeline .../>}`), so the lock is
+  // unconditional for this component's whole lifetime.
+  useBodyScrollLock(true);
+
   const children = useMemo(() => members.filter((m) => m.role === 'Child'), [members]);
   const [selectedId, setSelectedId] = useState<string | null>(children[0]?.id ?? null);
 

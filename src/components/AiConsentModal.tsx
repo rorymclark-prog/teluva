@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Sparkles, X, Check, Globe2, Eye, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import SheetGrabber from './SheetGrabber';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface Props {
   open: boolean;
@@ -21,6 +22,8 @@ const CAPABILITIES = [
 // just as easy to reach as "Enable" — dismissing it (Escape, backdrop, or the
 // button) never grants consent, only onEnable does.
 export default function AiConsentModal({ open, onEnable, onClose, onOpenPrivacy }: Props) {
+  useBodyScrollLock(open);
+
   const [enabling, setEnabling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

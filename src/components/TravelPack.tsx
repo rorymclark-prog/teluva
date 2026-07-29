@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { FamilyMember, CalendarEvent } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // A document is flagged "expires soon" inside this window — enough runway to
 // actually get a renewal appointment before a trip sneaks up on you.
@@ -146,6 +147,11 @@ function MemberAvatar({ member, size = 'w-8 h-8 text-[12px]' }: { member: Family
 }
 
 export default function TravelPack({ members, onClose }: { members: FamilyMember[]; events: CalendarEvent[]; onClose: () => void }) {
+  // Parent (Dashboard.tsx) conditionally mounts this component
+  // (`{showTravelPack && <TravelPack .../>}`), so the lock is unconditional
+  // for this component's whole lifetime.
+  useBodyScrollLock(true);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {

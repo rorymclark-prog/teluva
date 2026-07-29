@@ -5,6 +5,7 @@ import { loadPasswords, savePassword, deletePassword } from '../utils/db';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import SheetGrabber from './SheetGrabber';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 const BLANK: PasswordEntry = {
   id: '',
@@ -22,6 +23,7 @@ export default function FamilyPasswords() {
   const [entries, setEntries] = useState<PasswordEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  useBodyScrollLock(isFormOpen);
   const [editingEntry, setEditingEntry] = useState<PasswordEntry | null>(null);
   const [visibleIds, setVisibleIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);

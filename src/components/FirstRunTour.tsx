@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { X, ArrowLeft, ArrowRight, Sparkles } from 'lucide-react';
 import { getTourSeen, markTourSeen } from '../utils/tour';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // ---------------------------------------------------------------------------
 // Step catalogue
@@ -190,6 +191,11 @@ export default function FirstRunTour({
   forceKey = 0,
 }: FirstRunTourProps) {
   const [status, setStatus] = useState<'idle' | 'checking' | 'active' | 'done'>('idle');
+  // This component is always mounted (Dashboard.tsx renders it unconditionally
+  // and it internally guards with `if (status !== 'active' ...) return null`),
+  // so the hook is called unconditionally here — ahead of that early return,
+  // per the rules of hooks — gated on the same boolean that guard checks.
+  useBodyScrollLock(status === 'active');
   const [resolvedSteps, setResolvedSteps] = useState<ResolvedStep[]>([]);
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
