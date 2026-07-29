@@ -1,8 +1,8 @@
 {
-  "label": "v162",
+  "label": "v163",
   "changes": [
-    "You can now subscribe to another calendar, not just import from it. Paste the private link Apple, Outlook, Proton or Google gives you and Teluva keeps itself up to date — appointments that move, move, and cancelled ones disappear instead of lingering.",
-    "The birth-location fields no longer ask you to go and find coordinates. Type the town, tap search, and the time zone and position fill themselves in.",
-    "A one-off .ics file import is still there for when you just want a snapshot."
+    "Teluva can now appear inside your own calendar. Create a link in the calendar panel, paste it into Apple Calendar, Outlook or Google as a subscribed calendar, and these events show up alongside everything else and keep themselves up to date.",
+    "You choose what the link shows: full details, or busy-only with no titles at all. It can be turned off again at any time, and it only ever carries calendar entries — never documents, IDs or medical records.",
+    "Events Teluva brought in from another calendar are never published back out, so nothing bounces around and shows up twice."
   ]
 }

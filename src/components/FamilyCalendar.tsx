@@ -4,7 +4,7 @@ import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   Calendar, Clock, Plus, Trash2, Edit2,
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X, Info,
-  Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine
+  Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine, Link2
 } from 'lucide-react';
 import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken, connectGoogleAccess } from '../utils/firebase';
 import { auth } from '../lib/firebase';
@@ -26,6 +26,18 @@ import {
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
+
+/** One published outbound feed, as /api/calendar-publish/list returns it. */
+interface PublishedLink {
+  token: string;
+  path: string;
+  mode: 'details' | 'busy';
+  label: string;
+  createdAt: string;
+  createdByName: string;
+  lastFetchedAt: string | null;
+  fetchCount: number;
+}
 
 interface FamilyCalendarProps {
   members: FamilyMember[];
@@ -215,6 +227,84 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setIcsNote(`Unsubscribed from ${feed.label}${removed ? ` and removed its ${removed} ${removed === 1 ? 'event' : 'events'}` : ''}.`);
   };
 
+  // --- Publishing OUR calendar outward -------------------------------------
+  //
+  // The other direction: a link the family pastes into Apple/Outlook/Google so
+  // Teluva's events show up there. Deliberately blunt about what the link is —
+  // a calendar app cannot sign in, so the URL itself is the password, and the
+  // person creating it needs to understand that before they send it anywhere.
+  const [publishedLinks, setPublishedLinks] = useState<PublishedLink[] | null>(null);
+  const [publishBusy, setPublishBusy] = useState<string | null>(null);
+  const [publishMode, setPublishMode] = useState<'details' | 'busy'>('details');
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  const publishApi = async (path: string, init?: RequestInit) => {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Please sign in again.');
+    const idToken = await user.getIdToken();
+    const res = await fetch(path, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}`, ...(init?.headers || {}) },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'That did not work. Please try again.');
+    return data;
+  };
+
+  const loadPublishedLinks = async () => {
+    try {
+      const data = await publishApi('/api/calendar-publish/list');
+      setPublishedLinks(data.links || []);
+    } catch {
+      setPublishedLinks([]);   // never block the panel on this
+    }
+  };
+
+  const handlePublish = async () => {
+    setPublishBusy('creating');
+    setIcsNote(null);
+    try {
+      const data = await publishApi('/api/calendar-publish/create', {
+        method: 'POST',
+        body: JSON.stringify({ mode: publishMode }),
+      });
+      await loadPublishedLinks();
+      const url = `${window.location.origin}${data.path}`;
+      // Copying immediately is the whole point — the link is unreadable and
+      // nobody is going to retype 43 characters of base64.
+      try { await navigator.clipboard.writeText(url); setCopiedToken(data.token); } catch { /* clipboard blocked */ }
+      setIcsNote(`Calendar link created and copied. Paste it into Apple Calendar, Outlook or Google as a subscribed calendar.`);
+    } catch (e: any) {
+      setIcsNote(e?.message || 'Could not create the link.');
+    } finally {
+      setPublishBusy(null);
+    }
+  };
+
+  const handleRevokePublish = async (link: PublishedLink) => {
+    if (!window.confirm('Turn this link off? Anyone using it — including your own Apple or Outlook calendar — will stop receiving these events.')) return;
+    setPublishBusy(link.token);
+    try {
+      await publishApi('/api/calendar-publish/revoke', { method: 'POST', body: JSON.stringify({ token: link.token }) });
+      await loadPublishedLinks();
+      setIcsNote('That link is off. It will stop working within the hour, wherever it was used.');
+    } catch (e: any) {
+      setIcsNote(e?.message || 'Could not turn that link off.');
+    } finally {
+      setPublishBusy(null);
+    }
+  };
+
+  const copyPublishedLink = async (link: PublishedLink) => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${link.path}`);
+      setCopiedToken(link.token);
+      window.setTimeout(() => setCopiedToken((t) => (t === link.token ? null : t)), 2500);
+    } catch {
+      setIcsNote('Could not copy — select the link and copy it manually.');
+    }
+  };
+
   // Refresh every subscription once per mount. Quietly — nobody opened the
   // calendar to read a sync report.
   const hasSyncedFeeds = useRef(false);
@@ -226,6 +316,14 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calendarFeeds.length, canWrite]);
+
+  // Load any existing published links once, so a family that already has one
+  // sees it rather than being invited to create a second.
+  useEffect(() => {
+    if (publishedLinks !== null || !auth.currentUser) return;
+    loadPublishedLinks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // --- Calendar files (.ics): every calendar that isn't Google -------------
   //
@@ -1165,6 +1263,112 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               <span>Save as calendar file</span>
             </button>
           </div>
+
+          {/* The other direction: Teluva's own events, published as a feed the
+              family's normal calendar app subscribes to. */}
+          <div className="pt-3 border-t border-cream-200 space-y-2">
+            <p className="text-[13px] font-semibold text-ink-800">Show Teluva in your own calendar</p>
+            <p className="text-[12px] text-ink-500 leading-snug">
+              Create a link, paste it into Apple Calendar, Outlook or Google as a subscribed calendar,
+              and these events appear alongside everything else — updating by themselves about once an hour.
+            </p>
+
+            {publishedLinks !== null && publishedLinks.length === 0 && (
+              <>
+                <div className="flex gap-2 flex-wrap items-center">
+                  <label className="flex items-center gap-1.5 text-[12px] text-ink-600 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="publish-mode"
+                      checked={publishMode === 'details'}
+                      onChange={() => setPublishMode('details')}
+                    />
+                    <span>Full details</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-[12px] text-ink-600 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="publish-mode"
+                      checked={publishMode === 'busy'}
+                      onChange={() => setPublishMode('busy')}
+                    />
+                    <span>Busy only — no titles</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handlePublish}
+                    disabled={publishBusy !== null || !canWrite}
+                    className="btn-primary shrink-0 disabled:opacity-40 ml-auto"
+                  >
+                    {publishBusy === 'creating' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+                    <span>Create link</span>
+                  </button>
+                </div>
+                <p className="text-[11.5px] text-ink-500 leading-snug bg-cream-100 border border-cream-300 rounded-xl px-3 py-2">
+                  <b>Read this before you share it.</b> A calendar app can’t sign in, so the link itself is
+                  the password — anyone who has it can see these events without an account. It only ever
+                  shows calendar entries, never documents, IDs or medical records, and you can turn it off
+                  at any time. Choose <b>Busy only</b> if someone outside the family needs to see when
+                  you’re free without seeing why.
+                </p>
+              </>
+            )}
+
+            {publishedLinks && publishedLinks.length > 0 && (
+              <ul className="space-y-1.5">
+                {publishedLinks.map((l) => (
+                  <li key={l.token} className="rounded-xl border border-cream-300 bg-cream-50 px-3 py-2">
+                    <div className="flex items-start gap-2">
+                      <Link2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-400" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[12.5px] font-semibold text-ink-800">
+                          {l.mode === 'busy' ? 'Busy only — no titles shared' : 'Full details'}
+                        </p>
+                        <p className="text-[11px] text-ink-400">
+                          {l.lastFetchedAt
+                            ? `Last read ${new Date(l.lastFetchedAt).toLocaleString()}`
+                            : 'Not read yet — paste it into your calendar app'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyPublishedLink(l)}
+                        className="text-[11px] font-semibold text-clay-600 hover:text-clay-800 shrink-0 cursor-pointer"
+                      >
+                        {copiedToken === l.token ? 'Copied' : 'Copy link'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRevokePublish(l)}
+                        disabled={publishBusy !== null || !canWrite}
+                        className="text-[11px] font-semibold text-ink-400 hover:text-rosa-700 shrink-0 cursor-pointer disabled:opacity-40"
+                      >
+                        {publishBusy === l.token ? '…' : 'Turn off'}
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[11px] text-ink-400 break-all font-mono">
+                      {window.location.origin}{l.path}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <details className="text-[12px] text-ink-500">
+              <summary className="cursor-pointer font-semibold text-ink-600">Where do I paste it?</summary>
+              <ul className="mt-1.5 space-y-1 pl-4 list-disc leading-snug">
+                <li><b>iPhone / iPad</b> — Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar.</li>
+                <li><b>Mac</b> — Calendar → File → New Calendar Subscription.</li>
+                <li><b>Outlook</b> — Add calendar → Subscribe from web.</li>
+                <li><b>Google Calendar</b> — Other calendars → + → From URL.</li>
+              </ul>
+              <p className="mt-1.5 leading-snug">
+                Events you typed into Teluva are the only ones published. Anything Teluva pulled in from
+                another calendar stays out, so nothing bounces back and shows up twice.
+              </p>
+            </details>
+          </div>
+
           {icsNote && (
             <p className="text-[12px] text-ink-600 bg-cream-100 border border-cream-300 rounded-xl px-3 py-2 whitespace-pre-line">
               {icsNote}

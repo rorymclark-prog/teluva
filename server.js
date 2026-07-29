@@ -17,6 +17,12 @@ import {
   classifierPrompt,
   classifierSaysAllow,
 } from './server/avatarPromptScreen.mjs';
+import {
+  selectPublishableEvents,
+  buildPublishedIcs,
+  publicationState,
+  PUBLISH_MODES,
+} from './server/calendarPublish.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1428,6 +1434,129 @@ app.post('/api/calendar-feed', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Publishing OUR calendar outward — the other half of two-way sync.
+//
+// See server/calendarPublish.mjs for the reasoning. The short version: a
+// calendar app cannot sign in, so the URL is the credential. It is therefore
+// opt-in, unguessable, revocable, carries calendar events and nothing else,
+// and can be created in 'busy' mode where every title and note is stripped.
+// ---------------------------------------------------------------------------
+
+const PUBLISH_REFRESH_MINUTES = 60;
+
+/**
+ * Read a family's calendar the same way the app itself does: the id list in
+ * metadata/events is the authority, not the calendar_events collection.
+ *
+ * That distinction is load-bearing. A deleted event drops out of the index;
+ * if its document lingers, reading the collection directly would resurrect it
+ * — so a family who deleted an appointment would watch it reappear in Apple
+ * Calendar with no way to get rid of it.
+ */
+async function readFamilyEvents(familyId) {
+  const metaSnap = await adminDb.doc(`families/${familyId}/metadata/events`).get();
+  const ids = (metaSnap.exists ? metaSnap.data()?.ids : null) || [];
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const refs = ids
+    .filter((id) => typeof id === 'string' && id && !id.includes('/'))
+    .slice(0, 5000)
+    .map((id) => adminDb.doc(`families/${familyId}/calendar_events/${id}`));
+  if (!refs.length) return [];
+  const docs = await adminDb.getAll(...refs);
+  return docs.filter((d) => d.exists).map((d) => d.data());
+}
+
+app.post('/api/calendar-publish/create', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (caller.role === 'child') {
+      return res.status(403).json({ error: 'Only parents can publish the family calendar.' });
+    }
+    const body = req.body || {};
+    const mode = PUBLISH_MODES.includes(body.mode) ? body.mode : 'details';
+    const label = typeof body.label === 'string' ? body.label.trim().slice(0, 80) : '';
+
+    // 32 bytes — the URL is the only thing standing between this feed and
+    // anybody who tries one. 24 would already be far beyond guessing; the
+    // extra 8 cost nothing and this link lives in other people's calendar
+    // apps for years.
+    const token = crypto.randomBytes(32).toString('base64url');
+    const now = new Date();
+    await adminDb.doc(`calendarPublications/${token}`).set({
+      familyId: caller.familyId,
+      createdBy: caller.uid,
+      createdByName: caller.displayName || '',
+      createdAt: now.toISOString(),
+      mode,
+      label,
+      revoked: false,
+      fetchCount: 0,
+    });
+    console.log(`[calendar-publish] created (${mode}) for family ${caller.familyId} by ${caller.email}`);
+    res.json({ ok: true, token, path: `/cal/${token}.ics`, mode });
+  } catch (err) {
+    console.error('/api/calendar-publish/create error:', err);
+    res.status(500).json({ error: 'Could not create the calendar link. Please try again.' });
+  }
+});
+
+app.get('/api/calendar-publish/list', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const q = await adminDb.collection('calendarPublications')
+      .where('familyId', '==', caller.familyId).get();
+    const links = [];
+    q.forEach((d) => {
+      const v = d.data();
+      if (publicationState(v) !== 'active') return;
+      links.push({
+        token: d.id,
+        path: `/cal/${d.id}.ics`,
+        mode: v.mode || 'details',
+        label: v.label || '',
+        createdAt: v.createdAt || '',
+        createdByName: v.createdByName || '',
+        // Surfaced so the family can SEE whether a link is being used — the
+        // only signal available for a credential nobody has to log in with.
+        lastFetchedAt: v.lastFetchedAt || null,
+        fetchCount: v.fetchCount || 0,
+      });
+    });
+    links.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    res.json({ links });
+  } catch (err) {
+    console.error('/api/calendar-publish/list error:', err);
+    res.status(500).json({ error: 'Could not load your calendar links.' });
+  }
+});
+
+app.post('/api/calendar-publish/revoke', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (caller.role === 'child') {
+      return res.status(403).json({ error: 'Only parents can change the family calendar links.' });
+    }
+    const token = typeof (req.body || {}).token === 'string' ? req.body.token.slice(0, 200) : '';
+    if (!token) return res.status(400).json({ error: 'Missing link id.' });
+    const ref = adminDb.doc(`calendarPublications/${token}`);
+    const snap = await ref.get();
+    if (!snap.exists) return res.json({ ok: true });
+    if (snap.data().familyId !== caller.familyId) {
+      return res.status(403).json({ error: 'That link is not yours.' });
+    }
+    await ref.set({ revoked: true, revokedAt: new Date().toISOString() }, { merge: true });
+    console.log(`[calendar-publish] revoked for family ${caller.familyId} by ${caller.email}`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('/api/calendar-publish/revoke error:', err);
+    res.status(500).json({ error: 'Could not turn that link off.' });
+  }
+});
+
 app.post('/api/astrology-blurb', async (req, res) => {
   try {
     if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
@@ -2445,16 +2574,21 @@ app.post('/api/delete-family', async (req, res) => {
     // 3) Top-level collections that reference this family by FIELD, not by
     //    path, so recursiveDelete above never touches them.
     try {
-      const [invitesSnap, sharesSnap] = await Promise.all([
+      const [invitesSnap, sharesSnap, feedsSnap] = await Promise.all([
         adminDb.collection('invites').where('familyId', '==', familyId).get(),
         adminDb.collection('carerShares').where('familyId', '==', familyId).get(),
+        // Published calendar links outlive the family unless deleted here —
+        // they are keyed by token, not by path, so the recursive delete above
+        // never sees them.
+        adminDb.collection('calendarPublications').where('familyId', '==', familyId).get(),
       ]);
       await Promise.all([
         ...invitesSnap.docs.map((d) => d.ref.delete().catch(() => {})),
         ...sharesSnap.docs.map((d) => d.ref.delete().catch(() => {})),
+        ...feedsSnap.docs.map((d) => d.ref.delete().catch(() => {})),
       ]);
     } catch (e) {
-      console.error('[delete-family] invites/carerShares cleanup failed (non-fatal):', e);
+      console.error('[delete-family] invites/carerShares/calendar-links cleanup failed (non-fatal):', e);
     }
 
     // 4) Every member's own users/{uid} doc — drop this space, and if it was
@@ -2685,6 +2819,97 @@ function carerPage(v) {
 function carerErrorPage() {
   return carerShell(`<div class="exp"><h1>Link expired</h1><p class="sub" style="margin-top:8px">This carer link has expired or been turned off. Ask the family to share a new one.</p></div>`);
 }
+
+// ---------------------------------------------------------------------------
+// The published calendar feed itself. Public and unauthenticated BY NECESSITY:
+// Apple Calendar, Outlook and Google fetch a subscribed URL on a timer with no
+// user present and no way to sign in. Registered before the SPA catch-all.
+//
+// What protects it: a 32-byte token, opt-in creation, one-click revocation,
+// 'busy' mode, and the hard fact that this route can only ever emit calendar
+// events — it has no path to any other part of the vault.
+// ---------------------------------------------------------------------------
+
+// Coarse per-token throttle. A subscriber polls hourly; anything hammering
+// this is not a calendar app, and each request costs us a Firestore read of
+// the whole family calendar.
+const feedHits = new Map();
+const FEED_MIN_GAP_MS = 20 * 1000;
+const FEED_TOUCH_GAP_MS = 5 * 60 * 1000;   // how often we bother recording a fetch
+
+function feedThrottled(token) {
+  const now = Date.now();
+  const last = feedHits.get(token) || 0;
+  if (now - last < FEED_MIN_GAP_MS) return true;
+  feedHits.set(token, now);
+  if (feedHits.size > 5000) feedHits.clear();
+  return false;
+}
+
+app.get('/cal/:token', async (req, res) => {
+  // Never cached by an intermediary and never indexed: this URL is a secret,
+  // and a shared cache holding a family's calendar is exactly the failure we
+  // are trying not to have.
+  res.set('Cache-Control', 'no-store, private');
+  res.set('X-Robots-Tag', 'noindex, nofollow');
+  res.set('X-Content-Type-Options', 'nosniff');
+
+  // Accept both /cal/<token> and /cal/<token>.ics — some clients insist on a
+  // file extension before they will treat the URL as a calendar.
+  const token = String(req.params.token || '').replace(/\.ics$/i, '').slice(0, 200);
+
+  try {
+    if (!token) return res.status(404).type('text/plain').send('Not found.');
+    if (feedThrottled(token)) {
+      return res.status(429).type('text/plain').send('Too many requests — this calendar refreshes hourly.');
+    }
+
+    const ref = adminDb.doc(`calendarPublications/${token}`);
+    const snap = await ref.get();
+    const record = snap.exists ? snap.data() : null;
+    const state = publicationState(record);
+    if (state !== 'active') {
+      // 404 for every failure, with no distinction between "never existed",
+      // "revoked" and "expired". A different status per case would turn this
+      // route into an oracle for testing guessed tokens.
+      return res.status(404).type('text/plain').send('This calendar link is no longer available.');
+    }
+
+    const [events, infoSnap] = await Promise.all([
+      readFamilyEvents(record.familyId),
+      adminDb.doc(`families/${record.familyId}/info/info`).get().catch(() => null),
+    ]);
+    const familyName = (infoSnap && infoSnap.exists ? infoSnap.data()?.name : '') || 'Teluva';
+    const calendarName = record.label
+      || (record.mode === 'busy' ? `${familyName} (busy)` : familyName);
+
+    const ics = buildPublishedIcs(selectPublishableEvents(events), {
+      calendarName,
+      mode: record.mode === 'busy' ? 'busy' : 'details',
+      refreshMinutes: PUBLISH_REFRESH_MINUTES,
+    });
+
+    // Record the fetch so the family can see the link is live — throttled,
+    // because otherwise every poll from every subscriber is a write.
+    const last = record.lastFetchedAt ? Date.parse(record.lastFetchedAt) : 0;
+    if (!Number.isFinite(last) || Date.now() - last > FEED_TOUCH_GAP_MS) {
+      ref.set({ lastFetchedAt: new Date().toISOString(), fetchCount: FieldValue.increment(1) }, { merge: true })
+        .catch((e) => console.warn('[cal] could not record fetch:', e?.message || e));
+    }
+
+    res.type('text/calendar; charset=utf-8');
+    res.set('Content-Disposition', 'inline; filename="teluva.ics"');
+    return res.send(ics);
+  } catch (err) {
+    console.error('/cal feed error:', err);
+    // MUST NOT be a 200 with an empty calendar. This is the same trap as the
+    // inbound direction: a subscriber replaces its copy of the feed wholesale,
+    // so an empty-but-valid calendar tells Apple the family has no events and
+    // wipes every one of them — along with any alerts set on them. A 503 says
+    // "ask again later", which every client handles by keeping what it has.
+    return res.status(503).type('text/plain').send('Temporarily unavailable — try again shortly.');
+  }
+});
 
 // Public, unauthenticated carer page — MUST be registered before the SPA catch-all.
 app.get('/carer/:token', async (req, res) => {
