@@ -177,6 +177,25 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
         nextDue: e.nextDue || undefined, notes: e.notes || undefined,
       };
       next = next.map(m => (m.id === target.id ? { ...m, careSchedule: [...(m.careSchedule || []), rec] } : m));
+    } else if (e.kind === 'vaccination') {
+      const target = resolveMember(next, e.member);
+      if (!target || !e.name || !e.name.trim()) continue;
+      // A vaccination card photographed twice must not double every jab. Same
+      // vaccine on the same date is the same jab — dates disagreeing is a real
+      // second dose and is kept.
+      const already = (target.medical?.vaccinations || []).some(
+        v => v.name.trim().toLowerCase() === e.name.trim().toLowerCase() && (v.date || '') === (e.date || ''),
+      );
+      if (already) continue;
+      const rec = {
+        id: newId(),
+        name: e.name.trim(),
+        date: (e.date && /^\d{4}-\d{2}-\d{2}$/.test(e.date)) ? e.date : undefined,
+        notes: e.notes?.trim() || undefined,
+      };
+      next = next.map(m => (m.id === target.id
+        ? { ...m, medical: { ...(m.medical || {}), vaccinations: [...(m.medical?.vaccinations || []), rec] } }
+        : m));
     } else if (e.kind === 'saying') {
       const target = resolveMember(next, e.member);
       if (!target || !e.text || !e.text.trim()) continue;
@@ -302,7 +321,7 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   return { numbers, contacts, providers };
 }
 
-export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote' || e.kind === 'cv' || e.kind === 'clear_field');
+export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote' || e.kind === 'cv' || e.kind === 'vaccination' || e.kind === 'clear_field');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number' || e.kind === 'provider');
 
 const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;

@@ -78,6 +78,11 @@ export type AiEdit =
   | { kind: 'transit_pass'; member: string; name: string; operator?: string; cardNumber?: string; zone?: string; validFrom?: string; validUntil?: string; notes?: string }
   | { kind: 'care_schedule'; member: string; careKind: string; provider?: string; lastVisit?: string; intervalMonths?: number; nextDue?: string; notes?: string }
   | { kind: 'saying'; member: string; text: string; said?: string; context?: string }
+  /* One jab. Its own kind rather than fields on `document`, because the useful
+   * case is a vaccination CARD or booklet — one photo listing many jabs across
+   * many years. Those become several records off a single scan, so they cannot
+   * ride on one document edit the way a referral does. */
+  | { kind: 'vaccination'; member: string; name: string; date?: string; notes?: string }
   | { kind: 'favorite_quote'; member: string; text: string; source?: string; note?: string }
   | { kind: 'family_word'; word: string; meaning: string; coinedBy?: string; approxDate?: string }
   | {
@@ -165,7 +170,7 @@ interface Props {
 
 function slimMembers(members: FamilyMember[]) {
   return members.map(m => {
-    const { avatarUrl, documents, digitalAccounts, favorites, growthHistory, ...rest } = m as any;
+    const { avatarUrl, documents, digitalAccounts, favorites, growthHistory, referrals, ...rest } = m as any;
     return {
       // Government identity numbers (identifiers) and bank/routing numbers
       // (financialAccounts) were riding along inside ...rest — see aiRedact.ts
@@ -179,6 +184,24 @@ function slimMembers(members: FamilyMember[]) {
       favorites: (favorites || []).map((f: any) => ({ name: f.name, price: f.price, notes: f.notes })),
       // Keep only the latest growth entry — history is bulky and rarely asked
       growthHistory: (growthHistory || []).slice(-1),
+      /* Referrals: the summary only, never the file.
+       *
+       * These were passing through untouched inside ...rest — redactMember only
+       * strips identity and bank numbers — so every message carried each
+       * referral's storagePath, contentHash and downloadUrl. A downloadUrl is a
+       * permanent bearer link that opens the scan WITHOUT signing in, so those
+       * were the most sensitive strings in the object and they were leaving on
+       * every turn. Meanwhile the system prompt told the model this section was
+       * "NOT currently included in FAMILY DATA" and to never claim to see it —
+       * so the app was both over-sending the data and instructing the model to
+       * deny it. Fixed on both sides; the prompt now describes what is actually sent.
+       *
+       * What remains is what the assistant actually needs: enough to say "you
+       * already have that X-ray referral from March" instead of filing it twice.
+       * Same shape and same reasoning as the documents line above. */
+      referrals: (referrals || []).map((r: any) => ({
+        id: r.id, kind: r.kind, date: r.date, reason: r.reason, status: r.status, providerName: r.providerName,
+      })),
     };
   });
 }
@@ -1831,6 +1854,7 @@ function describeEdit(e: AiEdit): string {
   // Name the third destination too. The card is the only chance the user gets
   // to see where something is about to land, so a referral that quietly also
   // files into Referrals & Results should say so before they tap Apply.
+  if (e.kind === 'vaccination') return `Record ${e.name}${e.date ? ` (${e.date})` : ''} in ${e.member}’s vaccinations`;
   if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}${e.referralKind ? ` + Referrals & Results (${String(e.referralKind).toLowerCase()}${e.referralDate ? `, ${e.referralDate}` : ''})` : ''}`;
   if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;
   if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
