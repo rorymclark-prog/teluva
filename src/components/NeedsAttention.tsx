@@ -35,6 +35,23 @@ export interface Nudge {
   view?: string; // if set, the nudge navigates to a top-level view (e.g. 'assets') instead of a member tab
   date?: string; // YYYY-MM-DD, when this nudge is tied to a specific date — used by MemberCalendarDates
   days?: number; // days until `date` (negative = overdue) — used by MemberCalendarDates for sorting
+  sortDays?: number; // days until ACTIONABLE, negative = overdue. Digest ranking only — see byUrgency.
+}
+
+/**
+ * Ranking for the digest: tone first, then how soon it needs you.
+ *
+ * `sortDays` exists separately from `days` because `days` means different things
+ * to different builders — "days until" for an expiry, "days since" for a
+ * referral — and MemberCalendarDates sorts on `days` with the first meaning.
+ * Sorting the digest on it directly would rank a two-week-old referral above a
+ * passport expiring on Friday.
+ */
+function byUrgency(a: Nudge, b: Nudge): number {
+  const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
+  const t = order[a.tone] - order[b.tone];
+  if (t !== 0) return t;
+  return (a.sortDays ?? Infinity) - (b.sortDays ?? Infinity);
 }
 
 // Asset completeness nudges — surfaced from the family's belongings (loaded
@@ -82,9 +99,9 @@ export function computeVehicleNudges(vehicles: Vehicle[]): Nudge[] {
       if (d.days > 42) continue;
       const name = vehicleLabel(v);
       if (d.days < 0) {
-        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'urgent', text: `${name}: ${d.label} overdue`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days });
+        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'urgent', text: `${name}: ${d.label} overdue`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days, sortDays: d.days });
       } else {
-        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days });
+        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days, sortDays: d.days });
       }
     }
   }
@@ -138,6 +155,7 @@ export function computeSlipNudges(slips: SlipItem[]): Nudge[] {
           view: 'slips',
           date: s.returnByDate,
           days,
+          sortDays: days,
         });
       }
     }
@@ -156,6 +174,7 @@ export function computeSlipNudges(slips: SlipItem[]): Nudge[] {
           view: 'slips',
           date: s.warrantyUntil,
           days,
+          sortDays: days,
         });
       }
     }
@@ -205,7 +224,7 @@ function computeContactNudges(contacts: ContactEntry[]): Nudge[] {
     const nb = new Date(today.getFullYear(), bd.getMonth(), bd.getDate());
     if (nb.getTime() < today.getTime()) nb.setFullYear(today.getFullYear() + 1);
     const days = Math.round((nb.getTime() - today.getTime()) / DAY);
-    if (days <= 21) {
+    if (days > 0 && days <= 21) {
       out.push({
         key: `contact-bday-${c.id}`,
         memberId: '',
@@ -258,6 +277,7 @@ function computeBusinessAnniversaryNudge(spaceInfo: FamilyInfoDoc | null, settin
     view: 'info',
     date: toISODate(next.date),
     days,
+    sortDays: days,
   }];
 }
 
@@ -293,6 +313,7 @@ function computeWorkAnniversaryNudges(members: FamilyMember[], spaceInfo: Family
       tab: 'overview',
       date: toISODate(next.date),
       days,
+      sortDays: days,
     });
   }
   return out;
@@ -324,6 +345,7 @@ function computeMilestoneAnniversaryNudge(spaceInfo: FamilyInfoDoc | null, setti
     view: 'info',
     date: toISODate(next.date),
     days,
+    sortDays: days,
   }];
 }
 
@@ -373,7 +395,11 @@ export function computeNudges(members: FamilyMember[]): Nudge[] {
         const nb = new Date(today.getFullYear(), bd.getMonth(), bd.getDate());
         if (nb.getTime() < today.getTime()) nb.setFullYear(today.getFullYear() + 1);
         const days = Math.round((nb.getTime() - today.getTime()) / DAY);
-        if (days <= 21) out.push({ key: `bday-${m.id}`, memberId: m.id, icon: Cake, tone: 'info', text: days === 0 ? `It's ${first}'s birthday today! 🎂` : `${first}'s birthday in ${days} day${days !== 1 ? 's' : ''}`, tab: 'favorites', date: toISODate(nb), days });
+        // `days > 0`: this nudge opens the WISHLIST, so it is a buy-a-gift
+        // prompt. On the day itself it is redundant with OnThisDay and the
+        // celebration overlay, which is how one birthday got announced three
+        // times on one screen.
+        if (days > 0 && days <= 21) out.push({ key: `bday-${m.id}`, memberId: m.id, icon: Cake, tone: 'info', text: days === 0 ? `It's ${first}'s birthday today! 🎂` : `${first}'s birthday in ${days} day${days !== 1 ? 's' : ''}`, tab: 'favorites', date: toISODate(nb), days });
       }
     }
 
@@ -434,8 +460,8 @@ export function computeNudges(members: FamilyMember[]): Nudge[] {
       const due = careNextDue(item, now);
       const dueDate = due.date ? toISODate(due.date) : undefined;
       const dueDays = due.date ? Math.round((due.date.getTime() - now) / DAY) : undefined;
-      if (due.status === 'overdue') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'urgent', text: `${first}'s ${item.kind} is overdue`, tab: 'care', date: dueDate, days: dueDays });
-      else if (due.status === 'due-soon') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'warn', text: `${first}'s ${item.kind} is due soon`, tab: 'care', date: dueDate, days: dueDays });
+      if (due.status === 'overdue') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'urgent', text: `${first}'s ${item.kind} is overdue`, tab: 'care', date: dueDate, days: dueDays, sortDays: dueDays });
+      else if (due.status === 'due-soon') out.push({ key: `care-${m.id}-${item.id}`, memberId: m.id, icon: Stethoscope, tone: 'warn', text: `${first}'s ${item.kind} is due soon`, tab: 'care', date: dueDate, days: dueDays, sortDays: dueDays });
     }
 
     // Referrals still sitting on "open" — a referral you never booked is the
@@ -509,8 +535,7 @@ export function computeNudges(members: FamilyMember[]): Nudge[] {
     }
   }
 
-  const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
-  return out.sort((a, b) => order[a.tone] - order[b.tone]);
+  return out.sort(byUrgency);
 }
 
 const TONE_STYLE: Record<Tone, string> = {
@@ -575,7 +600,7 @@ export default function NeedsAttention(
     setCollapsed(next);
   };
 
-  const order: Record<Tone, number> = { urgent: 0, warn: 1, info: 2 };
+
   const all = [
     ...computeNudges(members),
     ...computeContactNudges(contacts || []),
@@ -587,7 +612,7 @@ export default function NeedsAttention(
     ...computeEstateNudges(estateRecords),
     ...computeSlipNudges(slips),
     ...computeFuneralCoverNudges(insurancePolicies),
-  ].sort((a, b) => order[a.tone] - order[b.tone]);
+  ].sort(byUrgency);
   if (all.length === 0) return null;
   const COLLAPSED = 6;
   const shown = showAll ? all : all.slice(0, COLLAPSED);

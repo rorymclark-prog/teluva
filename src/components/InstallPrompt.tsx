@@ -66,7 +66,16 @@ export default function InstallPrompt({ hasContent }: { hasContent: boolean }) {
   };
 
   return (
-    <div className="card p-4 sm:p-5 border border-dusk-100 bg-dusk-50/60">
+    /* Docked to the bottom rather than injected inline at the top. It appears
+       2.5s after paint, by which time the page has settled and you are already
+       reading — inserting ~280px above everything moved the whole screen under
+       the reader's thumb. Fixed positioning means a late arrival shifts nothing.
+       pb-safe keeps it clear of the iPhone home indicator. */
+    <div
+      className="fixed inset-x-0 bottom-0 z-40 p-3 sm:p-4"
+      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+    >
+    <div className="card mx-auto max-w-2xl p-4 sm:p-5 border border-dusk-100 bg-dusk-50 shadow-lift">
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-2xl bg-dusk-100 text-dusk-700 flex items-center justify-center shrink-0">
           <Bell className="w-5 h-5" />
@@ -125,6 +134,7 @@ export default function InstallPrompt({ hasContent }: { hasContent: boolean }) {
           <X className="w-4 h-4" />
         </button>
       </div>
+    </div>
     </div>
   );
 }
