@@ -2,6 +2,7 @@ import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, Fin
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
+import { partitionNewEvents } from './calendarDedup';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 const VALID_FAMILY_ROLES: MemberRole[] = ['Parent', 'Child', 'Grandparent', 'Other'];
@@ -351,8 +352,14 @@ const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Ot
 type CalendarCat = typeof VALID_CALENDAR_CATS[number];
 
 // Add calendar events from AI edits, resolving memberNames to memberIds.
+//
+// Skips anything already on the calendar at the same date, time and title.
+// Without that check, applying the same suggestion twice — asking again, or
+// tapping Apply again — silently made a second copy, which is how one live
+// vault ended up with four identical "Re-test Ferritin and Vitamin D" entries
+// twelve minutes apart. See utils/calendarDedup.ts.
 export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], members: FamilyMember[]): CalendarEvent[] {
-  const added: CalendarEvent[] = [];
+  const candidates: CalendarEvent[] = [];
   for (const e of edits) {
     if (e.kind !== 'calendar_event') continue;
     const cat: CalendarCat = (VALID_CALENDAR_CATS as readonly string[]).includes(e.category || '')
@@ -361,7 +368,7 @@ export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], mem
     const memberIds = (e.memberNames || [])
       .map(n => members.find(m => m.name.toLowerCase() === n.toLowerCase())?.id)
       .filter((id): id is string => Boolean(id));
-    added.push({
+    candidates.push({
       id: newId(),
       title: e.title,
       date: e.date,
@@ -372,7 +379,21 @@ export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], mem
       memberIds: memberIds.length ? memberIds : undefined,
     });
   }
-  return [...events, ...added];
+  const { fresh } = partitionNewEvents(events, candidates);
+  return [...events, ...fresh];
+}
+
+/**
+ * Which calendar edits in this batch are already on the calendar — so the
+ * caller can SAY "that's already there" instead of showing an Apply that
+ * appears to do nothing. Deliberately separate from applyCalendarEdits, which
+ * must stay a pure list-in/list-out function.
+ */
+export function duplicateCalendarEdits(events: CalendarEvent[], edits: AiEdit[]): string[] {
+  const candidates = edits
+    .filter((e): e is Extract<AiEdit, { kind: 'calendar_event' }> => e.kind === 'calendar_event')
+    .map(e => ({ title: e.title, date: e.date, time: e.time || undefined }));
+  return partitionNewEvents(events, candidates).duplicates.map(c => c.title);
 }
 
 // Apply household edits: set scalar fields (address, wifi, door code) or append to lists.

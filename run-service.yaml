@@ -17,7 +17,7 @@ spec:
     spec:
       containerConcurrency: 80
       containers:
-      - image: europe-west2-docker.pkg.dev/gen-lang-client-0384516171/cloud-run-source-deploy/family-info-organizer:v155
+      - image: europe-west2-docker.pkg.dev/gen-lang-client-0384516171/cloud-run-source-deploy/family-info-organizer:v156
         name: app-container
         ports:
         - containerPort: 8080

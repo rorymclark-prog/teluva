@@ -17,6 +17,7 @@ import {
   isEligibleForGooglePush,
   GoogleCalendarAuthError,
 } from '../utils/googleCalendarSync';
+import { partitionNewEvents } from '../utils/calendarDedup';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -329,11 +330,27 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         });
       });
 
-      if (importedEvents.length === 0) {
-        triggerReminderNotification('All events are already matched.');
+      // Second, human-level dedup pass. The id check above only catches an
+      // event we have ALREADY imported under the same Google id. It cannot
+      // catch two DIFFERENT Google ids that describe the same appointment —
+      // and that is what a real calendar produced: six pairs of identical
+      // "Klara" entries, one pair being a recurring instance alongside a moved
+      // exception of that same instance. Both are real on Google's side; in
+      // here they are two rows nobody can tell apart. See utils/calendarDedup.
+      const { fresh, duplicates } = partitionNewEvents(events, importedEvents);
+
+      if (fresh.length === 0) {
+        triggerReminderNotification(
+          duplicates.length > 0
+            ? `Nothing new — ${duplicates.length} matched something already on your calendar.`
+            : 'All events are already matched.',
+        );
       } else {
-        onSaveEvents([...events, ...importedEvents]);
-        triggerReminderNotification(`Imported ${importedEvents.length} new entries from Google Calendar!`);
+        onSaveEvents([...events, ...fresh]);
+        triggerReminderNotification(
+          `Imported ${fresh.length} new entr${fresh.length === 1 ? 'y' : 'ies'} from Google Calendar!` +
+          (duplicates.length > 0 ? ` (${duplicates.length} skipped as duplicates.)` : ''),
+        );
       }
     } catch (err: any) {
       console.error(err);
@@ -406,9 +423,17 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       remindMe: true,
       memberIds: [],
     }));
-    onSaveEvents([...events, ...newEvents]);
+    // Photographing the same school notice twice is an easy thing to do, and
+    // before this it produced a second set of every date on it.
+    const { fresh, duplicates } = partitionNewEvents(events, newEvents);
+    if (fresh.length > 0) onSaveEvents([...events, ...fresh]);
     setNoticeResult(null);
-    triggerReminderNotification(`Added ${newEvents.length} event${newEvents.length !== 1 ? 's' : ''} from the notice.`);
+    triggerReminderNotification(
+      fresh.length === 0
+        ? 'Everything on that notice is already on the calendar.'
+        : `Added ${fresh.length} event${fresh.length !== 1 ? 's' : ''} from the notice.` +
+          (duplicates.length > 0 ? ` (${duplicates.length} already there.)` : ''),
+    );
   };
 
   // Form states for Add/Edit

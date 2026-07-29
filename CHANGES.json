@@ -1,9 +1,8 @@
 {
-  "label": "v155",
+  "label": "v156",
   "changes": [
-    "Appointments now show up on the person they're for. Open someone's Check-ups and you see what they actually have booked — date, time, \"next week\" — and Medical shows the next few too. Before this, an appointment you added by voice went to the shared calendar and appeared nowhere on that person's own profile, which looked exactly like the app having lost it.",
-    "It's the same appointment in both places, not a copy. Change it on the calendar and it's right everywhere at once — nothing to keep in step, nothing to go stale.",
-    "The Check-ups screen used to call two different things \"Appointments\": real bookings, and rules like \"dentist every six months\". The recurring ones are now called Recurring check-ups.",
-    "The assistant is now told to always tag the person an appointment is for. It usually did, but nothing required it — and an untagged appointment is one that won't appear on anybody's profile."
+    "Fixed the thing that was quietly duplicating your calendar. Nothing checked whether an event was already there, so asking the assistant for the same appointment twice, or photographing the same school notice twice, added it again. That's how four identical \"Re-test Ferritin and Vitamin D\" entries appeared. Now it recognises the same appointment — same day, same time, same name — and tells you it's already there instead.",
+    "Importing from Google no longer brings in two copies of the same thing. It was only checking Google's internal id, so a repeating appointment that had been moved once arrived twice, looking identical. Six pairs of your \"Klara\" entries came in that way.",
+    "You already have 9 duplicate entries from before this fix. They're listed and waiting for you to say the word — nothing gets deleted without you."
   ]
 }
