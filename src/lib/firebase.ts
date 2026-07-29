@@ -27,29 +27,17 @@ const isIOS = typeof navigator !== 'undefined' &&
 // can't regress. Requires the app domain to be an authorised domain (it is) and
 // {origin}/__/auth/handler registered as an OAuth redirect URI (Firebase
 // auto-syncs this from the authorised-domains list).
-/* An INSTALLED app window (Add to Home Screen, or "Install" on a desktop
- * browser) needs the same treatment as iOS, for a different reason.
- *
- * Its sign-in popup is a child of an app window rather than a browser tab, and
- * password managers largely refuse to work there: on macOS the Apple Passwords
- * menu appears, and then closes without filling anything when you pick an
- * entry. Nothing on Google's page is ours to fix — but which window that page
- * opens in IS. A redirect keeps sign-in in the app's own top-level window,
- * where autofill and passkeys behave normally.
- *
- * Same-origin authDomain comes along with it, which also stops Google's consent
- * screen announcing "to continue to gen-lang-client-0384516171.firebaseapp.com"
- * — a string that reads as a phishing page to anyone being asked to trust the
- * app with their passport. */
-const isStandalone = typeof window !== 'undefined' && (
-  window.matchMedia?.('(display-mode: standalone)').matches ||
-  window.matchMedia?.('(display-mode: window-controls-overlay)').matches ||
-  (navigator as unknown as { standalone?: boolean }).standalone === true
-);
-
-const useSameOriginAuth = (isIOS || isStandalone) && typeof window !== 'undefined';
-
-const config = useSameOriginAuth
+/* REVERTED for installed desktop windows, 29 Jul. Pointing authDomain at our own
+ * origin makes the redirect target {origin}/__/auth/handler, and Google rejected
+ * it with redirect_uri_mismatch — Firebase had not registered that URI against
+ * the OAuth client. The comment above used to claim Firebase "auto-syncs this
+ * from the authorised-domains list"; it does not, or not promptly enough to
+ * rely on. iOS keeps the same-origin path because it is proven in production
+ * there; desktop is back on the popup until the redirect URI is confirmed
+ * registered. Re-enabling this is what fixes both the password-manager problem
+ * and the firebaseapp.com string on the consent screen, so it is worth doing —
+ * but only after checking the OAuth client, never blind. */
+const config = isIOS && typeof window !== 'undefined'
   ? { ...firebaseConfig, authDomain: window.location.host }
   : firebaseConfig;
 
@@ -113,9 +101,10 @@ function signInMessage(code: string): string {
  */
 export const loginWithGoogle = async (): Promise<string | null> => {
   try {
-    // iOS blocks the popup outright; an installed window opens it but strands
-    // the password manager inside it. Both want the redirect.
-    if (isIOS || isStandalone) {
+    // iOS blocks the popup outright. Installed desktop windows ALSO want the
+    // redirect (the password manager can't fill inside a popup child window),
+    // but that is held back with the authDomain change above — see there.
+    if (isIOS) {
       await signInWithRedirect(auth, provider);
       return null;
     }
