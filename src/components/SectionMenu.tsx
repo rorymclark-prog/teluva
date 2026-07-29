@@ -73,12 +73,23 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  // The phone sheet is PORTALLED to <body>, so it is not a DOM descendant of
+  // `ref` even though it is one in the React tree. Without a second ref
+  // pointing at the sheet itself, the close-on-outside-click handler below
+  // counted every tap inside the sheet as a tap outside it: mousedown fired,
+  // setOpen(false) unmounted the sheet, and the `click` that would have run
+  // the row's onSelect never landed on anything. The menu closed and the
+  // section never changed — on a phone only, because the desktop popover is
+  // rendered inline inside `ref` and so was always correctly "inside".
+  const sheetRef = useRef<HTMLDivElement>(null);
   const currentView = views.find((v) => v.id === current);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      const inside = ref.current?.contains(t) || sheetRef.current?.contains(t);
+      if (!inside) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDown);
@@ -190,6 +201,7 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
             aria-hidden="true"
           />
           <div
+            ref={sheetRef}
             role="menu"
             className="fixed inset-x-0 bottom-0 z-[60] flex h-[85dvh] flex-col rounded-t-3xl border-t border-cream-300 bg-white shadow-lift anim-sheet"
           >

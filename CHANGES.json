@@ -1,7 +1,8 @@
 {
-  "label": "v153",
+  "label": "v154",
   "changes": [
-    "Fixed: tapping Calendar on a phone looked like nothing happened. It was opening — but the page stayed scrolled exactly where you'd left the family list, so you landed near the bottom of the calendar instead of the top of it. Every section now opens at the top. This is why it worked on the laptop and not on the phone.",
+    "The real fix: on a phone, tapping ANY section in the menu closed the menu and left you on the home screen. Calendar was just where you noticed it. The panel slides up over the page, and the code that closes it when you tap outside was counting taps INSIDE it as outside — so it shut itself before your tap could land on the section you'd chosen. It never happened on a laptop, where that panel is built differently. Now every section opens.",
+    "Sections also open at the top now, instead of keeping the scroll position from wherever you were.",
     "The chat message box is now full width, on its own line, and grows as you type instead of being a two-character slot squeezed between the buttons.",
     "The camera button in chat now just takes a photo. Scanning a document — finding the edges and straightening it — has its own button next to it, so you can pick the one you actually want instead of the camera always meaning \"scan\"."
   ]
