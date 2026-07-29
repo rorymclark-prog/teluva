@@ -72,8 +72,30 @@ say "Building the image (a few minutes)"
 gcloud builds submit --tag "${REPO}:${TAG}" --project "$PROJECT"
 
 # --- 4. Point the service at it -------------------------------------------
+# Deployed by DIGEST, not by tag. `gcloud run services replace` resolves the
+# :tag in run-service.yaml itself, and that resolution has repeatedly failed
+# with a flat "Image ... not found" for a tag that demonstrably exists — twice
+# for v153, twice more for v154, each time minutes after the push, each time
+# with `artifacts docker images describe` happily returning the digest. The
+# digest needs no resolution, so it cannot fail that way. run-service.yaml
+# stays the source of truth for the tag; this only sidesteps the lookup.
+say "Resolving ${TAG} to its digest"
+DIGEST=$(gcloud artifacts docker images describe "${REPO}:${TAG}" --project "$PROJECT" \
+           --format='value(image_summary.digest)') || die "could not resolve ${TAG} to a digest"
+[ -n "$DIGEST" ] || die "no digest for ${TAG}"
+
+# Deploy the WHOLE run-service.yaml (env vars, secrets, scaling — not just the
+# image), but with the tag swapped for the digest in a throwaway copy. Using
+# `gcloud run deploy --image` instead would have been simpler and wrong: it
+# only swaps the image and would silently ignore every other edit made to
+# run-service.yaml.
+TMP_YAML=$(mktemp -t teluva-run-service)
+trap 'rm -f "$TMP_YAML"' EXIT
+sed "s|${REPO}:${TAG}\$|${REPO}@${DIGEST}|" run-service.yaml > "$TMP_YAML"
+grep -q "$DIGEST" "$TMP_YAML" || die "failed to pin the image to its digest — not deploying a config I can't verify"
+
 say "Deploying to Cloud Run"
-gcloud run services replace run-service.yaml --region "$REGION" --project "$PROJECT"
+gcloud run services replace "$TMP_YAML" --region "$REGION" --project "$PROJECT"
 
 # --- 5. Prove it ----------------------------------------------------------
 # A successful `replace` only means Cloud Run accepted the config. Ask the
