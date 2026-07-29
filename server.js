@@ -9,6 +9,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import webpush from 'web-push';
 import { familyStoragePrefix, familyFirestorePath } from './server/familyDeletePaths.mjs';
+import tzLookup from 'tz-lookup';
+import { fetchFeed, FeedUrlError } from './server/feedUrl.mjs';
 import {
   screenAvatarPrompt,
   buildAvatarPrompt,
@@ -1308,6 +1310,121 @@ app.post('/api/fun-photo', async (req, res) => {
   } catch (e) {
     console.error('[fun-photo] error', e);
     res.status(502).json({ error: 'Something went wrong creating the photo — please try again.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Calendar subscriptions and place lookup.
+//
+// Both of these have the server make an outbound request on the user's behalf,
+// which is a category of endpoint worth keeping together and treating with
+// suspicion. The feed one takes a URL the user typed — see
+// server/feedUrl.mjs for why that is the most dangerous input this app accepts
+// and what stops it reaching the metadata server.
+// ---------------------------------------------------------------------------
+
+// Nominatim asks for no more than one request a second and for callers to
+// identify themselves. Both are honoured here rather than from the browser:
+// a browser cannot set a User-Agent, and going through us also keeps the user's
+// IP and their birth-town query off a third party.
+let lastGeocodeAt = 0;
+const GEOCODE_MIN_GAP_MS = 1100;
+const geocodeCache = new Map(); // query -> results, capped below
+
+async function nominatimSearch(query) {
+  const key = query.toLowerCase();
+  if (geocodeCache.has(key)) return geocodeCache.get(key);
+
+  const wait = Math.max(0, lastGeocodeAt + GEOCODE_MIN_GAP_MS - Date.now());
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastGeocodeAt = Date.now();
+
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('q', query);
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('limit', '6');
+  url.searchParams.set('addressdetails', '1');
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  let data;
+  try {
+    const r = await fetch(url, {
+      signal: ctrl.signal,
+      headers: {
+        'User-Agent': 'Teluva/1.0 (family record vault; https://family-info-organizer-x3k4bua7pq-nw.a.run.app)',
+        'Accept-Language': 'en',
+      },
+    });
+    if (!r.ok) throw new Error(`nominatim ${r.status}`);
+    data = await r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const results = (Array.isArray(data) ? data : []).map((row) => {
+    const lat = Number(row.lat);
+    const lon = Number(row.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    let timeZone = null;
+    try {
+      // Derived from the coordinates, NOT from anything the geocoder claims —
+      // tz-lookup ships the real timezone boundary data, so this is a fact
+      // about the point on Earth rather than a guess about the place name.
+      timeZone = tzLookup(lat, lon);
+    } catch { timeZone = null; }
+    return {
+      label: String(row.display_name || '').slice(0, 200),
+      lat: Math.round(lat * 10000) / 10000,
+      lon: Math.round(lon * 10000) / 10000,
+      timeZone,
+    };
+  }).filter(Boolean);
+
+  if (geocodeCache.size > 300) geocodeCache.clear();
+  geocodeCache.set(key, results);
+  return results;
+}
+
+app.post('/api/geocode-place', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many searches — wait a moment and try again.' });
+
+    const q = typeof req.body?.q === 'string' ? req.body.q.trim().slice(0, 120) : '';
+    if (q.length < 2) return res.json({ results: [] });
+
+    const results = await nominatimSearch(q);
+    res.json({ results });
+  } catch (e) {
+    console.error('[geocode-place]', e?.message || e);
+    res.status(502).json({ error: 'Couldn’t search for that place just now — you can still type the numbers in.' });
+  }
+});
+
+// Subscribe to somebody else's calendar. Returns the raw .ics text; the browser
+// parses it with the same parser used for file imports (src/utils/ics.ts), so a
+// subscription and a file behave identically once the bytes are here.
+app.post('/api/calendar-feed', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many refreshes — wait a moment and try again.' });
+
+    const ics = await fetchFeed(req.body?.url);
+    console.log('[calendar-feed] fetched', ics.length, 'bytes for', caller.email);
+    res.json({ ics });
+  } catch (e) {
+    if (e instanceof FeedUrlError) {
+      // Deliberately reported at 400 with the specific reason: these messages
+      // tell the user what to fix, and none of them reveal anything about our
+      // network beyond "no".
+      console.warn('[calendar-feed] refused:', e.code);
+      return res.status(400).json({ error: e.message, code: e.code });
+    }
+    console.error('[calendar-feed]', e);
+    res.status(502).json({ error: 'Couldn’t fetch that calendar just now.' });
   }
 });
 

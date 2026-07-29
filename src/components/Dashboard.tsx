@@ -1988,6 +1988,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             // auto-sync effect further down this file (search
             // "AUTOMATIC OUTBOUND SYNC"), because that effect must keep
             // running even while the user isn't on the Calendar tab.
+            // Subscribed external calendars, on the same shared HubSettings doc
+            // as every other cross-device setting, so a subscription added on
+            // one phone is live on the others.
+            calendarFeeds={settings.calendarFeeds || []}
+            onSaveCalendarFeeds={(feeds) => handleSaveSettings({ ...settings, calendarFeeds: feeds })}
             autoSyncEnabled={!!settings.autoSyncEventsToGoogle}
             onToggleAutoSync={(enabled) => {
               // Turning it ON captures a snapshot of every event id that

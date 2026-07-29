@@ -1,7 +1,8 @@
 {
-  "label": "v161",
+  "label": "v162",
   "changes": [
-    "The sign-in screen no longer quietly asks Google for permission it doesn't need yet — that only happens once you're actually signed in.",
-    "The demo now shows the star-sign card, with one family member who has a full birth time and place so you can see the Sun, Moon and Rising signs it works out."
+    "You can now subscribe to another calendar, not just import from it. Paste the private link Apple, Outlook, Proton or Google gives you and Teluva keeps itself up to date — appointments that move, move, and cancelled ones disappear instead of lingering.",
+    "The birth-location fields no longer ask you to go and find coordinates. Type the town, tap search, and the time zone and position fill themselves in.",
+    "A one-off .ics file import is still there for when you just want a snapshot."
   ]
 }

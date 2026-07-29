@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Sparkles, Camera, Upload, RefreshCcw, Save } from 'lucide-react';
+import { X, Sparkles, Camera, Upload, RefreshCcw, Save, Search } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { FamilyMember, MemberRole } from '../types';
 import { listTimeZones } from '../utils/timeZone';
+import { auth } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -18,6 +19,8 @@ interface EditMemberModalProps {
   /** True when editing a member of a business space — shows employee-flavored fields (e.g. start date). */
   isBusinessSpace?: boolean;
 }
+
+interface PlaceHit { label: string; lat: number; lon: number; timeZone: string | null }
 
 /** A coordinate, or nothing. Blank, junk and out-of-range all mean nothing. */
 function coordOrUndefined(raw: string, limit: number): number | undefined {
@@ -45,6 +48,12 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [birthTimeZone, setBirthTimeZone] = useState('');
   const [birthLatitude, setBirthLatitude] = useState('');
   const [birthLongitude, setBirthLongitude] = useState('');
+  // Town search, so nobody has to go and find coordinates themselves.
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [placeResults, setPlaceResults] = useState<PlaceHit[]>([]);
+  const [placeSearching, setPlaceSearching] = useState(false);
+  const [placeError, setPlaceError] = useState<string | null>(null);
+  const [placePicked, setPlacePicked] = useState<string | null>(null);
   const [birthHospital, setBirthHospital] = useState('');
   // Read by Emergency, Babysitter mode and the emergency card, and until now
   // writable ONLY by the AI or the one-time guided interview — there was no
@@ -99,6 +108,10 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setBirthTimeZone(member.birthTimeZone || '');
       setBirthLatitude(member.birthLatitude !== undefined ? String(member.birthLatitude) : '');
       setBirthLongitude(member.birthLongitude !== undefined ? String(member.birthLongitude) : '');
+      setPlaceQuery(member.placeOfBirth || '');
+      setPlaceResults([]);
+      setPlaceError(null);
+      setPlacePicked(null);
       setBirthHospital(member.birthHospital || '');
       setEmergencyContactName(member.emergencyContactName || '');
       setEmergencyContactPhone(member.emergencyContactPhone || '');
@@ -122,6 +135,52 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       }
     }
   }, [member, isOpen, isBusinessSpace]);
+
+
+  // Resolve a town to coordinates and a time zone. The search runs on our own
+  // server (see /api/geocode-place) rather than from the browser, so the
+  // birth-town query never leaves with the user's IP attached, and the time
+  // zone comes from the COORDINATES rather than from a guess about the name.
+  async function searchPlace() {
+    const q = placeQuery.trim();
+    if (q.length < 2) return;
+    setPlaceSearching(true);
+    setPlaceError(null);
+    setPlaceResults([]);
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Please sign in again.');
+      const token = await user.getIdToken();
+      const res = await fetch('/api/geocode-place', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ q }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not search for that place.');
+      if (!data.results?.length) {
+        setPlaceError('No match — try adding the country, e.g. "Durban, South Africa".');
+      }
+      setPlaceResults(data.results || []);
+    } catch (e) {
+      setPlaceError(e instanceof Error ? e.message : 'Could not search for that place.');
+    } finally {
+      setPlaceSearching(false);
+    }
+  }
+
+  function choosePlace(hit: PlaceHit) {
+    setBirthLatitude(String(hit.lat));
+    setBirthLongitude(String(hit.lon));
+    if (hit.timeZone) setBirthTimeZone(hit.timeZone);
+    // The first one or two parts of an OSM display name are the recognisable
+    // bit ("Chatsworth, eThekwini"); the rest is administrative detail nobody
+    // asked for.
+    const short = hit.label.split(',').slice(0, 2).map((p) => p.trim()).join(', ');
+    setPlacePicked(short);
+    if (!placeOfBirth.trim()) setPlaceOfBirth(short);
+    setPlaceResults([]);
+  }
 
   // Belt-and-braces: stop camera when modal closes or component unmounts
   useEffect(() => {
@@ -388,10 +447,54 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                   </summary>
                   <div className="pt-3 space-y-3">
                     <p className="text-[12px] text-ink-500 leading-snug">
-                      A rising sign changes every two hours and depends on where on Earth you were,
-                      so it needs the time zone that birth time was written in — and roughly where.
-                      Without these the card simply says so rather than guessing.
+                      A rising sign changes every two hours and depends on where on Earth you were.
+                      Search the birth town below and the rest fills itself in. Without it the card
+                      simply says so rather than guessing.
                     </p>
+                    <div>
+                      <label className="field-label">Search for the birth town</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={placeQuery}
+                          onChange={(e) => setPlaceQuery(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); searchPlace(); } }}
+                          placeholder="e.g. Durban, South Africa"
+                          className="field flex-1"
+                        />
+                        <button
+                          type="button"
+                          onClick={searchPlace}
+                          disabled={placeSearching || placeQuery.trim().length < 2}
+                          className="btn-quiet shrink-0 disabled:opacity-40"
+                        >
+                          {placeSearching ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {placeError && <p className="text-[12px] text-rosa-700 mt-1.5">{placeError}</p>}
+                      {placeResults.length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {placeResults.map((r, i) => (
+                            <li key={`${r.lat},${r.lon},${i}`}>
+                              <button
+                                type="button"
+                                onClick={() => choosePlace(r)}
+                                className="w-full text-left rounded-xl border border-cream-300 hover:border-clay-400 hover:bg-clay-50 px-3 py-2 cursor-pointer transition-colors"
+                              >
+                                <span className="block text-[12.5px] text-ink-800 leading-snug">{r.label}</span>
+                                <span className="block text-[11px] text-ink-400 tabular-nums">
+                                  {r.lat.toFixed(3)}, {r.lon.toFixed(3)}{r.timeZone ? ` · ${r.timeZone}` : ''}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {placePicked && (
+                        <p className="text-[12px] text-sage-700 mt-1.5">Using <b>{placePicked}</b> — change it above if that's the wrong one.</p>
+                      )}
+                    </div>
+
                     <div>
                       <label className="field-label">Time zone at birth</label>
                       <select value={birthTimeZone} onChange={(e) => setBirthTimeZone(e.target.value)} className="field">
@@ -422,8 +525,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                       </div>
                     </div>
                     <p className="text-[11px] text-ink-400 leading-snug">
-                      Search the birth town on any map and copy the two numbers it shows.
-                      A few kilometres out makes no difference here.
+                      Filled in by the search above. You can edit them by hand if you know the exact spot —
+                      a few kilometres either way makes no difference to a rising sign.
                     </p>
                   </div>
                 </details>

@@ -20,6 +20,9 @@ import {
 import { partitionNewEvents } from '../utils/calendarDedup';
 import { resolveEventMembers } from '../utils/eventMemberMatch';
 import { parseIcs, buildIcs } from '../utils/ics';
+import {
+  CalendarFeed, mergeFeedEvents, removeFeedEvents, feedIdForUrl, describeSync, suggestFeedLabel,
+} from '../utils/calendarFeeds';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -34,9 +37,12 @@ interface FamilyCalendarProps {
   // flipping it on actually does and does not do.
   autoSyncEnabled: boolean;
   onToggleAutoSync: (enabled: boolean) => void;
+  /** Subscribed external calendars (HubSettings.calendarFeeds), owned by Dashboard. */
+  calendarFeeds: CalendarFeed[];
+  onSaveCalendarFeeds: (feeds: CalendarFeed[]) => void;
 }
 
-export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync }: FamilyCalendarProps) {
+export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds }: FamilyCalendarProps) {
   const { isAdmin, canWrite, aiEligible, aiConsent } = useFamilyCtx();
   const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
   // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
@@ -62,6 +68,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const icsInputRef = useRef<HTMLInputElement>(null);
   const [isImportingIcs, setIsImportingIcs] = useState(false);
   const [icsNote, setIcsNote] = useState<string | null>(null);
+  // Subscribed calendars — id of the feed currently syncing, or 'adding'.
+  const [feedUrlInput, setFeedUrlInput] = useState('');
+  const [feedBusy, setFeedBusy] = useState<string | null>(null);
 
   // Sync state observer
   useEffect(() => {
@@ -123,6 +132,100 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       setIsLoggingIn(false);
     }
   };
+
+  // --- Subscribed calendars -------------------------------------------------
+  //
+  // Fetching happens on OUR server (see server/feedUrl.mjs) because the URL
+  // comes from a user and pointing a server at an arbitrary address is the most
+  // dangerous thing this app does. The browser only ever parses the text that
+  // comes back, with exactly the same parser the file import uses.
+  const syncFeed = async (feed: CalendarFeed, opts: { announce?: boolean } = {}) => {
+    setFeedBusy(feed.id);
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Please sign in again.');
+      const token = await user.getIdToken();
+      const res = await fetch('/api/calendar-feed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ url: feed.url }),
+      });
+      const data = await res.json();
+      // CRITICAL: only merge on success. mergeFeedEvents treats an empty list as
+      // "this calendar has no events" and deletes everything the feed owns —
+      // correct for a real empty calendar, catastrophic for a failed request.
+      if (!res.ok || typeof data.ics !== 'string') {
+        throw new Error(data.error || 'Could not fetch that calendar.');
+      }
+
+      const parsed = parseIcs(data.ics, members);
+      const merged = mergeFeedEvents(events, parsed.events, feed.id);
+      onSaveEvents(merged.events);
+      onSaveCalendarFeeds(
+        calendarFeeds.map((f) => (f.id === feed.id
+          ? { ...f, lastSyncedAt: new Date().toISOString(), lastError: undefined, eventCount: parsed.events.length }
+          : f)),
+      );
+      if (opts.announce) {
+        setIcsNote([describeSync(merged), ...parsed.warnings].join('\n'));
+      }
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not fetch that calendar.';
+      console.error('[feed] sync failed', err);
+      onSaveCalendarFeeds(calendarFeeds.map((f) => (f.id === feed.id ? { ...f, lastError: message } : f)));
+      if (opts.announce) setIcsNote(message);
+      return false;
+    } finally {
+      setFeedBusy(null);
+    }
+  };
+
+  const handleAddFeed = async () => {
+    const url = feedUrlInput.trim();
+    if (!url) return;
+    setIcsNote(null);
+    const id = feedIdForUrl(url.replace(/^webcal:\/\//i, 'https://'));
+    if (calendarFeeds.some((f) => f.id === id)) {
+      setIcsNote('That calendar is already subscribed — use Refresh on it instead.');
+      return;
+    }
+    const feed: CalendarFeed = {
+      id,
+      url,
+      label: suggestFeedLabel(url),
+      addedAt: new Date().toISOString(),
+    };
+    // Save the subscription first so a failed first fetch still leaves
+    // something on screen to retry or remove, rather than vanishing.
+    onSaveCalendarFeeds([...calendarFeeds, feed]);
+    setFeedUrlInput('');
+    await syncFeed(feed, { announce: true });
+  };
+
+  const handleRefreshFeed = (feed: CalendarFeed) => {
+    setIcsNote(null);
+    return syncFeed(feed, { announce: true });
+  };
+
+  const handleRemoveFeed = (feed: CalendarFeed) => {
+    const { events: kept, removed } = removeFeedEvents(events, feed.id);
+    onSaveEvents(kept);
+    onSaveCalendarFeeds(calendarFeeds.filter((f) => f.id !== feed.id));
+    setIcsNote(`Unsubscribed from ${feed.label}${removed ? ` and removed its ${removed} ${removed === 1 ? 'event' : 'events'}` : ''}.`);
+  };
+
+  // Refresh every subscription once per mount. Quietly — nobody opened the
+  // calendar to read a sync report.
+  const hasSyncedFeeds = useRef(false);
+  useEffect(() => {
+    if (hasSyncedFeeds.current || !calendarFeeds.length || !canWrite) return;
+    hasSyncedFeeds.current = true;
+    (async () => {
+      for (const f of calendarFeeds) await syncFeed(f);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calendarFeeds.length, canWrite]);
 
   // --- Calendar files (.ics): every calendar that isn't Google -------------
   //
@@ -937,19 +1040,97 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         </div>
 
         {/* Any other calendar — Apple, Outlook, Proton, anything.
-            Google is the only calendar Teluva talks to over an API; every
-            other one is reached through the file format they all share. This
-            is deliberately presented as a file exchange rather than a
-            "connection", because that is what it is: a snapshot, not a link. */}
-        <div className="mt-4 pt-4 border-t border-cream-200 space-y-2.5">
+            Google is the only calendar Teluva talks to over an API. Every other
+            one is reached two ways: a SUBSCRIPTION (a link that keeps itself up
+            to date) or a one-off FILE. The subscription is the one people
+            actually want, so it comes first. */}
+        <div className="mt-4 pt-4 border-t border-cream-200 space-y-3">
           <div>
             <p className="text-[13px] font-semibold text-ink-800">On a different calendar?</p>
             <p className="text-[12px] text-ink-500 leading-snug mt-0.5">
-              Apple, Outlook and the rest can all export a <code className="text-[11px]">.ics</code> file.
-              Bring one in here and the appointments land on the right people, same as Google.
-              It’s a copy taken at that moment — not a live link — so re-import after big changes.
+              Apple, Outlook, Proton and the rest all give you a private link to your calendar.
+              Paste it here once and Teluva keeps itself up to date from it — appointments that move,
+              move; ones that get cancelled disappear.
             </p>
           </div>
+
+          {/* Subscriptions */}
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={feedUrlInput}
+                onChange={(e) => setFeedUrlInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddFeed(); } }}
+                placeholder="Paste your calendar’s private link"
+                className="field flex-1 text-[13px]"
+                disabled={!canWrite}
+              />
+              <button
+                type="button"
+                onClick={handleAddFeed}
+                disabled={feedBusy !== null || !feedUrlInput.trim() || !canWrite}
+                className="btn-primary shrink-0 disabled:opacity-40"
+              >
+                {feedBusy === 'adding' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                <span>Subscribe</span>
+              </button>
+            </div>
+
+            <details className="text-[12px] text-ink-500">
+              <summary className="cursor-pointer font-semibold text-ink-600">Where do I find that link?</summary>
+              <ul className="mt-1.5 space-y-1 pl-4 list-disc leading-snug">
+                <li><b>Apple / iCloud</b> — calendar.icloud.com, click the ⁠share icon next to the calendar, tick Public Calendar, copy the link.</li>
+                <li><b>Outlook</b> — Settings → Calendar → Shared calendars → Publish a calendar → pick ICS.</li>
+                <li><b>Google</b> — calendar settings → Integrate calendar → <i>Secret address in iCal format</i>.</li>
+              </ul>
+              <p className="mt-1.5 leading-snug">
+                Anyone with that link can read that calendar, so treat it like a password and use the
+                private/secret one rather than making a calendar public where you can choose.
+              </p>
+            </details>
+
+            {calendarFeeds.length > 0 && (
+              <ul className="space-y-1.5">
+                {calendarFeeds.map((f) => (
+                  <li key={f.id} className="flex items-start gap-2 rounded-xl border border-cream-300 bg-cream-50 px-3 py-2">
+                    <RefreshCcw className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${feedBusy === f.id ? 'animate-spin text-clay-500' : 'text-ink-400'}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12.5px] font-semibold text-ink-800 truncate">{f.label}</p>
+                      <p className="text-[11px] text-ink-400">
+                        {f.lastError
+                          ? <span className="text-rosa-700">{f.lastError}</span>
+                          : f.lastSyncedAt
+                            ? `${f.eventCount ?? 0} events · updated ${new Date(f.lastSyncedAt).toLocaleString()}`
+                            : 'Not synced yet'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRefreshFeed(f)}
+                      disabled={feedBusy !== null || !canWrite}
+                      className="text-[11px] font-semibold text-clay-600 hover:text-clay-800 shrink-0 cursor-pointer disabled:opacity-40"
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFeed(f)}
+                      disabled={feedBusy !== null || !canWrite}
+                      className="text-[11px] font-semibold text-ink-400 hover:text-rosa-700 shrink-0 cursor-pointer disabled:opacity-40"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <p className="text-[12px] text-ink-500 leading-snug pt-1 border-t border-cream-200">
+            Or bring in a one-off <code className="text-[11px]">.ics</code> file — a copy taken at that
+            moment rather than a live link.
+          </p>
           <div className="flex items-center gap-2 flex-wrap">
             <input
               ref={icsInputRef}

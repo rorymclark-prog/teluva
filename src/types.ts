@@ -1,3 +1,4 @@
+import type { CalendarFeed } from './utils/calendarFeeds';
 // Family spaces use the 4 fixed values below. Business spaces use a preset
 // business title (see BUSINESS_ROLE_PRESETS in AddMemberModal.tsx) or any
 // custom free-text title — hence the open `string` fallback.
@@ -585,6 +586,10 @@ export interface HubSettings {
   familyPhotoUrl?: string;   // compressed base64 thumbnail
   nameDisplay?: 'real' | 'nick' | 'both';   // how member names show (default 'both')
   astrology?: boolean;       // opt-in "just for fun" star-sign view (off by default)
+  // Subscribed external calendars (Apple, Outlook, Proton, anything that
+  // publishes an .ics link). See utils/calendarFeeds.ts — these are mirrors,
+  // not imports: a refresh replaces the events each feed owns.
+  calendarFeeds?: CalendarFeed[];
   country?: IdCountry;       // drives which ID & Passports field set renders (default 'AT')
   // Per-SPACE opt-out of the birthday/work-anniversary/business-anniversary
   // confetti celebration and its "needs attention" nudges. Default ON
@@ -678,6 +683,13 @@ export interface CalendarEvent {
   // Its purpose is purely to stop the SAME event being pushed to Google a
   // second time (e.g. on a page reload, or if the auto-sync effect re-runs).
   googleSynced?: boolean;
+
+  // Set when this event came from a SUBSCRIBED calendar (utils/calendarFeeds.ts)
+  // rather than being typed here, imported from a file, or pulled from Google.
+  // It marks ownership: a feed refresh replaces every event carrying its own id
+  // and must never touch one that doesn't. That is what lets a cancelled
+  // appointment actually disappear instead of lingering forever.
+  feedId?: string;
 }
 
 // --- Important Info tab: a shared family quick-reference sheet ---
