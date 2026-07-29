@@ -117,6 +117,7 @@ import FamilyQuiz from './FamilyQuiz';
 import HealthTimeline from './HealthTimeline';
 import MemberCalendarDates from './MemberCalendarDates';
 import { sunSign, isSameLocalDay, blurbCacheKey } from '../utils/astrology';
+import { computeBirthChart } from '../utils/birthChart';
 import RecipeBook from './RecipeBook';
 import InMemoryView from './InMemoryView';
 import MemberCV from './MemberCV';
@@ -800,6 +801,21 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           birthdate: member.birthdate, birthTime: member.birthTime, placeOfBirth: member.placeOfBirth, previousBlurb,
+          // Only signs we are actually sure of. An uncertain moon or rising is
+          // omitted entirely rather than sent as a maybe — the server prompt
+          // then tells the model not to mention it, so the blurb never states
+          // something the app itself couldn't determine.
+          chart: (() => {
+            const c = computeBirthChart({
+              birthdate: member.birthdate, birthTime: member.birthTime,
+              birthTimeZone: member.birthTimeZone,
+              birthLatitude: member.birthLatitude, birthLongitude: member.birthLongitude,
+            });
+            return {
+              moon: c.moon.certainty === 'exact' ? c.moon.sign : undefined,
+              rising: c.rising.certainty === 'exact' ? c.rising.sign : undefined,
+            };
+          })(),
         }),
       });
       const data = await res.json();
@@ -1659,7 +1675,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     }
     shuffleAstrology(selectedMember.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMember?.id, selectedMember?.birthdate, selectedMember?.birthTime, selectedMember?.placeOfBirth, settings.astrology, isAdmin, canUseAI]);
+  }, [selectedMember?.id, selectedMember?.birthdate, selectedMember?.birthTime, selectedMember?.placeOfBirth, selectedMember?.birthTimeZone, selectedMember?.birthLatitude, selectedMember?.birthLongitude, settings.astrology, isAdmin, canUseAI]);
 
   // Open every member on their Overview summary (like iOS Contacts) — resets when
   // you switch members, so you no longer always land on the Medical form. A

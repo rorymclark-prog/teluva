@@ -1,6 +1,13 @@
-// A tiny, self-contained sun-sign helper — no external API, no libraries. Powers
-// the OPT-IN "just for fun" astrology view. Sun sign only (from the birth date);
-// birth time + place are captured for flavour, not a full chart computation.
+// A tiny, self-contained sun-sign helper — no external API, no libraries.
+// Powers the card's heading, symbol and element tint for the OPT-IN "just for
+// fun" astrology view.
+//
+// This is the DATE-TABLE version, and its boundaries are approximate: the Sun
+// changes sign at a particular moment that moves by up to a day and a half from
+// year to year, so this is wrong for births near a cusp. The real positions —
+// Sun, Moon and Rising, computed from the actual birth moment, with an explicit
+// "we can't tell" when the data doesn't support an answer — are in
+// utils/birthChart.ts, and that is what the card shows underneath.
 
 export interface ZodiacSign {
   sign: string;
@@ -80,12 +87,26 @@ export const elementTint = (el: ZodiacSign['element']) => ELEMENT_TINT[el];
  * that existing blurbs should be rewritten. It costs one generation per member,
  * once, the next time their profile is opened.
  */
-const STYLE_VERSION = 'v2';
+// v3: the blurb prompt now receives real computed Moon and Rising signs
+// (utils/birthChart.ts), so every v2 blurb was written without them.
+const STYLE_VERSION = 'v3';
 
 export function blurbCacheKey(m: {
   birthdate?: string;
   birthTime?: string;
   placeOfBirth?: string;
+  birthTimeZone?: string;
+  birthLatitude?: number;
+  birthLongitude?: number;
 }): string {
-  return `${STYLE_VERSION}|${m.birthdate || ''}|${m.birthTime || ''}|${m.placeOfBirth || ''}`;
+  // The zone and coordinates belong in this key because they change what the
+  // blurb can SAY: filling them in is what turns an unknown rising sign into a
+  // known one. Left out, someone would add their birth coordinates and get the
+  // same old sun-sign-only paragraph back, with no way to tell why.
+  return [
+    STYLE_VERSION, m.birthdate || '', m.birthTime || '', m.placeOfBirth || '',
+    m.birthTimeZone || '',
+    m.birthLatitude !== undefined ? String(m.birthLatitude) : '',
+    m.birthLongitude !== undefined ? String(m.birthLongitude) : '',
+  ].join('|');
 }

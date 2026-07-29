@@ -1,10 +1,11 @@
 import {
   AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye, Lock, Stethoscope, Dices, RefreshCw,
 } from 'lucide-react';
-import { useState, type ElementType } from 'react';
+import { useState, type ElementType, useMemo } from 'react';
 import { FamilyMember, FamilyDocument } from '../types';
 import { soonestCare, careDueLabel } from '../utils/care';
 import { sunSign, elementTint } from '../utils/astrology';
+import { computeBirthChart } from '../utils/birthChart';
 import { isHintSeen, markHintSeen } from '../utils/db';
 import MemberBelongings from './MemberBelongings';
 
@@ -67,6 +68,14 @@ export default function MemberOverview({
   // first time it's actually clicked, per device/space (isHintSeen/db.ts).
   const [diceHintSeen, setDiceHintSeen] = useState(() => isHintSeen('astrology_dice'));
   const zodiac = showAstrology ? sunSign(member.birthdate) : null;
+  // The real positions, plus what is and isn't knowable from what's on file.
+  const chart = useMemo(() => computeBirthChart({
+    birthdate: member.birthdate,
+    birthTime: member.birthTime,
+    birthTimeZone: member.birthTimeZone,
+    birthLatitude: member.birthLatitude,
+    birthLongitude: member.birthLongitude,
+  }), [member.birthdate, member.birthTime, member.birthTimeZone, member.birthLatitude, member.birthLongitude]);
   const first = member.name.split(/\s+/)[0] || member.name;
   const med = member.medical || {};
   const docCount = member.documents?.length || 0;
@@ -207,6 +216,34 @@ export default function MemberOverview({
             <p className="text-[12.5px] text-ink-500 leading-snug">
               {astrologyBlurb?.text || `${zodiac.blurb}${member.birthTime ? ` Born ${member.birthTime}${member.placeOfBirth ? ` in ${member.placeOfBirth}` : ''}.` : ''}`}
             </p>
+
+            {/* Sun, Moon and Rising — computed from the actual positions rather
+                than a date table, which is why each one can say "I don't know".
+                See utils/birthChart.ts: the three need very different amounts
+                of information, and the card shows which is missing instead of
+                filling the gap with a guess. */}
+            <div className="mt-2.5 pt-2.5 border-t border-cream-200 space-y-1">
+              {([
+                ['Sun', chart.sun],
+                ['Moon', chart.moon],
+                ['Rising', chart.rising],
+              ] as const).map(([label, r]) => (
+                <div key={label} className="flex items-baseline gap-2 text-[12px]">
+                  <span className="w-12 shrink-0 font-semibold text-ink-400 uppercase tracking-wide text-[10.5px]">{label}</span>
+                  {r.certainty === 'exact' && r.sign ? (
+                    <span className="font-semibold text-ink-800">{r.sign}</span>
+                  ) : r.certainty === 'between' ? (
+                    <span className="text-ink-600">
+                      <span className="font-semibold text-ink-800">{r.sign}</span> or{' '}
+                      <span className="font-semibold text-ink-800">{r.alternative}</span>
+                      <span className="text-ink-400"> · add {r.missing} to settle it</span>
+                    </span>
+                  ) : (
+                    <span className="text-ink-400">needs {r.missing}</span>
+                  )}
+                </div>
+              ))}
+            </div>
             {astrologyBlurb?.error && <p className="text-[11px] text-rosa-600 mt-0.5">{astrologyBlurb.error}</p>}
             {onShuffleAstrology && astrologyCappedToday && (
               <p className="text-[11px] text-ink-400 mt-1">That's today's insight — there'll be a new one tomorrow.</p>

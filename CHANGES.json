@@ -1,8 +1,10 @@
 {
-  "label": "v159",
+  "label": "v160",
   "changes": [
-    "Every folder you export now carries a proper PDF summary, not just a text file. A clinic, a school or an insurer opens it and sees a laid-out document — headings, tables, page numbers — instead of a screenful of asterisks and pipe characters.",
-    "The plain-text version still goes in too. That's the one another AI, a spreadsheet or a script reads cleanly, so you don't have to choose which end you're sending it to.",
-    "Both are written from the same records, so they can never disagree with each other."
+    "On a calendar that isn't Google? Apple, Outlook and the rest can all export a .ics file — bring one in and the appointments land on the right people, repeat events and cancellations included. You can save yours out as a file too.",
+    "Google Calendar should stop asking you to reconnect. It now quietly renews permission in the background instead of sending you through the consent screen every time you open the app.",
+    "The star sign card now shows real Sun, Moon and Rising signs, worked out from the actual positions of the sun and moon rather than a rough date table. Where a birth time or place is missing it says so plainly instead of guessing.",
+    "Add a birth time and it can tell you the moon sign; add the time zone and rough coordinates and it can tell you the rising sign too.",
+    "The 'describe your own style' box on fun avatars is now checked before anything reaches the image generator."
   ]
 }

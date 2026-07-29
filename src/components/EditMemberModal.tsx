@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Sparkles, Camera, Upload, RefreshCcw, Save } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { FamilyMember, MemberRole } from '../types';
+import { listTimeZones } from '../utils/timeZone';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -18,6 +19,18 @@ interface EditMemberModalProps {
   isBusinessSpace?: boolean;
 }
 
+/** A coordinate, or nothing. Blank, junk and out-of-range all mean nothing. */
+function coordOrUndefined(raw: string, limit: number): number | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && Math.abs(n) <= limit ? n : undefined;
+}
+
+// Read once at module load — this is the platform's own tz database, so there
+// is nothing to bundle and nothing to keep up to date.
+const timeZoneOptions = listTimeZones();
+
 export default function EditMemberModal({ isOpen, member, onClose, onSave, isBusinessSpace = false }: EditMemberModalProps) {
   useBodyScrollLock(isOpen && !!member);
 
@@ -28,6 +41,10 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [birthdate, setBirthdate] = useState('');
   const [birthTime, setBirthTime] = useState('');
   const [placeOfBirth, setPlaceOfBirth] = useState('');
+  // Kept as strings so a half-typed "-33." doesn't get coerced to NaN mid-edit.
+  const [birthTimeZone, setBirthTimeZone] = useState('');
+  const [birthLatitude, setBirthLatitude] = useState('');
+  const [birthLongitude, setBirthLongitude] = useState('');
   const [birthHospital, setBirthHospital] = useState('');
   // Read by Emergency, Babysitter mode and the emergency card, and until now
   // writable ONLY by the AI or the one-time guided interview — there was no
@@ -79,6 +96,9 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setBirthdate(member.birthdate || '');
       setBirthTime(member.birthTime || '');
       setPlaceOfBirth(member.placeOfBirth || '');
+      setBirthTimeZone(member.birthTimeZone || '');
+      setBirthLatitude(member.birthLatitude !== undefined ? String(member.birthLatitude) : '');
+      setBirthLongitude(member.birthLongitude !== undefined ? String(member.birthLongitude) : '');
       setBirthHospital(member.birthHospital || '');
       setEmergencyContactName(member.emergencyContactName || '');
       setEmergencyContactPhone(member.emergencyContactPhone || '');
@@ -207,6 +227,12 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       birthdate: birthdate || undefined,
       birthTime: birthTime || undefined,
       placeOfBirth: placeOfBirth.trim() || undefined,
+      birthTimeZone: birthTimeZone || undefined,
+      // Only stored when it parses to a real coordinate — birthChart.ts treats
+      // an out-of-range value as no place at all, so saving junk here would
+      // just be a field that silently does nothing.
+      birthLatitude: coordOrUndefined(birthLatitude, 90),
+      birthLongitude: coordOrUndefined(birthLongitude, 180),
       birthHospital: birthHospital.trim() || undefined,
       emergencyContactName: emergencyContactName.trim() || undefined,
       emergencyContactPhone: emergencyContactPhone.trim() || undefined,
@@ -351,6 +377,57 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                   <input type="text" placeholder="e.g. Vienna, Austria" value={placeOfBirth} onChange={(e) => setPlaceOfBirth(e.target.value)} className="field" />
                 </div>
               </div>
+
+              {/* Only the rising sign needs these, and only when the star-sign
+                  card is switched on — so they stay tucked away rather than
+                  making everyone fill in coordinates for a bit of fun. */}
+              {birthTime && (
+                <details className="rounded-2xl border border-cream-300 bg-cream-50 px-3.5 py-2.5">
+                  <summary className="text-[13px] font-semibold text-ink-700 cursor-pointer">
+                    Exact birth location <span className="font-normal text-ink-400">· for a rising sign</span>
+                  </summary>
+                  <div className="pt-3 space-y-3">
+                    <p className="text-[12px] text-ink-500 leading-snug">
+                      A rising sign changes every two hours and depends on where on Earth you were,
+                      so it needs the time zone that birth time was written in — and roughly where.
+                      Without these the card simply says so rather than guessing.
+                    </p>
+                    <div>
+                      <label className="field-label">Time zone at birth</label>
+                      <select value={birthTimeZone} onChange={(e) => setBirthTimeZone(e.target.value)} className="field">
+                        <option value="">Not set</option>
+                        {timeZoneOptions.map((tz) => <option key={tz} value={tz}>{tz}</option>)}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="field-label">Latitude</label>
+                        <input
+                          type="number" step="0.0001" min={-90} max={90} inputMode="decimal"
+                          placeholder="48.2082"
+                          value={birthLatitude}
+                          onChange={(e) => setBirthLatitude(e.target.value)}
+                          className="field"
+                        />
+                      </div>
+                      <div>
+                        <label className="field-label">Longitude</label>
+                        <input
+                          type="number" step="0.0001" min={-180} max={180} inputMode="decimal"
+                          placeholder="16.3738"
+                          value={birthLongitude}
+                          onChange={(e) => setBirthLongitude(e.target.value)}
+                          className="field"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-ink-400 leading-snug">
+                      Search the birth town on any map and copy the two numbers it shows.
+                      A few kilometres out makes no difference here.
+                    </p>
+                  </div>
+                </details>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">

@@ -132,6 +132,15 @@ export interface FamilyMember {
   birthdate?: string;
   birthTime?: string;        // HH:MM — optional, powers the fun astrology view
   placeOfBirth?: string;
+  // Which clock the birth time above was written on. A birth time with no zone
+  // is a number without a unit: an hour of error moves the rising sign by half
+  // a sign, so utils/birthChart.ts refuses to give one without this.
+  birthTimeZone?: string;    // IANA zone, e.g. 'Europe/Vienna'
+  // Where on Earth, for the rising sign — which is the horizon as seen from a
+  // specific spot and cannot be computed without one. Optional, like the rest;
+  // the chart says what it is missing rather than guessing.
+  birthLatitude?: number;    // degrees, north positive
+  birthLongitude?: number;   // degrees, east positive
   // The "just for fun" AI-written star-sign blurb — persisted so it survives a
   // reload instead of reverting to the plain static fallback every session.
   // forInputs snapshots birthdate|birthTime|placeOfBirth so an edit to any of

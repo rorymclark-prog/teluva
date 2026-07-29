@@ -6,7 +6,7 @@ import {
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X, Info,
   Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine
 } from 'lucide-react';
-import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken } from '../utils/firebase';
+import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken, connectGoogleAccess } from '../utils/firebase';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import SheetGrabber from './SheetGrabber';
@@ -19,6 +19,7 @@ import {
 } from '../utils/googleCalendarSync';
 import { partitionNewEvents } from '../utils/calendarDedup';
 import { resolveEventMembers } from '../utils/eventMemberMatch';
+import { parseIcs, buildIcs } from '../utils/ics';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -56,6 +57,12 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // Bug fix #2: run-once ref prevents stale-closure duplicate imports
   const hasAutoImported = useRef(false);
 
+  // Calendar-file (.ics) import/export — for Apple, Outlook and everything
+  // else Teluva has no API connection to.
+  const icsInputRef = useRef<HTMLInputElement>(null);
+  const [isImportingIcs, setIsImportingIcs] = useState(false);
+  const [icsNote, setIcsNote] = useState<string | null>(null);
+
   // Sync state observer
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -85,6 +92,23 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setIsLoggingIn(true);
     setCalendarSyncError(null);
     try {
+      // Someone already signed in to Teluva with Google doesn't need to sign in
+      // AGAIN to reconnect the calendar — they need a fresh API token, which is
+      // a much smaller thing to ask for. Try that first; it's usually silent,
+      // and at worst it's one click instead of the whole sign-in popup.
+      const existing = auth.currentUser;
+      if (existing) {
+        const t = await connectGoogleAccess();
+        if (t) {
+          setToken(t);
+          setUser(existing);
+          setNeedsAuth(false);
+          triggerReminderNotification('Successfully connected to Google Calendar!');
+          return;
+        }
+      }
+      // Not signed in, or the token request couldn't complete — the original
+      // full sign-in flow, unchanged.
       const result = await googleSignIn();
       if (result) {
         setToken(result.accessToken);
@@ -97,6 +121,72 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       setCalendarSyncError('Failed to authorize with Google Calendar.');
     } finally {
       setIsLoggingIn(false);
+    }
+  };
+
+  // --- Calendar files (.ics): every calendar that isn't Google -------------
+  //
+  // Runs entirely on the device. Nothing is uploaded, no account is connected,
+  // and the file never leaves the browser — which is also why this works for a
+  // calendar we have no API relationship with at all.
+  const handleImportIcsFile = async (file: File) => {
+    setIsImportingIcs(true);
+    setIcsNote(null);
+    try {
+      const text = await file.text();
+      const { events: parsed, warnings, sourceCount } = parseIcs(text, members);
+
+      if (sourceCount === 0) {
+        setIcsNote('That file has no appointments in it. Export a calendar as .ics and try that one.');
+        return;
+      }
+      if (parsed.length === 0) {
+        setIcsNote(`Nothing could be imported from that file.${warnings.length ? '\n' + warnings.join('\n') : ''}`);
+        return;
+      }
+
+      // The same two-stage dedup the Google import uses: exact id first (so
+      // re-importing the same file is a no-op), then the human-level pass that
+      // catches the same appointment arriving with a different id.
+      const notAlreadyHere = parsed.filter((ev) => !events.some((e) => e.id === ev.id));
+      const { fresh, duplicates } = partitionNewEvents(events, notAlreadyHere);
+      const skipped = parsed.length - fresh.length;
+
+      if (fresh.length === 0) {
+        setIcsNote(`Everything in that file is already on your calendar — nothing added.${warnings.length ? '\n' + warnings.join('\n') : ''}`);
+        return;
+      }
+
+      onSaveEvents([...events, ...fresh]);
+      const bits = [`Added ${fresh.length} ${fresh.length === 1 ? 'appointment' : 'appointments'} from ${file.name}.`];
+      if (skipped) bits.push(`${skipped} ${skipped === 1 ? 'was' : 'were'} already here${duplicates.length ? ' or looked identical' : ''}.`);
+      bits.push(...warnings);
+      setIcsNote(bits.join('\n'));
+    } catch (err) {
+      console.error('[ics] import failed', err);
+      setIcsNote('That file couldn’t be read. It should be a .ics calendar file.');
+    } finally {
+      setIsImportingIcs(false);
+    }
+  };
+
+  const handleDownloadIcs = () => {
+    try {
+      const ics = buildIcs(events, 'Teluva');
+      const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'teluva-calendar.ics';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Revoked on a tick, not immediately — Safari cancels an in-flight
+      // download if the object URL disappears the moment the click returns.
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setIcsNote(`Saved ${events.length} ${events.length === 1 ? 'event' : 'events'} as teluva-calendar.ics — open it in Apple Calendar, Outlook or anything else.`);
+    } catch (err) {
+      console.error('[ics] export failed', err);
+      setIcsNote('Could not build the calendar file.');
     }
   };
 
@@ -843,6 +933,61 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                 <span>Export all events</span>
               </button>
             </div>
+          )}
+        </div>
+
+        {/* Any other calendar — Apple, Outlook, Proton, anything.
+            Google is the only calendar Teluva talks to over an API; every
+            other one is reached through the file format they all share. This
+            is deliberately presented as a file exchange rather than a
+            "connection", because that is what it is: a snapshot, not a link. */}
+        <div className="mt-4 pt-4 border-t border-cream-200 space-y-2.5">
+          <div>
+            <p className="text-[13px] font-semibold text-ink-800">On a different calendar?</p>
+            <p className="text-[12px] text-ink-500 leading-snug mt-0.5">
+              Apple, Outlook and the rest can all export a <code className="text-[11px]">.ics</code> file.
+              Bring one in here and the appointments land on the right people, same as Google.
+              It’s a copy taken at that moment — not a live link — so re-import after big changes.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              ref={icsInputRef}
+              type="file"
+              accept=".ics,text/calendar"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                // Reset first: picking the SAME file twice fires no change
+                // event otherwise, which reads as "the button is broken".
+                e.target.value = '';
+                if (f) handleImportIcsFile(f);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => icsInputRef.current?.click()}
+              disabled={isImportingIcs || !canWrite}
+              className="btn-quiet flex-1 sm:flex-none disabled:opacity-50"
+            >
+              {isImportingIcs ? <Loader2 className="w-4 h-4 animate-spin text-ink-400" /> : <Download className="w-4 h-4" />}
+              <span>Import a calendar file</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadIcs}
+              disabled={events.length === 0}
+              className="btn-quiet flex-1 sm:flex-none disabled:opacity-50"
+              title="Save these events as a .ics file you can open in Apple Calendar, Outlook or anything else"
+            >
+              <Send className="w-4 h-4" />
+              <span>Save as calendar file</span>
+            </button>
+          </div>
+          {icsNote && (
+            <p className="text-[12px] text-ink-600 bg-cream-100 border border-cream-300 rounded-xl px-3 py-2 whitespace-pre-line">
+              {icsNote}
+            </p>
           )}
         </div>
       </div>
