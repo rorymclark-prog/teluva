@@ -4,12 +4,13 @@ import { loadFamilyInfo, uploadReferralFile, uploadReferralPhoto, deleteReferral
 import { isDemoMode } from '../utils/demoData';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { computeFileHash, hashDataUrl, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
+import { buildReferralGroups, ReferralSeries } from '../utils/referralGrouping';
 import PdfThumbnail from './PdfThumbnail';
 import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import {
   FileText, Camera, Upload, Plus, Trash2, Pencil, Check, X,
-  AlertCircle, AlertTriangle, Loader2, ExternalLink, Calendar,
+  AlertCircle, AlertTriangle, Loader2, ExternalLink, Calendar, ChevronDown, Layers,
 } from 'lucide-react';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -127,10 +128,11 @@ export default function MemberReferrals({ member, onUpdate }: MemberReferralsPro
     persist(records.map((r) => (r.id === rec.id ? { ...r, status } : r)));
   };
 
-  const sorted = useMemo<ReferralRecord[]>(
-    () => [...records].sort((a, b) => (b.date || b.addedAt).localeCompare(a.date || a.addedAt)),
-    [records],
-  );
+  // Repeated same-test lab results / imaging read as ONE series with multiple
+  // dates, not N unrelated rows — see referralGrouping.ts for the grouping
+  // rule and the safety note on why this stays chronology-only (order and
+  // count, never a comparison of what's in a result).
+  const groups = useMemo(() => buildReferralGroups(records), [records]);
 
   const firstName = member.name.split(/\s+/)[0] || member.name;
 
@@ -163,7 +165,7 @@ export default function MemberReferrals({ member, onUpdate }: MemberReferralsPro
           />
         )}
 
-        {sorted.length === 0 && !adding ? (
+        {groups.length === 0 && !adding ? (
           <div className="py-6 text-center">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-clay-50 text-clay-600 mb-3">
               <FileText className="w-5 h-5" />
@@ -172,31 +174,66 @@ export default function MemberReferrals({ member, onUpdate }: MemberReferralsPro
           </div>
         ) : (
           <div className="space-y-2.5">
-            {sorted.map((rec) =>
-              editId === rec.id ? (
-                <div key={rec.id}>
-                  <ReferralForm
-                    member={member}
-                    providers={providers}
-                    existing={records}
-                    initial={rec}
-                    onSave={handleSave}
-                    onCancel={() => setEditId(null)}
-                    demo={demo}
+            {groups.map((item) => {
+              if (item.type === 'single') {
+                const rec = item.record;
+                return editId === rec.id ? (
+                  <div key={rec.id}>
+                    <ReferralForm
+                      member={member}
+                      providers={providers}
+                      existing={records}
+                      initial={rec}
+                      onSave={handleSave}
+                      onCancel={() => setEditId(null)}
+                      demo={demo}
+                    />
+                  </div>
+                ) : (
+                  <div key={rec.id}>
+                    <ReferralRow
+                      rec={rec}
+                      onEdit={() => { setEditId(rec.id); setAdding(false); }}
+                      onDelete={() => handleDelete(rec)}
+                      onView={() => setPreviewRecord(rec)}
+                      onStatus={(s) => quickSetStatus(rec, s)}
+                    />
+                  </div>
+                );
+              }
+
+              // A record inside this series is being edited — drop out of the
+              // grouped card and reuse the exact same form/edit flow a single
+              // record gets, rather than building a second editing UI.
+              const editingRec = item.records.find((r) => r.id === editId);
+              if (editingRec) {
+                return (
+                  <div key={item.key}>
+                    <ReferralForm
+                      member={member}
+                      providers={providers}
+                      existing={records}
+                      initial={editingRec}
+                      onSave={handleSave}
+                      onCancel={() => setEditId(null)}
+                      demo={demo}
+                    />
+                  </div>
+                );
+              }
+
+              return (
+                <div key={item.key}>
+                  <ReferralSeriesCard
+                    series={item}
+                    onEdit={(rec) => { setEditId(rec.id); setAdding(false); }}
+                    onDelete={(rec) => handleDelete(rec)}
+                    onView={(rec) => setPreviewRecord(rec)}
+                    onStatus={(rec, s) => quickSetStatus(rec, s)}
                   />
                 </div>
-              ) : (
-                <div key={rec.id}>
-                  <ReferralRow
-                    rec={rec}
-                    onEdit={() => { setEditId(rec.id); setAdding(false); }}
-                    onDelete={() => handleDelete(rec)}
-                    onView={() => setPreviewRecord(rec)}
-                    onStatus={(s) => quickSetStatus(rec, s)}
-                  />
-                </div>
-              ),
-            )}
+              );
+            })}
           </div>
         )}
       </div>
@@ -282,6 +319,153 @@ function ReferralRow({
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ---------------- Series (repeated same-test results, grouped) ----------------
+ * Chronology and count ONLY — dates, order, "N on file". This never compares,
+ * plots, or characterizes what's inside a result (no trend arrows, no "rising"/
+ * "improving" language, no value-based colour). The app files and finds
+ * documents; it does not read or evaluate them. See referralGrouping.ts.
+ */
+
+function ReferralSeriesCard({
+  series, onEdit, onDelete, onView, onStatus,
+}: {
+  series: ReferralSeries;
+  onEdit: (rec: ReferralRecord) => void;
+  onDelete: (rec: ReferralRecord) => void;
+  onView: (rec: ReferralRecord) => void;
+  onStatus: (rec: ReferralRecord, s: ReferralStatus) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const total = series.records.length;
+  const latest = series.records[0]; // already sorted newest-first
+  const earlierCount = total - 1;
+  const latestStatus = latest.status || 'open';
+  const overdueDays = latestStatus === 'open' ? daysSince(latest.date) : null;
+  const flagOverdue = overdueDays != null && overdueDays >= 14;
+
+  return (
+    <div className="rounded-2xl border border-cream-200 bg-white overflow-hidden hover:border-cream-300 transition-colors">
+      <div className="p-3.5 flex flex-col sm:flex-row sm:items-start gap-3">
+        <button type="button" onClick={() => onView(latest)} className="shrink-0" title="View most recent">
+          {latest.fileType === 'application/pdf' ? (
+            <PdfThumbnail src={latest.downloadUrl} size="w-14 h-14" />
+          ) : (
+            <img src={latest.downloadUrl} alt="" className="w-14 h-14 rounded-xl object-cover border border-cream-200" referrerPolicy="no-referrer" />
+          )}
+        </button>
+
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`chip ${KIND_CHIP[series.kind] || KIND_CHIP.Other}`}>{series.kind}</span>
+            <span className="chip bg-dusk-50 text-dusk-700 flex items-center gap-1">
+              <Layers className="w-3 h-3" /> {total} on file
+            </span>
+            <span className={`chip ${STATUS_CHIP[latestStatus]}`}>{STATUS_LABEL[latestStatus]}</span>
+            {flagOverdue && (
+              <span className="chip bg-rosa-100 text-rosa-700 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" /> Not yet booked · {overdueDays}d
+              </span>
+            )}
+          </div>
+          <p className="text-[14px] font-semibold text-ink-900 truncate">{series.label}</p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-ink-500">
+            <span className="tabular-nums flex items-center gap-1">
+              <Calendar className="w-3 h-3" />Most recent{latest.date ? `: ${latest.date}` : ''}
+            </span>
+            {latest.providerName && <span>{latest.providerName}</span>}
+            {latestStatus === 'booked' && latest.appointmentDate && (
+              <span className="tabular-nums">Appt {latest.appointmentDate}</span>
+            )}
+          </div>
+          {latest.notes && <p className="text-[12px] text-ink-400 italic">{latest.notes}</p>}
+
+          {/* Quick lifecycle change for the most recent result only — older ones
+              in the series are already resolved in the vast majority of cases. */}
+          <div className="flex items-center gap-1 pt-1">
+            {(['open', 'booked', 'done'] as ReferralStatus[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onStatus(latest, s)}
+                className={`px-2 py-0.5 text-[11px] font-semibold rounded-lg transition-colors cursor-pointer ${
+                  latestStatus === s ? 'bg-ink-800 text-white' : 'bg-cream-100 text-ink-500 hover:bg-cream-200'
+                }`}
+              >
+                {STATUS_LABEL[s]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0 self-start">
+          <button onClick={() => onEdit(latest)} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit most recent">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={() => onDelete(latest)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete most recent">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {earlierCount > 0 && (
+        <div className="border-t border-cream-100">
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="w-full px-3.5 py-2 text-[12px] font-semibold text-ink-500 hover:text-ink-700 hover:bg-cream-50 flex items-center gap-1.5 cursor-pointer"
+          >
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            {expanded ? 'Hide earlier results' : `Show ${earlierCount} earlier result${earlierCount > 1 ? 's' : ''}`}
+          </button>
+          {expanded && (
+            <div className="divide-y divide-cream-100">
+              {series.records.slice(1).map((rec, i) => {
+                // Chronological position within the series — oldest is #1 —
+                // so "this is the third of these" is visible at a glance.
+                // Order and count only, nothing about what the result says.
+                const position = total - 1 - i;
+                const s = rec.status || 'open';
+                return (
+                  <div key={rec.id} className="px-3.5 py-2.5 flex items-center gap-3">
+                    <span
+                      className="text-[11px] font-semibold text-ink-300 tabular-nums w-5 shrink-0"
+                      title={`${position} of ${total}, in order filed`}
+                    >
+                      #{position}
+                    </span>
+                    <button type="button" onClick={() => onView(rec)} className="shrink-0" title="View">
+                      {rec.fileType === 'application/pdf' ? (
+                        <PdfThumbnail src={rec.downloadUrl} size="w-9 h-9" />
+                      ) : (
+                        <img src={rec.downloadUrl} alt="" className="w-9 h-9 rounded-lg object-cover border border-cream-200" referrerPolicy="no-referrer" />
+                      )}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12.5px]">
+                        {rec.date && <span className="tabular-nums text-ink-700 font-medium">{rec.date}</span>}
+                        <span className={`chip ${STATUS_CHIP[s]}`}>{STATUS_LABEL[s]}</span>
+                      </div>
+                      {rec.providerName && <p className="text-[11.5px] text-ink-400 truncate">{rec.providerName}</p>}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => onEdit(rec)} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => onDelete(rec)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

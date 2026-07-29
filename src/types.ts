@@ -991,7 +991,79 @@ export interface EstateRecord {
   notes?: string;
 }
 
-export interface WillsEstateDoc { records: EstateRecord[]; }
+// --- Emergency / "if something happens to you" (Phase 1 of the legacy
+// feature, requested twice by the owner). Deliberately EXTENDS this existing
+// Wills & Estate store rather than creating a second one: the per-document
+// facts (where a signed Will/PoA/Funeral-wishes lives, who holds it, who the
+// executor is) already live on EstateRecord above. What follows covers what
+// ISN'T naturally about one document — who needs to be told, what needs to
+// be closed down, where the physical keys are, a free-text letter, and who
+// should actually take the vault over. Three separate optional fields on
+// WillsEstateDoc (below), not new EstateRecord kinds, because none of them
+// belong to a single document the way originalLocation/heldBy do.
+
+// A person or institution who must be told — a sibling, employer HR, the
+// landlord, a solicitor. Deliberately mirrors HouseholdVendor's shape (see
+// ImportantInfo.tsx's VendorsSection) — same small contact-card pattern
+// already used elsewhere in this app, not a new one invented for this.
+export interface NotifyContact {
+  id: string;
+  name: string;
+  relation?: string;   // e.g. "Sister", "Employer HR", "Landlord", "Solicitor"
+  phone?: string;
+  email?: string;
+  notes?: string;
+}
+
+// One account or subscription to close or cancel. Deliberately NOT a
+// financial record — no balances, just enough to find and close it.
+// `closed` doubles this list as a checklist once someone starts working
+// through it, without needing a separate "done" list.
+export interface AccountToClose {
+  id: string;
+  name: string;         // e.g. "Netflix", "A1 mobile contract", "Fitness First"
+  accountRef?: string;  // account / customer / policy number, if known
+  closed?: boolean;
+  notes?: string;
+}
+
+// The free-text + list material that doesn't belong to one specific
+// document. `letter` is deliberately unstructured — a paragraph in the
+// owner's own words for whoever finds this — same "store exactly what they
+// say, never advice, never generated" boundary EstateRecord.notes already
+// keeps.
+export interface EmergencyInstructions {
+  notifyContacts?: NotifyContact[];
+  accountsToClose?: AccountToClose[];
+  keysAndSafes?: string;   // where physical keys, safes and deeds are kept
+  letter?: string;
+  updatedAt?: string;      // ISO timestamp, set whenever any of the above is saved
+}
+
+// The designated person: "if something happens to you, who takes over the
+// vault, and what are they expected to do." Deliberately does NOT attempt
+// delegated authentication, session takeover, or a break-glass login — the
+// only honest mechanic this app has is the existing FamilyRole/admin system
+// (see FamilySettings.tsx's role selector), so this record only STATES the
+// intent. Whether the named person can actually act on it today is
+// COMPUTED from the live families/{id}/roles collection (see
+// utils/successor.ts's resolveSuccessorAccess), never stored here — storing
+// it would go stale the instant a role changes elsewhere. `memberId` links
+// to an existing FamilyMember purely so that lookup can find their email;
+// naming someone who isn't an app member at all (free-text `name` only) is
+// equally valid and just can't be access-checked.
+export interface DesignatedSuccessor {
+  name: string;
+  memberId?: string;
+  whatTheyShouldDo: string;
+  setAt?: string; // ISO timestamp this was last recorded
+}
+
+export interface WillsEstateDoc {
+  records: EstateRecord[];
+  successor?: DesignatedSuccessor;
+  instructions?: EmergencyInstructions;
+}
 // --- Slips ("Keep the slip"): purchase receipts/till slips captured mainly
 // for their two DEADLINES, not as filing — a return window (short, shop
 // policy, usually ~30 days) and a warranty (much longer, 12/24 months). These

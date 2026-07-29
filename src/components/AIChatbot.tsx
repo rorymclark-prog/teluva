@@ -513,6 +513,40 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     if (uid) saveChatHistory(uid, []);
   };
 
+  /* The calendar, bounded.
+   *
+   * Every event ever synced used to go to the model on every single message. On
+   * the live account that is 554 entries and 88% of the entire payload — enough
+   * to blow the server's context cap on its own, which silently truncated the
+   * JSON and took the authoritative expiry data with it. An imported Google
+   * Calendar only makes this worse over time, and it is the one input a user can
+   * grow without limit without meaning to.
+   *
+   * A window instead. Chat needs the calendar to answer "what's on this week"
+   * and to avoid creating a duplicate event; neither needs 2019. Recent past is
+   * kept because "when was that appointment?" is a real question, and undated
+   * entries are kept rather than guessed at. Newest-first, capped, so a
+   * pathological calendar cannot dominate what the assistant sees about people.
+   */
+  const CAL_PAST_DAYS = 60;
+  const CAL_FUTURE_DAYS = 365;
+  const CAL_MAX = 150;
+  const boundCalendar = (events: { date?: string }[]) => {
+    const today = new Date();
+    const floor = new Date(today); floor.setDate(floor.getDate() - CAL_PAST_DAYS);
+    const ceil = new Date(today); ceil.setDate(ceil.getDate() + CAL_FUTURE_DAYS);
+    const iso = (d: Date) => d.toLocaleDateString('en-CA');
+    const from = iso(floor), to = iso(ceil);
+    return (events || [])
+      .filter((e) => {
+        const d = String(e?.date || '');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return true;   // undated: keep, don't guess
+        return d >= from && d <= to;
+      })
+      .sort((a, b) => String(b?.date || '').localeCompare(String(a?.date || '')))
+      .slice(0, CAL_MAX);
+  };
+
   const buildContext = async () => {
     const [info, household, finances, timeline, docs, events, spaceInfo, slips] = await Promise.all([
       loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(),
@@ -563,7 +597,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     // Gemini. Redacting at the boundary (rather than at each loader) means every
     // future caller of loadHousehold/loadFinances keeps the full record for the
     // UI, and only the AI path loses them. See aiRedact.ts.
-    return { members: slimMembers(members), info, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: events || [], isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [] };
+    return { members: slimMembers(members), info, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [] };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {

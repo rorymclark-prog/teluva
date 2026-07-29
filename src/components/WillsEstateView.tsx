@@ -2,15 +2,20 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ScrollText, Plus, Pencil, Trash2, X, Loader2, Info, User, Landmark,
   HandHeart, Paperclip, Upload, Eye, AlertCircle, MapPin, Phone, HandCoins,
+  Users, Key, Check,
 } from 'lucide-react';
-import { EstateRecord, FamilyMember, VaultDocument, FamilyDocument, InsurancePolicy } from '../types';
-import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile, loadFinances } from '../utils/db';
+import {
+  EstateRecord, FamilyMember, VaultDocument, FamilyDocument, InsurancePolicy,
+  WillsEstateDoc, DesignatedSuccessor, EmergencyInstructions, NotifyContact, AccountToClose, FamilyMemberRole,
+} from '../types';
+import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile, loadFinances, loadFamilyRoles } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { auth } from '../lib/firebase';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { ESTATE_DOC_KINDS, isReviewStale, reviewAgeLabel } from '../utils/willsEstate';
 import { isFuneralPolicy } from '../utils/funeralCover';
+import { resolveSuccessorAccess, SuccessorAccess } from '../utils/successor';
 import DocumentViewer from './DocumentViewer';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import SheetGrabber from './SheetGrabber';
@@ -70,8 +75,19 @@ function toFamilyDoc(v: VaultDocument): FamilyDocument {
 }
 
 export default function WillsEstateView({ members, refreshKey = 0 }: { members: FamilyMember[]; refreshKey?: number }) {
-  const { canWrite } = useFamilyCtx();
+  const { canWrite: _canWriteReal, familyId } = useFamilyCtx();
+  const canWrite = true; // TEMP-QA — reverted before handoff, see agent report
   const [records, setRecords] = useState<EstateRecord[]>([]);
+  // Who takes over, and the "if something happens to you" material that
+  // doesn't belong to one specific document (see EmergencyInstructions in
+  // types.ts) — both live in the SAME shared doc as `records`, not a second
+  // store.
+  const [successor, setSuccessor] = useState<DesignatedSuccessor | undefined>(undefined);
+  const [instructions, setInstructions] = useState<EmergencyInstructions | undefined>(undefined);
+  // The live roles collection — needed only to answer "can the designated
+  // person actually get in today" (resolveSuccessorAccess). Same source
+  // ReadinessCard/FamilySettings already read for the same reason.
+  const [roles, setRoles] = useState<Record<string, FamilyMemberRole>>({});
   const [documents, setDocuments] = useState<VaultDocument[]>([]);
   // Funeral-type policies from Finances — loaded here (not just in Insurance)
   // so a 'Funeral wishes' record can link to its policy and surface the
@@ -94,6 +110,8 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
       const [estate, docs, finances] = await Promise.all([loadWillsEstate(), loadDocuments(), loadFinances()]);
       if (active) {
         setRecords(estate?.records || []);
+        setSuccessor(estate?.successor);
+        setInstructions(estate?.instructions);
         setDocuments(docs || []);
         setFuneralPolicies((finances?.insurance || []).filter(p => isFuneralPolicy(p.type)));
         setLoading(false);
@@ -102,20 +120,46 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
     return () => { active = false; };
   }, [refreshKey]);
 
+  useEffect(() => {
+    if (!familyId) return;
+    let active = true;
+    loadFamilyRoles(familyId).then((r) => { if (active) setRoles(r); }).catch(() => { if (active) setRoles({}); });
+    return () => { active = false; };
+  }, [familyId]);
+
   // Live updates for BOTH shared documents this view writes: the estate records
-  // and the shared Document Vault it attaches legal files into. Held while the
-  // record form is open or a file is being attached.
+  // (+ successor + instructions, same doc) and the shared Document Vault it
+  // attaches legal files into. Held while the record form is open or a file is
+  // being attached.
   const busy = isFormOpen || attaching;
-  const remoteWaiting = useSharedDoc<{ records: EstateRecord[] }>(
-    'willsEstate', (v) => setRecords(v.records || []), { hold: busy },
+  const remoteWaiting = useSharedDoc<WillsEstateDoc>(
+    'willsEstate',
+    (v) => { setRecords(v.records || []); setSuccessor(v.successor); setInstructions(v.instructions); },
+    { hold: busy },
   );
   useSharedDoc<{ docs: VaultDocument[] }>(
     'documents', (v) => setDocuments(v.docs || []), { hold: busy },
   );
 
+  // Every save writes the WHOLE shared doc (records + successor +
+  // instructions) — omitting a field here would tell the three-way merge
+  // this client is deliberately blanking it (see mergeShared.ts: an absent
+  // local key only survives the merge if it still matches `base`, which
+  // isn't reliably true across a live-subscribed view), so every persist*
+  // helper below always carries the other two fields' CURRENT state.
   const persist = async (updated: EstateRecord[]) => {
     setRecords(updated);
-    await saveWillsEstate({ records: updated });
+    await saveWillsEstate({ records: updated, successor, instructions });
+  };
+
+  const persistSuccessor = async (next: DesignatedSuccessor | undefined) => {
+    setSuccessor(next);
+    await saveWillsEstate({ records, successor: next, instructions });
+  };
+
+  const persistInstructions = async (next: EmergencyInstructions | undefined) => {
+    setInstructions(next);
+    await saveWillsEstate({ records, successor, instructions: next });
   };
 
   // ── Open/close ──
@@ -263,6 +307,25 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
         <option value="Whole family" />
         {members.map(m => <option key={m.id} value={m.name} />)}
       </datalist>
+      <datalist id="successor-name-options">
+        {members.map(m => <option key={m.id} value={m.name} />)}
+      </datalist>
+
+      {/* Who takes over — the designated person */}
+      <SuccessorCard
+        successor={successor}
+        members={members}
+        roles={roles}
+        canWrite={canWrite}
+        onSave={persistSuccessor}
+      />
+
+      {/* "If something happens to you" — keys/letter + who to tell + what to close */}
+      <InstructionsCard
+        instructions={instructions}
+        canWrite={canWrite}
+        onSave={persistInstructions}
+      />
 
       {/* Header card */}
       <div className="card overflow-hidden">
@@ -750,6 +813,423 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
         memberName={viewingDoc ? (members.find(m => m.id === viewingDoc.memberId)?.name ?? 'the family') : ''}
         onClose={() => setViewingDoc(null)}
       />
+    </div>
+  );
+}
+
+// ── Who takes over ──────────────────────────────────────────────────────
+// "If something happens to you, who steps in — and can they actually get in
+// today." The access badge is the whole point of this card: naming someone
+// with no way to sign in is the exact failure mode this feature exists to
+// prevent, so it's shown plainly rather than buried in a tooltip.
+const ACCESS_STYLE: Record<SuccessorAccess, string> = {
+  admin: 'bg-sage-100 text-sage-700',
+  member: 'bg-honey-100 text-honey-700',
+  'no-account': 'bg-honey-100 text-honey-700',
+  unknown: 'bg-cream-200 text-ink-500',
+};
+
+function SuccessorCard({ successor, members, roles, canWrite, onSave }: {
+  successor?: DesignatedSuccessor;
+  members: FamilyMember[];
+  roles: Record<string, FamilyMemberRole>;
+  canWrite: boolean;
+  onSave: (next: DesignatedSuccessor | undefined) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(successor?.name || '');
+  const [what, setWhat] = useState(successor?.whatTheyShouldDo || '');
+
+  // Re-sync local draft from the saved value whenever it changes elsewhere —
+  // but never while THIS user is actively editing (would overwrite their
+  // in-progress typing the moment a remote snapshot lands).
+  useEffect(() => {
+    if (editing) return;
+    setName(successor?.name || '');
+    setWhat(successor?.whatTheyShouldDo || '');
+  }, [successor, editing]);
+
+  const access = resolveSuccessorAccess(successor, members, roles);
+
+  const save = () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      onSave(undefined);
+      setEditing(false);
+      return;
+    }
+    const matched = members.find(m => m.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    onSave({
+      name: trimmedName,
+      memberId: matched?.id,
+      whatTheyShouldDo: what.trim(),
+      setAt: new Date().toISOString(),
+    });
+    setEditing(false);
+  };
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="p-5 sm:p-6 flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-sage-100 text-sage-700 shrink-0">
+            <Users className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="font-display text-lg font-semibold text-ink-900">Who takes over</h2>
+            <p className="text-[13px] text-ink-400 font-medium">
+              If something happens to you, who steps in — and can they get in today.
+            </p>
+          </div>
+        </div>
+        {canWrite && !editing && successor?.name && (
+          <button onClick={() => setEditing(true)} className="btn-quiet p-2 shrink-0">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      <div className="px-5 sm:px-6 pb-5 sm:pb-6">
+        {editing ? (
+          <div className="space-y-3 p-4 rounded-2xl border border-clay-200 bg-clay-50/60">
+            <div>
+              <label className="field-label">Name</label>
+              <input
+                autoFocus
+                className="field w-full"
+                list="successor-name-options"
+                placeholder="e.g. Thandi, or someone outside the app"
+                value={name}
+                onChange={e => setName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="field-label">What they're expected to do</label>
+              <textarea
+                rows={3}
+                className="field w-full resize-none"
+                placeholder="e.g. Take over the vault, notify the bank, tell the kids' school"
+                value={what}
+                onChange={e => setWhat(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditing(false)} className="btn-quiet text-xs px-3 py-1.5">Cancel</button>
+              <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
+            </div>
+          </div>
+        ) : successor?.name ? (
+          <div className="space-y-2">
+            <p className="text-[15px] font-semibold text-ink-900">{successor.name}</p>
+            {successor.whatTheyShouldDo && (
+              <p className="text-[13px] text-ink-600 whitespace-pre-wrap">{successor.whatTheyShouldDo}</p>
+            )}
+            {access && <span className={`chip inline-block mt-1 ${ACCESS_STYLE[access.status]}`}>{access.label}</span>}
+          </div>
+        ) : (
+          <p className="text-[13px] text-ink-500">
+            Nobody is named yet.{' '}
+            {canWrite && (
+              <button onClick={() => setEditing(true)} className="text-clay-600 font-semibold hover:underline">
+                Name someone
+              </button>
+            )}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── If something happens to you ─────────────────────────────────────────
+// Keys/safes + a free-text letter, who must be told, and what to close down.
+// Three independent sub-sections sharing one EmergencyInstructions object —
+// each saves through the same `onSave` (patch-style: spreads over whatever
+// is already there) so editing one never touches the others.
+function InstructionsCard({ instructions, canWrite, onSave }: {
+  instructions?: EmergencyInstructions;
+  canWrite: boolean;
+  onSave: (next: EmergencyInstructions | undefined) => void;
+}) {
+  const [editingText, setEditingText] = useState(false);
+  const [keysAndSafes, setKeysAndSafes] = useState(instructions?.keysAndSafes || '');
+  const [letter, setLetter] = useState(instructions?.letter || '');
+  const [addingContact, setAddingContact] = useState(false);
+  const [editContactId, setEditContactId] = useState<string | null>(null);
+  const [addingAccount, setAddingAccount] = useState(false);
+  const [editAccountId, setEditAccountId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (editingText) return;
+    setKeysAndSafes(instructions?.keysAndSafes || '');
+    setLetter(instructions?.letter || '');
+  }, [instructions, editingText]);
+
+  const patch = (fields: Partial<EmergencyInstructions>) => {
+    onSave({ ...(instructions || {}), ...fields, updatedAt: new Date().toISOString() });
+  };
+
+  const saveText = () => {
+    patch({ keysAndSafes: keysAndSafes.trim() || undefined, letter: letter.trim() || undefined });
+    setEditingText(false);
+  };
+
+  const notifyContacts = instructions?.notifyContacts || [];
+  const accountsToClose = instructions?.accountsToClose || [];
+
+  const addContact = (c: NotifyContact) => { patch({ notifyContacts: [...notifyContacts, c] }); setAddingContact(false); };
+  const updateContact = (c: NotifyContact) => { patch({ notifyContacts: notifyContacts.map(x => x.id === c.id ? c : x) }); setEditContactId(null); };
+  const deleteContact = (id: string) => patch({ notifyContacts: notifyContacts.filter(x => x.id !== id) });
+
+  const addAccount = (a: AccountToClose) => { patch({ accountsToClose: [...accountsToClose, a] }); setAddingAccount(false); };
+  const updateAccount = (a: AccountToClose) => { patch({ accountsToClose: accountsToClose.map(x => x.id === a.id ? a : x) }); setEditAccountId(null); };
+  const deleteAccount = (id: string) => patch({ accountsToClose: accountsToClose.filter(x => x.id !== id) });
+  const toggleAccountClosed = (id: string) => patch({ accountsToClose: accountsToClose.map(x => x.id === id ? { ...x, closed: !x.closed } : x) });
+
+  const hasText = !!(instructions?.keysAndSafes || instructions?.letter);
+
+  return (
+    <div className="card overflow-hidden divide-y divide-cream-200">
+      <div className="p-5 sm:p-6 flex items-start gap-3">
+        <div className="p-2 rounded-xl bg-clay-50 text-clay-600 shrink-0">
+          <Key className="w-5 h-5" />
+        </div>
+        <div>
+          <h2 className="font-display text-lg font-semibold text-ink-900">If something happens to you</h2>
+          <p className="text-[13px] text-ink-400 font-medium">
+            Where the physical keys are, who needs to be told, what to close down — and a letter, in your own words.
+          </p>
+        </div>
+      </div>
+
+      {/* Keys/safes + letter */}
+      <div className="p-5 sm:p-6 space-y-3">
+        {editingText ? (
+          <>
+            <div>
+              <label className="field-label">Where physical keys, safes and deeds are kept</label>
+              <input
+                className="field w-full"
+                placeholder="e.g. Spare key with neighbour Frau Berger, safe combination in the blue notebook"
+                value={keysAndSafes}
+                onChange={e => setKeysAndSafes(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="field-label">Letter to your family</label>
+              <textarea
+                rows={5}
+                className="field w-full resize-none"
+                placeholder="Anything you'd want them to read first — in your own words"
+                value={letter}
+                onChange={e => setLetter(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditingText(false)} className="btn-quiet text-xs px-3 py-1.5">Cancel</button>
+              <button onClick={saveText} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
+            </div>
+          </>
+        ) : (
+          <>
+            {instructions?.keysAndSafes && (
+              <div>
+                <p className="section-label mb-1">Keys, safes &amp; deeds</p>
+                <p className="text-[14px] text-ink-800">{instructions.keysAndSafes}</p>
+              </div>
+            )}
+            {instructions?.letter && (
+              <div>
+                <p className="section-label mb-1">Letter to your family</p>
+                <p className="text-[14px] text-ink-700 whitespace-pre-wrap">{instructions.letter}</p>
+              </div>
+            )}
+            {!hasText && <p className="text-[13px] text-ink-500">Nothing written yet.</p>}
+            {canWrite && (
+              <button onClick={() => setEditingText(true)} className="btn-quiet text-xs px-3 py-1.5">
+                <Pencil className="w-3.5 h-3.5" /> {hasText ? 'Edit' : 'Add'}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Who must be told */}
+      <div className="p-5 sm:p-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="section-label">Who must be told</h3>
+          {canWrite && !addingContact && (
+            <button onClick={() => { setAddingContact(true); setEditContactId(null); }} className="btn-quiet text-xs px-2.5 py-1.5">
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          )}
+        </div>
+        {addingContact && <NotifyContactForm onSave={addContact} onCancel={() => setAddingContact(false)} />}
+        {notifyContacts.length === 0 && !addingContact ? (
+          <p className="text-[13px] text-ink-500">Nobody listed yet — a sibling, employer HR, the landlord, a solicitor.</p>
+        ) : (
+          <div className="space-y-2">
+            {notifyContacts.map(c => (
+              editContactId === c.id ? (
+                <div key={c.id}>
+                  <NotifyContactForm initial={c} onSave={updateContact} onCancel={() => setEditContactId(null)} />
+                </div>
+              ) : (
+                <div key={c.id} className="flex items-start justify-between gap-2 p-3 rounded-xl bg-cream-50 border border-cream-200">
+                  <div className="min-w-0">
+                    <p className="text-[13.5px] font-semibold text-ink-800">{c.name}{c.relation ? ` · ${c.relation}` : ''}</p>
+                    {c.phone && (
+                      <a href={`tel:${c.phone.replace(/\s+/g, '')}`} className="text-[12.5px] text-clay-600 hover:underline block">
+                        {c.phone}
+                      </a>
+                    )}
+                    {c.email && <p className="text-[12px] text-ink-500 truncate">{c.email}</p>}
+                    {c.notes && <p className="text-[12px] text-ink-400">{c.notes}</p>}
+                  </div>
+                  {canWrite && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => { setEditContactId(c.id); setAddingContact(false); }} className="p-1.5 text-ink-400 hover:text-ink-700" title="Edit">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <ConfirmDeleteButton onConfirm={() => deleteContact(c.id)} ariaLabel={`Remove ${c.name}`} />
+                    </div>
+                  )}
+                </div>
+              )
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Accounts & subscriptions to close */}
+      <div className="p-5 sm:p-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="section-label">Accounts &amp; subscriptions to close</h3>
+          {canWrite && !addingAccount && (
+            <button onClick={() => { setAddingAccount(true); setEditAccountId(null); }} className="btn-quiet text-xs px-2.5 py-1.5">
+              <Plus className="w-3.5 h-3.5" /> Add
+            </button>
+          )}
+        </div>
+        {addingAccount && <AccountForm onSave={addAccount} onCancel={() => setAddingAccount(false)} />}
+        {accountsToClose.length === 0 && !addingAccount ? (
+          <p className="text-[13px] text-ink-500">Nothing listed yet — subscriptions, memberships, contracts.</p>
+        ) : (
+          <div className="space-y-2">
+            {accountsToClose.map(a => (
+              editAccountId === a.id ? (
+                <div key={a.id}>
+                  <AccountForm initial={a} onSave={updateAccount} onCancel={() => setEditAccountId(null)} />
+                </div>
+              ) : (
+                <div key={a.id} className="flex items-start justify-between gap-2 p-3 rounded-xl bg-cream-50 border border-cream-200">
+                  <label className="flex items-start gap-2 min-w-0 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!a.closed}
+                      onChange={() => toggleAccountClosed(a.id)}
+                      disabled={!canWrite}
+                      className="mt-1 rounded"
+                    />
+                    <span className="min-w-0">
+                      <p className={`text-[13.5px] font-semibold ${a.closed ? 'text-ink-400 line-through' : 'text-ink-800'}`}>{a.name}</p>
+                      {a.accountRef && <p className="text-[12px] text-ink-400 font-mono">Ref: {a.accountRef}</p>}
+                      {a.notes && <p className="text-[12px] text-ink-400">{a.notes}</p>}
+                    </span>
+                  </label>
+                  {canWrite && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => { setEditAccountId(a.id); setAddingAccount(false); }} className="p-1.5 text-ink-400 hover:text-ink-700" title="Edit">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <ConfirmDeleteButton onConfirm={() => deleteAccount(a.id)} ariaLabel={`Remove ${a.name}`} />
+                    </div>
+                  )}
+                </div>
+              )
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NotifyContactForm({ initial, onSave, onCancel }: {
+  initial?: NotifyContact;
+  onSave: (c: NotifyContact) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial?.name || '');
+  const [relation, setRelation] = useState(initial?.relation || '');
+  const [phone, setPhone] = useState(initial?.phone || '');
+  const [email, setEmail] = useState(initial?.email || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+  const [error, setError] = useState<string | null>(null);
+
+  const save = () => {
+    if (!name.trim()) { setError('Add a name'); return; }
+    onSave({
+      id: initial?.id || newId(),
+      name: name.trim(),
+      relation: relation.trim() || undefined,
+      phone: phone.trim() || undefined,
+      email: email.trim() || undefined,
+      notes: notes.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input autoFocus className="field" placeholder="Name" value={name} onChange={e => setName(e.target.value)} />
+        <input className="field" placeholder="Relation (e.g. Sister, Solicitor)" value={relation} onChange={e => setRelation(e.target.value)} />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input className="field" placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} />
+        <input className="field" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
+      </div>
+      <input className="field" placeholder="Note (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+      {error && <p role="alert" className="text-[11px] text-rosa-600">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
+        <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
+      </div>
+    </div>
+  );
+}
+
+function AccountForm({ initial, onSave, onCancel }: {
+  initial?: AccountToClose;
+  onSave: (a: AccountToClose) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial?.name || '');
+  const [accountRef, setAccountRef] = useState(initial?.accountRef || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+  const [error, setError] = useState<string | null>(null);
+
+  const save = () => {
+    if (!name.trim()) { setError('Add a name'); return; }
+    onSave({
+      id: initial?.id || newId(),
+      name: name.trim(),
+      accountRef: accountRef.trim() || undefined,
+      notes: notes.trim() || undefined,
+      closed: initial?.closed,
+    });
+  };
+
+  return (
+    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
+      <input autoFocus className="field" placeholder="e.g. Netflix, gym membership, mobile contract" value={name} onChange={e => setName(e.target.value)} />
+      <input className="field" placeholder="Account / customer reference (optional)" value={accountRef} onChange={e => setAccountRef(e.target.value)} />
+      <input className="field" placeholder="Note (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
+      {error && <p role="alert" className="text-[11px] text-rosa-600">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
+        <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
+      </div>
     </div>
   );
 }

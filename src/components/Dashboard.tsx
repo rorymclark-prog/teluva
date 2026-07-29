@@ -1773,7 +1773,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         )}
 
         {mainView === 'willsEstate' && (
-          demo ? <DemoUnavailable label="Wills & estate" /> : <WillsEstateView refreshKey={aiDataVersion} members={members} />
+          <WillsEstateView refreshKey={aiDataVersion} members={members} />
         )}
 
         {mainView === 'slips' && (

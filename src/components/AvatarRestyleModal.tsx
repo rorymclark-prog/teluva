@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Sparkles, RefreshCw, Check, Undo2 } from 'lucide-react';
 import type { FamilyMember } from '../types';
 import { auth } from '../lib/firebase';
+import { FUN_PRESETS, startFunPhotoJob, useFunPhotoJob, clearFunPhotoJob } from '../utils/funPhotoLab';
 
 // Keys MUST match AVATAR_STYLES in server.js.
 const STYLES: { key: string; label: string; emoji: string }[] = [
@@ -50,6 +51,10 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
   const [customText, setCustomText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Fun photo lab — background job for THIS member, if any. Lives outside
+  // this component (see funPhotoLab.ts) so it survives the sheet closing.
+  const funJob = useFunPhotoJob(member.id);
+  const [funSaving, setFunSaving] = useState(false);
 
   async function generate(style: string, label: string, customPrompt?: string) {
     const parsed = parseDataUrl(sourceUrl);
@@ -171,6 +176,44 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
             </div>
           ) : (
             <>
+              {funJob?.status === 'done' && funJob.resultDataUrl && (
+                <div className="rounded-2xl border border-clay-300 bg-clay-50 p-3 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <img src={funJob.resultDataUrl} className="w-14 h-14 rounded-full object-cover border border-cream-300 shrink-0" alt={funJob.presetLabel} />
+                    <p className="text-[13px] font-semibold text-ink-800">🎉 {funJob.presetLabel} is ready!</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setFunSaving(true);
+                        try {
+                          await onApply(member.id, funJob.resultDataUrl!, funJob.presetKey);
+                          clearFunPhotoJob(member.id);
+                          onClose();
+                        } catch {
+                          setError('Could not save the new photo.');
+                          setFunSaving(false);
+                        }
+                      }}
+                      disabled={funSaving}
+                      className="btn-primary flex-1 disabled:opacity-50"
+                    >
+                      {funSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      Use it
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => clearFunPhotoJob(member.id)}
+                      disabled={funSaving}
+                      className="btn-quiet flex-1"
+                    >
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center gap-3">
                 <img src={sourceUrl} className="w-14 h-14 rounded-full object-cover border border-cream-300 shrink-0" alt={member.name} />
                 <p className="text-[13px] text-ink-500">
@@ -224,6 +267,50 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
                     <Sparkles className="w-4 h-4" />
                   </button>
                 </div>
+              </div>
+
+              {/* Fun photo lab — ready-made group/scene presets that generate in
+                  the background. Separate from the style grid above: this is
+                  preset-only (no free text ever reaches the AI, see
+                  funPhotoLab.ts) and does not block the sheet while it runs. */}
+              <div className="pt-2 space-y-2.5 border-t border-cream-200">
+                <p className="text-[12px] font-semibold text-ink-500 pt-3">
+                  Fun photo lab <span className="text-ink-400 font-normal">— runs in the background, close whenever</span>
+                </p>
+                {funJob?.status === 'running' ? (
+                  <div className="flex items-center gap-2.5 rounded-2xl border border-clay-200 bg-clay-50 px-3 py-2.5">
+                    <RefreshCw className="w-4 h-4 text-clay-500 animate-spin shrink-0" />
+                    <p className="text-[12px] text-ink-600">
+                      Cooking up <b>{funJob.presetLabel}</b>… you can close this now, we’ll let you know.
+                    </p>
+                  </div>
+                ) : funJob?.status === 'error' ? (
+                  <div className="flex items-center justify-between gap-2.5 rounded-2xl border border-rosa-100 bg-rosa-50 px-3 py-2.5">
+                    <p className="text-[12px] text-rosa-700">{funJob.error || `Couldn’t create ${funJob.presetLabel}.`}</p>
+                    <button
+                      type="button"
+                      onClick={() => clearFunPhotoJob(member.id)}
+                      className="text-[12px] font-semibold text-rosa-700 underline shrink-0 cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {FUN_PRESETS.map((p) => (
+                      <button
+                        key={p.key}
+                        type="button"
+                        onClick={() => startFunPhotoJob(member, sourceUrl, p.key)}
+                        disabled={!parseDataUrl(sourceUrl)}
+                        className="flex flex-col items-center gap-1 p-3 rounded-2xl border border-cream-300 hover:border-clay-400 hover:bg-clay-50 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <span className="text-2xl leading-none">{p.emoji}</span>
+                        <span className="text-[12px] font-semibold text-ink-700">{p.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {isStyled && (

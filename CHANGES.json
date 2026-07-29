@@ -1,17 +1,16 @@
 {
-  "label": "v138",
+  "label": "v149",
   "changes": [
-    "Fixed the big one: on an iPhone you couldn't reach the Apply button to accept the assistant's changes. The panel was sized against Safari's tallest possible screen, so its bottom sat behind the browser bar — nothing you could scroll to, because it was off-screen entirely. Every pop-up in the app had the same flaw and all of them are fixed.",
-    "Nothing was ever lost when that happened: changes are only saved when you tap Apply, and un-applied ones stay in the chat.",
-    "And now they come and find you — a bar on the home screen says how many changes are waiting, and opens them.",
-    "Long lists of changes start collapsed, so the Apply button is always the first thing you can reach rather than the last.",
-    "Android: long-press the app icon for Emergency card and Babysitter mode.",
-    "Star-sign blurbs read like a person now, not a fortune cookie. They were being told to paint the sky and the mood of the hour you were born — that instruction is gone, along with \"cosmic\", \"the universe\", \"energy\", \"destined\" and the rest. They're concrete and observational instead, flaws included, which is what stops them sounding like they'd fit anyone.",
-    "A family status — one line at the top of the home screen for whatever's happening right now. \"Everyone at Oma's until Sunday.\" \"Mia has chickenpox, don't visit.\" It shows who wrote it and when. It replaces rather than piles up, so it stays something you read at a glance instead of another feed to keep up with. Business spaces get it too.",
-    "Fixed: tapping the family photo opened the menu instead of the photo. That was my mistake when the header was rebuilt. It opens the photo again.",
-    "The family photo in the header is bigger.",
-    "The sections menu is grouped now — Everyday, Documents & IDs, Money & cover, Home & things, Memories — with Family and Emergency pinned at the top. Twenty-one sections in one flat list meant you had to already know the app to find anything.",
-    "On a phone it opens as a full sheet instead of a small panel with a hidden cap, so you can see there's more below rather than having to guess.",
-    "And there's a search box at the top of it: type three letters instead of reading the whole list."
+    "The update notice was showing you v138's notes on every release since — the changelog file was hand-written and hadn't been updated in ten deploys. The build now refuses to start if it goes stale again.",
+    "Scanned referrals, lab results, X-ray requests and sick notes now file into Referrals & Results on the person's Medical tab — not just into Documents. Repeat results of the same test group together as a history you can open by date.",
+    "Vaccination cards and visas/residence permits can now be filed from a photo too. All three were invisible to the assistant before, which is why scans kept landing in the wrong place.",
+    "You can delete or amend any of those by voice now — including marking a referral as booked or done.",
+    "Reminders now cover passports, residence permits and check-ups, and tomorrow's diary the night before. They arrive at 90, 30, 7 and 0 days — never daily — and as one message, not one per item.",
+    "New Emergency readiness card: it works out what's missing from what you've already saved, rather than asking you to fill in a survey. Every gap taps through to the screen that fixes it.",
+    "There's finally a field to type an emergency contact — until now only the assistant could set one.",
+    "Fun photo lab: pick a ready-made style and it generates in the background, so you can close it and carry on. It tells you when it's ready.",
+    "Scrolling on the dimmed area behind a pop-up no longer drags the page underneath.",
+    "A new Security tab (next to Privacy and Terms) says plainly what Teluva can and cannot see. Worth a read.",
+    "Connecting Google Drive no longer asks permission to delete your files, and Calendar no longer asks to manage all your calendars."
   ]
 }

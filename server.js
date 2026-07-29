@@ -572,7 +572,45 @@ app.post('/api/chat', async (req, res) => {
 
     const LANG_NAMES = { en:'English',de:'German',es:'Spanish',fr:'French',pt:'Portuguese',it:'Italian',nl:'Dutch',pl:'Polish',af:'Afrikaans' };
     const langName = LANG_NAMES[lang] || 'English';
-    const ctxJson = JSON.stringify(context ?? {}).slice(0, 120000);
+    /* Trim by DROPPING WHOLE SECTIONS, never by cutting the string.
+     *
+     * This was `JSON.stringify(context).slice(0, 120000)` — a blind character
+     * cut. It was already firing on a real family: ~156k characters in, ~36k
+     * silently gone. Two things wrong with that. The model received JSON that
+     * simply stopped mid-structure, and what fell off the end was whatever
+     * happened to serialise last — which included `expiries` and `gaps`, the
+     * blocks this file's own comments call the AUTHORITATIVE answer for "when
+     * does X expire?". The assistant was being starved of exactly the data it
+     * needed, invisibly, and only for the families with the most in their vault.
+     *
+     * Now: keep the whole thing when it fits, and when it doesn't, drop entire
+     * low-value keys in a deliberate order until it does — so the payload is
+     * always valid JSON, and what survives is chosen rather than accidental.
+     * The model is told what was dropped, so it can say "I can't see that here"
+     * instead of confidently answering from a hole. */
+    const CTX_LIMIT = 120000;
+    // Least useful to the assistant first. `expiries`, `gaps` and `members` are
+    // never dropped — losing them is the bug this replaced.
+    const CTX_DROP_ORDER = ['timeline', 'calendar', 'finances', 'slips', 'documents', 'household'];
+    let ctxObj = { ...(context ?? {}) };
+    const dropped = [];
+    let ctxJson = JSON.stringify(ctxObj);
+    for (const key of CTX_DROP_ORDER) {
+      if (ctxJson.length <= CTX_LIMIT) break;
+      if (!(key in ctxObj)) continue;
+      delete ctxObj[key];
+      dropped.push(key);
+      ctxJson = JSON.stringify(ctxObj);
+    }
+    if (dropped.length) {
+      console.warn(`[chat] context ${JSON.stringify(context ?? {}).length} chars — dropped: ${dropped.join(', ')}`);
+      ctxObj._omitted = dropped;
+      ctxJson = JSON.stringify(ctxObj);
+    }
+    // Last resort: a single section is somehow still over the limit on its own.
+    // Cutting here is still wrong, but an oversized valid-ish payload beats
+    // failing the request outright, and the log above says it happened.
+    if (ctxJson.length > CTX_LIMIT) ctxJson = ctxJson.slice(0, CTX_LIMIT);
     const today = new Date().toISOString().slice(0, 10);
     const userText = (message && typeof message === 'string') ? message
       : 'Please read the attached document(s) and extract any useful family info.';
@@ -1057,6 +1095,90 @@ app.post('/api/restyle-avatar', async (req, res) => {
   } catch (e) {
     console.error('[restyle-avatar] error', e);
     res.status(502).json({ error: 'Something went wrong creating the avatar — please try again.' });
+  }
+});
+
+// Fun AI photo remix — ready-made, GROUP-oriented presets ("everyone pulling
+// faces", "gangster crew"), as distinct from AVATAR_STYLES above which are
+// single-subject art-style filters. Runs in the background from the client
+// (src/utils/funPhotoLab.ts) so the request outlives the sheet that started
+// it — this endpoint itself is a normal synchronous call; the "background"
+// part is entirely a client-side concern.
+//
+// SAFETY: this endpoint takes NO free-text prompt field at all, unlike
+// /api/restyle-avatar's optional customPrompt. `preset` must be one of the
+// fixed keys below or the request is rejected — nothing a user types can
+// ever reach the image model here, which matters because these are real
+// people, often children, in a family app. Keys MUST match FUN_PRESETS in
+// src/utils/funPhotoLab.ts.
+const FUN_PHOTO_STYLES = {
+  'silly-faces': 'Everyone in this photo is pulling the silliest, funniest face they can manage — crossed eyes, tongues out, scrunched-up noses, big goofy grins. Keep it playful and lighthearted, like a fun family snapshot, never mean or unflattering.',
+  'gangster': 'Reimagine everyone in this photo as characters from a fun, cartoonish 1920s gangster-movie poster — pinstripe suits, fedora hats, confident poses, sepia-tinted film-poster lighting. Playful and cheeky, like a costume party. This must NOT look realistic or threatening: absolutely no weapons, no violence, nothing scary.',
+  'superhero-squad': 'Reimagine everyone in this photo as a team of comic-book superheroes on a dynamic action poster — bold cel-shaded comic art, capes, confident heroic poses, dramatic lighting. Keep it family-friendly and fun: no weapons, no violence.',
+  'red-carpet': 'Reimagine everyone in this photo as glamorous movie stars arriving at a red-carpet premiere — elegant outfits, camera-flash lighting, big smiles, a "Hollywood" backdrop. Fun and flattering, family-friendly.',
+  'secret-agents': 'Reimagine everyone in this photo as cool secret agents from a fun spy movie — sharp suits or sunglasses, confident poses, a stylish city backdrop at night. Playful and family-friendly. This must NOT look realistic or threatening: no weapons.',
+};
+
+app.post('/api/fun-photo', async (req, res) => {
+  try {
+    if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
+    const usageBlock = await checkAiUsage(caller.familyId);
+    if (usageBlock) return res.status(usageBlock.status).json(usageBlock.body);
+
+    const { image, preset } = req.body || {};
+    if (!image || !image.data || !image.mimeType) {
+      return res.status(400).json({ error: 'No photo provided.' });
+    }
+    // Preset key ONLY — see the file comment above. There is deliberately no
+    // customPrompt field read anywhere in this handler.
+    const stylePrompt = typeof preset === 'string' ? FUN_PHOTO_STYLES[preset] : undefined;
+    if (!stylePrompt) return res.status(400).json({ error: 'Unknown fun-photo preset.' });
+
+    console.log('[fun-photo]', preset, 'from', caller.email);
+
+    const prompt = `${stylePrompt}\n\nProduce ONE square portrait-style image suitable for a profile picture. Keep everyone in it clearly recognisable as themselves. This is a real family photo that may include children — no matter what the scene above calls for, keep the result wholesome, tasteful and PG at all times.`;
+
+    const gRes = await generateContent(MODEL_IMAGE, {
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: image.mimeType, data: image.data } },
+        ],
+      }],
+      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+    });
+
+    if (!gRes.ok) {
+      const detail = await gRes.text().catch(() => '');
+      console.error('[fun-photo] gemini error', gRes.status, detail.slice(0, 300));
+      return res.status(502).json({ error: `Could not generate the photo (AI error ${gRes.status}) — please try again.` });
+    }
+
+    const gData = await gRes.json();
+    let outData = null;
+    for (const c of gData?.candidates || []) {
+      for (const p of c?.content?.parts || []) {
+        const inl = p.inlineData || p.inline_data;
+        if (inl?.data) outData = inl.data;
+      }
+    }
+    if (!outData) {
+      console.error('[fun-photo] no image:', JSON.stringify(gData).slice(0, 300));
+      return res.status(502).json({ error: 'The AI didn\'t return an image — please try again or pick another one.' });
+    }
+
+    await recordAiUsage(caller.familyId);
+    res.json({ image: `data:image/png;base64,${outData}` });
+  } catch (e) {
+    console.error('[fun-photo] error', e);
+    res.status(502).json({ error: 'Something went wrong creating the photo — please try again.' });
   }
 });
 
