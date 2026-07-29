@@ -1,9 +1,8 @@
 {
-  "label": "v158",
+  "label": "v159",
   "changes": [
-    "Ask the assistant for a folder and it gathers one. \"Prepare a folder with all Sophie's medical reports and results\" pulls her medical record, vaccinations, every referral and result, appointments, check-ups, growth and her doctors into one place — with the actual files, not just a list of them.",
-    "It isn't only medical. Ask for a school folder, her passport and visas for a visa appointment, or everything about someone so you can hand it to another AI — you name what it's for and it collects what fits.",
-    "You see exactly what's in it before anything leaves your phone: every topic listed with a real count, so \"nothing on file\" never hides behind a missing section. Tick things off or add them.",
-    "Then Share it straight into Mail, WhatsApp or another app, or download it as one zip. A written summary travels with the files so whoever opens it can read what they're looking at. If it's too big to email, it says so rather than letting you find out from a bounce."
+    "Every folder you export now carries a proper PDF summary, not just a text file. A clinic, a school or an insurer opens it and sees a laid-out document — headings, tables, page numbers — instead of a screenful of asterisks and pipe characters.",
+    "The plain-text version still goes in too. That's the one another AI, a spreadsheet or a script reads cleanly, so you don't have to choose which end you're sending it to.",
+    "Both are written from the same records, so they can never disagree with each other."
   ]
 }

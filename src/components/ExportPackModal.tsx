@@ -8,6 +8,7 @@ import {
   ALL_TOPICS, EMAIL_ATTACHMENT_LIMIT_BYTES, PackRequest, PackTopic, TOPIC_LABELS,
   buildPack, formatBytes,
 } from '../utils/exportPack';
+import { renderSummaryPdf } from '../utils/summaryPdf';
 import { canShare, downloadZip, shareMultiple } from '../utils/share';
 import SheetGrabber from './SheetGrabber';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
@@ -86,15 +87,35 @@ export default function ExportPackModal({
   const toggle = (t: PackTopic) =>
     setTopics((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
 
-  const summaryFile = pack
-    ? { name: 'Summary.md', content: pack.summaryMarkdown }
-    : { name: 'Summary.md', content: '' };
+  // Both, deliberately. The PDF is for the person who opens the folder — a
+  // clinic, a school, an insurer — and the Markdown is for the machine end of
+  // the same ask: another AI, a text editor, a script. Rendered from one
+  // structure (pack.summary), never one from the other.
+  const summarySources = () => {
+    if (!pack) return { pdf: null as Blob | null, md: '' };
+    let pdf: Blob | null = null;
+    try {
+      pdf = renderSummaryPdf(pack.summary).blob;
+    } catch (e) {
+      // A PDF that fails to lay out must not take the whole export with it —
+      // the files and the Markdown are the part that cannot be regenerated
+      // from somewhere else.
+      console.error('summary PDF failed to render; sending the Markdown only', e);
+    }
+    return { pdf, md: pack.summaryMarkdown };
+  };
 
   async function handleZip() {
     if (!pack || busy) return;
     setBusy('zip'); setError(null);
     try {
-      await downloadZip(pack.files, `${pack.folderName}.zip`, [summaryFile]);
+      const { pdf, md } = summarySources();
+      const extras = [{ name: 'Summary.md', content: md }];
+      await downloadZip(
+        pdf ? [{ src: URL.createObjectURL(pdf), name: 'Summary.pdf' }, ...pack.files] : pack.files,
+        `${pack.folderName}.zip`,
+        extras,
+      );
       onClose();
     } catch {
       setError('Could not build the folder. Try again, or use Download instead of Share.');
@@ -114,16 +135,19 @@ export default function ExportPackModal({
       // hold any name in the vault, and btoa() throws on the first character
       // above U+00FF. shareMultiple fetches whatever src it is given, so a blob
       // URL works identically and cannot mangle the text.
-      const summarySrc = URL.createObjectURL(
-        new Blob([pack.summaryMarkdown], { type: 'text/markdown' }),
-      );
+      const { pdf, md } = summarySources();
+      const urls = [
+        ...(pdf ? [{ src: URL.createObjectURL(pdf), name: `${pack.folderName} — summary` }] : []),
+        { src: URL.createObjectURL(new Blob([md], { type: 'text/markdown' })),
+          name: `${pack.folderName} — summary (data)` },
+      ];
       try {
         await shareMultiple([
-          { src: summarySrc, name: `${pack.folderName} — summary` },
+          ...urls,
           ...pack.files.map((f) => ({ src: f.src, name: f.name.split('/').pop() || 'file' })),
         ]);
       } finally {
-        URL.revokeObjectURL(summarySrc);
+        urls.forEach((u) => URL.revokeObjectURL(u.src));
       }
       onClose();
     } catch {
@@ -225,7 +249,7 @@ export default function ExportPackModal({
                   <FileText className="w-4 h-4 text-ink-500 shrink-0" />
                   <span>
                     <strong>{pack?.files.length ?? 0}</strong> file{pack?.files.length === 1 ? '' : 's'}
-                    {' '}plus a written summary
+                    {' '}plus a written summary as a PDF and as text
                     {pack && pack.approxBytes > 0 && <> — about <strong>{formatBytes(pack.approxBytes)}</strong></>}
                   </span>
                 </p>

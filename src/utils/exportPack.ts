@@ -131,7 +131,9 @@ export interface PackSection {
 export interface Pack {
   folderName: string;
   files: PackFile[];
-  /** Human- and machine-readable. Markdown, so an AI app can read it as-is. */
+  /** The written summary as structure — rendered to Markdown and to PDF. */
+  summary: SummaryDoc;
+  /** The same summary as Markdown, for an AI app, a text editor or a script. */
   summaryMarkdown: string;
   sections: PackSection[];
   /** Rough total of the file sizes we know. Records with no size are excluded. */
@@ -151,23 +153,74 @@ function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** A markdown table, or a plain note when there is nothing to put in one. */
-function table(headers: string[], rows: string[][]): string {
-  if (rows.length === 0) return '_Nothing recorded._\n';
-  const esc = (c: string) => (c || '').replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim() || '—';
-  return [
-    `| ${headers.join(' | ')} |`,
-    `| ${headers.map(() => '---').join(' | ')} |`,
-    ...rows.map((r) => `| ${r.map(esc).join(' | ')} |`),
-  ].join('\n') + '\n';
+// --- the summary, as a document rather than as a string --------------------
+//
+// Rory asked whether the written summary should be Markdown or a formatted
+// PDF. It has to be both: Markdown is what an AI app, a text editor or a
+// script reads perfectly, and it is what a paediatrician's receptionist opens
+// to a screenful of asterisks and pipe characters. A PDF is the opposite.
+//
+// So the summary is built once, as structure, and rendered twice. The
+// alternative — generating the PDF by parsing our own Markdown — makes one
+// renderer's output the other's input, and every escaping quirk becomes a
+// layout bug. See utils/summaryPdf.ts for the PDF side.
+
+export type SummaryBlock =
+  | { type: 'facts'; rows: [string, string][] }
+  | { type: 'table'; headers: string[]; rows: string[][] }
+  | { type: 'note'; text: string };
+
+export interface SummarySection {
+  heading: string;
+  /** 2 for a person's name (only when several share one folder), 3 for a topic. */
+  level: 2 | 3;
+  blocks: SummaryBlock[];
 }
 
-/** `- **Label:** value` lines for whatever is actually filled in. */
-function facts(pairs: [string, string | undefined | boolean][]): string {
-  const lines = pairs
+export interface SummaryDoc {
+  title: string;
+  /** The lines under the title: when it was prepared, who it covers, what is in it. */
+  intro: string[];
+  disclaimer: string;
+  sections: SummarySection[];
+  /** Shown at the end — currently the count of records with no scan attached. */
+  footnote?: string;
+}
+
+const NOTHING = 'Nothing recorded.';
+
+/** A table block, or the "nothing recorded" note when there are no rows. */
+function tableBlock(headers: string[], rows: string[][]): SummaryBlock {
+  const clean = rows.map((r) => r.map((c) => (c || '').replace(/\s*\n+\s*/g, ' ').trim()));
+  return clean.length ? { type: 'table', headers, rows: clean } : { type: 'note', text: NOTHING };
+}
+
+/** A facts block from whatever is actually filled in, or the "nothing recorded" note. */
+function factsBlock(pairs: [string, string | undefined | boolean][]): SummaryBlock {
+  const rows = pairs
     .filter(([, v]) => v !== undefined && v !== '' && v !== false)
-    .map(([k, v]) => `- **${k}:** ${typeof v === 'boolean' ? 'Yes' : v}`);
-  return lines.length ? lines.join('\n') + '\n' : '_Nothing recorded._\n';
+    .map(([k, v]) => [k, typeof v === 'boolean' ? 'Yes' : String(v)] as [string, string]);
+  return rows.length ? { type: 'facts', rows } : { type: 'note', text: NOTHING };
+}
+
+/** Markdown. Pipes are escaped so a value containing one cannot break a table. */
+export function renderSummaryMarkdown(doc: SummaryDoc): string {
+  const cell = (c: string) => (c || '').replace(/\|/g, '\\|').trim() || '—';
+  const block = (b: SummaryBlock): string => {
+    if (b.type === 'note') return `_${b.text}_\n`;
+    if (b.type === 'facts') return b.rows.map(([k, v]) => `- **${k}:** ${v}`).join('\n') + '\n';
+    return [
+      `| ${b.headers.join(' | ')} |`,
+      `| ${b.headers.map(() => '---').join(' | ')} |`,
+      ...b.rows.map((r) => `| ${r.map(cell).join(' | ')} |`),
+    ].join('\n') + '\n';
+  };
+  const body = doc.sections
+    .map((sec) => `${'#'.repeat(sec.level)} ${sec.heading}\n\n${sec.blocks.map(block).join('\n')}`)
+    .join('\n');
+  return `# ${doc.title}\n\n${doc.intro.join('\n')}\n\n> ${doc.disclaimer}\n\n${body}${
+    doc.footnote ? `\n---\n\n${doc.footnote}\n` : ''
+  }`;
 }
 
 const fileExt = (fileName?: string) =>
@@ -249,18 +302,19 @@ export function buildPack(request: PackRequest, data: PackData): Pack {
   };
 
   const has = (t: PackTopic) => topics.includes(t);
-  const parts: string[] = [];
+  const sections: SummarySection[] = [];
 
   for (const member of targets) {
     const med = member.medical || {};
     const idr = member.identity || {};
-    const first = member.name.split(' ')[0];
     // One person's folder is flat; several people each get their own.
     const dir = multi ? `${safeLeaf(member.name, 'member')}/` : '';
-    const body: string[] = [];
+    const body: SummarySection[] = [];
+    const section = (heading: string, ...blocks: SummaryBlock[]) =>
+      body.push({ heading, level: 3, blocks });
 
     if (has('contact')) {
-      body.push(`### Contact and emergency details\n\n${facts([
+      section('Contact and emergency details', factsBlock([
         ['Name', member.name],
         ['Date of birth', member.birthdate],
         ['Gender', member.gender],
@@ -271,14 +325,14 @@ export function buildPack(request: PackRequest, data: PackData): Pack {
         ['Emergency contact', member.emergencyContactName
           ? `${member.emergencyContactName}${member.emergencyContactPhone ? ` — ${member.emergencyContactPhone}` : ''}`
           : undefined],
-      ])}`);
+      ]));
       bump('contact', 1);
     }
 
     if (has('medical')) {
       const anyCore = !!(med.bloodGroup || med.allergies || med.medications || med.conditions
         || med.surgeries || med.emergencyMedication || med.familyHistory || med.notes);
-      body.push(`### Medical record\n\n${facts([
+      section('Medical record', factsBlock([
         ['Blood group', med.bloodGroup],
         ['Allergies', med.allergies],
         ['Current medication', med.medications],
@@ -289,23 +343,22 @@ export function buildPack(request: PackRequest, data: PackData): Pack {
         ['Organ donor', med.organDonor],
         ['Preferred pharmacy', med.preferredPharmacy],
         ['Notes', med.notes],
-      ])}
-${facts([
+      ]), factsBlock([
         // Health-system identifiers live under `identity`, not `medical` — an
         // e-card number is an identity document that happens to be the thing a
         // clinic asks for first, so it belongs in a medical handover.
         ['e-card number', idr.eCardNumber],
         ['Social insurance (SV) number', idr.svNumber],
-      ])}`);
+      ]));
       bump('medical', anyCore ? 1 : 0);
     }
 
     if (has('vaccinations')) {
       const vs = med.vaccinations || [];
-      body.push(`### Vaccinations\n\n${table(
+      section('Vaccinations', tableBlock(
         ['Vaccination', 'Date', 'Notes'],
         vs.map((v) => [v.name, v.date || '', v.notes || '']),
-      )}`);
+      ));
       bump('vaccinations', vs.length);
     }
 
@@ -329,15 +382,19 @@ ${facts([
           recordsWithoutFiles++;
         }
       });
-      body.push(`### Referrals, imaging and results\n\n${
-        rs.length ? 'The file for each row is in the "Referrals and results" folder.\n\n' : ''
-      }${table(
-        ['Date', 'Kind', 'Reason', 'Doctor / practice', 'Status', 'Notes'],
-        rs.map((r) => [
-          r.date || '', String(r.kind || ''), r.reason || '',
-          r.providerName || '', r.status || 'open', r.notes || '',
-        ]),
-      )}`);
+      section(
+        'Referrals, imaging and results',
+        ...(rs.length
+          ? [{ type: 'note', text: 'The file for each row is in the "Referrals and results" folder.' } as SummaryBlock]
+          : []),
+        tableBlock(
+          ['Date', 'Kind', 'Reason', 'Doctor / practice', 'Status', 'Notes'],
+          rs.map((r) => [
+            r.date || '', String(r.kind || ''), r.reason || '',
+            r.providerName || '', r.status || 'open', r.notes || '',
+          ]),
+        ),
+      );
       bump('referrals', rs.length);
     }
 
@@ -345,32 +402,37 @@ ${facts([
       // Both directions: what is booked, and what already happened. A new
       // doctor asking "when was the last one?" is answered by the past list.
       const { upcoming, past } = memberAppointments(events, member.id, today, members);
-      body.push(`### Appointments\n\n**Booked**\n\n${
-        table(['Date', 'Time', 'What'], upcoming.map((e) => [e.date, e.time || '', e.title]))
-      }\n**Already happened**\n\n${
-        table(['Date', 'Time', 'What'], past.slice(0, 50).map((e) => [e.date, e.time || '', e.title]))
-      }${past.length > 50 ? `\n_The 50 most recent of ${past.length} are listed._\n` : ''}`);
+      section(
+        'Appointments',
+        { type: 'note', text: 'Booked' },
+        tableBlock(['Date', 'Time', 'What'], upcoming.map((e) => [e.date, e.time || '', e.title])),
+        { type: 'note', text: 'Already happened' },
+        tableBlock(['Date', 'Time', 'What'], past.slice(0, 50).map((e) => [e.date, e.time || '', e.title])),
+        ...(past.length > 50
+          ? [{ type: 'note', text: `The 50 most recent of ${past.length} are listed.` } as SummaryBlock]
+          : []),
+      );
       bump('appointments', upcoming.length + past.length);
     }
 
     if (has('checkups')) {
       const care = member.careSchedule || [];
-      body.push(`### Recurring check-ups\n\n${table(
+      section('Recurring check-ups', tableBlock(
         ['Check-up', 'Provider', 'Every', 'Last visit', 'Next due'],
         care.map((c) => [
           String(c.kind || ''), c.provider || '',
           c.intervalMonths ? `${c.intervalMonths} months` : '', c.lastVisit || '', c.nextDue || '',
         ]),
-      )}`);
+      ));
       bump('checkups', care.length);
     }
 
     if (has('growth')) {
       const g = [...(member.growthHistory || [])].sort((a, b) => b.date.localeCompare(a.date));
-      body.push(`### Height and weight\n\n${table(
+      section('Height and weight', tableBlock(
         ['Date', 'Height (cm)', 'Weight (kg)', 'Notes'],
         g.map((r) => [r.date, String(r.heightCm ?? ''), String(r.weightKg ?? ''), r.notes || '']),
-      )}`);
+      ));
       bump('growth', g.length);
     }
 
@@ -380,66 +442,71 @@ ${facts([
       const theirs = providers.filter(
         (p) => !p.forMember || p.forMember.trim().toLowerCase() === member.name.trim().toLowerCase(),
       );
-      body.push(`### Doctors and specialists\n\n${table(
+      section('Doctors and specialists', tableBlock(
         ['Name', 'Type', 'Specialty', 'Practice', 'Phone', 'Address'],
         theirs.map((p) => [
           p.name, String(p.type || ''), p.specialty || '',
           p.practiceName || '', p.phone || '', p.address || '',
         ]),
-      )}`);
+      ));
       bump('providers', theirs.length);
     }
 
     if (has('identity')) {
       const passports = member.passports || [];
       const visas = member.travel?.visas || [];
-      body.push(`### Passports, visas and ID numbers\n\n${table(
-        ['Country', 'Number', 'Issued', 'Expires'],
-        passports.map((p) => [p.country, p.number, p.issueDate || '', p.expiryDate || '']),
-      )}\n${table(
-        ['Valid in', 'Type', 'Number', 'Expires', 'Status'],
-        visas.map((v) => [v.country, v.permitType || '', v.number || '', v.expiryDate || '', v.status || '']),
-      )}\n${facts([
-        ['e-card number', idr.eCardNumber],
-        ['Social insurance (SV) number', idr.svNumber],
-        ['Tax number', idr.taxNumber || member.taxNumber],
-      ])}`);
+      section(
+        'Passports, visas and ID numbers',
+        tableBlock(
+          ['Country', 'Number', 'Issued', 'Expires'],
+          passports.map((p) => [p.country, p.number, p.issueDate || '', p.expiryDate || '']),
+        ),
+        tableBlock(
+          ['Valid in', 'Type', 'Number', 'Expires', 'Status'],
+          visas.map((v) => [v.country, v.permitType || '', v.number || '', v.expiryDate || '', v.status || '']),
+        ),
+        factsBlock([
+          ['e-card number', idr.eCardNumber],
+          ['Social insurance (SV) number', idr.svNumber],
+          ['Tax number', idr.taxNumber || member.taxNumber],
+        ]),
+      );
       bump('identity', passports.length + visas.length);
     }
 
     if (has('education')) {
       const ed = member.education;
-      body.push(`### Education\n\n${facts([
+      section('Education', factsBlock([
         ['School', ed?.schoolName],
         ['Year / grade', ed?.grade],
         ['Class teacher', ed?.teacherName],
         ['Teacher contact', ed?.teacherContact],
         ['Room', ed?.roomNumber],
         ['Schedule notes', ed?.scheduleNotes],
-      ])}`);
+      ]));
       bump('education', ed?.schoolName ? 1 : 0);
     }
 
     if (has('travel')) {
       const passes = member.travel?.transitPasses || [];
-      body.push(`### Travel and transit passes\n\n${facts([
+      section('Travel and transit passes', factsBlock([
         ['Frequent flyer', member.travel?.frequentFlyer],
         ['Travel insurance number', member.travel?.travelInsuranceNumber],
         ['ESTA / ETIAS status', member.travel?.etiasStatus],
         ['Emergency contact while travelling', member.travel?.emergencyTravelContact],
-      ])}\n${table(
+      ]), tableBlock(
         ['Pass', 'Operator', 'Number', 'Valid from', 'Valid until'],
         passes.map((p) => [p.name, p.operator || '', p.cardNumber || '', p.validFrom || '', p.validUntil || '']),
-      )}`);
+      ));
       bump('travel', passes.length);
     }
 
     if (has('financial')) {
       const accts = member.financialAccounts || [];
-      body.push(`### Financial accounts\n\n${table(
+      section('Financial accounts', tableBlock(
         ['Bank', 'Type', 'Account number', 'Notes'],
         accts.map((a) => [a.bankName, a.accountType, a.accountNumber, a.notes || '']),
-      )}`);
+      ));
       bump('financial', accts.length);
     }
 
@@ -479,17 +546,20 @@ ${facts([
     });
 
     if (personalDocs.length + theirVaultDocs.length > 0 || has('documents')) {
-      body.push(`### Filed documents and scans\n\n${table(
+      section('Filed documents and scans', tableBlock(
         ['Document', 'Category', 'Filed'],
         [
           ...personalDocs.map((d) => [d.name || d.fileName, d.category, d.uploadedAt || '']),
           ...theirVaultDocs.map((d) => [d.name || d.fileName, d.category, d.uploadedAt || '']),
         ],
-      )}`);
+      ));
     }
     bump('documents', personalDocs.length + theirVaultDocs.length);
 
-    parts.push(multi ? `## ${member.name}\n\n${body.join('\n')}` : body.join('\n'));
+    // One person's sections stand alone; several people each get their name as
+    // a heading above their own.
+    if (multi) sections.push({ heading: member.name, level: 2, blocks: [] });
+    sections.push(...body);
   }
 
   const who = targets.length === 0
@@ -499,34 +569,34 @@ ${facts([
       : `${targets.length} people`;
   const title = (request.title || '').trim() || `${who} — records`;
 
-  const summaryMarkdown = `# ${title}
+  const summary: SummaryDoc = {
+    title,
+    intro: [
+      `Prepared ${today}${spaceName ? ` from ${spaceName}` : ''} using Teluva.`,
+      `Covering ${targets.map((m) => m.name).join(', ') || 'nobody — no matching people were found'}.`,
+      `Includes: ${topics.map((t) => TOPIC_LABELS[t]).join(', ') || 'nothing'}.`,
+      `${files.length} file${files.length === 1 ? '' : 's'} ${files.length === 1 ? 'is' : 'are'} attached alongside this summary.`,
+    ],
+    disclaimer:
+      'This is a copy of records as they were entered. It is not a medical, legal or '
+      + 'financial opinion, and nothing in it has been checked or interpreted by Teluva.',
+    sections,
+    footnote: recordsWithoutFiles > 0
+      ? `${recordsWithoutFiles} record${recordsWithoutFiles === 1 ? ' is' : 's are'} listed above with no file attached — `
+        + 'the details were entered by hand, or the original was never scanned in.'
+      : undefined,
+  };
 
-Prepared ${today}${spaceName ? ` from ${spaceName}` : ''} using Teluva.
-
-Covering ${targets.map((m) => m.name).join(', ') || 'nobody — no matching people were found'}.
-Includes: ${topics.map((t) => TOPIC_LABELS[t]).join(', ') || 'nothing'}.
-${files.length} file${files.length === 1 ? '' : 's'} ${files.length === 1 ? 'is' : 'are'} attached alongside this summary.
-
-> This is a copy of records as they were entered. It is not a medical, legal or
-> financial opinion, and nothing in it has been checked or interpreted by Teluva.
-
-${parts.join('\n\n')}${recordsWithoutFiles > 0 ? `
-
----
-
-**${recordsWithoutFiles} record${recordsWithoutFiles === 1 ? ' is' : 's are'} listed above with no file attached** — the details
-were entered by hand, or the original was never scanned in.
-` : ''}`;
-
-  const sections: PackSection[] = topics.map((t) => ({
+  const packSections: PackSection[] = topics.map((t) => ({
     topic: t, label: TOPIC_LABELS[t], count: counts.get(t) || 0,
   }));
 
   return {
     folderName: `${safeLeaf(title, 'export')} (${today})`,
     files,
-    summaryMarkdown,
-    sections,
+    summary,
+    summaryMarkdown: renderSummaryMarkdown(summary),
+    sections: packSections,
     approxBytes: files.reduce((n, f) => n + (f.size || 0), 0),
     recordsWithoutFiles,
   };
