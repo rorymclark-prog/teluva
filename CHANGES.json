@@ -1,6 +1,7 @@
 {
-  "label": "v132",
+  "label": "v133",
   "changes": [
+    "Fixed: sizes you typed were thrown away if you switched tab before pressing Save — and nothing told you Save was the only way to keep them. They now save as you leave each field. Tabbing through without changing anything no longer marks old sizes as freshly measured.",
     "Fixed: opening the app cold showed \"Add your first family member\" to families that already had eight. It was drawing the empty state before it had finished loading. Your family now appears instantly from the last known copy.",
     "Fixed: ten forms threw away everything you'd typed if one key field was blank — silently, with no message. They now stay open and tell you which field they need.",
     "Fixed: the sections menu hung 49px off the right edge of a phone screen.",
@@ -11,7 +12,6 @@
     "Better contrast on primary buttons and on the focus outline, which was previously almost invisible.",
     "Fixed: the app said it works offline. It doesn't — that claim is gone. Its assets are now genuinely cached for a year, so it loads faster after the first visit.",
     "Fixed: the Flashback card showed the same memory forever, and printed raw dates like \"since 2025-07-28\" mid-sentence.",
-    "The app now tells your screen reader which language it's in, so German and Spanish are read in the right voice.",
-    "Last traces of the old \"Family Vault\" name are gone, including what the assistant called itself."
+    "The app now tells your screen reader which language it's in, so German and Spanish are read in the right voice."
   ]
 }

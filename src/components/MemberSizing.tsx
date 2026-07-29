@@ -131,9 +131,23 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
   const suggestions = getSizeSuggestions(ageMonths, member.role);
   const staleness = sizeStaleness(member.clothingSizes, member.birthdate, todayLocal());
 
+  /* Typed-but-unsaved values used to vanish on tab-switch: the only way to
+     persist was the "Save essentials" button, and nothing said so. `dirty`
+     gates the blur-commit so that merely TABBING THROUGH an untouched form
+     can't restamp lastUpdated — that would silently mark stale sizes fresh and
+     clear the "sizes may be out of date" nudge without anyone measuring
+     anything. */
+  const dirty = useRef(false);
+
   const handleFieldChange = (field: keyof ClothingSizes, value: string) => {
     setSizes((prev) => ({ ...prev, [field]: value }));
+    dirty.current = true;
     setSaved(false);
+  };
+
+  const commitIfDirty = () => {
+    if (!dirty.current) return;
+    handleSave();
   };
 
   const handleSave = () => {
@@ -145,6 +159,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
       weightKg: weightCanonical != null ? String(weightCanonical) : '',
       lastUpdated: todayLocal(), // Bug fix #3: date-only string
     });
+    dirty.current = false;
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -308,7 +323,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
             className="btn-primary text-sm px-4 py-1.5"
           >
             {saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
-            <span>{saved ? 'Saved!' : 'Save essentials'}</span>
+            <span>{saved ? 'Saved!' : 'Save'}</span>
           </button>
         </div>
         <input
@@ -462,6 +477,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
               placeholder={heightUnit === 'in' ? 'e.g. 45.9' : 'e.g. 116'}
               value={sizes.heightCm}
               onChange={(e) => handleFieldChange('heightCm', e.target.value)}
+              onBlur={commitIfDirty}
               className="field"
             />
           </div>
@@ -472,6 +488,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
               placeholder={weightUnit === 'lb' ? 'e.g. 46.3' : 'e.g. 21'}
               value={sizes.weightKg}
               onChange={(e) => handleFieldChange('weightKg', e.target.value)}
+              onBlur={commitIfDirty}
               className="field"
             />
           </div>
@@ -486,6 +503,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
               placeholder="e.g. EU 140, EU 38 (M), Medium"
               value={sizes.tops}
               onChange={(e) => handleFieldChange('tops', e.target.value)}
+              onBlur={commitIfDirty}
               className="field"
             />
           </div>
@@ -496,6 +514,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
               placeholder="e.g. EU 140, EU 38 / 30W"
               value={sizes.bottoms}
               onChange={(e) => handleFieldChange('bottoms', e.target.value)}
+              onBlur={commitIfDirty}
               className="field"
             />
           </div>
@@ -506,6 +525,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
               placeholder="e.g. EU 35, UK 2, US 3"
               value={sizes.shoes}
               onChange={(e) => handleFieldChange('shoes', e.target.value)}
+              onBlur={commitIfDirty}
               className="field"
             />
           </div>
@@ -519,6 +539,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
               placeholder="e.g. EU 140, EU 40 (M)"
               value={sizes.outerwear}
               onChange={(e) => handleFieldChange('outerwear', e.target.value)}
+              onBlur={commitIfDirty}
               className="field"
             />
           </div>
@@ -529,6 +550,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
               placeholder="e.g. EU 140, M"
               value={sizes.underwear}
               onChange={(e) => handleFieldChange('underwear', e.target.value)}
+              onBlur={commitIfDirty}
               className="field"
             />
           </div>
@@ -539,6 +561,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
               placeholder="e.g. 54 cm, 58 cm"
               value={sizes.hatValue}
               onChange={(e) => handleFieldChange('hatValue', e.target.value)}
+              onBlur={commitIfDirty}
               className="field"
             />
           </div>
@@ -552,6 +575,7 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
             placeholder="e.g. Prefers tagless designs, prefers organic cotton. Target brand runs small, size up."
             value={sizes.notes}
             onChange={(e) => handleFieldChange('notes', e.target.value)}
+              onBlur={commitIfDirty}
             className="field font-sans"
           />
         </div>
