@@ -38,7 +38,13 @@ const SR: any = (typeof window !== 'undefined')
 // would re-hydrate the PREVIOUS space's cached conversation — including AI
 // edit cards referencing that space's own members/documents — into the new
 // one. 'none' is the bucket used while familyId hasn't resolved yet.
-const chatKey = (familyId: string | null) => `assistant_chat_v1_${familyId || 'none'}`;
+// Scoped by PERSON as well as space, mirroring the cloud copy at
+// families/{familyId}/chat/{uid}. Space alone isn't enough: a household shares
+// a tablet, and a space-only key would hand whoever signs in next the previous
+// person's conversation — including its un-applied edit cards. 'none' is the
+// bucket used while either id is still resolving.
+const chatKey = (familyId: string | null, uid: string | null) =>
+  `assistant_chat_v2_${familyId || 'none'}_${uid || 'none'}`;
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
 export type AiEdit =
@@ -255,12 +261,11 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
   const { uid, familyId } = useFamilyCtx();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    try {
-      const raw = localStorage.getItem(chatKey(familyId));
-      return raw ? JSON.parse(raw) : [];
-    } catch { return []; }
-  });
+  /* Starts empty on purpose. Restoring here looks right but cannot work:
+     familyId is still null on the first render, so it would read the 'none'
+     bucket rather than this space's. The cached conversation is hydrated in the
+     effect below, the moment the space is known. */
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
@@ -336,8 +341,56 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     };
   }, []);
 
+  /* Restore the conversation.
+   *
+   * `uid` is null on the FIRST render of every single app open — auth resolves a
+   * tick later, it cannot be synchronous. The old `if (!uid) setMessages([])`
+   * therefore fired on every launch, wiped the history that had just been
+   * restored from localStorage above, and the persist effect below then wrote
+   * that empty array straight back over the cache. The local copy was destroyed
+   * on every open and the chat only reappeared if the cloud read came back — so
+   * a slow or offline read showed an empty assistant with nothing to Apply.
+   *
+   * Clearing is only ever right on a real SIGN-OUT: uid went from something to
+   * nothing. Tracked with a ref so a first render can't be mistaken for one.
+   *
+   * The cloud read waits for familyId too. loadChatHistory reads through the
+   * module-level FAMILY_ID, which setFamilyId() populates alongside the context
+   * value — firing before it is set reads from the wrong path. */
+  // Holds the uid rather than a flag, because clearing on sign-out has to remove
+  // the key belonging to the person who just LEFT — by then `uid` is already null.
+  const lastUid = useRef<string | null>(null);
+  const hydrated = useRef(false);
   useEffect(() => {
-    if (!uid) { setMessages([]); return; }
+    if (!uid) {
+      if (lastUid.current) {         // signed out — the chat is no longer ours
+        try { localStorage.removeItem(chatKey(familyId, lastUid.current)); } catch { /* ignore */ }
+        lastUid.current = null;
+        hydrated.current = false;
+        setMessages([]);
+      }
+      return;                        // still resolving: keep the cached chat on screen
+    }
+    lastUid.current = uid;
+    if (!familyId) return;
+
+    /* Cache first, network second. The useState initialiser above runs on the
+     * first render, when familyId is still null — so it reads chatKey(null),
+     * the 'none' bucket, which nothing ever writes to. It has always come back
+     * empty. The real cache only becomes readable at this point, once the space
+     * is known, so read it HERE and paint immediately; the cloud read below
+     * then corrects it. Only when there's nothing on screen, so this can never
+     * overwrite a conversation already in progress. */
+    setMessages((current) => {
+      if (current.length > 0) return current;
+      try {
+        const raw = localStorage.getItem(chatKey(familyId, uid));
+        const cached = raw ? JSON.parse(raw) : [];
+        return Array.isArray(cached) ? cached : current;
+      } catch { return current; }
+    });
+    hydrated.current = true;         // the cache is now safe to write again
+
     loadChatHistory(uid).then(history => {
       if (history.length > 0) setMessages(history);
     });
@@ -374,11 +427,18 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
       };
     });
 
-  // Persist the conversation (minus heavy image data) on this device.
+  /* Persist the conversation (minus heavy image data) on this device.
+   *
+   * Held until the restore above has run. Both effects depend on familyId, so
+   * the render where it resolves fires this one too — with `messages` still the
+   * empty starting array, because the restore's setMessages hasn't committed
+   * yet. Without the guard that empty array is written straight over the cached
+   * conversation. */
   useEffect(() => {
+    if (!hydrated.current) return;
     try {
       const slim = slimForCloud(messages.slice(-60));
-      localStorage.setItem(chatKey(familyId), JSON.stringify(slim));
+      localStorage.setItem(chatKey(familyId, uid), JSON.stringify(slim));
     } catch { /* ignore */ }
   }, [messages, familyId]);
 
@@ -408,7 +468,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
     setError(null);
     setInput('');
     setAttachments([]);
-    try { localStorage.removeItem(chatKey(familyId)); } catch { /* ignore */ }
+    try { localStorage.removeItem(chatKey(familyId, uid)); } catch { /* ignore */ }
     if (uid) saveChatHistory(uid, []);
   };
 
