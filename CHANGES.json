@@ -1,9 +1,9 @@
 {
-  "label": "v154",
+  "label": "v155",
   "changes": [
-    "The real fix: on a phone, tapping ANY section in the menu closed the menu and left you on the home screen. Calendar was just where you noticed it. The panel slides up over the page, and the code that closes it when you tap outside was counting taps INSIDE it as outside — so it shut itself before your tap could land on the section you'd chosen. It never happened on a laptop, where that panel is built differently. Now every section opens.",
-    "Sections also open at the top now, instead of keeping the scroll position from wherever you were.",
-    "The chat message box is now full width, on its own line, and grows as you type instead of being a two-character slot squeezed between the buttons.",
-    "The camera button in chat now just takes a photo. Scanning a document — finding the edges and straightening it — has its own button next to it, so you can pick the one you actually want instead of the camera always meaning \"scan\"."
+    "Appointments now show up on the person they're for. Open someone's Check-ups and you see what they actually have booked — date, time, \"next week\" — and Medical shows the next few too. Before this, an appointment you added by voice went to the shared calendar and appeared nowhere on that person's own profile, which looked exactly like the app having lost it.",
+    "It's the same appointment in both places, not a copy. Change it on the calendar and it's right everywhere at once — nothing to keep in step, nothing to go stale.",
+    "The Check-ups screen used to call two different things \"Appointments\": real bookings, and rules like \"dentist every six months\". The recurring ones are now called Recurring check-ups.",
+    "The assistant is now told to always tag the person an appointment is for. It usually did, but nothing required it — and an untagged appointment is one that won't appear on anybody's profile."
   ]
 }

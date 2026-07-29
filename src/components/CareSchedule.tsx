@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { CareSchedule as CareItem, FamilyMember } from '../types';
+import { CareSchedule as CareItem, FamilyMember, CalendarEvent } from '../types';
 import { CARE_KINDS, careNextDue, careDueLabel } from '../utils/care';
 import {
-  Stethoscope, Plus, Pencil, Check, X,
+  Stethoscope, Plus, Pencil, Check, X, Repeat,
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import EmptyState from './EmptyState';
+import MemberAppointments from './MemberAppointments';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
 interface CareScheduleProps {
   member: FamilyMember;
   onUpdate: (patch: Partial<FamilyMember>) => void;
+  /** The shared family calendar — this screen READS a person's booked appointments from it. */
+  events?: readonly CalendarEvent[];
+  onOpenCalendar?: () => void;
 }
 
 /* ---- Due chip ---- */
@@ -160,7 +164,7 @@ function CareForm({
 }
 
 /* ---- Main component ---- */
-export default function CareSchedule({ member, onUpdate }: CareScheduleProps) {
+export default function CareSchedule({ member, onUpdate, events = [], onOpenCalendar }: CareScheduleProps) {
   const [items, setItems] = useState<CareItem[]>(() => member.careSchedule || []);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -199,15 +203,30 @@ export default function CareSchedule({ member, onUpdate }: CareScheduleProps) {
             Care &amp; check-ups
           </h3>
           <p className="text-[13px] text-ink-500 mt-0.5">
-            Recurring appointments — we'll remind you when the next one is due for {member.name}.
+            What {member.name} has booked, and what comes round on a schedule.
           </p>
         </div>
       </div>
 
+      {/* Real, dated appointments FIRST — this is what someone opening
+          Check-ups is actually looking for ("when is the doctor?"), and until
+          now the only place it existed was the shared calendar, which is why
+          an appointment added by voice appeared to have vanished. Read from
+          the calendar, never copied here. */}
+      <MemberAppointments
+        memberId={member.id}
+        memberName={member.name}
+        events={events}
+        onOpenCalendar={onOpenCalendar}
+      />
+
       <section className="card p-5 space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+          {/* Renamed from "Appointments". Both sections were called that, and
+              they are different things: below are recurrence RULES (a dentist
+              every six months), above are real bookings with a date. */}
           <h4 className="section-label flex items-center gap-1.5">
-            <Stethoscope className="w-3.5 h-3.5" /> Appointments
+            <Repeat className="w-3.5 h-3.5" /> Recurring check-ups
           </h4>
           <button
             onClick={() => { setAdding(true); setEditId(null); }}

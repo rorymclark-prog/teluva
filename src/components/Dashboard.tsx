@@ -2386,11 +2386,27 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                   astrologyCappedToday={astrologyCappedToday}
                                 />
                               )}
+                              {/* `events` is the shared family calendar. Both of these
+                                  screens READ a person's booked appointments from it —
+                                  they do not keep their own copy, so an appointment
+                                  edited or deleted on the calendar is immediately right
+                                  everywhere it appears. */}
                               {activeTab === 'medical' && (
-                                <MemberMedical member={selectedMember} onUpdate={handlePatchSelectedMember} country={settings.country || 'AT'} />
+                                <MemberMedical
+                                  member={selectedMember}
+                                  onUpdate={handlePatchSelectedMember}
+                                  country={settings.country || 'AT'}
+                                  events={events}
+                                  onOpenCalendar={() => setMainView('calendar')}
+                                />
                               )}
                               {activeTab === 'care' && (
-                                <CareSchedule member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                                <CareSchedule
+                                  member={selectedMember}
+                                  onUpdate={handlePatchSelectedMember}
+                                  events={events}
+                                  onOpenCalendar={() => setMainView('calendar')}
+                                />
                               )}
                               {activeTab === 'ids' && (
                                 <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} onAddDocument={handleAddDocument} country={settings.country || 'AT'} onOpenPrivacy={() => setLegalTab('privacy')} />

@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { FamilyMember, MedicalRecord, Vaccination, IdCountry } from '../types';
+import { FamilyMember, MedicalRecord, Vaccination, IdCountry, CalendarEvent } from '../types';
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 import HealthInsuranceRow from './HealthInsuranceRow';
 import MemberReferrals from './MemberReferrals';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import MemberAppointments from './MemberAppointments';
 
 interface MemberMedicalProps {
   member: FamilyMember;
   onUpdate: (patch: Partial<FamilyMember>) => void;
   country?: IdCountry;
+  /** The shared family calendar — this screen READS booked appointments from it, never stores them. */
+  events?: readonly CalendarEvent[];
+  onOpenCalendar?: () => void;
 }
 
 function newId() {
@@ -29,7 +33,7 @@ const initMedical = (member: FamilyMember): MedicalRecord => ({
   notes: member.medical?.notes || '',
 });
 
-export default function MemberMedical({ member, onUpdate, country = 'AT' }: MemberMedicalProps) {
+export default function MemberMedical({ member, onUpdate, country = 'AT', events = [], onOpenCalendar }: MemberMedicalProps) {
   const [medical, setMedical] = useState<MedicalRecord>(() => initMedical(member));
 
   // Reset local state when member.id changes
@@ -78,6 +82,21 @@ export default function MemberMedical({ member, onUpdate, country = 'AT' }: Memb
 
   return (
     <div className="space-y-6">
+      {/* Booked appointments, read from the shared calendar.
+          This tab is where people look for "when is the doctor?" — it was the
+          first place checked when an appointment added by voice seemed to have
+          disappeared, and there was nothing here to find because Medical has
+          no appointments of its own and never will (see
+          utils/memberAppointments.ts). Renders nothing when there is nothing
+          booked, so it stays out of the way on an already-long screen. */}
+      <MemberAppointments
+        variant="compact"
+        memberId={member.id}
+        memberName={member.name}
+        events={events}
+        onOpenCalendar={onOpenCalendar}
+      />
+
       {/* Emergency essentials card — honey/rosa tinted */}
       <section className="space-y-4">
         <h3 className="font-display text-lg font-semibold text-ink-900 flex items-center gap-2">
