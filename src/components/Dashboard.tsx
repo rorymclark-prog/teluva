@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, VaultDocument } from '../types';
+import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, VaultDocument, ReferralRecord } from '../types';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -1191,6 +1191,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     await persistChanges(membersRef.current.map(m => (m.id === memberId ? { ...m, documents: [...(m.documents || []), docToAdd] } : m)));
   };
 
+  // Same shape as handleAddDocument, for the Referrals & Results copy the
+  // assistant now files alongside the vault and profile copies.
+  const handleAddReferral = async (memberId: string, rec: ReferralRecord) => {
+    await persistChanges(membersRef.current.map(m => (m.id === memberId ? { ...m, referrals: [...(m.referrals || []), rec] } : m)));
+  };
+
   // Deleting from a profile must ALSO clear the shared vault copy and the file
   // in Storage. It used to only filter member.documents, so the vault kept a
   // ghost — and the AI's duplicate check reads the vault, so re-uploading a
@@ -2353,6 +2359,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           members={members}
           onApplyEdits={handleApplyAiEdits}
           onAddMemberDoc={handleAddDocument}
+          onAddReferral={handleAddReferral}
           onUndoEdits={handleUndoAiEdits}
           demo={demo}
           isBusinessSpace={isBusinessSpace}

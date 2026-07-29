@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage } from '../types';
+import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord } from '../types';
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
@@ -58,7 +58,17 @@ export type AiEdit =
   // client-side the moment the attachment finishes uploading (see send()) — the
   // model must NEVER supply them. They make the edit SELF-CONTAINED: Apply can
   // file the scan from the edit alone, with nothing needed from chat history.
-  | { kind: 'document'; name: string; category: VaultCategory; member?: string; imageIndex?: number; fileUrl?: string; fileStoragePath?: string; fileName?: string; fileMimeType?: string; fileSize?: number; contentHash?: string }
+  /* A filed document. When it is a referral, imaging request, lab result,
+   * specialist letter or sick note, the referral* fields below are also set and
+   * it is filed into Referrals & Results as well.
+   *
+   * Deliberately extra fields on `document` rather than a separate edit kind.
+   * The document path already owns uploading, de-duplication, owner inference
+   * and the partial-failure reporting — all the places this feature has been
+   * bitten before. A parallel kind would have to reimplement every one of them,
+   * and a referral IS a document; it just belongs in one more list. */
+  | { kind: 'document'; name: string; category: VaultCategory; member?: string; imageIndex?: number; fileUrl?: string; fileStoragePath?: string; fileName?: string; fileMimeType?: string; fileSize?: number; contentHash?: string;
+      referralKind?: ReferralKind | string; referralDate?: string; referralReason?: string; referralProvider?: string }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
   | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string }
@@ -140,6 +150,8 @@ interface Props {
   onApplyEdits: (edits: AiEdit[]) => Promise<UndoRecord[] | void>;
   // File a scanned document into a member's own Documents tab (in addition to the vault)
   onAddMemberDoc: (memberId: string, doc: FamilyDocument) => Promise<void>;
+  /** Files a scanned referral / lab result / imaging request into Referrals & Results. */
+  onAddReferral: (memberId: string, rec: ReferralRecord) => Promise<void>;
   isBusinessSpace?: boolean;
   /** Open the "fun avatar" generator for whichever profile is currently active. Omitted (no chip shown) when the caller can't use it (not admin, or nothing selected). */
   onOpenFunAvatar?: () => void;
@@ -257,7 +269,7 @@ function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): s
   ]));
 }
 
-export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits }: Props) {
+export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAddReferral, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits }: Props) {
   const { uid, familyId } = useFamilyCtx();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
@@ -1074,6 +1086,37 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, isBus
           fileData: downloadUrl,
           contentHash: hash || undefined,
         });
+
+        /* Referrals & Results gets its own copy.
+         *
+         * Until now the assistant had no way to reach this section at all — it
+         * has 24 edit kinds and none of them was a referral — so a photographed
+         * referral letter could only ever become a generic document. It filed
+         * successfully, in a sensible place, and the section the user built it
+         * for stayed empty. That is the whole "you scan something and it doesn't
+         * save to all the relevant places" complaint.
+         *
+         * Same uploaded file, same Storage object, referenced a third time. The
+         * record carries its own date and kind, which is what makes a run of lab
+         * results a history rather than a pile. */
+        if (e.referralKind) {
+          const referral: ReferralRecord = {
+            id: 'ref-' + id,
+            kind: e.referralKind,
+            date: /^\d{4}-\d{2}-\d{2}$/.test(e.referralDate || '') ? e.referralDate : undefined,
+            providerName: e.referralProvider?.trim() || undefined,
+            reason: e.referralReason?.trim() || undefined,
+            status: 'open',
+            fileName,
+            fileType,
+            fileSize,
+            storagePath,
+            downloadUrl,
+            contentHash: hash || undefined,
+            addedAt: new Date().toISOString(),
+          };
+          await onAddReferral(owner.id, referral);
+        }
       }
     }
     if (added.length) await saveDocuments([...added, ...existing]);
@@ -1785,7 +1828,10 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}${e.birthdate ? ` · birthday ${e.birthdate}` : ''}`;
   if (e.kind === 'provider') return `Add ${(e.type || 'provider').toLowerCase()}: ${e.name}${e.specialty ? ` (${e.specialty})` : ''}${e.forMember ? ` — for ${e.forMember}` : ''}`;
   if (e.kind === 'number') return `Add number “${e.label}” → ${e.value}`;
-  if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}`;
+  // Name the third destination too. The card is the only chance the user gets
+  // to see where something is about to land, so a referral that quietly also
+  // files into Referrals & Results should say so before they tap Apply.
+  if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}${e.referralKind ? ` + Referrals & Results (${String(e.referralKind).toLowerCase()}${e.referralDate ? `, ${e.referralDate}` : ''})` : ''}`;
   if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;
   if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
   if (e.kind === 'household_set') return `Set household ${e.field.replace(/([A-Z])/g, ' $1').toLowerCase()}: "${e.value}"`;
