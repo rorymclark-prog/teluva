@@ -206,7 +206,11 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
         || (isBusinessSpace ? 'this business' : 'this family');
       navigator.share({
         title: `Join ${inviteName} on Teluva`,
-        text: `Tap this link to join ${inviteName} on Teluva (invite code ${inviteCode}).`,
+        // The "turned away" line is here as well as on the sign-in screen: the
+        // recipient may never reach that screen — Google's Access denied can
+        // land first — and this message is the only thing they're guaranteed
+        // to have read.
+        text: `Tap this link to join ${inviteName} on Teluva (invite code ${inviteCode}). It's still in testing, so if Google turns you away, send Rory the Gmail address you tried and he'll add you.`,
         url: joinUrl,
       }).catch(() => {});
     } else {
@@ -573,6 +577,23 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
                   >
                     {copied ? <Check size={16} className="text-sage-500" /> : <Copy size={16} />}
                   </button>
+                </div>
+                {/* BETA ONLY — remove once Google app verification completes.
+                    While the OAuth consent screen is in Testing mode, Google
+                    blocks anyone whose Gmail address isn't on the test-user
+                    list, on its OWN sign-in screen, before any of our code
+                    runs. A valid invite code does not route around it. So an
+                    invite sent to someone unlisted is simply a broken link,
+                    and the sender finds out only when the recipient messages
+                    them back confused. Said here, above the share button,
+                    because this is the last moment before that happens. */}
+                <div className="flex items-start gap-2.5 rounded-xl bg-honey-50 border border-honey-200 px-3 py-2.5 text-left">
+                  <AlertTriangle size={15} className="mt-0.5 shrink-0 text-honey-700" />
+                  <p className="text-[12.5px] leading-relaxed text-ink-600">
+                    <strong className="font-semibold text-ink-800">Before you send this:</strong> Teluva is still in testing,
+                    so Google only lets in people we&rsquo;ve added by name. Send Rory the Gmail address this person will sign in
+                    with, and wait until he says it&rsquo;s added — otherwise they&rsquo;ll tap your link and be turned away.
+                  </p>
                 </div>
                 <button
                   onClick={handleShare}

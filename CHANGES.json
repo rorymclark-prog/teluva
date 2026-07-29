@@ -1,6 +1,7 @@
 {
-  "label": "v150",
+  "label": "v151",
   "changes": [
+    "Creating an invite now warns you first: while Teluva is in testing, Google only lets in people who have been added by name, so send Rory the Gmail address before you share the link. The shared message says the same thing, in case they hit Google's wall before they ever see our screen.",
     "New in Wills & estate: \"Who takes over\" — name the person who should look after all this, and what you'd want them to do. It tells you honestly whether that person can actually sign in today, or whether you still need to make them an admin.",
     "Also new there: where the keys, safes and deeds are, a letter in your own words for whoever finds it, who must be told, and the accounts to close — with tick boxes, so it doubles as a checklist for them.",
     "You can now tell the assistant all of that out loud — \"if something happens to me, tell my sister and cancel Netflix, the safe key is behind the wardrobe\" — and it files it. It had no way to write to those fields before.",
