@@ -1,17 +1,17 @@
 {
-  "label": "v134",
+  "label": "v135",
   "changes": [
+    "The sections menu is grouped now — Everyday, Documents & IDs, Money & cover, Home & things, Memories — with Family and Emergency pinned at the top. Twenty-one sections in one flat list meant you had to already know the app to find anything.",
+    "On a phone it opens as a full sheet instead of a small panel with a hidden cap, so you can see there's more below rather than having to guess.",
+    "And there's a search box at the top of it: type three letters instead of reading the whole list.",
+    "Fixed: our privacy note claimed that opening your files always requires signing in. That wasn't true — an uploaded document has a private link that works on its own, which is what makes sharing and exporting work. The note now says so plainly, so you can judge for yourself how to treat a backup.",
+    "Backup files no longer carry those direct links to your documents. The documents themselves are still in the backup; the links were an extra copy of the key, travelling with the lock.",
+    "Removed personal email addresses that were being shipped inside the app's code.",
     "\"Needs attention\" now ranks by how soon something actually needs you, not just by how loud it is. A passport expiring on Friday could previously fall out of the visible six while a long-dead one sat above it.",
     "A birthday is no longer announced three times on one screen. The gift reminder now stops on the day itself, where it had nothing left to suggest.",
     "The \"add to Home Screen\" card now sits at the bottom of the screen instead of appearing at the top two seconds after you started reading and pushing everything down.",
     "Fixed: sizes you typed were thrown away if you switched tab before pressing Save — and nothing told you Save was the only way to keep them. They now save as you leave each field. Tabbing through without changing anything no longer marks old sizes as freshly measured.",
     "Fixed: opening the app cold showed \"Add your first family member\" to families that already had eight. It was drawing the empty state before it had finished loading. Your family now appears instantly from the last known copy.",
-    "Fixed: ten forms threw away everything you'd typed if one key field was blank — silently, with no message. They now stay open and tell you which field they need.",
-    "Fixed: the sections menu hung 49px off the right edge of a phone screen.",
-    "Every tab on a person now shows its name on a phone instead of a bare icon. \"Care\" is now \"Check-ups\" with its own icon — it was indistinguishable from Medical.",
-    "Deleting a CV role, a qualification, a medical record or a business milestone now asks first. Four places destroyed data on a single tap.",
-    "The assistant button no longer floats over open dialogs.",
-    "Buttons, the menu and the add-person control now meet the 44px minimum for a fingertip — and choosing a smaller display size no longer shrinks them with the text.",
-    "Better contrast on primary buttons and on the focus outline, which was previously almost invisible."
+    "Fixed: ten forms threw away everything you'd typed if one key field was blank — silently, with no message. They now stay open and tell you which field they need."
   ]
 }

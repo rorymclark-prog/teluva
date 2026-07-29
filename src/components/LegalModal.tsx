@@ -142,7 +142,9 @@ function Privacy() {
       <p>Under the GDPR you may request: access, correction, erasure, restriction, portability, and to object to processing. Use the in-app export/delete tools described above, or contact <b>rorymclark@gmail.com</b>. You may also complain to your local data-protection authority (in Austria, the <i>Datenschutzbehörde</i>).</p>
 
       <H>Security</H>
-      <p>Data is encrypted in transit (HTTPS), isolated per family by server-side security rules, and access requires a verified Google sign-in. No system is perfectly secure; keep your Google account protected.</p>
+      <p>Data is encrypted in transit (HTTPS) and isolated per family by server-side security rules: reading your family&rsquo;s records requires signing in with an authorised Google account.</p>
+      <p><b>One thing to know about files.</b> Documents and photos you upload are stored with a long, unguessable link. Anyone holding that exact link can open the file without signing in &mdash; which is what makes a shared or exported document work at all. Treat a backup file, or a link you copy out of the app, the way you would treat the document itself.</p>
+      <p>No system is perfectly secure; keep your Google account protected.</p>
 
       <H>Changes</H>
       <p>We may update this policy; material changes will be noted in the app. Continued use after an update means you accept the revised policy.</p>

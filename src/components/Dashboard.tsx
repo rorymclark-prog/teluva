@@ -1215,7 +1215,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         uploadedAt: d.uploadedAt,
         uploadedBy: d.uploadedBy,
         storagePath: d.storagePath,
-        downloadUrl: d.downloadUrl,
+        // downloadUrl is deliberately NOT written here. A Firebase Storage
+        // download URL carries a permanent bearer token that bypasses
+        // storage.rules, so a backup file forwarded to anyone — an accountant,
+        // a family member, a cloud drive — handed over live world-readable
+        // links to every passport scan it contained. The files themselves are
+        // in the zip, so the link adds nothing an import needs.
       }));
 
       const backupData = {

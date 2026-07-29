@@ -34,14 +34,25 @@ export interface FamilyCtxValue {
 // Bootstrap map: these emails get auto-assigned to the 'household' family
 // ---------------------------------------------------------------------------
 
-const BOOTSTRAP_EMAILS: Record<string, FamilyRole> = {
-  'rorymclark@gmail.com': 'admin',
-  'partner@example.com': 'admin',
-  'child@example.com': 'child',
-};
+/*
+ * Seed roles by email address. DELIBERATELY EMPTY.
+ *
+ * This shipped with three real Gmail addresses hardcoded, which meant they were
+ * compiled into the JavaScript bundle that every visitor downloads — personal
+ * addresses handed to anyone who opened devtools.
+ *
+ * Emptying them costs nothing, because firestore.rules already makes both paths
+ * inert: `families/{id}/roles/{uid}` is `allow create: if false`, and its update
+ * rule requires isAdminOf() — so the "promote me to admin" write only succeeds
+ * for someone who is already an admin. Roles are assigned server-side and by
+ * invite; that is the only path that has ever actually worked.
+ *
+ * If a bootstrap is ever needed again, it belongs in a deploy-time environment
+ * variable read by the server, not in client source.
+ */
+const BOOTSTRAP_EMAILS: Record<string, FamilyRole> = {};
 
-// Emails that must always be admin — runs as a migration if doc already exists with a lower role.
-const FORCE_ADMIN = new Set(['rorymclark@gmail.com', 'partner@example.com']);
+const FORCE_ADMIN = new Set<string>([]);
 
 // ---------------------------------------------------------------------------
 // Context setup
