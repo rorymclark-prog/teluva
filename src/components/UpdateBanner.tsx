@@ -129,19 +129,31 @@ export default function UpdateBanner() {
       aria-live="polite"
       className="fixed inset-x-0 bottom-4 z-[9999] flex justify-center px-4 pointer-events-none"
     >
-      <div className="pointer-events-auto flex flex-col gap-4 rounded-2xl bg-ink-900 text-white p-6 shadow-lift w-full max-w-md">
-        <p className="text-[17px] font-semibold leading-snug">
+      {/* Capped, with only the changelog scrolling.
+        *
+        * This card is anchored to the BOTTOM and grows upward, and it had no
+        * height limit and nothing scrollable in it. Six changelog entries come
+        * to roughly 730px; a phone shows about 650px. The heading and the
+        * Refresh button sit at the TOP of the card, so they were pushed clean
+        * off the top of the screen — and no amount of scrolling brought them
+        * back, because there was no scroll container to scroll. The update was
+        * unacceptable in the literal sense.
+        *
+        * Capping the card and letting only the list scroll pins the heading and
+        * the button on screen at any content length, any text size. */}
+      <div className="pointer-events-auto flex max-h-[min(75dvh,34rem)] w-full max-w-md flex-col gap-4 rounded-2xl bg-ink-900 p-6 text-white shadow-lift">
+        <p className="shrink-0 text-[17px] font-semibold leading-snug">
           {t.update_available}{label ? ` (${label})` : ''}.
         </p>
         <button
           onClick={applyUpdate}
-          className="self-start inline-flex items-center gap-2 rounded-xl bg-white text-ink-900 text-[14px] font-semibold px-5 py-2.5 hover:bg-cream-100 transition-colors cursor-pointer"
+          className="shrink-0 self-start inline-flex items-center gap-2 rounded-xl bg-white text-ink-900 text-[14px] font-semibold px-5 py-2.5 hover:bg-cream-100 transition-colors cursor-pointer"
         >
           <RefreshCw className="w-4 h-4" />
           {t.update_refresh}
         </button>
         {changes.length > 0 && (
-          <ul className="space-y-2">
+          <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto">
             {changes.map((c, i) => (
               <li key={i} className="text-[13.5px] text-white/70 leading-snug flex gap-2">
                 <span className="text-white/40" aria-hidden="true">·</span>
