@@ -19,11 +19,58 @@ const CURRENT_VERSION =
 const POLL_MS = 3 * 60 * 1000; // every 3 min while the tab is visible
 const FIRST_CHECK_MS = 15 * 1000; // let the app settle before the first check
 
+// Marks the navigation the Refresh button performs, so it can be tidied out of
+// the address bar once the new build is running.
+const BUST_PARAM = 'u';
+
+/**
+ * Actually get onto the new build.
+ *
+ * `location.reload()` was not enough, and the reason is a trap: the hashed
+ * bundles are immutable and fine, but the page that POINTS at them is
+ * index.html — and a reload is allowed to satisfy that from cache. An installed
+ * app window is the worst case for this. So the banner would appear, the button
+ * would visibly reload, the same old index.html would come back, and it would
+ * name the same old bundle. Nothing changed, and the banner returned. From the
+ * outside the button simply does not work.
+ *
+ * A navigation to a URL that has never been requested before cannot be served
+ * from cache, so a throwaway query parameter forces a genuine fetch. replace()
+ * rather than assign() keeps it out of the back history.
+ *
+ * Caches are cleared first as a belt-and-braces measure. Today the service
+ * worker deliberately caches nothing, but this button is where someone will
+ * come when a future one does.
+ */
+async function applyUpdate() {
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch { /* cache API unavailable or blocked — the query bust still works */ }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set(BUST_PARAM, Date.now().toString(36));
+  window.location.replace(url.toString());
+}
+
 export default function UpdateBanner() {
   const { t } = useT();
   const [updateReady, setUpdateReady] = useState(false);
   const [label, setLabel] = useState('');
   const [changes, setChanges] = useState<string[]>([]);
+
+  // Tidy the cache-busting parameter out of the address bar. It has already
+  // done its job by the time this runs — the fresh index.html was fetched — and
+  // leaving it behind would follow the user into anything they bookmark or
+  // share. replaceState, so it doesn't add a history entry to go "back" to.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has(BUST_PARAM)) return;
+    url.searchParams.delete(BUST_PARAM);
+    window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+  }, []);
 
   useEffect(() => {
     // No deployed version.json to compare against during local dev.
@@ -87,7 +134,7 @@ export default function UpdateBanner() {
           {t.update_available}{label ? ` (${label})` : ''}.
         </p>
         <button
-          onClick={() => window.location.reload()}
+          onClick={applyUpdate}
           className="self-start inline-flex items-center gap-2 rounded-xl bg-white text-ink-900 text-[14px] font-semibold px-5 py-2.5 hover:bg-cream-100 transition-colors cursor-pointer"
         >
           <RefreshCw className="w-4 h-4" />
