@@ -1,8 +1,6 @@
 {
-  "label": "v164",
+  "label": "v165",
   "changes": [
-    "The calendar now spots appointments that were saved twice and offers to tidy them up. You see exactly what would go before anything is removed, and one copy of each is always kept — the one with the most detail on it.",
-    "Anything coming from a calendar you subscribed to is left alone, since removing it would only bring it back on the next refresh.",
-    "Small fix: the new \"show Teluva in your own calendar\" section no longer appears with nothing under it while it is still loading."
+    "Behind-the-scenes groundwork for Google Drive: the app is now ready to let you pick files or a whole folder using Google's own picker window, rather than browsing your Drive inside Teluva. Nothing changes for you yet — today's folder browser keeps working exactly as it does now until this is switched on."
   ]
 }

@@ -41,6 +41,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import EmptyState from './EmptyState';
+import { openDrivePicker, listPickedFolder, PickedItem } from '../utils/googlePicker';
+import { DRIVE_SCOPE_IS_NARROW } from '../utils/googleScopes';
 
 interface SharedDoc {
   id: string; // matches Google Drive fileId
@@ -82,6 +84,10 @@ export default function GoogleDriveSync() {
   const [driveSearch, setDriveSearch] = useState('');
   const [sharedSearch, setSharedSearch] = useState('');
   const [driveError, setDriveError] = useState<string | null>(null);
+
+  // Picker path (drive.file scope) — see googleScopes.ts / googlePicker.ts.
+  const [isPicking, setIsPicking] = useState(false);
+  const [pickerNote, setPickerNote] = useState<string | null>(null);
 
   // Initialize Auth listeners
   useEffect(() => {
@@ -135,9 +141,12 @@ export default function GoogleDriveSync() {
   // Re-subscribe if the Firebase auth user changes
   }, [auth.currentUser?.uid]);
 
-  // Fetch the current folder's contents when token or folder changes
+  // Fetch the current folder's contents when token or folder changes.
+  // Skipped entirely under drive.file: that scope has no standing ability to
+  // list an arbitrary folder (not even 'root'), only files/folders the Picker
+  // has explicitly handed the app — see handleOpenPicker below.
   useEffect(() => {
-    if (token) {
+    if (token && !DRIVE_SCOPE_IS_NARROW) {
       fetchFolder(folderPath[folderPath.length - 1].id);
     }
   }, [token, folderPath]);
@@ -273,6 +282,62 @@ export default function GoogleDriveSync() {
     }
   };
 
+  // Write picked items to the shared catalog — the drive.file counterpart of
+  // handleSyncToFamily/handleSyncFolder above, taking whatever the Picker (or
+  // a folder listed via listPickedFolder) handed back instead of a DriveFile
+  // read from an open-ended folder browse.
+  const syncPickedItems = async (items: PickedItem[]) => {
+    if (!user || !items.length) return;
+    await Promise.all(items.map((item) =>
+      setDoc(doc(db, 'families', FAMILY_ID, 'sharedDriveDocs', item.id), {
+        fileId: item.id,
+        name: item.name,
+        mimeType: item.mimeType,
+        webViewLink: item.webViewLink || '',
+        syncedBy: user.displayName || user.email || 'Family Admin',
+        syncedAt: serverTimestamp(),
+        size: item.sizeBytes ?? null,
+      })));
+  };
+
+  // Open Google's Picker, then sync whatever came back. A picked FOLDER is
+  // listed one level deep and every file inside it is synced too — that only
+  // works because drive.file access to a folder's contents is granted the
+  // instant the user selects it through the Picker (see googlePicker.ts).
+  const handleOpenPicker = async () => {
+    if (!token) return;
+    setIsPicking(true);
+    setDriveError(null);
+    setPickerNote(null);
+    try {
+      const picked = await openDrivePicker(token);
+      if (!picked.length) return;   // cancelled — not an error
+
+      const files = picked.filter((p) => !p.isFolder);
+      const folders = picked.filter((p) => p.isFolder);
+
+      const fromFolders = (await Promise.all(
+        folders.map((f) => listPickedFolder(token, f.id).catch((e) => {
+          console.error('[GoogleDriveSync] could not list a picked folder:', e);
+          return [] as PickedItem[];
+        })),
+      )).flat();
+
+      const all = [...files, ...fromFolders];
+      if (!all.length) {
+        setPickerNote(folders.length ? 'That folder had nothing in it to sync.' : null);
+        return;
+      }
+      await syncPickedItems(all);
+      setPickerNote(`Synced ${all.length} ${all.length === 1 ? 'file' : 'files'} to the family vault.`);
+    } catch (err: any) {
+      console.error('[GoogleDriveSync] Picker error:', err);
+      setDriveError(err?.message || 'Could not open Google Drive just now.');
+    } finally {
+      setIsPicking(false);
+    }
+  };
+
   // Remove a synced document from Firestore — scoped to the signed-in user
   const handleRemoveSynced = async (sharedDoc: SharedDoc) => {
     // Explicit user confirmation dialog as mandated by workspace skill
@@ -404,12 +469,14 @@ export default function GoogleDriveSync() {
           <div className="flex items-center justify-between pb-3 border-b border-cream-200">
             <h3 className="text-[13px] font-semibold text-ink-800 flex items-center gap-1.5">
               My Google Drive
-              <span className="chip bg-cream-200 text-ink-600 font-mono">
-                {needsAuth ? 0 : filteredFolders.length + filteredDriveFiles.length}
-              </span>
+              {!DRIVE_SCOPE_IS_NARROW && (
+                <span className="chip bg-cream-200 text-ink-600 font-mono">
+                  {needsAuth ? 0 : filteredFolders.length + filteredDriveFiles.length}
+                </span>
+              )}
             </h3>
 
-            {!needsAuth && (
+            {!needsAuth && !DRIVE_SCOPE_IS_NARROW && (
               <div className="flex items-center gap-2">
                 {driveFiles.length > 0 && (
                   <button
@@ -459,6 +526,35 @@ export default function GoogleDriveSync() {
               >
                 Sign in with Google
               </button>
+            </div>
+          ) : DRIVE_SCOPE_IS_NARROW ? (
+            // Picker path: no folder browser, because drive.file grants no
+            // standing ability to list one — only files/folders the user just
+            // handed the app through Google's own widget (googlePicker.ts).
+            <div className="flex-1 mt-4 flex flex-col items-center justify-center text-center gap-4 p-8">
+              <div className="w-12 h-12 rounded-2xl bg-dusk-50 text-dusk-500 flex items-center justify-center border border-dusk-100 shadow-soft">
+                <HardDrive className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-[13px] font-semibold text-ink-700">Choose what to share</h4>
+                <p className="text-[13px] text-ink-400 max-w-xs font-light leading-relaxed">
+                  Open Google&rsquo;s own picker to choose files or a whole folder. Teluva only ever
+                  sees what you pick there — nothing else in your Drive.
+                </p>
+              </div>
+              <button
+                onClick={handleOpenPicker}
+                disabled={isPicking}
+                className="btn-primary disabled:opacity-50"
+              >
+                {isPicking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
+                <span>{isPicking ? 'Opening…' : 'Choose from Google Drive'}</span>
+              </button>
+              {pickerNote && (
+                <p className="text-[12.5px] text-sage-700 bg-sage-50 border border-sage-200 rounded-xl px-3 py-2 max-w-xs">
+                  {pickerNote}
+                </p>
+              )}
             </div>
           ) : (
             <div className="flex-1 mt-4 flex flex-col">

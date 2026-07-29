@@ -40,6 +40,8 @@
 //     silent path is for the normal case, where the user is signed in to
 //     Google and has already granted these scopes.
 
+import { GOOGLE_SCOPES } from './googleScopes';
+
 // The OAuth client Firebase auto-created for this project's Google sign-in.
 // A client ID is public information — it is visible in every OAuth request the
 // app already makes. (Its client SECRET is not, and appears nowhere in this
@@ -50,10 +52,9 @@ const CLIENT_ID =
 
 // Must match the scopes requested in firebase.ts, or the silent request asks
 // for something the user never granted and falls back to a prompt every time.
-const SCOPES = [
-  'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/calendar.events',
-].join(' ');
+// Sourced from googleScopes.ts — the single place that decides, so this file
+// can't drift from firebase.ts's list.
+const SCOPES = GOOGLE_SCOPES.join(' ');
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 
