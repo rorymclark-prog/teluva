@@ -102,7 +102,7 @@ import FamilyStats from './FamilyStats';
 import FamilyQuiz from './FamilyQuiz';
 import HealthTimeline from './HealthTimeline';
 import MemberCalendarDates from './MemberCalendarDates';
-import { sunSign, isSameLocalDay } from '../utils/astrology';
+import { sunSign, isSameLocalDay, blurbCacheKey } from '../utils/astrology';
 import RecipeBook from './RecipeBook';
 import InMemoryView from './InMemoryView';
 import MemberCV from './MemberCV';
@@ -751,7 +751,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     // below is a paid Gemini request; unlimited reshuffling cheapens the
     // writing. A genuine input change (birth time/place added) still earns a
     // fresh one, same condition the auto-generate effect below uses.
-    const capInputs = `${member.birthdate || ''}|${member.birthTime || ''}|${member.placeOfBirth || ''}`;
+    const capInputs = blurbCacheKey(member);
     if (member.astrologyBlurb && member.astrologyBlurb.forInputs === capInputs && isSameLocalDay(member.astrologyBlurb.generatedAt)) return;
     const previousBlurb = member.astrologyBlurb?.text || astroBlurb[memberId]?.text || undefined;
     setAstroBlurb((s) => ({ ...s, [memberId]: { text: s[memberId]?.text || previousBlurb || '', loading: true, error: null } }));
@@ -777,7 +777,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       }
       if (!res.ok || !data.blurb) throw new Error(data.error || 'Could not generate a blurb.');
       setAstroBlurb((s) => ({ ...s, [memberId]: { text: data.blurb, loading: false, error: null } }));
-      const forInputs = `${member.birthdate || ''}|${member.birthTime || ''}|${member.placeOfBirth || ''}`;
+      const forInputs = blurbCacheKey(member);
       const astrologyBlurb = { text: data.blurb, sign: data.sign, generatedAt: new Date().toISOString(), forInputs };
       await persistChanges(membersRef.current.map((m) => (m.id === memberId ? { ...m, astrologyBlurb } : m)));
     } catch (e) {
@@ -1430,7 +1430,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // Mirrors the guard inside shuffleAstrology so the dice button can show its
   // calm "today's is set" state proactively, before the user even taps it.
   const astrologyCappedToday = !!selectedMember?.astrologyBlurb
-    && selectedMember.astrologyBlurb.forInputs === `${selectedMember.birthdate || ''}|${selectedMember.birthTime || ''}|${selectedMember.placeOfBirth || ''}`
+    && selectedMember.astrologyBlurb.forInputs === blurbCacheKey(selectedMember)
     && isSameLocalDay(selectedMember.astrologyBlurb.generatedAt);
 
   // Auto-generate (lazily, once per stale/missing state) the first time a
@@ -1447,7 +1447,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     // Already told this session it's out of AI actions for the month — don't
     // keep re-hitting the endpoint every time this member is re-viewed.
     if (astroBlurb[selectedMember.id]?.limitReached) return;
-    const forInputs = `${selectedMember.birthdate || ''}|${selectedMember.birthTime || ''}|${selectedMember.placeOfBirth || ''}`;
+    const forInputs = blurbCacheKey(selectedMember);
     const stored = selectedMember.astrologyBlurb;
     const isFresh = !!stored && stored.forInputs === forInputs
       && Date.now() - new Date(stored.generatedAt).getTime() < STALE_ASTROLOGY_MS;

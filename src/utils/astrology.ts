@@ -65,3 +65,27 @@ const ELEMENT_TINT: Record<ZodiacSign['element'], string> = {
   Water: 'bg-rosa-100 text-rosa-700',
 };
 export const elementTint = (el: ZodiacSign['element']) => ELEMENT_TINT[el];
+
+/**
+ * The cache key for a member's persisted "just for fun" blurb.
+ *
+ * It snapshots the birth details, so editing a birthdate rewrites the blurb —
+ * but it deliberately carries a STYLE VERSION too. Without one, improving the
+ * writing changed nothing anybody could see: every blurb already written stayed
+ * word-for-word forever, because only a birthdate edit invalidated it. Five of
+ * the seven blurbs on the live account were still the pre-rewrite text days
+ * later, which is precisely what "the astrology is still wishy washy" was.
+ *
+ * Bump STYLE_VERSION whenever the prompt or the quality filter changes enough
+ * that existing blurbs should be rewritten. It costs one generation per member,
+ * once, the next time their profile is opened.
+ */
+const STYLE_VERSION = 'v2';
+
+export function blurbCacheKey(m: {
+  birthdate?: string;
+  birthTime?: string;
+  placeOfBirth?: string;
+}): string {
+  return `${STYLE_VERSION}|${m.birthdate || ''}|${m.birthTime || ''}|${m.placeOfBirth || ''}`;
+}

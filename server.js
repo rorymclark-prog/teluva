@@ -98,6 +98,32 @@ function astrologyBannedWordsRegex(sign) {
   const words = ASTROLOGY_BANNED_TOPIC_WORDS.filter((w) => w !== (sign || '').toLowerCase());
   return new RegExp(`\\b(${words.join('|')})\\b`, 'i');
 }
+
+/* The prompt has banned the mystical-flattery register since v137, and the model
+ * kept using it anyway: of seven blurbs on the live account, four contained a
+ * word the prompt explicitly forbids — one written the same morning. An
+ * instruction is not a constraint. This is the same lesson the insurance reader
+ * already learned: if the wording matters, CHECK it, don't ask for it.
+ *
+ * Two groups. The mystical vocabulary is the prompt's own list. The flattery
+ * closers are the actual complaint — "you're truly amazing", "don't ever forget
+ * how special you are" — which say nothing about the person and could be
+ * addressed to anyone, which is exactly what makes it read as fake. */
+const ASTROLOGY_FLOATY_PATTERNS = [
+  /\bthe universe\b/i, /\bcosmic\b/i, /\bvibes?\b/i, /\baura\b/i, /\bdestined\b/i,
+  /\bstars align\b/i, /\bwritten in the stars\b/i, /\byour journey\b/i,
+  /\bembrace\b/i, /\bradiat(e|es|ing)\b/i, /\bold soul\b/i, /\bdeep within\b/i,
+  /\bharmony\b/i, /\bbalance and grace\b/i, /\bgifts? to share with the world\b/i,
+  /\btruly (amazing|special|wonderful)\b/i, /\bhow special\b/i,
+  /\bkeep shining\b/i, /\bshine your\b/i, /\bnever forget\b/i, /\bdon'?t ever forget\b/i,
+];
+function astrologyFloatyMatch(text) {
+  for (const re of ASTROLOGY_FLOATY_PATTERNS) {
+    const m = re.exec(text || '');
+    if (m) return m[0];
+  }
+  return null;
+}
 // Dark-launch gate for the recall-only insurance-conditions reader. OFF unless
 // FEATURE_INSURANCE_READER is explicitly set. This is the AUTHORITATIVE gate —
 // even if a client is built with the feature on, the endpoint refuses until a
@@ -1070,7 +1096,18 @@ app.post('/api/astrology-blurb', async (req, res) => {
 
     const bannedWords = astrologyBannedWordsRegex(sign);
     let text = null;
-    for (let attempt = 0; attempt < 2 && !text; attempt++) {
+    /* Two filters with deliberately different consequences.
+     *
+     * The topic filter (illness, money, romance) is a SAFETY rule on a profile
+     * that may belong to a child — failing it must never ship, so a run that
+     * only ever produces unsafe text returns an error.
+     *
+     * The floaty filter is a QUALITY rule. Rejecting on it and then erroring
+     * would trade a soppy blurb for a broken feature, which is worse. So the
+     * last clean-on-safety attempt is kept as a fallback and the miss is
+     * logged — the retry does the work, the fallback stops it failing. */
+    let safeFallback = null;
+    for (let attempt = 0; attempt < 3 && !text; attempt++) {
       const gRes = await generateContent(MODEL_TEXT, {
         systemInstruction: { parts: [{ text: ASTROLOGY_BLURB_SYSTEM }] },
         contents: [{ role: 'user', parts: [{ text: detail.join('\n') }] }],
@@ -1078,11 +1115,30 @@ app.post('/api/astrology-blurb', async (req, res) => {
       });
       const gData = await gRes.json();
       const candidate = (gData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
-      if (candidate && !bannedWords.test(candidate)) text = candidate.trim();
-      else if (!candidate) console.error('[astrology-blurb] empty response:', JSON.stringify(gData).slice(0, 400));
-      else console.error('[astrology-blurb] rejected by banned-words filter:', candidate.slice(0, 200));
+      if (!candidate) {
+        console.error('[astrology-blurb] empty response:', JSON.stringify(gData).slice(0, 400));
+        continue;
+      }
+      if (bannedWords.test(candidate)) {
+        console.error('[astrology-blurb] rejected by banned-topic filter:', candidate.slice(0, 200));
+        continue;
+      }
+      safeFallback = safeFallback || candidate.trim();
+      const floaty = astrologyFloatyMatch(candidate);
+      if (floaty) {
+        console.warn(`[astrology-blurb] attempt ${attempt + 1} rejected as floaty ("${floaty}")`);
+        // Name the miss in the next attempt — a general instruction it already
+        // ignored is unlikely to land twice; the specific phrase does.
+        detail.push(`Your last attempt was rejected for using "${floaty}". Do not use that phrase or anything like it. Write about what this person is actually LIKE — concrete, observed, a little dry — not how lovely they are.`);
+        continue;
+      }
+      text = candidate.trim();
     }
 
+    if (!text && safeFallback) {
+      console.warn('[astrology-blurb] all attempts read as floaty — shipping the last safe one');
+      text = safeFallback;
+    }
     if (!text) return res.status(502).json({ error: 'Could not generate a blurb right now — please try again.' });
     await recordAiUsage(caller.familyId);
     res.json({ blurb: text, sign });
