@@ -1,6 +1,7 @@
 {
-  "label": "v169",
+  "label": "v170",
   "changes": [
+    "The assistant now asks which number you mean when correcting an SV number or e-card number, instead of guessing — the two look alike but are different fields.",
     "Fixed: the \"new version available\" banner could go stale if it fired and then more updates shipped while your tab stayed open — it now always shows what's genuinely latest.",
     "The app should feel noticeably snappier — the first load now ships about a third less code, since each screen only downloads when you actually open it instead of all twenty loading up front.",
     "The welcome tour now mentions Calendar sync and Google Drive, and fixed a step that was silently never showing.",
