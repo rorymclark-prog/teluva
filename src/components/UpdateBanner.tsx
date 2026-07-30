@@ -92,12 +92,17 @@ export default function UpdateBanner() {
           data?.version &&
           data.version !== CURRENT_VERSION
         ) {
+          // A newer build is out. Keep polling rather than stopping here —
+          // this tab can sit open for hours, and more builds can land in that
+          // time (this happened in practice: the banner fired for v166, then
+          // v167 and v168 shipped while the tab stayed open and focused, so
+          // it never re-checked and kept showing v166's stale changelog).
+          // Refreshing label/changes on every tick keeps the banner honest
+          // about what "latest" actually means right up until the user taps
+          // Refresh.
           setUpdateReady(true);
           setLabel(typeof data.label === 'string' ? data.label : '');
           setChanges(Array.isArray(data.changes) ? data.changes.slice(0, 6) : []);
-          // A newer build is out — stop polling; the banner now stays until the
-          // user chooses to refresh.
-          if (interval) clearInterval(interval);
         }
       } catch {
         // Offline or transient failure — ignore; the next tick retries.
