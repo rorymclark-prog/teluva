@@ -206,6 +206,14 @@ interface Props {
   onGoView?: (view: string) => void;
   /** Delete exactly the records an earlier Apply created (its undo manifest), reversing that Apply. Returns how many were removed vs. not found. Omitted → no Undo control shown. */
   onUndoEdits?: (records: UndoRecord[]) => Promise<{ undone: number; missing: number }>;
+  /** A pending draft (prefilled text + optional photo) from CopyableValue's "Scan"
+      action elsewhere in the app — loaded into the composer on mount. This
+      component only exists while AssistantBubble has it open, so "on mount" is
+      exactly "whenever the panel that carries a fresh draft opens." */
+  initialDraft?: { text: string; attachment?: { name: string; mimeType: string; dataUrl: string } } | null;
+  /** Called once, right after initialDraft is applied, so the caller can clear
+      it — otherwise a later plain open of the panel (no new scan) would replay it. */
+  onDraftApplied?: () => void;
 }
 
 function slimMembers(members: FamilyMember[]) {
@@ -332,7 +340,7 @@ function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): s
   ]));
 }
 
-export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAddReferral, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits, onPrepareExport }: Props) {
+export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAddReferral, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits, onPrepareExport, initialDraft, onDraftApplied }: Props) {
   const { uid, familyId } = useFamilyCtx();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
@@ -343,6 +351,18 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+
+  // Load a pending draft from CopyableValue's "Scan" action, if this mount was
+  // triggered by one. Runs once (mount only) — this component is unmounted
+  // whenever the panel closes, so "on mount" already means "a fresh open."
+  useEffect(() => {
+    if (!initialDraft) return;
+    setInput(initialDraft.text);
+    if (initialDraft.attachment) setAttachments([initialDraft.attachment]);
+    onDraftApplied?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [applyingIdx, setApplyingIdx] = useState<number | null>(null);
   // Duplicate-document flags for a message's pending Apply, keyed by message

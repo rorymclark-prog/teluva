@@ -6,6 +6,7 @@
 import React from 'react';
 import { LangProvider } from './i18n/LangContext';
 import { FamilyProvider, useFamilyCtx } from './contexts/FamilyContext';
+import { ChatDraftProvider } from './contexts/ChatDraftContext';
 import Dashboard from './components/Dashboard';
 import FamilyOnboarding from './components/FamilyOnboarding';
 import FamilySettings from './components/FamilySettings';
@@ -75,7 +76,9 @@ export default function App() {
   return (
     <LangProvider>
       <FamilyProvider>
-        <AppInner />
+        <ChatDraftProvider>
+          <AppInner />
+        </ChatDraftProvider>
       </FamilyProvider>
       <UpdateBanner />
     </LangProvider>

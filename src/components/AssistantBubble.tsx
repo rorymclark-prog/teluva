@@ -6,6 +6,7 @@ import type { FamilyMember, FamilyDocument, ReferralRecord } from '../types';
 import type { PackRequest } from '../utils/exportPack';
 import { useT } from '../i18n/LangContext';
 import SheetGrabber from './SheetGrabber';
+import { useChatDraft, type ChatDraft } from '../contexts/ChatDraftContext';
 
 interface Props {
   members: FamilyMember[];
@@ -35,10 +36,24 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
+  const { draftSignal, consumeChatDraft } = useChatDraft();
+  const [pendingDraft, setPendingDraft] = useState<ChatDraft | null>(null);
 
   // Opened from outside. Guarded on a truthy signal so the initial render
   // doesn't pop the panel open on every page load.
   useEffect(() => { if (openSignal) setOpen(true); }, [openSignal]);
+
+  // A long-press "Scan" action anywhere in the app (CopyableValue) hands a
+  // photo + prefilled message here via ChatDraftContext — open the panel and
+  // carry it into AIChatbot, which mounts fresh below since it only exists
+  // while `open` is true. pendingDraft is cleared once AIChatbot's own mount
+  // effect confirms it applied the draft, so a later plain tap on the
+  // launcher (no new scan) never replays a stale photo/message.
+  useEffect(() => {
+    if (!draftSignal) return;
+    const d = consumeChatDraft();
+    if (d) { setPendingDraft(d); setOpen(true); }
+  }, [draftSignal, consumeChatDraft]);
 
   // Close on any click outside the panel (the launcher is excluded — it toggles
   // itself) and on Escape. This is what makes clicking the page dismiss the chat.
@@ -121,6 +136,8 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
                 onGoView={onGoView ? (view) => { setOpen(false); onGoView(view); } : undefined}
                 onUndoEdits={onUndoEdits}
                 onPrepareExport={onPrepareExport ? (req) => { setOpen(false); onPrepareExport(req); } : undefined}
+                initialDraft={pendingDraft}
+                onDraftApplied={() => setPendingDraft(null)}
               />
             )}
           </div>

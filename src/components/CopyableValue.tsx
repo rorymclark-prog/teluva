@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { Copy, Share2, Check } from 'lucide-react';
+import { Copy, Share2, Check, Camera } from 'lucide-react';
 import { canShare } from '../utils/share';
+import { useChatDraft } from '../contexts/ChatDraftContext';
 
 const LONG_PRESS_MS = 450;
 
@@ -30,6 +31,8 @@ export default function CopyableValue({ value, label, className, children }: Pro
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
+  const { requestChatDraft } = useChatDraft();
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   const clearTimer = () => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
@@ -67,6 +70,38 @@ export default function CopyableValue({ value, label, className, children }: Pro
     setMenuOpen(false);
   };
 
+  // "Scan" — take/pick a photo relevant to this exact field (a medication box,
+  // an insurance card, proof of an allergy) and hand it straight to the AI
+  // assistant, pre-attached with a message naming what it's for. Deliberately
+  // does NOT try to save the photo anywhere itself — there's no per-field photo
+  // slot in the data model for "Chronic conditions" or "Blood type", and there
+  // doesn't need to be: the assistant already knows how to read a photo and
+  // file it into the right place (a document, a medical record, an asset), so
+  // this just gets the photo to that same pipeline with better-than-nothing
+  // context about which field prompted it.
+  const doScan = () => {
+    setMenuOpen(false);
+    scanInputRef.current?.click();
+  };
+
+  const onScanFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      if (typeof dataUrl !== 'string') return;
+      requestChatDraft({
+        text: label
+          ? `Here's a photo for "${label}"${value ? ` (currently on file: ${value})` : ''}.`
+          : "Here's a photo — please file it in the right place.",
+        attachment: { name: file.name || 'scan.jpg', mimeType: file.type || 'image/jpeg', dataUrl },
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
   if (!value) return <>{children}</>;
 
   // Divs, not spans: `children` is often block-level (a <p>, e.g. the big
@@ -87,6 +122,15 @@ export default function CopyableValue({ value, label, className, children }: Pro
       >
         {children ?? value}
       </div>
+
+      <input
+        ref={scanInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={onScanFile}
+        className="hidden"
+      />
 
       {copied && (
         <span className="absolute -top-8 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-full bg-ink-900 text-white text-[11px] font-semibold px-2.5 py-1 whitespace-nowrap pointer-events-none z-10">
@@ -119,6 +163,13 @@ export default function CopyableValue({ value, label, className, children }: Pro
                 <Share2 className="w-3.5 h-3.5" /> Share
               </button>
             )}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); doScan(); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold hover:bg-white/10 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Camera className="w-3.5 h-3.5" /> Scan
+            </button>
           </div>
         </>
       )}

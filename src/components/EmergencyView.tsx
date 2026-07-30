@@ -129,7 +129,9 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
           <p className="section-label flex items-center gap-1 mb-1.5 text-rosa-700">
             <AlertTriangle className="w-3.5 h-3.5" /> Allergies
           </p>
-          <p className="text-[14px] font-semibold text-rosa-700 leading-snug">{med.allergies}</p>
+          <CopyableValue value={med.allergies} label="Allergies">
+            <p className="text-[14px] font-semibold text-rosa-700 leading-snug">{med.allergies}</p>
+          </CopyableValue>
         </div>
       )}
 
@@ -177,7 +179,9 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
             <Phone className="w-3.5 h-3.5" /> Emergency contact
           </p>
           {member.emergencyContactName && (
-            <p className="text-[15px] font-semibold text-ink-900">{member.emergencyContactName}</p>
+            <CopyableValue value={member.emergencyContactName} label="Emergency contact name">
+              <p className="text-[15px] font-semibold text-ink-900">{member.emergencyContactName}</p>
+            </CopyableValue>
           )}
           {hasPhone && (
             <a
@@ -198,7 +202,9 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
             <Briefcase className="w-3.5 h-3.5" /> Employer / workplace
           </p>
           {member.employer && (
-            <p className="text-[15px] font-semibold text-ink-900">{member.employer}</p>
+            <CopyableValue value={member.employer} label="Employer">
+              <p className="text-[15px] font-semibold text-ink-900">{member.employer}</p>
+            </CopyableValue>
           )}
           {member.jobTitle && (
             <p className="text-[13px] font-medium text-ink-500">{member.jobTitle}</p>
@@ -213,7 +219,9 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
             </a>
           )}
           {member.workAddress && (
-            <p className="text-[13px] font-medium text-ink-500 mt-1">{member.workAddress}</p>
+            <CopyableValue value={member.workAddress} label="Work address">
+              <p className="text-[13px] font-medium text-ink-500 mt-1">{member.workAddress}</p>
+            </CopyableValue>
           )}
         </div>
       )}
@@ -281,9 +289,11 @@ function InfoRow({
       <p className={`section-label flex items-center gap-1 mb-1 ${accent ? 'text-honey-700' : ''}`}>
         {icon} {label}
       </p>
-      <p className={`text-[14px] font-medium leading-snug ${accent ? 'text-honey-900 font-semibold' : 'text-ink-800'}`}>
-        {value}
-      </p>
+      <CopyableValue value={value} label={label}>
+        <p className={`text-[14px] font-medium leading-snug ${accent ? 'text-honey-900 font-semibold' : 'text-ink-800'}`}>
+          {value}
+        </p>
+      </CopyableValue>
     </div>
   );
 }

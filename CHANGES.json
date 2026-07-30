@@ -1,11 +1,12 @@
 {
-  "label": "v173",
+  "label": "v174",
   "changes": [
+    "Long-press (or click) now works on any displayed block of info — chronic conditions, allergies, medications, blood type, emergency contact, employer — not just ID numbers, to Copy or Share it.",
+    "That same long-press menu now has a \"Scan\" option: snap or pick a photo relevant to what you're looking at, and it opens the assistant with that photo already attached and a note about what it's for, ready for you to send.",
     "Tap any item on a family member's Belongings card to see everything on file for it — not just the name, but make/model, serial number, purchase price, warranty, where it's kept, and photos — with an edit form right there if you're an admin.",
     "Fixed: photographing an item you'd already filed (e.g. a medical device) and asking the assistant to update it created a second, duplicate entry instead of correcting the original. The assistant can now see what's already in the inventory and will update the existing item — or ask, if it's genuinely unsure — rather than guess and file a duplicate.",
     "Fixed: a photo attached to an \"add this to our things\" message was silently dropped — only the text details were saved. The photo is now kept with the item.",
     "You can now also ask the assistant to remove or correct an item in the family inventory by name, the same way you can for passports, vehicles and receipts.",
-    "Long-press (or click) any ID number, e-card number, or similar value on screen for a quick Copy or Share menu — no more selecting text by hand.",
     "Filled real gaps found in a full audit of what the assistant can set vs. what you can edit yourself: Austria now has fields for ID document type, birth certificate number, and private health insurance number; added a garage code field to Household; added Nationality and Gender to a family member's profile.",
     "Renamed \"Sozialversicherungsnummer (SV)\" to \"Social Security Number (Sozialversicherungsnummer / SV number)\" — several people couldn't find it by searching for the English term.",
     "Government ID numbers (SV numbers, passport numbers, tax numbers and the rest), household access codes, and bank details are now encrypted the same way saved passwords always have been — a database copy or leak no longer exposes them in plain text. Security page updated with the details.",
@@ -16,7 +17,6 @@
     "The welcome tour now mentions Calendar sync and Google Drive, and fixed a step that was silently never showing.",
     "You can now join a second family or business space with an invite code from the menu under your family's name, not just the very first time you sign in.",
     "The assistant can now read and update the family status line (\"everyone's at Oma's until Sunday\") — it could see everything else but not that, until now.",
-    "Fixed: a save that failed while you were offline could later be silently overwritten and lost the next time the app reconnected — it's now protected until it actually syncs.",
-    "A round of care and polish throughout: touch targets, scrolling behind pop-ups, and a few small account-security tightenings."
+    "Fixed: a save that failed while you were offline could later be silently overwritten and lost the next time the app reconnected — it's now protected until it actually syncs."
   ]
 }

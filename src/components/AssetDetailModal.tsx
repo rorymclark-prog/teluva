@@ -3,6 +3,7 @@ import {
   Package, Pencil, Trash2, Camera, Loader2, X, Receipt, ChevronLeft, ChevronRight, Plus, ShieldAlert,
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import CopyableValue from './CopyableValue';
 import type { AssetItem } from '../types';
 import { saveAsset, deleteAsset, uploadAssetPhoto, deleteAssetPhoto } from '../utils/db';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -125,7 +126,9 @@ export default function AssetDetailModal({
     value ? (
       <div className="flex items-baseline justify-between gap-4 py-1.5">
         <span className="text-[11.5px] font-semibold text-ink-400 uppercase tracking-wider shrink-0">{label}</span>
-        <span className="text-[13.5px] text-ink-800 text-right">{value}</span>
+        <CopyableValue value={value} label={label}>
+          <span className="text-[13.5px] text-ink-800 text-right">{value}</span>
+        </CopyableValue>
       </div>
     ) : null;
 
@@ -186,7 +189,9 @@ export default function AssetDetailModal({
             {item.notes && (
               <div>
                 <p className="text-[11.5px] font-semibold text-ink-400 uppercase tracking-wider mb-1">Notes</p>
-                <p className="text-[13.5px] text-ink-700 whitespace-pre-wrap">{item.notes}</p>
+                <CopyableValue value={item.notes} label="Notes">
+                  <p className="text-[13.5px] text-ink-700 whitespace-pre-wrap">{item.notes}</p>
+                </CopyableValue>
               </div>
             )}
 

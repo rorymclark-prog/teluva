@@ -270,7 +270,9 @@ export default function EmergencyCard({
                   <Droplet className="w-3.5 h-3.5" /> Blood type
                 </p>
                 {med?.bloodGroup ? (
-                  <p className="text-6xl sm:text-7xl font-black leading-none mt-1.5 tabular-nums">{med.bloodGroup}</p>
+                  <CopyableValue value={med.bloodGroup} label="Blood type">
+                    <p className="text-6xl sm:text-7xl font-black leading-none mt-1.5 tabular-nums">{med.bloodGroup}</p>
+                  </CopyableValue>
                 ) : (
                   <p className="text-lg font-semibold text-honey-200 mt-2 italic">Not on file</p>
                 )}
@@ -282,7 +284,9 @@ export default function EmergencyCard({
                   <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-white/80">
                     <AlertTriangle className="w-4 h-4" /> Allergies
                   </p>
-                  <p className="text-2xl sm:text-3xl font-extrabold leading-snug mt-1.5">{med.allergies}</p>
+                  <CopyableValue value={med.allergies} label="Allergies">
+                    <p className="text-2xl sm:text-3xl font-extrabold leading-snug mt-1.5">{med.allergies}</p>
+                  </CopyableValue>
                 </div>
               ) : (
                 <div className="rounded-2xl bg-sage-100 text-sage-700 p-4 flex items-center gap-2">
@@ -352,7 +356,9 @@ export default function EmergencyCard({
                     {(selected.emergencyContactName || selected.emergencyContactPhone) && (
                       <div>
                         {selected.emergencyContactName && (
-                          <p className="text-lg font-bold text-ink-900">{selected.emergencyContactName}</p>
+                          <CopyableValue value={selected.emergencyContactName} label="Emergency contact name">
+                            <p className="text-lg font-bold text-ink-900">{selected.emergencyContactName}</p>
+                          </CopyableValue>
                         )}
                         {selected.emergencyContactPhone && (
                           <a
@@ -369,7 +375,9 @@ export default function EmergencyCard({
                         <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wide">Also try</p>
                         {fallbackContacts.map((c) => (
                           <div key={c.id} className="flex items-baseline gap-2 flex-wrap">
-                            <span className="text-[13px] font-semibold text-ink-800">{c.name}</span>
+                            <CopyableValue value={c.name} label="Contact name">
+                              <span className="text-[13px] font-semibold text-ink-800">{c.name}</span>
+                            </CopyableValue>
                             <a
                               href={`tel:${c.phone.replace(/\s+/g, '')}`}
                               className="text-[13px] font-mono tabular-nums font-semibold text-sage-700 hover:underline"
@@ -415,7 +423,9 @@ function InfoTile({
       >
         {icon} {label}
       </p>
-      <p className={`text-[15px] font-semibold leading-snug mt-1 ${accent ? 'text-honey-900' : 'text-ink-800'}`}>{value}</p>
+      <CopyableValue value={value} label={label}>
+        <p className={`text-[15px] font-semibold leading-snug mt-1 ${accent ? 'text-honey-900' : 'text-ink-800'}`}>{value}</p>
+      </CopyableValue>
     </div>
   );
 }
