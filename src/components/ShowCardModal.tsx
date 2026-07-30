@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { looksLikePdf } from '../utils/fileType';
 import { canShare, shareFile } from '../utils/share';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import CopyableValue from './CopyableValue';
 
 export interface ShowCardField {
   label: string;
@@ -110,11 +111,13 @@ export default function ShowCardModal({ open, onClose, title, subtitle, fields =
                   {fields.map((f, i) => (
                     <div key={i}>
                       <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wide">{f.label}</p>
-                      <p
-                        className={`${f.big ? 'text-3xl sm:text-4xl' : 'text-lg'} ${f.mono ? 'font-mono' : 'font-semibold'} text-ink-900 break-words leading-tight`}
-                      >
-                        {f.value}
-                      </p>
+                      <CopyableValue value={f.value} label={f.label}>
+                        <p
+                          className={`${f.big ? 'text-3xl sm:text-4xl' : 'text-lg'} ${f.mono ? 'font-mono' : 'font-semibold'} text-ink-900 break-words leading-tight`}
+                        >
+                          {f.value}
+                        </p>
+                      </CopyableValue>
                     </div>
                   ))}
                 </div>

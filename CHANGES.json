@@ -1,6 +1,9 @@
 {
-  "label": "v171",
+  "label": "v172",
   "changes": [
+    "Long-press (or click) any ID number, e-card number, or similar value on screen for a quick Copy or Share menu — no more selecting text by hand.",
+    "Filled real gaps found in a full audit of what the assistant can set vs. what you can edit yourself: Austria now has fields for ID document type, birth certificate number, and private health insurance number; added a garage code field to Household; added Nationality and Gender to a family member's profile.",
+    "Renamed \"Sozialversicherungsnummer (SV)\" to \"Social Security Number (Sozialversicherungsnummer / SV number)\" — several people couldn't find it by searching for the English term.",
     "Government ID numbers (SV numbers, passport numbers, tax numbers and the rest), household access codes, and bank details are now encrypted the same way saved passwords always have been — a database copy or leak no longer exposes them in plain text. Security page updated with the details.",
     "Fixed: passport numbers were being sent to the AI assistant along with the question you asked it — they're now held back like every other ID number, only the country and expiry stay visible.",
     "The assistant now asks which number you mean when correcting an SV number or e-card number, instead of guessing — the two look alike but are different fields.",

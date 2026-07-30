@@ -446,6 +446,7 @@ export interface BusinessLocation {
 export interface HouseholdInfo {
   address?: string;
   doorCode?: string;
+  garageCode?: string;
   wifiName?: string;
   wifiPassword?: string;
   utilities?: UtilityProvider[];

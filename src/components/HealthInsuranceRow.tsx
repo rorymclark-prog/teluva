@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Maximize2, HeartPulse } from 'lucide-react';
 import { FamilyMember, IdentityRecord, IdCountry } from '../types';
 import ShowCardModal from './ShowCardModal';
+import CopyableValue from './CopyableValue';
 import { findIdentityScan } from './MemberIDs';
 
 // Which health-insurance identifier actually exists in this country, and what it
@@ -119,9 +120,11 @@ export default function HealthInsuranceRow({ member, country }: Props) {
             <HeartPulse className="w-3.5 h-3.5 text-honey-700" />
             {shape.label}
           </p>
-          <p className="text-[26px] sm:text-[30px] font-mono tabular-nums font-bold text-ink-900 leading-tight break-words mt-1">
-            {number}
-          </p>
+          <CopyableValue value={number} label={shape.label}>
+            <p className="text-[26px] sm:text-[30px] font-mono tabular-nums font-bold text-ink-900 leading-tight break-words mt-1">
+              {number}
+            </p>
+          </CopyableValue>
           {companions.length > 0 && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {companions.map(c => (

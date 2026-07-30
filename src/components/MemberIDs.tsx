@@ -476,7 +476,7 @@ function IdentitySection({
             />
           </div>
           <div>
-            <label className="field-label">Sozialversicherungsnummer (SV)</label>
+            <label className="field-label">Social Security Number (Sozialversicherungsnummer / SV number)</label>
             <input
               className="field font-mono tabular-nums"
               placeholder="e.g. 1234 010190"
@@ -539,6 +539,49 @@ function IdentitySection({
           <BookOpen className="w-3 h-3" /> Residence &amp; national
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="field-label">ID document type</label>
+            <select
+              className="field"
+              value={val('idDocumentType')}
+              onChange={(e) => onChange({ ...identity, idDocumentType: e.target.value || undefined })}
+            >
+              <option value="">Select…</option>
+              <option value="Personalausweis (ID card)">Personalausweis (ID card)</option>
+              <option value="Foreign passport">Foreign passport</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <IdentityLabelRow
+              label="Unabridged birth certificate no."
+              scan={findIdentityScan('birthCertNumber', documents)}
+              onViewScan={onViewScan}
+              viewTitle="View scanned birth certificate"
+            />
+            <input
+              className="field font-mono tabular-nums"
+              placeholder="Birth certificate number"
+              value={val('birthCertNumber')}
+              onChange={set('birthCertNumber')}
+              onBlur={() => onChange({ ...identity })}
+            />
+          </div>
+          <div>
+            <IdentityLabelRow
+              label="Private health insurance number"
+              scan={findIdentityScan('medicalAidNumber', documents)}
+              onViewScan={onViewScan}
+              viewTitle="View scanned private insurance card"
+            />
+            <input
+              className="field font-mono tabular-nums"
+              placeholder="Zusatzversicherung member number (public e-Card is above)"
+              value={val('medicalAidNumber')}
+              onChange={set('medicalAidNumber')}
+              onBlur={() => onChange({ ...identity })}
+            />
+          </div>
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">Residence permit number</label>
@@ -835,6 +878,18 @@ function GenericIdentityFields({ identity, val, set, onChange, documents, onView
     <div className="space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
+          <label className="field-label">ID document type</label>
+          <input className="field" placeholder="e.g. National ID card, foreign passport" value={val('idDocumentType')} onChange={set('idDocumentType')} onBlur={() => onChange({ ...identity })} />
+        </div>
+        <div>
+          <IdentityLabelRow label="Birth certificate number" scan={findIdentityScan('birthCertNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned birth certificate" />
+          <input className="field font-mono tabular-nums" placeholder="Birth certificate number" value={val('birthCertNumber')} onChange={set('birthCertNumber')} onBlur={() => onChange({ ...identity })} />
+        </div>
+        <div>
+          <IdentityLabelRow label="Health insurance / medical aid number" scan={findIdentityScan('medicalAidNumber', documents)} onViewScan={onViewScan} viewTitle="View scanned health insurance card" />
+          <input className="field font-mono tabular-nums" placeholder="Health insurance member number" value={val('medicalAidNumber')} onChange={set('medicalAidNumber')} onBlur={() => onChange({ ...identity })} />
+        </div>
+        <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-[13px] font-semibold text-ink-600">National ID number</label>
             <div className="flex items-center gap-1">
@@ -895,6 +950,19 @@ function UKFields({ identity, val, set, onChange, documents, onViewScan, memberN
           <MapPin className="w-3 h-3" /> Identity
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="field-label">ID document type</label>
+            <select
+              className="field"
+              value={val('idDocumentType')}
+              onChange={(e) => onChange({ ...identity, idDocumentType: e.target.value || undefined })}
+            >
+              <option value="">Select…</option>
+              <option value="Biometric residence permit">Biometric residence permit</option>
+              <option value="Foreign passport">Foreign passport</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-semibold text-ink-600">National Insurance number</label>

@@ -11,6 +11,7 @@ import {
 const EMPTY: HouseholdInfo = {
   address: '',
   doorCode: '',
+  garageCode: '',
   wifiName: '',
   wifiPassword: '',
   utilities: [],
@@ -98,16 +99,29 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
               onBlur={() => persist(info)}
             />
           </div>
-          <div>
-            <label className="field-label">Door code</label>
-            <input
-              className="field font-mono"
-              type="text"
-              placeholder="e.g. #1234"
-              value={info.doorCode ?? ''}
-              onChange={(e) => setInfo({ ...info, doorCode: e.target.value })}
-              onBlur={() => persist(info)}
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="field-label">Door code</label>
+              <input
+                className="field font-mono"
+                type="text"
+                placeholder="e.g. #1234"
+                value={info.doorCode ?? ''}
+                onChange={(e) => setInfo({ ...info, doorCode: e.target.value })}
+                onBlur={() => persist(info)}
+              />
+            </div>
+            <div>
+              <label className="field-label">Garage code</label>
+              <input
+                className="field font-mono"
+                type="text"
+                placeholder="e.g. #5678"
+                value={info.garageCode ?? ''}
+                onChange={(e) => setInfo({ ...info, garageCode: e.target.value })}
+                onBlur={() => persist(info)}
+              />
+            </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>

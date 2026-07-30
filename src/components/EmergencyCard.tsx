@@ -9,6 +9,7 @@ import type { FamilyMember, CalendarEvent, IdCountry } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import EmergencyNumbersBanner from './EmergencyNumbersBanner';
 import EmptyState from './EmptyState';
+import CopyableValue from './CopyableValue';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // A compact, self-contained plain-text ICE summary encoded into the QR so a
@@ -318,12 +319,16 @@ export default function EmergencyCard({
                   </p>
                   <div className="mt-1.5 space-y-1">
                     {selected.identity?.eCardNumber && (
-                      <p className="font-mono tabular-nums text-[15px] font-semibold text-ink-900">
-                        {selected.identity.eCardNumber}
-                      </p>
+                      <CopyableValue value={selected.identity.eCardNumber} label="e-card number">
+                        <p className="font-mono tabular-nums text-[15px] font-semibold text-ink-900">
+                          {selected.identity.eCardNumber}
+                        </p>
+                      </CopyableValue>
                     )}
                     {selected.identity?.svNumber && (
-                      <p className="font-mono tabular-nums text-[13px] text-ink-600">SV {selected.identity.svNumber}</p>
+                      <CopyableValue value={selected.identity.svNumber} label="SV number">
+                        <p className="font-mono tabular-nums text-[13px] text-ink-600">SV {selected.identity.svNumber}</p>
+                      </CopyableValue>
                     )}
                   </div>
                 </div>

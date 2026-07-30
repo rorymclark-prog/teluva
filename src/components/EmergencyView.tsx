@@ -4,6 +4,7 @@ import { calculateAge } from './Dashboard';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import EmergencyNumbersBanner from './EmergencyNumbersBanner';
 import EmptyState from './EmptyState';
+import CopyableValue from './CopyableValue';
 import {
   Phone, Heart, AlertTriangle, Pill, Activity,
   CreditCard, Leaf, Users, Briefcase
@@ -229,7 +230,9 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
                 <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wide w-24 shrink-0">
                   SV number
                 </span>
-                <span className="font-mono tabular-nums text-[14px] font-semibold text-ink-900">{identity!.svNumber}</span>
+                <CopyableValue value={identity!.svNumber || ''} label="SV number">
+                  <span className="font-mono tabular-nums text-[14px] font-semibold text-ink-900">{identity!.svNumber}</span>
+                </CopyableValue>
               </div>
             )}
             {hasEcard && (
@@ -237,7 +240,9 @@ function MemberEmergencyCard({ member }: { member: FamilyMember }) {
                 <span className="text-[11px] font-bold text-ink-400 uppercase tracking-wide w-24 shrink-0">
                   e-card
                 </span>
-                <span className="font-mono tabular-nums text-[14px] font-semibold text-ink-900">{identity!.eCardNumber}</span>
+                <CopyableValue value={identity!.eCardNumber || ''} label="e-card number">
+                  <span className="font-mono tabular-nums text-[14px] font-semibold text-ink-900">{identity!.eCardNumber}</span>
+                </CopyableValue>
               </div>
             )}
           </div>

@@ -44,6 +44,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [birthdate, setBirthdate] = useState('');
   const [birthTime, setBirthTime] = useState('');
   const [placeOfBirth, setPlaceOfBirth] = useState('');
+  const [nationality, setNationality] = useState('');
+  const [gender, setGender] = useState('');
   // Kept as strings so a half-typed "-33." doesn't get coerced to NaN mid-edit.
   const [birthTimeZone, setBirthTimeZone] = useState('');
   const [birthLatitude, setBirthLatitude] = useState('');
@@ -105,6 +107,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setBirthdate(member.birthdate || '');
       setBirthTime(member.birthTime || '');
       setPlaceOfBirth(member.placeOfBirth || '');
+      setNationality(member.nationality || '');
+      setGender(member.gender || '');
       setBirthTimeZone(member.birthTimeZone || '');
       setBirthLatitude(member.birthLatitude !== undefined ? String(member.birthLatitude) : '');
       setBirthLongitude(member.birthLongitude !== undefined ? String(member.birthLongitude) : '');
@@ -286,6 +290,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       birthdate: birthdate || undefined,
       birthTime: birthTime || undefined,
       placeOfBirth: placeOfBirth.trim() || undefined,
+      nationality: nationality.trim() || undefined,
+      gender: gender.trim() || undefined,
       birthTimeZone: birthTimeZone || undefined,
       // Only stored when it parses to a real coordinate — birthChart.ts treats
       // an out-of-range value as no place at all, so saving junk here would
@@ -434,6 +440,17 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                 <div>
                   <label className="field-label">Place of birth <span className="normal-case text-ink-300 font-normal">· optional</span></label>
                   <input type="text" placeholder="e.g. Vienna, Austria" value={placeOfBirth} onChange={(e) => setPlaceOfBirth(e.target.value)} className="field" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="field-label">Nationality <span className="normal-case text-ink-300 font-normal">· optional</span></label>
+                  <input type="text" placeholder="e.g. Austrian, South African" value={nationality} onChange={(e) => setNationality(e.target.value)} className="field" />
+                </div>
+                <div>
+                  <label className="field-label">Gender <span className="normal-case text-ink-300 font-normal">· optional</span></label>
+                  <input type="text" placeholder="e.g. Female, Male, Non-binary" value={gender} onChange={(e) => setGender(e.target.value)} className="field" />
                 </div>
               </div>
 
