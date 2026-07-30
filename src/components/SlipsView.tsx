@@ -10,6 +10,7 @@ import { slipIsArchived, slipReturnClosed, suggestReturnBy } from '../utils/slip
 import { daysUntil } from '../utils/vehicle';
 import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -106,6 +107,11 @@ export default function SlipsView() {
     (v) => setSlips(v.slips || []),
     { hold: isFormOpen || photoUploading },
   );
+
+  // Two independent full-screen overlays (detail view, add/edit form) —
+  // each locks background scroll while it's the one showing.
+  useBodyScrollLock(!!viewingId);
+  useBodyScrollLock(isFormOpen);
 
   const persist = async (updated: SlipItem[]) => {
     setSlips(updated);

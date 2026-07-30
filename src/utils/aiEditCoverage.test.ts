@@ -101,7 +101,15 @@ const MANUALLY_INCLUDED_FIELDS = ['cv'];
 // which are settings rather than the accumulating sections this bug hits.
 // Add a doc name here when it grows the kind of section a user would expect to
 // fill by talking to the assistant.
-const SHARED_DOC_INTERFACES = ['WillsEstateDoc'];
+//
+// 'HubSettings' added 2026-07-30 after a full-app audit found the SIXTH
+// instance of this exact bug class: HubSettings.status (the one-line "fridge
+// whiteboard") shipped with a dedicated UI (FamilyStatus.tsx) a day earlier
+// but was never wired into the AI edit pipeline, and this test's coverage
+// scan never looked at HubSettings at all — so nothing caught it. Scanning
+// HubSettings now closes that blind spot for every future field on it, not
+// just this one.
+const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings'];
 
 function extractRecordFields(body: string): string[] {
   const out: string[] = [];
@@ -204,6 +212,38 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // which is also why step 2b exists at all.
   'WillsEstateDoc.successor': covered('designated_successor'),
   'WillsEstateDoc.instructions': covered('emergency_instructions'),
+
+  // The sixth instance of this bug class (see SHARED_DOC_INTERFACES comment
+  // above) — wired up the same day the audit found it.
+  'HubSettings.status': covered('hub_status'),
+
+  // calendarFeeds is intentionally read-only to the AI, not covered by a
+  // write kind. Subscribing to a feed means pasting in another calendar's
+  // private URL, and it already has its own dedicated, reviewed UI
+  // (FamilyCalendar.tsx's subscription panel) — closer in kind to
+  // digitalAccounts (a credential a human types) than to a section the AI
+  // should be able to file into from a scan or a chat message. The context
+  // GAP (the assistant couldn't even see what someone was subscribed to,
+  // separately from not being able to edit it) was real and is fixed in
+  // AIChatbot.tsx's buildContext() (the "calendarSync" field).
+  'HubSettings.calendarFeeds': manual(
+    "Subscribing is pasting in another calendar's private URL — a credential-like " +
+    "action with its own dedicated UI (FamilyCalendar.tsx), not something to file " +
+    "from a scan or a passing chat message. The AI CAN read a summary of what's " +
+    "subscribed (buildContext()'s calendarSync field) — only writing is excluded."
+  ),
+
+  // A display-setting scalar (which country's ID field set to render), not a
+  // collection anyone accumulates by scanning documents — never the shape
+  // this bug class hits, and there is no plausible "file this by chat" flow
+  // for a family's own country. FamilySettings.tsx is the correct, deliberate
+  // place to change it.
+  'HubSettings.country': manual(
+    "A single display-setting value (which country's ID/passport field set to " +
+    "show), changed in FamilySettings.tsx. Not a collection a user accumulates by " +
+    "scanning documents, and there is no sensible 'file this from a document' flow " +
+    "for a family's own country — it is chosen once, by hand, not extracted."
+  ),
 };
 
 // timelapseGuide is NOT a collection (TimelapseGuide is a single fixed-shape

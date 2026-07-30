@@ -581,6 +581,19 @@ export interface TravelTimelineDoc {
 // licence) that fits most countries reasonably.
 export type IdCountry = 'AT' | 'ZA' | 'UK' | 'US' | 'other';
 
+// Named (rather than inlined on HubSettings.status) specifically so
+// aiEditCoverage.test.ts's regex-based scan of shared reference docs can
+// discover it automatically, the same way DesignatedSuccessor/
+// EmergencyInstructions are discoverable on WillsEstateDoc. An inline object
+// type is invisible to that scan — which is exactly how HubSettings.status
+// shipped invisible to the AI in the first place (see the "hub_status"
+// AiEdit kind and SHARED_DOC_INTERFACES in aiEditCoverage.test.ts).
+export interface HubStatus {
+  text: string;
+  by: string;   // display name of whoever set it
+  at: string;   // ISO timestamp
+}
+
 export interface HubSettings {
   hubName?: string;
   familyPhotoUrl?: string;   // compressed base64 thumbnail
@@ -604,11 +617,7 @@ export interface HubSettings {
    * Attributed and dated, because "Shyam is at his gran's this week" is only
    * useful if you know who said it and when.
    */
-  status?: {
-    text: string;
-    by: string;   // display name of whoever set it
-    at: string;   // ISO timestamp
-  };
+  status?: HubStatus;
 
   // Opt-in outbound Google Calendar sync (default OFF — undefined/false means
   // "don't touch the user's Google account"). When true, a NEW event created

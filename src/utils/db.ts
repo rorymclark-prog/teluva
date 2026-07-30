@@ -3,6 +3,7 @@ import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { mergeShared, mergeIdList } from './mergeShared';
+import { markDirty, clearDirty, isDirty } from './pendingSync';
 
 // Merge-base keys for the two id-index documents (metadata/members,
 // metadata/events). Namespaced away from the reference-doc keys so they can
@@ -111,6 +112,11 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
     console.error('LocalStorage fallback failed', e);
   }
 
+  // See pendingSync.ts: a write that didn't reach Firestore must not be
+  // silently discarded the next time this device successfully LOADS members
+  // (loadFamilyMembers checks this before it would overwrite localStorage).
+  if (cloudOk) clearDirty('members', FAMILY_ID); else markDirty('members', FAMILY_ID);
+
   return cloudOk;
 }
 
@@ -139,6 +145,27 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
 
   if (user) {
     try {
+      // See pendingSync.ts. A previous save of this device's members never
+      // reached Firestore, so the server read below would be OLDER than
+      // what's actually in localStorage right now — fetching it and
+      // overwriting localStorage would silently discard the unsynced edit.
+      // Retry the save first; whether it succeeds or not, serve what this
+      // device actually has rather than a stale server copy that would
+      // clobber it.
+      if (isDirty('members', FAMILY_ID)) {
+        const pendingRaw = localStorage.getItem(membersKey());
+        if (pendingRaw) {
+          try {
+            const pending = JSON.parse(pendingRaw) as FamilyMember[];
+            if (Array.isArray(pending)) {
+              await saveFamilyMembers(pending);   // clears the dirty flag on success
+              return pending.length > 0 ? pending : null;
+            }
+          } catch { /* corrupt local cache — fall through to a normal load */ }
+        }
+        clearDirty('members', FAMILY_ID);   // dirty but nothing sensible to resync — stale flag, drop it
+      }
+
       const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'members');
       const metaSnap = await getDoc(metaRef);
 
@@ -223,6 +250,9 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boole
     console.error('LocalStorage fallback failed', e);
   }
 
+  // See pendingSync.ts / saveFamilyMembers above for why this exists.
+  if (cloudOk) clearDirty('calendar', FAMILY_ID); else markDirty('calendar', FAMILY_ID);
+
   return cloudOk;
 }
 
@@ -231,6 +261,21 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
 
   if (user) {
     try {
+      // See loadFamilyMembers above for why this guard exists.
+      if (isDirty('calendar', FAMILY_ID)) {
+        const pendingRaw = localStorage.getItem(calendarKey());
+        if (pendingRaw) {
+          try {
+            const pending = JSON.parse(pendingRaw) as CalendarEvent[];
+            if (Array.isArray(pending)) {
+              await saveCalendarEvents(pending);   // clears the dirty flag on success
+              return pending.length > 0 ? pending : null;
+            }
+          } catch { /* corrupt local cache — fall through to a normal load */ }
+        }
+        clearDirty('calendar', FAMILY_ID);
+      }
+
       const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'events');
       const metaSnap = await getDoc(metaRef);
 
@@ -390,6 +435,10 @@ async function saveReferenceDoc<T>(key: string, value: T, localKey: string, base
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
+
+  // See pendingSync.ts / saveFamilyMembers above for why this exists.
+  if (cloudOk) clearDirty(key, FAMILY_ID); else markDirty(key, FAMILY_ID);
+
   return cloudOk;
 }
 
@@ -398,6 +447,22 @@ async function loadReferenceDoc<T>(key: string, localKey: string): Promise<T | n
   const user = auth.currentUser;
   if (user) {
     try {
+      // See loadFamilyMembers above for why this guard exists. getSeen(key)
+      // is untouched by a failed save (noteSeen only runs on success), so
+      // the retry below diffs against the same base the failed attempt did
+      // — this is a genuine retry, not a fresh, unrelated write.
+      if (isDirty(key, FAMILY_ID)) {
+        const pendingRaw = localStorage.getItem(scopedKey);
+        if (pendingRaw) {
+          try {
+            const pending = JSON.parse(pendingRaw) as T;
+            await saveReferenceDoc(key, pending, localKey);   // clears the dirty flag on success
+            return pending;
+          } catch { /* corrupt local cache — fall through to a normal load */ }
+        }
+        clearDirty(key, FAMILY_ID);
+      }
+
       const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', key));
       if (snap.exists()) {
         const data = snap.data() as T;

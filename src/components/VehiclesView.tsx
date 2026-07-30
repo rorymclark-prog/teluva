@@ -3,6 +3,7 @@ import { Car, Plus, Pencil, Trash2, X, CalendarClock, User, Gauge, ShieldCheck, 
 import { FamilyMember, HouseholdInfo, Vehicle, ServiceRecord } from '../types';
 import { loadHousehold, saveHousehold } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import RemoteChangeHint from './RemoteChangeHint';
 import { vehicleDeadlines, vehicleLabel, VehicleDeadline } from '../utils/vehicle';
 import SheetGrabber from './SheetGrabber';
@@ -40,6 +41,8 @@ export default function VehiclesView(
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  useBodyScrollLock(isFormOpen);
 
   useEffect(() => {
     if (demo) { setHousehold({ vehicles: [] }); setLoading(false); return; }

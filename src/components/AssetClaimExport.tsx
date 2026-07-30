@@ -3,6 +3,7 @@ import { FileDown, Printer, X, ShieldAlert } from 'lucide-react';
 import type { AssetItem } from '../types';
 import { parseAmount } from '../utils/money';
 import EmptyState from './EmptyState';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // The canonical claim list. If the list a family gives the police differs even
 // slightly from the one they give their insurer, payouts get cut 20-40% on
@@ -49,6 +50,11 @@ function csvRow(cells: string[]): string {
 
 export default function AssetClaimExport({ items, onClose }: { items: AssetItem[]; onClose: () => void }) {
   const [scope, setScope] = useState<Scope>('all');
+
+  // Parent only mounts this component while the modal should be visible
+  // ({showExport && <AssetClaimExport ... />} in Assets.tsx), so it is
+  // "always open" for the duration it exists in the tree.
+  useBodyScrollLock(true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

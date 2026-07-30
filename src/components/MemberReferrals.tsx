@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { FamilyMember, ReferralRecord, ReferralKind, ReferralStatus, HealthcareProvider } from '../types';
 import { loadFamilyInfo, uploadReferralFile, uploadReferralPhoto, deleteReferralFile } from '../utils/db';
 import { isDemoMode } from '../utils/demoData';
@@ -6,7 +6,8 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import { computeFileHash, hashDataUrl, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
 import { buildReferralGroups, ReferralSeries } from '../utils/referralGrouping';
 import PdfThumbnail from './PdfThumbnail';
-import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import type { ScannedFile } from './DocumentScannerModal';
+const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import {
   FileText, Camera, Upload, Plus, Trash2, Pencil, Check, X,
@@ -495,6 +496,12 @@ function ReferralForm({
 
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // Mount the (lazy) scanner once, the first time it's actually opened, and
+  // never unmount it again — otherwise an always-rendered-with-an-open-prop
+  // lazy component downloads its chunk on first paint regardless. See
+  // Dashboard.tsx's ExportPackModal for the same pattern and reasoning.
+  const [scannerEverOpened, setScannerEverOpened] = useState(false);
+  useEffect(() => { if (scannerOpen) setScannerEverOpened(true); }, [scannerOpen]);
   const [duplicateMatch, setDuplicateMatch] = useState<DupMatch<ReferralRecord> | null>(null);
   const [pendingHash, setPendingHash] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -790,14 +797,18 @@ function ReferralForm({
         </div>
       </form>
 
-      <DocumentScannerModal
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onUse={handleScannerResult}
-        title="Scan referral or result"
-        scanType="document"
-        filePrefix="referral"
-      />
+      {scannerEverOpened && (
+        <Suspense fallback={null}>
+          <DocumentScannerModal
+            open={scannerOpen}
+            onClose={() => setScannerOpen(false)}
+            onUse={handleScannerResult}
+            title="Scan referral or result"
+            scanType="document"
+            filePrefix="referral"
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, VaultDocument, ReferralRecord, HealthcareProvider } from '../types';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
@@ -32,13 +32,13 @@ import {
   hasRecipeEdits, applyRecipeEdits,
   hasEstateEdits, applyEstateEdits,
   hasSuccessorEdits, applySuccessorEdit, hasInstructionsEdits, applyInstructionsEdit,
+  hasStatusEdits, applyStatusEdit,
   hasSlipEdits, applySlipEdits,
   hasServiceRecordEdits, applyServiceRecordEdits,
 } from '../utils/aiApply';
 // EDIT/DELETE existing records (confirm-before-destroy) — real logic lives here.
 import { hasDestructiveEdits, applyDestructiveEdits } from '../utils/aiDestructive';
 import { AiEdit } from './AIChatbot';
-import ExportPackModal from './ExportPackModal';
 import type { PackRequest } from '../utils/exportPack';
 import {
   UndoRecord, UndoDomain,
@@ -76,11 +76,6 @@ import DocumentViewer from './DocumentViewer';
 import GrowthTracker from './GrowthTracker';
 import BirthdayTimelapse from './BirthdayTimelapse';
 import SecureSecrets from './SecureSecrets';
-import FamilyCalendar from './FamilyCalendar';
-import FamilyChat from './FamilyChat';
-import GoogleDriveSync from './GoogleDriveSync';
-import ShoppingList from './ShoppingList';
-import ImportantInfo from './ImportantInfo';
 import MemberFavorites from './MemberFavorites';
 import MemberMedical from './MemberMedical';
 import MemberOverview from './MemberOverview';
@@ -91,21 +86,10 @@ import MemberTravel from './MemberTravel';
 import CareSchedule from './CareSchedule';
 import MemberPreferences from './MemberPreferences';
 import MemberEmployeePreferences from './MemberEmployeePreferences';
-import EmergencyView from './EmergencyView';
-import HouseholdView from './HouseholdView';
-import FinancesView from './FinancesView';
-import InsuranceView from './InsuranceView';
 import MemberSayings from './MemberSayings';
 import MemberFavoriteQuotes from './MemberFavoriteQuotes';
-import FamilyWordsView from './FamilyWordsView';
-import VehiclesView from './VehiclesView';
 import SpaceSwitcher from './SpaceSwitcher';
-import { switchSpace, createSpace, renameSpace, readCachedFamilyMembers, loadChatHistory, NewBusinessExtra } from '../utils/db';
-import TimelineView from './TimelineView';
-import TravelTimelineView from './TravelTimelineView';
-import DocumentVault from './DocumentVault';
-import Assets from './Assets';
-import FamilyPasswords from './FamilyPasswords';
+import { switchSpace, createSpace, joinFamily, renameSpace, readCachedFamilyMembers, loadChatHistory, NewBusinessExtra } from '../utils/db';
 import OnThisDay from './OnThisDay';
 import FamilyWordOfDay from './FamilyWordOfDay';
 import FlashbackCard from './FlashbackCard';
@@ -118,11 +102,7 @@ import HealthTimeline from './HealthTimeline';
 import MemberCalendarDates from './MemberCalendarDates';
 import { sunSign, isSameLocalDay, blurbCacheKey } from '../utils/astrology';
 import { computeBirthChart } from '../utils/birthChart';
-import RecipeBook from './RecipeBook';
-import InMemoryView from './InMemoryView';
 import MemberCV from './MemberCV';
-import WillsEstateView from './WillsEstateView';
-import SlipsView from './SlipsView';
 import CelebrationOverlay from './CelebrationOverlay';
 import InstallPrompt from './InstallPrompt';
 import FirstRunTour from './FirstRunTour';
@@ -136,6 +116,58 @@ import {
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
   Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2} from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
+
+// Lazy-loaded main-view screens — audit finding, 2026-07-30. Exactly one of
+// these is ever visible at once (each renders behind a single `mainView ===
+// 'x'` gate below, mutually exclusive with all the others), but until now
+// every one was imported eagerly at the top of this file, so a user who only
+// ever opens Calendar still downloaded WillsEstateView, SlipsView, RecipeBook,
+// InMemoryView, TravelTimelineView, DocumentVault, GoogleDriveSync,
+// HouseholdView and FinancesView — 6,700+ lines across just those files —
+// inside the SAME chunk as the code they actually needed. `npm run build`
+// measured the result at 3.29MB minified (960KB gzip), well over Vite's
+// warning threshold. React.lazy + the single <Suspense> around the mainView
+// switch below gives each of these its own chunk, downloaded only the first
+// time its tab is actually opened.
+//
+// Deliberately NOT applied to whatever renders behind `mainView === 'profiles'`
+// — that is the very first thing every user sees, and lazy-loading it would
+// trade a smaller initial download for a guaranteed extra network round trip
+// on every single visit, the opposite of the point.
+const FamilyCalendar = React.lazy(() => import('./FamilyCalendar'));
+const ImportantInfo = React.lazy(() => import('./ImportantInfo'));
+const EmergencyView = React.lazy(() => import('./EmergencyView'));
+const HouseholdView = React.lazy(() => import('./HouseholdView'));
+const FinancesView = React.lazy(() => import('./FinancesView'));
+const InsuranceView = React.lazy(() => import('./InsuranceView'));
+const FamilyWordsView = React.lazy(() => import('./FamilyWordsView'));
+const VehiclesView = React.lazy(() => import('./VehiclesView'));
+const TimelineView = React.lazy(() => import('./TimelineView'));
+const TravelTimelineView = React.lazy(() => import('./TravelTimelineView'));
+const DocumentVault = React.lazy(() => import('./DocumentVault'));
+const ShoppingList = React.lazy(() => import('./ShoppingList'));
+const FamilyChat = React.lazy(() => import('./FamilyChat'));
+const GoogleDriveSync = React.lazy(() => import('./GoogleDriveSync'));
+const Assets = React.lazy(() => import('./Assets'));
+const RecipeBook = React.lazy(() => import('./RecipeBook'));
+const InMemoryView = React.lazy(() => import('./InMemoryView'));
+const WillsEstateView = React.lazy(() => import('./WillsEstateView'));
+const SlipsView = React.lazy(() => import('./SlipsView'));
+const FamilyPasswords = React.lazy(() => import('./FamilyPasswords'));
+const ExportPackModal = React.lazy(() => import('./ExportPackModal'));
+
+// Shown only while the ACTIVE tab's chunk is still downloading — on a repeat
+// visit (already cached) or a fast connection this never appears at all.
+// Matches the height/centering of the loading state already used elsewhere
+// in this file (see the auth-loading spinner) so switching tabs doesn't
+// visibly jolt the layout.
+function ViewLoading() {
+  return (
+    <div className="flex justify-center py-20">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-clay-500"></div>
+    </div>
+  );
+}
 
 export function calculateAge(birthdate?: string): string | null {
   if (!birthdate) return null;
@@ -303,6 +335,15 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const handleSwitchSpace = async (spaceId: string) => {
     await switchSpace(spaceId);
     window.location.reload();
+  };
+  // SpaceSwitcher's "Join another space" form calls this — see its own doc
+  // comment for why this needs to exist independent of the /join/{code}
+  // signed-out flow in FamilyOnboarding.tsx (that one only ever runs for an
+  // account with no space yet; this is for everyone else).
+  const handleJoinSpace = async (code: string) => {
+    await joinFamily(code);
+    // SpaceSwitcher reloads the page itself once this promise resolves —
+    // matches every other space-changing action (switch, create).
   };
   const handleCreateSpace = async (name: string, extra?: NewBusinessExtra) => {
     await createSpace(name, 'business', extra);
@@ -1155,6 +1196,21 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       if (!ok) failures.push('slips');
       else undo.push(...mapNewIds(current, after, 'slip', (s: any) => s.item || 'slip'));
     }
+    // The one-line family status (HubSettings.status) — the sixth instance of
+    // this codebase's own named bug class, "invisible to the AI": it shipped
+    // with a dedicated UI but was never wired into the edit pipeline until
+    // now. `settings` doubles as both the merge base and the value-with-one-
+    // field-changed, so saveSettings's diff sees ONLY status as this write's
+    // intent — everything else on the doc (calendarFeeds, country, etc.) is
+    // left exactly as the server already has it, never overwritten.
+    if (hasStatusEdits(edits)) {
+      const authorName = currentUser?.displayName || currentUser?.email || 'Someone';
+      const nextStatus = applyStatusEdit(settings.status, edits, authorName);
+      const nextSettings = { ...settings, status: nextStatus };
+      const ok = await saveSettings(nextSettings, settings);
+      if (!ok) failures.push('family status');
+      else setSettings(nextSettings);
+    }
     // DESTRUCTIVE edits (delete_record / update_record) run LAST — after every
     // create/append above has been saved — so applyDestructiveEdits re-resolves
     // each target id against the freshest saved data and can't act on a record a
@@ -1431,6 +1487,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // whatever did load and the confirm screen shows the real counts, so the user
   // sees a short list rather than being told everything is there when it isn't.
   const [exportRequest, setExportRequest] = useState<PackRequest | null>(null);
+  // Mount ExportPackModal once, the first time it's actually needed, and never
+  // unmount it again for the rest of the session — see the lazy import below
+  // for why "mounted" and "needed" have to be different things here (jsPDF).
+  const [exportEverRequested, setExportEverRequested] = useState(false);
+  useEffect(() => { if (exportRequest) setExportEverRequested(true); }, [exportRequest]);
   const [exportVaultDocs, setExportVaultDocs] = useState<VaultDocument[]>([]);
   const [exportProviders, setExportProviders] = useState<HealthcareProvider[]>([]);
 
@@ -1925,6 +1986,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 canCreate={canWrite}
                 onSwitch={handleSwitchSpace}
                 onCreate={handleCreateSpace}
+                onJoin={handleJoinSpace}
                 title={hubName}
                 footer={accountMenuItems}
               />
@@ -1972,6 +2034,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
+        {/* Suspense wraps every lazy-loaded mainView branch below — see the
+            React.lazy declarations near the top of this file for why. It also
+            wraps 'profiles' further down, harmlessly: nothing inside that
+            branch is lazy, so it can never actually suspend. */}
+        <Suspense fallback={<ViewLoading />}>
         {mainView === 'calendar' && (
           <FamilyCalendar
             members={members}
@@ -2542,6 +2609,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             )}
           </>
         )}
+        </Suspense>
       </main>
 
       {/* Footer with honest sync status */}
@@ -2699,16 +2767,26 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         />
       )}
 
-      <ExportPackModal
-        open={!!exportRequest}
-        request={exportRequest}
-        members={members}
-        events={events}
-        vaultDocuments={exportVaultDocs}
-        providers={exportProviders}
-        spaceName={settings.familyName}
-        onClose={() => setExportRequest(null)}
-      />
+      {/* jsPDF (~336KB minified — roughly 10% of the OLD main chunk) only
+          arrives on the wire the first time someone actually asks to export a
+          pack, via ExportPackModal.tsx's static `import jsPDF from 'jspdf'`.
+          Stays mounted once opened (rather than unmounting the instant
+          exportRequest goes back to null) so its own close animation
+          (AnimatePresence around its `open` prop) still plays normally. */}
+      {exportEverRequested && (
+        <Suspense fallback={null}>
+          <ExportPackModal
+            open={!!exportRequest}
+            request={exportRequest}
+            members={members}
+            events={events}
+            vaultDocuments={exportVaultDocs}
+            providers={exportProviders}
+            spaceName={settings.familyName}
+            onClose={() => setExportRequest(null)}
+          />
+        </Suspense>
+      )}
 
       <AiConsentModal
         open={consentOpen}

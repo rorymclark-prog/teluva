@@ -3,6 +3,7 @@ import { Package, Camera, Loader2, ChevronLeft, ChevronRight, X } from 'lucide-r
 import type { AssetItem } from '../types';
 import { loadAssets, saveAsset, uploadAssetPhoto } from '../utils/db';
 import { compressImageToAvatar } from '../utils/imageCompress';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 const EXTRA_PHOTO_CAP = 12; // extras live in Storage, so the cap is generous
 
@@ -53,6 +54,11 @@ export default function MemberBelongings(
   const [galleryIdx, setGalleryIdx] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const pendingItemRef = useRef<string | null>(null);
+
+  // Gallery lightbox is an internally-managed overlay (not parent-gated), so
+  // lock body scroll based on its own open state — matches AddMemberModal's
+  // pattern but with the boolean this component actually owns.
+  useBodyScrollLock(!!gallery && gallery.length > 0);
 
   useEffect(() => {
     let cancelled = false;

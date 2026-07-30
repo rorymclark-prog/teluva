@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, type ElementType } from 'react';
 import { createPortal } from 'react-dom';
 import { Menu, Check, Search, X } from 'lucide-react';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface NavView {
   id: string;
@@ -83,6 +84,11 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
   // rendered inline inside `ref` and so was always correctly "inside".
   const sheetRef = useRef<HTMLDivElement>(null);
   const currentView = views.find((v) => v.id === current);
+
+  // The phone bottom sheet below is a `fixed inset-0` overlay portalled to
+  // <body>; without this, iOS Safari lets the page behind it pan/rubber-band
+  // while the sheet is open, and the scroll position can desync on close.
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (!open) return;

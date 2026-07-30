@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Users, Briefcase, User, ChevronDown, Check, Loader2, Plus, X, Sparkles } from 'lucide-react';
+import { Users, Briefcase, User, ChevronDown, Check, Loader2, Plus, X, Sparkles, KeyRound } from 'lucide-react';
 import { SpaceMembership, SpaceType } from '../types';
 import { NewBusinessExtra, suggestBusinessInfo } from '../utils/db';
 
@@ -37,12 +37,19 @@ function SuggestedTag({ onClear }: { onClear: () => void }) {
  *
  * Still renders with a single space, so "create a business" stays reachable.
  */
-export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, onCreate, avatar, title, footer }: {
+export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, onCreate, onJoin, avatar, title, footer }: {
   spaces: SpaceMembership[];
   activeId: string | null;
   canCreate: boolean;
   onSwitch: (spaceId: string) => Promise<void>;
   onCreate: (name: string, extra?: NewBusinessExtra) => Promise<void>;
+  /**
+   * Join a DIFFERENT space with an invite code — independent of `canCreate`,
+   * since accepting an invite to somewhere else has nothing to do with
+   * permissions on the space currently open. Any signed-in member can always
+   * try; the server is the real gate (a bad/used/expired code just errors).
+   */
+  onJoin: (code: string) => Promise<void>;
   /** The hub photo / shield, rendered inside the trigger. */
   avatar?: React.ReactNode;
   /** The hub name. Falls back to the active space's own name. */
@@ -55,6 +62,8 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
   const newNameRef = useRef(''); // mirrors newName so the async suggestion fetch can check the LATEST value, not a stale closure
   const ref = useRef<HTMLDivElement>(null);
 
@@ -121,6 +130,25 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
     }
   };
 
+  const resetJoinForm = () => { setJoining(false); setJoinCode(''); };
+
+  const join = async () => {
+    const code = joinCode.trim();
+    if (!code || busy) return;
+    setBusy(true); setError(null);
+    try {
+      await onJoin(code);
+      // Matches FamilyOnboarding.tsx's own join flow: a full reload picks up
+      // the new space everywhere at once (nav, claims, cached data) rather
+      // than trying to thread "a space was just added" through every piece
+      // of state that cares.
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not join that space.');
+      setBusy(false);
+    }
+  };
+
   const create = async () => {
     const name = newName.trim();
     if (!name || busy) return;
@@ -148,6 +176,7 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
     <div ref={ref} className="relative min-w-0">
       <button
         type="button"
+        data-tour="data-controls"
         onClick={() => setOpen((o) => !o)}
         disabled={busy}
         aria-haspopup="menu"
@@ -185,7 +214,7 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
             );
           })}
 
-          {canCreate && (
+          {canCreate && !joining && (
             <>
               <div className="my-1.5 border-t border-cream-200" />
               {creating ? (
@@ -270,6 +299,49 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
             </>
           )}
 
+          {/* Join a DIFFERENT space with an invite code — deliberately NOT
+              gated behind canCreate. Before this, a second invite link only
+              ever worked for a brand-new account: FamilyOnboarding.tsx's
+              codeFromUrl() auto-submit only mounts while familyId is still
+              null, so anyone who already had a space (the common case for a
+              second invite — you're already in your own family, someone
+              else invites you into theirs) had no way to accept it at all;
+              the link just silently opened their existing dashboard. */}
+          {!creating && (
+            <>
+              <div className="my-1.5 border-t border-cream-200" />
+              {joining ? (
+                <div className="p-2 space-y-2">
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Invite code"
+                    value={joinCode}
+                    onChange={(e) => setJoinCode(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void join(); }}
+                    className="field w-full text-[13px]"
+                    disabled={busy}
+                  />
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={resetJoinForm} disabled={busy} className="btn-quiet text-[12px] px-2.5 py-1.5 flex-1">Cancel</button>
+                    <button type="button" onClick={() => void join()} disabled={busy || !joinCode.trim()} className="btn-primary text-[12px] px-2.5 py-1.5 flex-1 disabled:opacity-40">
+                      {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Join'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setJoining(true)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-semibold text-ink-600 hover:bg-cream-100 transition-colors cursor-pointer"
+                >
+                  <KeyRound className="w-4 h-4 shrink-0" />
+                  <span>Join another space with a code</span>
+                </button>
+              )}
+            </>
+          )}
+
           {error && (
             <div className="flex items-start gap-1.5 mt-1 px-2.5 py-1.5 text-[11px] text-rosa-600">
               <span className="flex-1">{error}</span>
@@ -280,7 +352,7 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
           {/* Account actions. Closing on click is handled here rather than in
               each item, so the caller can pass plain buttons and a <label>
               file-picker without every one of them knowing about this menu. */}
-          {footer && !creating && (
+          {footer && !creating && !joining && (
             <div onClick={() => setOpen(false)}>
               <div className="my-1.5 border-t border-cream-200" />
               {footer}

@@ -12,6 +12,7 @@ import EmergencyNumbersBanner from './EmergencyNumbersBanner';
 import EmptyState from './EmptyState';
 import { auth } from '../lib/firebase';
 import { createCarerShare, revokeCarerShare, type CarerShareSnapshot } from '../utils/db';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Babysitter / Carer mode — a safe, READ-ONLY handover screen.
@@ -63,6 +64,8 @@ interface Props {
 }
 
 export default function BabysitterMode({ members, events, country, onClose }: Props) {
+  useBodyScrollLock(true);
+
   const children = useMemo(() => members.filter((m) => m.role === 'Child'), [members]);
   const householdAdults = useMemo(
     () => members.filter((m) => m.role !== 'Child' && m.phone),

@@ -8,6 +8,7 @@ import { motion } from 'motion/react';
 import { FamilyMember, CalendarEvent } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import EmptyState from './EmptyState';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // ── Small, dependency-free helpers (this file owns all its own math) ───────
 
@@ -171,6 +172,10 @@ export default function FamilyStats({ members, events, onClose }: {
   onClose: () => void;
 }) {
   const [selectedId, setSelectedId] = useState<string>('all');
+
+  // Parent only mounts this component while the modal should be visible
+  // ({showFamilyStats && <FamilyStats .../>}), so it is "always open" while mounted.
+  useBodyScrollLock(true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

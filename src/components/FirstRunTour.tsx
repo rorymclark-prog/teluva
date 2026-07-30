@@ -82,13 +82,14 @@ const STEPS: TourStepDef[] = [
     selector: '[data-tour="section-menu"]',
     title: () => 'Everything else lives here',
     body: () =>
-      'Documents, Household, Money, Wills & Estate, Vehicles, and the rest of it — one button, no hunting around.',
+      "Documents, Household, Money, Wills & Estate, Vehicles, and the rest of it — one button, no hunting around. Calendar can sync straight to your phone's own calendar app, both ways, and Drive brings in files you already have without handing over your whole Google account.",
   },
   {
     id: 'data-controls',
     selector: '[data-tour="data-controls"]',
     title: () => "It's genuinely yours",
-    body: () => 'Download a full backup whenever you like, or leave whenever you like — nothing here holds your data hostage.',
+    body: (ctx) =>
+      `Tap ${ctx.hubName} up here any time — a full backup, and leaving whenever you like, both live behind it. Nothing here holds your data hostage.`,
   },
   {
     id: 'closing',

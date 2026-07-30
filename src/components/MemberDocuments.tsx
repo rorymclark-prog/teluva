@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { FamilyDocument, FamilyMember } from '../types';
 import { getDocumentPlaceholderSvg } from '../utils/svgPlaceholders';
 import {
@@ -11,9 +11,13 @@ import { hashDataUrl, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch }
 import { canShare, shareMultiple, downloadZip } from '../utils/share';
 import { compileImageToPdf } from '../utils/pdfCompile';
 import PdfThumbnail from './PdfThumbnail';
-import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import { ScannedFile } from './DocumentScannerModal';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import EmptyState from './EmptyState';
+
+// Heavy component (camera UI + jsPDF for compiling scanned pages) — lazy-loaded
+// so its weight doesn't ship in the main bundle for users who never open the scanner.
+const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 
 interface MemberDocumentsProps {
   member: FamilyMember;
@@ -84,6 +88,13 @@ export default function MemberDocuments({
   const [exporting, setExporting] = useState<'share' | 'zip' | null>(null);
   const [isPdfCompiling, setIsPdfCompiling] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // Mount the (lazy) scanner once, the first time it's actually opened, and
+  // never unmount it again — otherwise an always-rendered-with-an-open-prop
+  // lazy component downloads its chunk on first paint regardless, same as if
+  // it were never lazy at all. See Dashboard.tsx's ExportPackModal for the
+  // same pattern, and the same reasoning.
+  const [scannerEverOpened, setScannerEverOpened] = useState(false);
+  useEffect(() => { if (scannerOpen) setScannerEverOpened(true); }, [scannerOpen]);
   // The archive list's OWN filter. It is deliberately separate state from
   // `category` above: those chips set the category of the document being
   // uploaded, but they read like a filter, so picking "Health" and still
@@ -750,12 +761,16 @@ export default function MemberDocuments({
         </div>
       </div>
 
-      <DocumentScannerModal
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onUse={handleScannerResult}
-        title="Document Scanner"
-      />
+      {scannerEverOpened && (
+        <Suspense fallback={null}>
+          <DocumentScannerModal
+            open={scannerOpen}
+            onClose={() => setScannerOpen(false)}
+            onUse={handleScannerResult}
+            title="Document Scanner"
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

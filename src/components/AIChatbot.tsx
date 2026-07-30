@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord } from '../types';
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
   loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto, loadSpaceInfo, uploadSlipPhoto,
-  uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen, loadAiUsage,
+  uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen, loadAiUsage, loadSettings,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
 import { redactHousehold, redactFinances, redactMember } from '../utils/aiRedact';
@@ -25,7 +25,11 @@ import {
   ClipboardPaste, ChevronRight, CalendarClock, Undo2, ChevronDown, ScanLine,
   FolderDown,
 } from 'lucide-react';
-import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import type { ScannedFile } from './DocumentScannerModal';
+// Lazy: this camera-UI component pulls in jsPDF (page-compile) — deferring it
+// keeps that weight out of every chat-panel load for the majority of visits
+// that never touch the scanner (only mounted once scannerEverOpened, below).
+const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 import { speechLocaleFor } from '../utils/speechLocale';
 import { UndoRecord, landingLabel, countIrreversibleEdits } from '../utils/aiUndo';
 
@@ -45,8 +49,15 @@ const SR: any = (typeof window !== 'undefined')
 // a tablet, and a space-only key would hand whoever signs in next the previous
 // person's conversation — including its un-applied edit cards. 'none' is the
 // bucket used while either id is still resolving.
+// 'family_' prefix is load-bearing, not decorative: lib/firebase.ts's
+// logout() sweeps every localStorage key starting with 'family_' so a
+// different account signing in on the same device never inherits stale
+// data. Without this prefix, a Business Hub user who visited several spaces
+// in one session would leave every space's chat transcript — including any
+// un-applied AI edit cards referencing that space's members/documents —
+// resident on the device indefinitely after signing out.
 const chatKey = (familyId: string | null, uid: string | null) =>
-  `assistant_chat_v2_${familyId || 'none'}_${uid || 'none'}`;
+  `family_assistant_chat_v2_${familyId || 'none'}_${uid || 'none'}`;
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
 export type AiEdit =
@@ -117,6 +128,9 @@ export type AiEdit =
   // registration plate, then name. Store-and-recall only: records exactly what
   // the document shows, never an interpretation ("overdue"/"you must…").
   | { kind: 'service_record'; vehicle?: string; plate?: string; vin?: string; records: { date: string; work: string; odometer?: string; cost?: string; garage?: string; notes?: string }[] }
+  // The one-line family status — the fridge whiteboard (HubSettings.status).
+  // REPLACES the existing line, exactly like household_set; never appends.
+  | { kind: 'hub_status'; text: string }
   // --- EDIT/DELETE existing records (confirm-before-destroy; see utils/aiDestructive.ts) ---
   // clear_field blanks ONE member field ("remove Papa's old phone"); it rides the
   // normal member-edit path (aiApply.applyMemberEdits) so it can only ever touch a
@@ -349,6 +363,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   const [streamWordCount, setStreamWordCount] = useState<number | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // Mount the (lazy) scanner once, the first time it's actually opened, and
+  // never unmount it again — same reasoning as Dashboard.tsx's ExportPackModal.
+  const [scannerEverOpened, setScannerEverOpened] = useState(false);
+  useEffect(() => { if (scannerOpen) setScannerEverOpened(true); }, [scannerOpen]);
   // Heads-up card: vehicles + slips aren't in `members`, so load them once (same
   // sources NeedsAttention uses) to feed the deterministic expiry/gap index.
   const [hVehicles, setHVehicles] = useState<Vehicle[]>([]);
@@ -582,8 +600,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   };
 
   const buildContext = async () => {
-    const [info, household, finances, timeline, docs, events, spaceInfo, slips] = await Promise.all([
-      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(),
+    const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings] = await Promise.all([
+      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(), loadSettings(),
     ]);
     // Say plainly, for each vault document, whether it is actually on a person's
     // profile Documents tab or only in the shared vault — because that is the
@@ -631,7 +649,25 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     // Gemini. Redacting at the boundary (rather than at each loader) means every
     // future caller of loadHousehold/loadFinances keeps the full record for the
     // UI, and only the AI path loses them. See aiRedact.ts.
-    return { members: slimMembers(members), info, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [] };
+    // hubStatus: read-write (see the "hub_status" AiEdit kind) — the one-line
+    // "fridge whiteboard", genuinely meant to be posted/read via chat.
+    //
+    // calendarSync: READ-ONLY, deliberately. Subscribing to a feed is pasting
+    // in another calendar's private URL, and toggling Google auto-sync flips
+    // a real integration on a real external account — both closer in kind to
+    // digitalAccounts (also manual-write-only, see aiRedact.ts) than to data
+    // the assistant should be able to change on someone's say-so in chat.
+    // What WAS a bug: this summary didn't exist in context at all, so a
+    // simple "what calendars am I subscribed to?" got "I don't have that
+    // information" even though the data is loaded elsewhere in this same app.
+    const hubStatusCtx = hubSettings?.status;
+    const calendarSyncCtx = {
+      subscribedFeeds: (hubSettings?.calendarFeeds || []).map(f => ({
+        label: f.label, lastSyncedAt: f.lastSyncedAt, eventCount: f.eventCount, lastError: f.lastError,
+      })),
+      autoSyncToGoogleEnabled: !!hubSettings?.autoSyncEventsToGoogle,
+    };
+    return { members: slimMembers(members), info, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {
@@ -2004,12 +2040,16 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       </div>
 
       <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} name="Chat attachment" />
-      <DocumentScannerModal
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onUse={onScanResult}
-        title="Document Scanner"
-      />
+      {scannerEverOpened && (
+        <Suspense fallback={null}>
+          <DocumentScannerModal
+            open={scannerOpen}
+            onClose={() => setScannerOpen(false)}
+            onUse={onScanResult}
+            title="Document Scanner"
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -2063,6 +2103,7 @@ function describeEdit(e: AiEdit): string {
     const tgt = e.plate || e.vehicle || e.vin || 'the vehicle';
     return `Add ${n} service record${n === 1 ? '' : 's'} to ${tgt}`;
   }
+  if (e.kind === 'hub_status') return `Update the family status: “${e.text}”`;
   // EDIT/DELETE existing records: clear_field describes itself directly; delete/
   // update rely on the client-stamped `label` (annotateDestructiveEdits) which
   // names WHAT + WHOSE record — the whole point of confirm-before-destroy.

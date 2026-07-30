@@ -6,6 +6,7 @@ import {
 import { FamilyMember, FinancesInfo, InsurancePolicy, InsuranceCoverage, AssetItem, PolicyObligation } from '../types';
 import { loadFinances, saveFinances, loadAssets } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import RemoteChangeHint from './RemoteChangeHint';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -114,6 +115,12 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const readerFileRef = useRef<HTMLInputElement>(null);
+
+  // The Add/Edit policy modal is the only full-screen overlay this view
+  // renders — lock background scroll for as long as it's open (matches the
+  // pattern in AddMemberModal.tsx). Called unconditionally, before the
+  // `loading` early return below, per the rules of hooks.
+  useBodyScrollLock(isFormOpen);
 
   useEffect(() => {
     let active = true;
@@ -757,7 +764,7 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
                           onChange={e => updateCoverageRow(row.id, { notes: e.target.value })}
                           className="field flex-1"
                         />
-                        <button type="button" onClick={() => removeCoverageRow(row.id)} className="p-2.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg shrink-0">
+                        <button type="button" onClick={() => removeCoverageRow(row.id)} className="w-10 h-10 flex items-center justify-center text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg shrink-0">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -790,17 +797,19 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
                           <button
                             type="button"
                             onClick={() => toggleObligation(o.id)}
-                            className={`mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors ${o.done ? 'bg-sage-500 border-sage-500 text-white' : 'border-cream-300 hover:border-sage-400'}`}
+                            className="w-10 h-10 shrink-0 flex items-center justify-center"
                             aria-label={o.done ? 'Mark not done' : 'Mark done'}
                           >
-                            {o.done && <Check className="w-3 h-3" />}
+                            <span className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${o.done ? 'bg-sage-500 border-sage-500 text-white' : 'border-cream-300 hover:border-sage-400'}`}>
+                              {o.done && <Check className="w-3 h-3" />}
+                            </span>
                           </button>
                           <div className="flex-1 min-w-0">
                             {o.topic && <span className="chip bg-sage-100 text-sage-700 text-[10px] px-1.5 py-0 mr-1.5">{o.topic}</span>}
                             <span className={`text-[12.5px] leading-snug ${o.done ? 'text-ink-400 line-through' : 'text-ink-700'}`}>“{o.quote}”</span>
                             {o.verified === false && <span className="block text-[10px] text-ink-400 mt-0.5">Read from a photo — check the wording matches your policy.</span>}
                           </div>
-                          <button type="button" onClick={() => removeObligation(o.id)} className="p-1 text-ink-300 hover:text-rosa-500 shrink-0" aria-label="Remove"><X className="w-3.5 h-3.5" /></button>
+                          <button type="button" onClick={() => removeObligation(o.id)} className="w-10 h-10 flex items-center justify-center text-ink-300 hover:text-rosa-500 shrink-0" aria-label="Remove"><X className="w-3.5 h-3.5" /></button>
                         </div>
                       ))}
                     </div>

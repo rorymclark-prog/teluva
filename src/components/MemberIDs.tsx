@@ -1,14 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { FamilyMember, PassportRecord, IdentityRecord, FamilyDocument, IdCountry } from '../types';
 import {
   Plus, Pencil, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye, Maximize2, Camera,
 } from 'lucide-react';
 import ImageLightbox from './ImageLightbox';
 import ShowCardModal from './ShowCardModal';
-import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import type { ScannedFile } from './DocumentScannerModal';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import PrivacyNote from './PrivacyNote';
 import EmptyState from './EmptyState';
+
+// Heavy component (camera UI + jsPDF for compiling scanned pages) — loaded on
+// demand so it doesn't bloat the main bundle for users who never scan.
+const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 
 // Data needed to pop open the full-screen "show this to someone" card — a border
 // officer, receptionist, ticket inspector. Shared by the passport rows and the
@@ -1157,6 +1161,12 @@ export default function MemberIDs({ member, onUpdate, onAddDocument, country = '
   const [viewScanSrc, setViewScanSrc] = useState<string | null>(null);
   const [showCard, setShowCard] = useState<ShowCardData | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // Mount the (lazy) scanner once, the first time it's actually opened, and
+  // never unmount it again — otherwise an always-rendered-with-an-open-prop
+  // lazy component downloads its chunk on first paint regardless. See
+  // Dashboard.tsx's ExportPackModal for the same pattern and reasoning.
+  const [scannerEverOpened, setScannerEverOpened] = useState(false);
+  useEffect(() => { if (scannerOpen) setScannerEverOpened(true); }, [scannerOpen]);
 
   const handleScanResult = (file: ScannedFile) => {
     onAddDocument(member.id, {
@@ -1213,13 +1223,17 @@ export default function MemberIDs({ member, onUpdate, onAddDocument, country = '
         country={country}
         onScanClick={() => setScannerOpen(true)}
       />
-      <DocumentScannerModal
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onUse={handleScanResult}
-        title="Scan ID card"
-        scanType="id"
-      />
+      {scannerEverOpened && (
+        <Suspense fallback={null}>
+          <DocumentScannerModal
+            open={scannerOpen}
+            onClose={() => setScannerOpen(false)}
+            onUse={handleScanResult}
+            title="Scan ID card"
+            scanType="id"
+          />
+        </Suspense>
+      )}
 
       <ShowCardModal
         open={!!showCard}

@@ -11,6 +11,7 @@ import AssetClaimExport from './AssetClaimExport';
 import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
 import { SkeletonHeader, SkeletonRows } from './Skeleton';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 const CATEGORIES: AssetItem['category'][] = [
   'Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other',
@@ -97,6 +98,13 @@ export default function Assets() {
 
   const scanFileRef = useRef<HTMLInputElement>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
+
+  // Two independent full-screen overlays live in this component (the edit
+  // form and the photo/receipt gallery) — each manages its own visibility
+  // internally, so each gets its own lock call. Reference-counted, so both
+  // can be open at once (gallery launched from inside the form) safely.
+  useBodyScrollLock(isFormOpen);
+  useBodyScrollLock(!!gallery && gallery.length > 0);
 
   useEffect(() => {
     loadAssets().then(data => { setItems(data); setLoading(false); });

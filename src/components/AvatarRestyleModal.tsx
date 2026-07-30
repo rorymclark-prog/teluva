@@ -3,6 +3,7 @@ import { X, Sparkles, RefreshCw, Check, Undo2 } from 'lucide-react';
 import type { FamilyMember } from '../types';
 import { auth } from '../lib/firebase';
 import { FUN_PRESETS, startFunPhotoJob, useFunPhotoJob, clearFunPhotoJob } from '../utils/funPhotoLab';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // Keys MUST match AVATAR_STYLES in server.js.
 const STYLES: { key: string; label: string; emoji: string }[] = [
@@ -42,6 +43,11 @@ function parseDataUrl(src: string): { mimeType: string; data: string } | null {
 const styleLabel = (key: string | null) => STYLES.find((s) => s.key === key)?.label ?? (key === 'custom' ? 'Custom' : '');
 
 export default function AvatarRestyleModal({ member, onClose, onApply, onReset }: Props) {
+  // Parent only mounts this component while the modal should be visible
+  // ({restyleMemberId && <AvatarRestyleModal .../>} in Dashboard.tsx), so
+  // the modal is "always open" for as long as it's mounted.
+  useBodyScrollLock(true);
+
   // Always restyle from the REAL photo if one was stashed, so styles never stack.
   const sourceUrl = member.avatarOriginalUrl || member.avatarUrl || '';
   const [phase, setPhase] = useState<'pick' | 'busy' | 'preview'>('pick');

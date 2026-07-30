@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface MemberFavoritesProps {
   member: FamilyMember;
@@ -39,6 +40,10 @@ export default function MemberFavorites({ member, onUpdateMember }: MemberFavori
   const [listSection, setListSection] = useState<'all' | 'liked' | 'wishlist'>('all');
   const [isAdding, setIsAdding] = useState(false);
   const [viewingItem, setViewingItem] = useState<FavoriteItem | null>(null);
+
+  // Detail modal is a "fixed inset-0" overlay gated by viewingItem !== null —
+  // lock background scroll while it's open (iOS Safari pan/rubber-band fix).
+  useBodyScrollLock(viewingItem !== null);
 
   // Form states
   const [title, setTitle] = useState('');

@@ -8,6 +8,7 @@ import { headcountTrend } from '../utils/businessMilestone';
 import SheetGrabber from './SheetGrabber';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { auth } from '../lib/firebase';
 
 const MILESTONE_KINDS: BusinessMilestoneKind[] = ['First customer', 'New location', 'Certification / licence', 'Revenue target', 'Product launch', 'Funding', 'Award / recognition', 'Other'];
 
@@ -172,7 +173,6 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
     setInviteLoading(true);
     setInviteError(null);
     try {
-      const { auth } = await import('../lib/firebase');
       const token = await auth.currentUser?.getIdToken();
       const res = await fetch('/api/create-invite', {
         method: 'POST',

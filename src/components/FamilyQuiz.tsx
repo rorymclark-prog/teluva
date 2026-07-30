@@ -6,6 +6,7 @@ import {
   Check, ChevronRight, RotateCcw, PartyPopper, Users,
 } from 'lucide-react';
 import { FamilyMember, CalendarEvent } from '../types';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 /**
  * A light, deterministic, client-side family trivia game. No AI, no network —
@@ -278,6 +279,12 @@ type Phase = 'setup' | 'playing' | 'done';
 
 export default function FamilyQuiz({ members, events, onClose }: { members: FamilyMember[]; events: CalendarEvent[]; onClose: () => void }) {
   void events; // this game only needs family-member data
+
+  // Dashboard only mounts <FamilyQuiz/> while `showFamilyQuiz` is true (see
+  // Dashboard.tsx), so this component being mounted at all means the modal
+  // should be visible — lock unconditionally, including during the closing
+  // exit animation.
+  useBodyScrollLock(true);
 
   const [closing, setClosing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(members.map((m) => m.id)));

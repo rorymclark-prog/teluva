@@ -9,6 +9,7 @@ import type { FamilyMember, CalendarEvent, IdCountry } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import EmergencyNumbersBanner from './EmergencyNumbersBanner';
 import EmptyState from './EmptyState';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // A compact, self-contained plain-text ICE summary encoded into the QR so a
 // first responder can scan it with any phone camera — no app, no network. Kept
@@ -83,6 +84,11 @@ export default function EmergencyCard({
   onClose: () => void;
 }) {
   void events; // signature parity with other full-screen views in this app; not used by the ICE card
+
+  // This component is only ever mounted by Dashboard while the card should be
+  // visible ({showEmergency && <EmergencyCard .../>}), so the overlay is
+  // "always open" for the lifetime of the mount.
+  useBodyScrollLock(true);
 
   const [selectedId, setSelectedId] = useState<string | null>(members[0]?.id ?? null);
 

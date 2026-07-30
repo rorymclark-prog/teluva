@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
@@ -602,6 +602,30 @@ export function applySuccessorEdit(
       memberId: name === current?.name ? current?.memberId : undefined,
       setAt: new Date().toISOString(),
     };
+  }
+  return next;
+}
+
+// The one-line family status (the "fridge whiteboard", HubSettings.status).
+// REPLACES rather than accumulates — mirrors household_set's single-field
+// semantics, not designated_successor's "keep what wasn't mentioned" merge,
+// because this field has no sibling scalars to preserve.
+export const hasStatusEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'hub_status');
+
+export function applyStatusEdit(
+  current: HubSettings['status'],
+  edits: AiEdit[],
+  authorName: string,
+): HubSettings['status'] {
+  let next = current;
+  for (const e of edits) {
+    if (e.kind !== 'hub_status') continue;
+    const text = (e.text || '').trim();
+    // An empty text isn't "clear the status" here — clear_field already
+    // covers deliberate clearing everywhere else in this pipeline, and a
+    // blank hub_status is far more likely to be a malformed edit than intent.
+    if (!text) continue;
+    next = { text, by: authorName, at: new Date().toISOString() };
   }
   return next;
 }

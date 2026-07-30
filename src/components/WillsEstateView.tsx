@@ -19,6 +19,7 @@ import { resolveSuccessorAccess, SuccessorAccess } from '../utils/successor';
 import DocumentViewer from './DocumentViewer';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import SheetGrabber from './SheetGrabber';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 const FUNERAL_WISHES_KIND = 'Funeral wishes';
 
@@ -102,6 +103,14 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   const [attachError, setAttachError] = useState<string | null>(null);
   const [viewingDoc, setViewingDoc] = useState<VaultDocument | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Two independent "fixed inset-0" overlays render conditionally inside
+  // this always-mounted view — the detail modal (viewingId) and the add/edit
+  // form modal (isFormOpen). Each locks background scroll on its own boolean
+  // (reference-counted, so nesting is safe); called unconditionally, before
+  // the loading early-return below.
+  useBodyScrollLock(viewingId !== null);
+  useBodyScrollLock(isFormOpen && !!form);
 
   useEffect(() => {
     let active = true;

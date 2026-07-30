@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import {
   Flower2, Plus, Pencil, Trash2, X, Loader2, Camera, FileText,
   Upload, ChevronRight, ImageOff,
@@ -12,7 +12,12 @@ import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { compressImageToAvatar } from '../utils/imageCompress';
-import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import type { ScannedFile } from './DocumentScannerModal';
+// Lazy: this camera-UI component pulls in jsPDF (page-compile) — deferring it
+// keeps that weight out of every InMemoryView load for the majority of visits
+// that never touch the scanner. See scannerEverOpened below for why it's also
+// not simply always-mounted-with-an-open-prop, which would defeat the point.
+const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 import DocumentViewer from './DocumentViewer';
 import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
@@ -112,6 +117,10 @@ export default function InMemoryView() {
   const [docUploading, setDocUploading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // Mount the (lazy) scanner once, the first time it's actually opened, and
+  // never unmount it again — same reasoning as Dashboard.tsx's ExportPackModal.
+  const [scannerEverOpened, setScannerEverOpened] = useState(false);
+  useEffect(() => { if (scannerOpen) setScannerEverOpened(true); }, [scannerOpen]);
   const [viewingDoc, setViewingDoc] = useState<DepartedDocument | null>(null);
   const docFileRef = useRef<HTMLInputElement>(null);
 
@@ -606,15 +615,19 @@ export default function InMemoryView() {
       />
 
       {/* ── Scanner for a new document ── */}
-      <DocumentScannerModal
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onUse={handleScannerResult}
-        title="Scan a document"
-        subtitle="Line it up and hold steady"
-        scanType="document"
-        filePrefix="in-memory-document"
-      />
+      {scannerEverOpened && (
+        <Suspense fallback={null}>
+          <DocumentScannerModal
+            open={scannerOpen}
+            onClose={() => setScannerOpen(false)}
+            onUse={handleScannerResult}
+            title="Scan a document"
+            subtitle="Line it up and hold steady"
+            scanType="document"
+            filePrefix="in-memory-document"
+          />
+        </Suspense>
+      )}
 
       {/* ── Add/edit person modal ── */}
       {isFormOpen && form && (

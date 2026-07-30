@@ -2,6 +2,7 @@ import { X, Download, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { looksLikePdf } from '../utils/fileType';
 import { canShare, srcToFile, shareFile } from '../utils/share';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface Props {
   src: string | null;
@@ -15,6 +16,8 @@ interface Props {
 // Full-screen viewer for a scan / photo / PDF, with download + native share
 // (which is how you email or message a file on mobile). Click the backdrop to close.
 export default function ImageLightbox({ src, onClose, name = 'Teluva document', mimeType }: Props) {
+  useBodyScrollLock(!!src);
+
   const isPdf = !!src && looksLikePdf(src, mimeType);
   async function handleDownload() {
     if (!src) return;

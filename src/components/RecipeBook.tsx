@@ -8,6 +8,7 @@ import { useFamilyCtx } from '../contexts/FamilyContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -52,6 +53,11 @@ export default function RecipeBook() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
+
+  // Two independent overlays live in this component (detail view + add/edit
+  // form) — each locks background scroll only while it is itself open.
+  useBodyScrollLock(!!viewingId);
+  useBodyScrollLock(isFormOpen);
 
   useEffect(() => {
     loadRecipes().then(data => {

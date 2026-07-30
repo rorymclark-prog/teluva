@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { FamilyMember, FamilyInfoDoc, HubSettings, BusinessMilestonesDoc } from '../types';
 import { loadSpaceInfo, isHintSeen, markHintSeen, loadSettings, loadBusinessMilestones } from '../utils/db';
 import { nextAnniversary, nextMilestoneAnniversary, toISODate } from '../utils/businessMilestone';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 // CelebrationOverlay — a once-a-day, in-app confetti moment for the family
 // member birthdays that fall TODAY, and, in a business space, the founding
@@ -197,6 +198,11 @@ export default function CelebrationOverlay({ members }: { members: FamilyMember[
   // not dismissed this session, and the space doc has finished loading (so a
   // slow load can't miss the anniversary).
   const shouldShow = loaded && !dismissed && messages.length > 0 && !isHintSeen(hintKey);
+
+  // This component is permanently mounted by Dashboard (not conditionally
+  // rendered by its parent) and decides its own visibility via `shouldShow`
+  // above, so that's the boolean that drives the lock — not `true`.
+  useBodyScrollLock(shouldShow);
 
   const reducedMotion = useMemo(
     () => typeof window !== 'undefined'

@@ -49,9 +49,19 @@ service cloud.firestore {
       // space's conversation (and any AI edit cards referencing its members/
       // documents) into the new one. Legacy chatHistory fields on old docs are
       // simply orphaned now, not migrated.
+      // tourSeenAt/interviewSeenAt/interviewStep: first-run tour and welcome
+      // interview progress, self-owned and non-sensitive. Both callers
+      // (tour.ts, interview.ts) already write with setDoc(...,{merge:true})
+      // wrapped in a try/catch labelled "best-effort" — but omitting these
+      // here didn't make the write skip quietly, it made it FAIL every time
+      // (denied, not merged), so the tour/interview "seen" state never
+      // actually persisted to Firestore and silently fell back to
+      // localStorage only, defeating the whole point of storing it
+      // server-side (surviving a reinstall / following the user cross-device).
       allow update: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'email', 'aiConsent']);
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['displayName', 'email', 'aiConsent', 'tourSeenAt', 'interviewSeenAt', 'interviewStep']);
       // Admins can update the 'role' field on another member's profile
       allow update: if signedIn()
         && request.auth.uid != uid

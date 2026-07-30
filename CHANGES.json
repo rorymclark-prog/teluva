@@ -1,6 +1,11 @@
 {
-  "label": "v167",
+  "label": "v168",
   "changes": [
-    "Google Drive is now live: tap \"Choose from Google Drive\" to pick files or a whole folder using Google's own picker window, instead of browsing your Drive inside Teluva. Teluva now only ever sees the files or folder you actually pick, nothing else in your Drive."
+    "The app should feel noticeably snappier — the first load now ships about a third less code, since each screen only downloads when you actually open it instead of all twenty loading up front.",
+    "The welcome tour now mentions Calendar sync and Google Drive, and fixed a step that was silently never showing.",
+    "You can now join a second family or business space with an invite code from the menu under your family's name, not just the very first time you sign in.",
+    "The assistant can now read and update the family status line (\"everyone's at Oma's until Sunday\") — it could see everything else but not that, until now.",
+    "Fixed: a save that failed while you were offline could later be silently overwritten and lost the next time the app reconnected — it's now protected until it actually syncs.",
+    "A round of care and polish throughout: touch targets, scrolling behind pop-ups, and a few small account-security tightenings."
   ]
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { X, ArrowLeft, ArrowRight, Sparkles, Camera, Check } from 'lucide-react';
 import {
   FamilyMember, HubSettings, FamilyDocument, PassportRecord, IdentityRecord,
@@ -7,7 +7,8 @@ import {
 import { loadFamilyInfo, saveFamilyInfo, loadHousehold, saveHousehold } from '../utils/db';
 import { getInterviewState, saveInterviewStep, markInterviewSeen } from '../utils/interview';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
-import DocumentScannerModal, { ScannedFile } from './DocumentScannerModal';
+import { ScannedFile } from './DocumentScannerModal';
+const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import SheetGrabber from './SheetGrabber';
 
@@ -544,6 +545,12 @@ function MemberIdStep({ member, country, onPatchMember, onAddDocument, registerC
   const idField = COUNTRY_ID_FIELD[country];
   const [idValue, setIdValue] = useState((member?.identity?.[idField.key] as string) || '');
   const [scannerOpen, setScannerOpen] = useState(false);
+  // Mount the (lazy) scanner once, the first time it's actually opened, and
+  // never unmount it again — otherwise an always-rendered-with-an-open-prop
+  // lazy component downloads its chunk on first paint regardless. See
+  // Dashboard.tsx's ExportPackModal for the same pattern and reasoning.
+  const [scannerEverOpened, setScannerEverOpened] = useState(false);
+  useEffect(() => { if (scannerOpen) setScannerEverOpened(true); }, [scannerOpen]);
   const [scannedName, setScannedName] = useState<string | null>(null);
 
   registerCommit(async () => {
@@ -600,26 +607,30 @@ function MemberIdStep({ member, country, onPatchMember, onAddDocument, registerC
         <input className="field font-mono" placeholder={idField.placeholder} value={idValue} onChange={(e) => setIdValue(e.target.value)} />
       </div>
 
-      <DocumentScannerModal
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onUse={(file: ScannedFile) => {
-          void onAddDocument(member.id, {
-            id: 'doc-' + Date.now().toString(),
-            name: `${member.name}'s passport scan`,
-            category: 'ID',
-            fileType: file.type,
-            fileName: file.name,
-            fileSize: file.size,
-            uploadedAt: new Date().toLocaleDateString('en-CA'),
-            fileData: file.data,
-          });
-          setScannedName(file.name);
-          setScannerOpen(false);
-        }}
-        title="Scan passport or ID"
-        scanType="passport"
-      />
+      {scannerEverOpened && (
+        <Suspense fallback={null}>
+          <DocumentScannerModal
+            open={scannerOpen}
+            onClose={() => setScannerOpen(false)}
+            onUse={(file: ScannedFile) => {
+              void onAddDocument(member.id, {
+                id: 'doc-' + Date.now().toString(),
+                name: `${member.name}'s passport scan`,
+                category: 'ID',
+                fileType: file.type,
+                fileName: file.name,
+                fileSize: file.size,
+                uploadedAt: new Date().toLocaleDateString('en-CA'),
+                fileData: file.data,
+              });
+              setScannedName(file.name);
+              setScannerOpen(false);
+            }}
+            title="Scan passport or ID"
+            scanType="passport"
+          />
+        </Suspense>
+      )}
     </>
   );
 }
