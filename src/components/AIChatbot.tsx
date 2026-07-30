@@ -6,6 +6,7 @@ import {
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
   loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto, loadSpaceInfo, uploadSlipPhoto,
   uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen, loadAiUsage, loadSettings,
+  loadAssets, uploadAssetPhoto,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
 import { redactHousehold, redactFinances, redactMember } from '../utils/aiRedact';
@@ -84,7 +85,7 @@ export type AiEdit =
       referralKind?: ReferralKind | string; referralDate?: string; referralReason?: string; referralProvider?: string }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
-  | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string }
+  | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string; photoUrl?: string }  // photoUrl is filled client-side after Apply, from an attached photo — never sent by the model
   | { kind: 'recipe'; title: string; ingredients: string[]; steps: string[]; tags?: string[]; photoUrl?: string }  // photoUrl is filled client-side after Apply — never sent by the model
   | { kind: 'slip'; shop?: string; item: string; purchaseDate?: string; amount?: string; currency?: string; assignedTo?: string; returnByDate?: string; warrantyUntil?: string; notes?: string; photoUrl?: string; photoStoragePath?: string }  // a purchase receipt/till slip — photoUrl/photoStoragePath are filled client-side after Apply — never sent by the model
   | { kind: 'household_set'; field: 'address' | 'doorCode' | 'wifiName' | 'wifiPassword' | 'garageCode'; value: string }
@@ -600,8 +601,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   };
 
   const buildContext = async () => {
-    const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings] = await Promise.all([
-      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(), loadSettings(),
+    const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings, assets] = await Promise.all([
+      loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(), loadSettings(), loadAssets(),
     ]);
     // Say plainly, for each vault document, whether it is actually on a person's
     // profile Documents tab or only in the shared vault — because that is the
@@ -667,7 +668,17 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       })),
       autoSyncToGoogleEnabled: !!hubSettings?.autoSyncEventsToGoogle,
     };
-    return { members: slimMembers(members), info, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx };
+    // assets carry ids so the AI can target one for delete_record/update_record
+    // ("that's the same pump, just update the serial number") instead of its
+    // ONLY prior option — creating a second, near-duplicate entry — which is
+    // exactly what happened before this field existed: the assistant had no
+    // way to see what was already in the inventory. Slim on purpose (no
+    // photos/prices/notes) since this rides on every chat turn.
+    const assetsCtx = (assets || []).map(a => ({
+      id: a.id, name: a.name, category: a.category, make: a.make, model: a.model,
+      serialNumber: a.serialNumber, assignedMember: a.assignedMember,
+    }));
+    return { members: slimMembers(members), info, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {
@@ -1363,6 +1374,20 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
           resolvedEdits = resolvedEdits.map(e => (e.kind === 'slip' ? { ...e, photoUrl: url, photoStoragePath: storagePath } : e));
         } catch {
           // Non-fatal — slip text below still gets saved without a photo.
+        }
+      }
+      // An asset edit carries an optional photo of the item itself (a serial
+      // plate close-up, the item on a shelf) — upload it now, same non-fatal
+      // pattern as recipe/slip above. Without this, photographing an item and
+      // asking the assistant to file it produced a text-only record with the
+      // photo silently dropped — the item on screen had no picture even though
+      // the whole point of the message was a photo of it.
+      if (srcs.length && edits.some(e => e.kind === 'asset')) {
+        try {
+          const photoUrl = await uploadAssetPhoto(srcs[0].dataUrl);
+          resolvedEdits = resolvedEdits.map(e => (e.kind === 'asset' ? { ...e, photoUrl } : e));
+        } catch {
+          // Non-fatal — asset details below still get saved without a photo.
         }
       }
 

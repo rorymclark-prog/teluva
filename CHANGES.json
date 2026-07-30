@@ -1,6 +1,10 @@
 {
-  "label": "v172",
+  "label": "v173",
   "changes": [
+    "Tap any item on a family member's Belongings card to see everything on file for it — not just the name, but make/model, serial number, purchase price, warranty, where it's kept, and photos — with an edit form right there if you're an admin.",
+    "Fixed: photographing an item you'd already filed (e.g. a medical device) and asking the assistant to update it created a second, duplicate entry instead of correcting the original. The assistant can now see what's already in the inventory and will update the existing item — or ask, if it's genuinely unsure — rather than guess and file a duplicate.",
+    "Fixed: a photo attached to an \"add this to our things\" message was silently dropped — only the text details were saved. The photo is now kept with the item.",
+    "You can now also ask the assistant to remove or correct an item in the family inventory by name, the same way you can for passports, vehicles and receipts.",
     "Long-press (or click) any ID number, e-card number, or similar value on screen for a quick Copy or Share menu — no more selecting text by hand.",
     "Filled real gaps found in a full audit of what the assistant can set vs. what you can edit yourself: Austria now has fields for ID document type, birth certificate number, and private health insurance number; added a garage code field to Household; added Nationality and Gender to a family member's profile.",
     "Renamed \"Sozialversicherungsnummer (SV)\" to \"Social Security Number (Sozialversicherungsnummer / SV number)\" — several people couldn't find it by searching for the English term.",

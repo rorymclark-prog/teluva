@@ -12,35 +12,10 @@ import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
 import { SkeletonHeader, SkeletonRows } from './Skeleton';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
-
-const CATEGORIES: AssetItem['category'][] = [
-  'Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other',
-];
-
-const IDENTIFIER_TYPES = ['Serial', 'IMEI', 'VIN', 'Frame no.', 'ISBN', 'Certificate no.', 'Other'];
-const CONDITIONS = ['New', 'Excellent', 'Good', 'Fair', 'Poor'];
-const STORAGE_OPTIONS = ['In the home', 'Locked away', 'In a safe', 'With the person', 'Other'];
-const CURRENCIES = ['EUR', 'GBP', 'USD', 'ZAR', 'CHF'];
-const STATUSES: { value: NonNullable<AssetItem['status']>; label: string }[] = [
-  { value: 'owned', label: 'Owned' },
-  { value: 'stolen', label: 'Stolen' },
-  { value: 'lost', label: 'Lost' },
-  { value: 'sold', label: 'Sold' },
-  { value: 'disposed', label: 'Disposed' },
-];
-const CURRENCY_SYMBOL: Record<string, string> = { EUR: '€', GBP: '£', USD: '$', ZAR: 'R', CHF: 'CHF ' };
-
-// Sensible default identifier per category (user can override).
-function suggestIdentifier(cat: AssetItem['category']): string {
-  switch (cat) {
-    case 'Bike': return 'Frame no.';
-    case 'Vehicle': return 'VIN';
-    case 'Jewellery': return 'Certificate no.';
-    case 'Electronics':
-    case 'Sporting': return 'Serial';
-    default: return 'Serial';
-  }
-}
+import {
+  CATEGORIES, IDENTIFIER_TYPES, CONDITIONS, STORAGE_OPTIONS, CURRENCIES, STATUSES,
+  CURRENCY_SYMBOL, suggestIdentifier, itemImages,
+} from '../utils/assetConstants';
 
 const BLANK: AssetItem = {
   id: '', name: '', category: 'Electronics', assignedMember: '',
@@ -65,17 +40,8 @@ function itemValue(item: AssetItem): number {
   return parseAmount(item.replacementValue || item.purchasePrice);
 }
 
-// All of an item's pictures, labelled, for the gallery viewer.
 // Extra photos live in Firebase Storage (not inline), so the cap is generous.
 const EXTRA_PHOTO_CAP = 12;
-
-function itemImages(item: AssetItem): { src: string; label: string }[] {
-  const out: { src: string; label: string }[] = [];
-  if (item.photoDataUrl) out.push({ src: item.photoDataUrl, label: 'Photo' });
-  (item.photos || []).forEach((s, i) => out.push({ src: s, label: `Photo ${i + 2}` }));
-  if (item.receiptDataUrl) out.push({ src: item.receiptDataUrl, label: 'Receipt' });
-  return out;
-}
 
 export default function Assets() {
   const { isAdmin, aiEligible, aiConsent } = useFamilyCtx();

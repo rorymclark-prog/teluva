@@ -30,6 +30,7 @@ import {
   loadSlips, saveSlips,
   loadDocuments, saveFamilyMembers,
   deleteDocumentEverywhere,
+  loadAssets, saveAsset, deleteAsset,
 } from './db';
 import type { FamilyMember, ContactEntry } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
@@ -89,6 +90,7 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   timeline: { date: 'date', title: 'title', type: 'type', note: 'note' },
   calendar_event: { title: 'title', date: 'date', time: 'time', category: 'category' },
   slip: { shop: 'shop', item: 'item', purchaseDate: 'purchaseDate', amount: 'amount', currency: 'currency', assignedTo: 'assignedTo', returnByDate: 'returnByDate', warrantyUntil: 'warrantyUntil', notes: 'notes' },
+  asset: { name: 'name', category: 'category', assignedMember: 'assignedMember', make: 'make', model: 'model', serialNumber: 'serialNumber', purchaseDate: 'purchaseDate', purchasePrice: 'purchasePrice', notes: 'notes' },
 };
 
 // Build the (whitelisted, key-renamed) patch object for an update_record edit.
@@ -134,6 +136,7 @@ function recordPhrase(targetKind: string, r: any): string {
     case 'favorite_quote': return `favourite quote “${truncate(r.text)}”`;
     case 'document': return `document “${r.name || ''}”`;
     case 'slip': return `slip ${r.item || ''}${r.shop ? ' from ' + r.shop : ''}`.trim();
+    case 'asset': return `${r.name || 'item'}${(r.make || r.model) ? ' (' + [r.make, r.model].filter(Boolean).join(' ') + ')' : ''}`.trim();
     default: return prettyKind(targetKind);
   }
 }
@@ -178,6 +181,7 @@ function findInContext(context: any, targetKind: string, id: string): Found {
     timeline: context?.timeline?.entries,
     calendar_event: context?.calendar,
     slip: context?.slips,
+    asset: context?.assets,
   };
   const rec = (TOP[targetKind] || []).find((r: any) => r.id === id);
   return rec ? { record: rec } : null;
@@ -446,6 +450,30 @@ export async function applyDestructiveEdits(edits: AiEdit[], ctxMembers: FamilyM
         }
       }
       if (dirty) { const ok = await saveSlips(arr); if (!ok) failures.push('slips'); }
+    }
+  }
+
+  // 9) assets — ONE Firestore doc per item (unlike the bare-array stores
+  //    above), so update patches-and-saves that single doc directly and
+  //    delete calls deleteAsset. This is what makes "that's the same pump,
+  //    just correct the serial number" possible instead of the assistant's
+  //    only prior option (file a second, near-duplicate item).
+  {
+    const relevant = [...dels, ...upds].filter(e => e.targetKind === 'asset');
+    if (relevant.length) {
+      const arr = await loadAssets();
+      for (const e of relevant) {
+        const rec = arr.find((r: any) => r.id === e.id);
+        if (!rec) { skipNote(e); continue; }
+        if (e.kind === 'delete_record') {
+          try { await deleteAsset(e.id); } catch { failures.push('assets'); }
+        } else {
+          const patch = buildPatch('asset', e.fields);
+          if (!Object.keys(patch).length) { skipNote(e); continue; }
+          const ok = await saveAsset({ ...rec, ...patch });
+          if (!ok) failures.push('assets');
+        }
+      }
     }
   }
 

@@ -4,6 +4,8 @@ import type { AssetItem } from '../types';
 import { loadAssets, saveAsset, uploadAssetPhoto } from '../utils/db';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { itemImages } from '../utils/assetConstants';
+import AssetDetailModal from './AssetDetailModal';
 
 const EXTRA_PHOTO_CAP = 12; // extras live in Storage, so the cap is generous
 
@@ -25,15 +27,6 @@ function isAssignedTo(assignedMember: string | undefined, memberName: string): b
   return false;
 }
 
-// All images on an asset, in view order: primary photo, extra photos, receipt.
-function itemImages(item: AssetItem): { src: string; label: string }[] {
-  const imgs: { src: string; label: string }[] = [];
-  if (item.photoDataUrl) imgs.push({ src: item.photoDataUrl, label: 'Photo' });
-  (item.photos || []).forEach((p, i) => imgs.push({ src: p, label: `Photo ${i + 2}` }));
-  if (item.receiptDataUrl) imgs.push({ src: item.receiptDataUrl, label: 'Receipt' });
-  return imgs;
-}
-
 function readFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -52,6 +45,7 @@ export default function MemberBelongings(
   const [error, setError] = useState<string | null>(null);
   const [gallery, setGallery] = useState<{ src: string; label: string }[] | null>(null);
   const [galleryIdx, setGalleryIdx] = useState(0);
+  const [detailItem, setDetailItem] = useState<AssetItem | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const pendingItemRef = useRef<string | null>(null);
 
@@ -153,11 +147,16 @@ export default function MemberBelongings(
           const busy = busyId === item.id;
 
           return (
-            <div key={item.id} className="flex items-center gap-3 px-4 py-2.5">
+            <div
+              key={item.id}
+              onClick={() => setDetailItem(item)}
+              className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-cream-50/80 transition-colors"
+              title="View full details"
+            >
               {imgs.length > 0 ? (
                 <button
                   type="button"
-                  onClick={() => openGallery(imgs)}
+                  onClick={(e) => { e.stopPropagation(); openGallery(imgs); }}
                   className="w-9 h-9 rounded-lg overflow-hidden shrink-0 bg-cream-100 flex items-center justify-center ring-1 ring-cream-200 hover:ring-clay-300 transition-all cursor-zoom-in"
                   title="View photos"
                 >
@@ -166,7 +165,7 @@ export default function MemberBelongings(
               ) : canEdit ? (
                 <button
                   type="button"
-                  onClick={() => pickPhoto(item.id)}
+                  onClick={(e) => { e.stopPropagation(); pickPhoto(item.id); }}
                   disabled={busy}
                   className="group/ph w-9 h-9 rounded-lg shrink-0 bg-clay-50/60 border border-dashed border-clay-300 flex items-center justify-center hover:border-clay-400 hover:bg-clay-50 transition-all cursor-pointer disabled:opacity-60"
                   title="Add a photo"
@@ -201,7 +200,7 @@ export default function MemberBelongings(
                 {canEdit && imgs.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => pickPhoto(item.id)}
+                    onClick={(e) => { e.stopPropagation(); pickPhoto(item.id); }}
                     disabled={busy}
                     className="btn-quiet p-1.5 disabled:opacity-60"
                     title="Add another photo"
@@ -246,6 +245,27 @@ export default function MemberBelongings(
             )}
           </div>
         </div>
+      )}
+
+      {detailItem && (
+        <AssetDetailModal
+          item={detailItem}
+          canEdit={canEdit}
+          onClose={() => setDetailItem(null)}
+          onSaved={(updated) => {
+            setItems((prev) =>
+              isAssignedTo(updated.assignedMember, memberName)
+                ? prev.map((i) => (i.id === updated.id ? updated : i))
+                // Reassigning to someone else drops it from this member's own card.
+                : prev.filter((i) => i.id !== updated.id),
+            );
+            setDetailItem(null);
+          }}
+          onDeleted={(id) => {
+            setItems((prev) => prev.filter((i) => i.id !== id));
+            setDetailItem(null);
+          }}
+        />
       )}
     </div>
   );

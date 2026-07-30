@@ -1159,6 +1159,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           purchaseDate: e.purchaseDate || undefined,
           purchasePrice: e.purchasePrice || undefined,
           notes: e.notes || undefined,
+          photoDataUrl: e.photoUrl || undefined,
           createdAt: new Date().toISOString().slice(0, 10),
         };
         const ok = await saveAsset(asset);
