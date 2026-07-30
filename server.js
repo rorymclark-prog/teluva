@@ -1951,6 +1951,28 @@ app.post('/api/vault/reveal', async (req, res) => {
   }
 });
 
+// Decrypting SHARED family records (ID numbers, household codes, bank
+// details) — as opposed to /api/vault/reveal above, which is personal
+// credentials and deliberately admin-only. These fields are not personal
+// secrets: firestore.rules already lets every member of the space read the
+// family_members / household / finances documents that hold them (any adult
+// can write them, children can read them), so gating DECRYPT more tightly
+// than that would be a new, unrequested restriction on who can see what —
+// encryption here protects against the database being read directly (a
+// backup, a leak, a stray admin query), not against a family member seeing
+// their own family's shared records the way they always could.
+app.post('/api/vault/reveal-shared', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const values = Array.isArray(req.body?.values) ? req.body.values : [];
+    res.json({ values: values.map((v) => decryptSecret(v, caller.familyId)) });
+  } catch (e) {
+    console.error('[vault/reveal-shared]', e);
+    res.status(500).json({ error: 'Could not read those values.' });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Family membership endpoints. All writes to users/{uid} and roles/{uid}
 // happen HERE with the Admin SDK — Firestore rules block them from clients,

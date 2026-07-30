@@ -4,6 +4,10 @@ import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBa
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { mergeShared, mergeIdList } from './mergeShared';
 import { markDirty, clearDirty, isDirty } from './pendingSync';
+import {
+  protectIdentity, revealIdentity, protectPassports, revealPassports,
+  protectHousehold, revealHousehold, protectFinances, revealFinances,
+} from './vaultFields';
 
 // Merge-base keys for the two id-index documents (metadata/members,
 // metadata/events). Namespaced away from the reference-doc keys so they can
@@ -84,6 +88,18 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
       // member's document survived, but nothing listed it, so it vanished from
       // every screen. Merge the index the same way the reference docs are
       // merged, inside a transaction so read-merge-write is atomic.
+      // Encrypt ID numbers/passport numbers before they leave the browser.
+      // Firestore writes a full document per member with {merge:true} — no
+      // three-way diff involved for this collection (unlike the reference
+      // docs below), so there is no plaintext-vs-ciphertext comparison risk
+      // here: it is safe to protect right before the write. Fired
+      // concurrently, not one member after another.
+      const protectedMembers = await Promise.all(members.map(async (m) => ({
+        ...m,
+        identity: await protectIdentity(m.identity, protectSecrets),
+        passports: await protectPassports(m.passports, protectSecrets),
+      })));
+
       const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'members');
       const localIds = members.map(m => m.id).filter(Boolean);
       const mergedIds = await runTransaction(db, async (tx) => {
@@ -91,7 +107,7 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
         const serverIds = (metaSnap.exists() ? (metaSnap.data().ids as string[]) : undefined) || [];
         const ids = mergeIdList(getSeen<string[]>(MEMBER_IDS_KEY), localIds, serverIds);
 
-        for (const member of members) {
+        for (const member of protectedMembers) {
           if (!member.id) continue;
           tx.set(doc(db, 'families', FAMILY_ID, 'family_members', member.id), member as any, { merge: true });
         }
@@ -174,9 +190,19 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
         noteSeen(MEMBER_IDS_KEY, ids);   // merge base for the next index write
         const membersReqs = ids.map(id => getDoc(doc(db, 'families', FAMILY_ID, 'family_members', id)));
         const snaps = await Promise.all(membersReqs);
-        const members = snaps.map(s => s.data() as FamilyMember).filter(Boolean);
+        const rawMembers = snaps.map(s => s.data() as FamilyMember).filter(Boolean);
 
-        // Cache locally
+        // Decrypt ID numbers/passport numbers. revealIdentity/revealPassports
+        // use a local ciphertext cache internally, so a value seen once stays
+        // readable offline (see vaultFields.ts) — this is what keeps a screen
+        // like Emergency essentials usable without signal after first sync.
+        const members = await Promise.all(rawMembers.map(async (m) => ({
+          ...m,
+          identity: await revealIdentity(m.identity, revealSharedSecrets),
+          passports: await revealPassports(m.passports, revealSharedSecrets),
+        })));
+
+        // Cache locally (plaintext — this is what the rest of the app reads)
         localStorage.setItem(membersKey(), JSON.stringify(members));
         return members.length > 0 ? members : null;
       }
@@ -403,7 +429,28 @@ export function resetSharedDocBaselines(): void {
  *   AI apply paths, aiDestructive, deleteDocumentEverywhere) because they
  *   re-read the document immediately before writing it.
  */
-async function saveReferenceDoc<T>(key: string, value: T, localKey: string, base?: T): Promise<boolean> {
+// `protect`/`reveal` are how household/finances get encrypted fields without
+// their own copy of this function — see saveHousehold/loadHousehold and
+// saveFinances/loadFinances below. EVERY OTHER caller omits them and gets the
+// default no-op pass-through, so nothing about this changes for them.
+//
+// WHERE protect/reveal MUST run, and why: mergeShared does a real plaintext
+// three-way diff (mergeBase / value / server). `server` is decrypted the
+// instant it's read from Firestore, BEFORE mergeShared ever sees it, and the
+// merged RESULT is encrypted only in the copy handed to tx.set() — `persisted`
+// (returned, noteSeen'd, and cached to localStorage) stays the plaintext
+// `merged`. If protect() were applied any earlier, or reveal() skipped,
+// mergeShared would be diffing ciphertext against plaintext: ciphertext never
+// equals anything (fresh random IV every encryption, including of an
+// unchanged value), so every field would look like a fresh edit on every
+// single save — silently corrupting the multi-device merge this function
+// exists to get right.
+const passthrough = async <T,>(v: T): Promise<T> => v;
+
+async function saveReferenceDoc<T>(
+  key: string, value: T, localKey: string, base?: T,
+  protect: (v: T) => Promise<T> = passthrough, reveal: (v: T) => Promise<T> = passthrough,
+): Promise<boolean> {
   const user = auth.currentUser;
   let cloudOk = false;
   // What actually ends up stored — the merge may legitimately differ from
@@ -417,9 +464,10 @@ async function saveReferenceDoc<T>(key: string, value: T, localKey: string, base
       const docRef = doc(db, 'families', FAMILY_ID, 'reference', key);
       persisted = await runTransaction(db, async (tx) => {
         const snap = await tx.get(docRef);
-        const server = snap.exists() ? (snap.data() as T) : undefined;
+        const serverRaw = snap.exists() ? (snap.data() as T) : undefined;
+        const server = serverRaw !== undefined ? await reveal(serverRaw) : undefined;
         const merged = mergeShared<T>(mergeBase, value, server);
-        tx.set(docRef, merged as any);
+        tx.set(docRef, (await protect(merged)) as any);
         return merged;
       });
       cloudOk = true;
@@ -442,7 +490,10 @@ async function saveReferenceDoc<T>(key: string, value: T, localKey: string, base
   return cloudOk;
 }
 
-async function loadReferenceDoc<T>(key: string, localKey: string): Promise<T | null> {
+async function loadReferenceDoc<T>(
+  key: string, localKey: string,
+  reveal: (v: T) => Promise<T> = passthrough, protect: (v: T) => Promise<T> = passthrough,
+): Promise<T | null> {
   const scopedKey = `${localKey}_${FAMILY_ID}`;
   const user = auth.currentUser;
   if (user) {
@@ -455,8 +506,8 @@ async function loadReferenceDoc<T>(key: string, localKey: string): Promise<T | n
         const pendingRaw = localStorage.getItem(scopedKey);
         if (pendingRaw) {
           try {
-            const pending = JSON.parse(pendingRaw) as T;
-            await saveReferenceDoc(key, pending, localKey);   // clears the dirty flag on success
+            const pending = JSON.parse(pendingRaw) as T;   // plaintext — local cache always is
+            await saveReferenceDoc(key, pending, localKey, undefined, protect, reveal);   // clears the dirty flag on success
             return pending;
           } catch { /* corrupt local cache — fall through to a normal load */ }
         }
@@ -465,7 +516,7 @@ async function loadReferenceDoc<T>(key: string, localKey: string): Promise<T | n
 
       const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', key));
       if (snap.exists()) {
-        const data = snap.data() as T;
+        const data = await reveal(snap.data() as T);
         localStorage.setItem(scopedKey, JSON.stringify(data));
         noteSeen(key, data);
         return data;
@@ -477,7 +528,7 @@ async function loadReferenceDoc<T>(key: string, localKey: string): Promise<T | n
   const local = localStorage.getItem(scopedKey);
   if (local) {
     try {
-      const parsed = JSON.parse(local) as T;
+      const parsed = JSON.parse(local) as T;   // plaintext — local cache always is
       noteSeen(key, parsed);
       return parsed;
     } catch (e) { return null; }
@@ -526,6 +577,12 @@ export type SharedDocName = keyof typeof SHARED_DOCS;
  *
  * Returns an unsubscribe function. Safe to call when signed out (no-op).
  */
+// Currently unused (no call sites) — infrastructure for a future live view.
+// GOTCHA for whoever wires this up for 'household' or 'finances': those two
+// docs have encrypted fields (see saveReferenceDoc/loadReferenceDoc), and
+// this function hands `cb` the RAW snapshot with no decrypt step. A live
+// subscriber for either of those needs to run the value through
+// revealHousehold/revealFinances (vaultFields.ts) itself before using it.
 export function subscribeReferenceDoc<T>(
   name: SharedDocName,
   cb: (value: T | null, commit: () => void) => void,
@@ -553,11 +610,23 @@ export function subscribeReferenceDoc<T>(
 // falls back to the last value this client loaded/applied for that document,
 // which is what every existing call site already effectively has (they all
 // load-mutate-save). No call site had to change.
-export const saveHousehold = (h: HouseholdInfo, base?: HouseholdInfo) => saveReferenceDoc('household', h, 'family_household', base);
-export const loadHousehold = () => loadReferenceDoc<HouseholdInfo>('household', 'family_household');
+export const saveHousehold = (h: HouseholdInfo, base?: HouseholdInfo) =>
+  saveReferenceDoc('household', h, 'family_household', base,
+    (v) => protectHousehold(v, protectSecrets).then(r => r ?? v),
+    (v) => revealHousehold(v, revealSharedSecrets).then(r => r ?? v));
+export const loadHousehold = () =>
+  loadReferenceDoc<HouseholdInfo>('household', 'family_household',
+    (v) => revealHousehold(v, revealSharedSecrets).then(r => r ?? v),
+    (v) => protectHousehold(v, protectSecrets).then(r => r ?? v));
 
-export const saveFinances = (f: FinancesInfo, base?: FinancesInfo) => saveReferenceDoc('finances', f, 'family_finances', base);
-export const loadFinances = () => loadReferenceDoc<FinancesInfo>('finances', 'family_finances');
+export const saveFinances = (f: FinancesInfo, base?: FinancesInfo) =>
+  saveReferenceDoc('finances', f, 'family_finances', base,
+    (v) => protectFinances(v, protectSecrets).then(r => r ?? v),
+    (v) => revealFinances(v, revealSharedSecrets).then(r => r ?? v));
+export const loadFinances = () =>
+  loadReferenceDoc<FinancesInfo>('finances', 'family_finances',
+    (v) => revealFinances(v, revealSharedSecrets).then(r => r ?? v),
+    (v) => protectFinances(v, protectSecrets).then(r => r ?? v));
 
 export const saveTimeline = (t: FamilyTimeline, base?: FamilyTimeline) => saveReferenceDoc('timeline', t, 'family_timeline', base);
 export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', 'family_timeline');
@@ -1383,6 +1452,30 @@ export async function revealSecrets(values: string[]): Promise<string[]> {
   try {
     const token = await user.getIdToken();
     const res = await fetch('/api/vault/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ values }),
+    });
+    if (!res.ok) return values;
+    const data = await res.json();
+    return Array.isArray(data.values) && data.values.length === values.length ? data.values : values;
+  } catch {
+    return values;
+  }
+}
+
+// Same round-trip as revealSecrets, but for SHARED family records (identity
+// numbers, household codes, bank details) rather than personal credentials —
+// see /api/vault/reveal-shared's comment for why that endpoint has no
+// admin-only gate. Kept as a separate function (not a parameter) so call
+// sites are unambiguous about which class of data they're touching.
+export async function revealSharedSecrets(values: string[]): Promise<string[]> {
+  if (!values.length) return values;
+  const user = auth.currentUser;
+  if (!user) return values;
+  try {
+    const token = await user.getIdToken();
+    const res = await fetch('/api/vault/reveal-shared', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ values }),

@@ -1,6 +1,8 @@
 {
-  "label": "v170",
+  "label": "v171",
   "changes": [
+    "Government ID numbers (SV numbers, passport numbers, tax numbers and the rest), household access codes, and bank details are now encrypted the same way saved passwords always have been — a database copy or leak no longer exposes them in plain text. Security page updated with the details.",
+    "Fixed: passport numbers were being sent to the AI assistant along with the question you asked it — they're now held back like every other ID number, only the country and expiry stay visible.",
     "The assistant now asks which number you mean when correcting an SV number or e-card number, instead of guessing — the two look alike but are different fields.",
     "Fixed: the \"new version available\" banner could go stale if it fired and then more updates shipped while your tab stayed open — it now always shows what's genuinely latest.",
     "The app should feel noticeably snappier — the first load now ships about a third less code, since each screen only downloads when you actually open it instead of all twenty loading up front.",

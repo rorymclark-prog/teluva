@@ -47,6 +47,16 @@
 //       and that is the intended trade. The numbers remain on the ID screen,
 //       which is where they were always actually read from.
 //
+//   members[].passports[].number
+//       A passport number is exactly the same category of government ID as
+//       everything in REDACTED_IDENTITY_KEYS — arguably higher-stakes, since
+//       it alone is enough to attempt travel-related impersonation — but it
+//       lives in a separate array, not inside `identity`, so it was missed
+//       when that block was split out and shipped unredacted until this was
+//       found on 2026-07-30. country/expiryDate/issueDate are KEPT: "when
+//       does my passport expire" is a real, useful question and neither date
+//       is a credential.
+//
 // NOT removed, on purpose — read the note before "tidying" these up:
 //   members[].identity expiry dates and scheme names (residencePermitExpiry,
 //       driversLicenseExpiry, medicalAidScheme, medicalAidPlanOption,
@@ -143,6 +153,10 @@ export function redactMember<T>(member: T): T {
   const identity = stripped.identity;
   if (isPlainObject(identity)) {
     stripped.identity = omit(identity, REDACTED_IDENTITY_KEYS);
+  }
+  const passports = stripped.passports;
+  if (Array.isArray(passports)) {
+    stripped.passports = passports.map((p) => (isPlainObject(p) ? omit(p, ['number']) : p));
   }
   return stripped as T;
 }

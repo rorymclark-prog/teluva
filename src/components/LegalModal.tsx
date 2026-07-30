@@ -189,9 +189,13 @@ function Privacy() {
  * It exists because the honest answer is NO, we are not zero-knowledge, and
  * that has to be said in the app rather than only in a policy nobody opens.
  * Every claim below was checked against the code: server.js sends document
- * images to Vertex AI (europe-west1) to read them; protectSecrets encrypts
- * saved passwords with a key held in Secret Manager, which is OUR key;
- * Firestore and Storage sit in europe-west2.
+ * images to Vertex AI (europe-west1) to read them; protectSecrets/
+ * revealSharedSecrets encrypt saved passwords AND (2026-07-30) government ID
+ * numbers, household access codes, and bank IBAN/BIC with a key held in
+ * Secret Manager, which is OUR key; Firestore and Storage sit in
+ * europe-west2. The 2026-07-30 change does not alter the "not end-to-end,
+ * we can technically still decrypt" fact below — only which fields get the
+ * password-grade protective layer at all.
  *
  * Deliberately NOT reassuring. Zoom took a 20-year FTC consent order for
  * marketing "end-to-end encryption" while holding the keys. Saying less than
@@ -211,7 +215,7 @@ function Security() {
         <li><b>In transit</b> — everything between your device and us travels over HTTPS.</li>
         <li><b>At rest</b> — Google encrypts the stored database and files on disk.</li>
         <li><b>From other people</b> — each family or business is sealed off by server-side rules. Another family cannot read yours, and your role can only be changed by an admin, never by editing something in the browser.</li>
-        <li><b>Saved passwords</b> get an extra layer: they are encrypted before being written, and if that encryption is unavailable the app refuses to save rather than quietly storing them in plain text.</li>
+        <li><b>Saved passwords, government ID numbers, household access codes, and bank details</b> get an extra layer: each is encrypted before being written, with a key held separately from the database itself, so a raw copy of the database &mdash; a backup, a leak, a stray query &mdash; does not hand someone plaintext SV numbers, passport numbers, door codes, Wi&#8209;Fi passwords, or IBANs. If that encryption is unavailable the app refuses to save rather than quietly storing the value in plain text.</li>
       </ul>
 
       <H>What we can see</H>
@@ -222,9 +226,10 @@ function Security() {
         back. That cannot happen on data we are unable to open.
       </p>
       <p>
-        The extra layer on saved passwords uses a key we hold, so it protects them from anyone
-        without access to our systems &mdash; but not from us. We would rather say that than imply
-        otherwise.
+        The extra layer above uses a key we hold, so it protects those values from anyone without
+        access to our systems &mdash; but not from us. We would rather say that than imply otherwise.
+        It is a real, meaningful barrier against a database being copied or leaked; it is not
+        end-to-end encryption, and nothing here claims to be.
       </p>
       <p>
         In practice one person has that access: <b>Rory Michael Clark</b>, who built and runs Teluva.

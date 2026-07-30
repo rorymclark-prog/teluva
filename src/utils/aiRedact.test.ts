@@ -81,6 +81,10 @@ const member = {
     driversLicenseNumber: 'DL-1',
   },
   medical: { bloodGroup: 'O+' },
+  passports: [
+    { id: 'p1', country: 'Austria', number: 'P1234567', expiryDate: '2030-05-01', issueDate: '2020-05-01' },
+    { id: 'p2', country: 'South Africa' }, // no number on file
+  ],
 };
 const rm = redactMember(member) as any;
 
@@ -90,6 +94,12 @@ assert.ok(!('financialAccounts' in rm), 'account/routing numbers must not be sen
 assert.strictEqual(rm.name, 'Mia');
 assert.strictEqual(rm.birthdate, '2015-04-02');
 assert.deepStrictEqual(rm.medical, { bloodGroup: 'O+' });
+// Passport NUMBER goes, country/dates stay (found 2026-07-30 — this was
+// unredacted in production until now, see the note in aiRedact.ts).
+assert.ok(!('number' in rm.passports[0]), 'passport number must not be sent to the AI');
+assert.deepStrictEqual(rm.passports[0], { id: 'p1', country: 'Austria', expiryDate: '2030-05-01', issueDate: '2020-05-01' });
+assert.deepStrictEqual(rm.passports[1], { id: 'p2', country: 'South Africa' }, 'a passport with no number is untouched');
+assert.strictEqual(member.passports[0].number, 'P1234567', 'must not mutate the input passports array');
 // `identity` is SPLIT, not dropped (Rory's call, 2026-07-28): the ID numbers go,
 // the dates and scheme names stay. This is the assertion that keeps the split
 // honest — if someone re-adds a number to the context, it fails here.
