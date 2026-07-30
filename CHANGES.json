@@ -1,6 +1,6 @@
 {
-  "label": "v166",
+  "label": "v167",
   "changes": [
-    "The chat assistant can now see much more of a large family's history at once before anything gets left out. The old limit was far more cautious than it needed to be for the size of vault this app actually holds."
+    "Google Drive is now live: tap \"Choose from Google Drive\" to pick files or a whole folder using Google's own picker window, instead of browsing your Drive inside Teluva. Teluva now only ever sees the files or folder you actually pick, nothing else in your Drive."
   ]
 }

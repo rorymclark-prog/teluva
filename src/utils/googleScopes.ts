@@ -21,19 +21,33 @@
 // Google Cloud API key (a public, referrer-restricted credential, not a
 // secret) to run at all.
 //
-// So: scope tracks whether that key exists. Until VITE_GOOGLE_PICKER_API_KEY
-// is set, the app keeps requesting drive.readonly and the old folder browser
-// keeps working exactly as it does today — nobody's Drive sync breaks while
-// the key is pending. The moment the key is set and the app rebuilds, new
-// sign-ins request drive.file instead and GoogleDriveSync.tsx switches its UI
-// to the Picker. Existing sessions fall back to an interactive reconnect the
-// first time a silent token request meets the new scope, which is the normal,
-// documented behaviour in googleToken.ts — not a bug introduced here.
+// So: scope tracks whether that key exists. Until it does, the app keeps
+// requesting drive.readonly and the old folder browser keeps working exactly
+// as it does today. The moment the key is set, new sign-ins request
+// drive.file instead and GoogleDriveSync.tsx switches its UI to the Picker.
+// Existing sessions fall back to an interactive reconnect the first time a
+// silent token request meets the new scope, which is the normal, documented
+// behaviour in googleToken.ts — not a bug introduced here.
+//
+// HARDCODED DEFAULT, same pattern as CLIENT_ID in googleToken.ts, and for the
+// same reason: this key is restricted to the Picker API and locked by HTTP
+// referrer to this app's own origins (see .env.example for the exact create
+// command), not a secret — it ships to every browser that loads the app
+// either way, since the Picker widget needs it client-side to run at all.
+// The alternative (an env var read at `npm run build` time) does not
+// actually work with this project's deploy pipeline: `gcloud builds submit`
+// auto-generates a .gcloudignore from .gitignore when none exists, and
+// `.env*` is gitignored, so a real .env file never reaches the Cloud Build
+// context — `npm run build` inside the Docker stage would never have seen
+// it. VITE_GOOGLE_PICKER_API_KEY is kept as an override for anyone running a
+// different deployment with its own key.
+//
 // Optional chaining on `.env` itself, not just the key: this file is imported
 // by googleScopes.test.ts, which runs under plain `tsx` (no Vite), where
 // `import.meta.env` doesn't exist at all rather than being empty.
 export const GOOGLE_PICKER_API_KEY: string | undefined =
-  (import.meta.env?.VITE_GOOGLE_PICKER_API_KEY as string | undefined) || undefined;
+  (import.meta.env?.VITE_GOOGLE_PICKER_API_KEY as string | undefined) ||
+  'AIzaSyB465xLFo3mzTqo__w7J2nV27r2BAy_l9U';
 
 export const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 
