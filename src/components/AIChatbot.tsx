@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord } from '../types';
 import { auth } from '../lib/firebase';
 import {
@@ -24,8 +24,9 @@ import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
   ClipboardPaste, ChevronRight, CalendarClock, Undo2, ChevronDown, ScanLine,
-  FolderDown,
+  FolderDown, MessageCircleQuestion,
 } from 'lucide-react';
+import DocumentAskModal, { type DocumentAskModalDoc } from './DocumentAskModal';
 import type { ScannedFile } from './DocumentScannerModal';
 // Lazy: this camera-UI component pulls in jsPDF (page-compile) — deferring it
 // keeps that weight out of every chat-panel load for the majority of visits
@@ -178,6 +179,13 @@ interface ChatMessage {
    * the same card would mean an "Apply" button that changes no data, and an
    * Undo that has nothing to undo. See utils/exportPack.ts. */
   exportRequest?: PackRequest;
+  /* A document the assistant offered to READ, and the phrase to search it for.
+   * Like exportRequest this is not an AiEdit — it writes nothing. It is a
+   * pointer plus a search term, never any of the document's text: the chat
+   * model has no access to document contents and must not, because it can write
+   * to the vault and a lease is prose a landlord wrote. Tapping it runs the
+   * separate, read-only /api/doc-read. See sanitizeReadDoc in server.js. */
+  readDoc?: { id: string; name: string; question: string };
   applied?: boolean;
   image?: string;             // legacy single dataUrl preview — kept for messages persisted before multi-attach
   images?: string[];          // dataUrl previews on a user message — swapped to Storage URLs once uploaded, see send()
@@ -185,6 +193,24 @@ interface ChatMessage {
   sourceImages?: Attachment[]; // carried on the assistant message so 'document' edits can file the right scan
   warnings?: string[];        // client-side safety-net notices (e.g. a likely-missed passport record) — display only, never persisted server-side
   undo?: UndoRecord[];        // ids of the records THIS apply created (captured at Apply time) — lets "Undo" delete exactly them and flip the card back to un-applied
+}
+
+/**
+ * The chat bubble shown whenever a document is about to be read — written here,
+ * in the app, never by the model. See where it is used in send().
+ *
+ * Every word of it is checked against one rule: it must not imply anything
+ * about what the document contains, in either direction. "Here's what your
+ * lease says about repairs" quietly promises a passage exists, and when none is
+ * found the sheet that opens a second later contradicts the sentence above it.
+ * The honest claim is only ever about what the APP is doing — searching a named
+ * file for a named phrase — and about whose words the answer will be.
+ */
+function readingLine(readDoc: { name: string; question: string }): string {
+  const q = (readDoc.question || '').trim();
+  return q
+    ? `Reading “${readDoc.name}” for “${q}” now — you'll see the document's own wording, not mine.`
+    : `Opening “${readDoc.name}” and searching it now — you'll see the document's own wording, not mine.`;
 }
 
 interface Props {
@@ -350,6 +376,52 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
      effect below, the moment the space is known. */
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  // The document reader, opened from a chat answer. Holds the resolved vault
+  // document (we need its downloadUrl, which never goes near the chat model)
+  // plus the phrase to search for.
+  const [readerDoc, setReaderDoc] = useState<{ doc: DocumentAskModalDoc; question: string } | null>(null);
+  const [readerLoading, setReaderLoading] = useState<string | null>(null);
+
+  /**
+   * Resolve a document the assistant named, and open the reader on it.
+   *
+   * The vault record is fetched HERE, on the client, at tap time — the chat
+   * response carried only an id. That is the whole point: the downloadUrl, and
+   * everything behind it, never passes through the model that can write to the
+   * vault. If the id no longer resolves (deleted in another tab, or the list
+   * moved on), say so plainly rather than opening an empty sheet.
+   */
+  const openReader = useCallback(async (target: { id: string; name: string; question: string }) => {
+    setReaderLoading(target.id);
+    try {
+      const docs = await loadDocuments();
+      const found = (docs || []).find((d) => d.id === target.id);
+      if (!found) {
+        setMessages((prev) => [...prev, {
+          role: 'assistant',
+          text: `I can't find “${target.name}” in the vault any more — it may have been removed. Try the Documents screen.`,
+        }]);
+        return;
+      }
+      setReaderDoc({
+        doc: {
+          id: found.id,
+          name: found.name,
+          category: found.category,
+          fileType: found.fileType,
+          src: found.downloadUrl,
+        },
+        question: target.question,
+      });
+    } catch {
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        text: `I couldn't open “${target.name}” just now — please try again, or open it from the Documents screen.`,
+      }]);
+    } finally {
+      setReaderLoading(null);
+    }
+  }, []);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   // Load a pending draft from CopyableValue's "Scan" action, if this mount was
@@ -1030,11 +1102,40 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         }
       }
 
+      // Already validated server-side against the document list this same
+      // request sent, so an id here is one the user genuinely has. Re-checked
+      // for shape only — a malformed payload should drop the offer, not throw.
+      const rawRead = (data as { readDoc?: { id?: unknown; name?: unknown; question?: unknown } }).readDoc;
+      const readDoc = rawRead && typeof rawRead.id === 'string' && rawRead.id
+        ? {
+            id: rawRead.id,
+            name: typeof rawRead.name === 'string' ? rawRead.name : 'this document',
+            question: typeof rawRead.question === 'string' ? rawRead.question : '',
+          }
+        : undefined;
+
       const assistantMsg: ChatMessage = {
         role: 'assistant',
-        text: data.reply || '…',
+        // WHEN A DOCUMENT IS BEING READ, THE MODEL'S PROSE IS THROWN AWAY.
+        //
+        // Not for tidiness — because that sentence is where the whole feature
+        // leaked. Told it may not read documents itself, the model reliably
+        // opens with what it CANNOT do ("I can only store and retrieve the
+        // document itself… I cannot read the content"), which reads as a flat
+        // refusal even in the build where the reader works perfectly. The
+        // reader was live for a week and the first thing the user saw was
+        // still a refusal.
+        //
+        // So the moment a document read is resolved, the bubble is entirely
+        // app-authored: a fixed template, naming the document and the phrase,
+        // claiming nothing about what the document contains. That is also the
+        // stronger legal position — with the reply replaced, there is now NO
+        // path by which model prose about a document's contents can reach the
+        // screen, rather than a rule asking it not to.
+        text: readDoc ? readingLine(readDoc) : (data.reply || '…'),
         edits: edits.length ? edits : undefined,
         exportRequest,
+        readDoc,
         sourceImages: persistedAtts.length ? persistedAtts : undefined,
         warnings: warnings.length ? warnings : undefined,
       };
@@ -1050,6 +1151,23 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       });
       startStreaming(assistantMsg.text);
       refreshAiUsage(); // this call just counted against this month's quota — keep the indicator honest
+
+      // OPEN THE READER ITSELF — don't wait to be asked twice.
+      //
+      // The user has already said what they want to know. Answering "here is a
+      // button that will find out" makes them ask the same question a second
+      // time in a different way, which is the app forgetting what it was told
+      // one line earlier. Chat is meant to be the mouthpiece for the documents,
+      // not a signpost to a second place to ask.
+      //
+      // The button below the message stays — it is how you reopen the sheet
+      // after closing it, and it is the fallback if this auto-open fails.
+      //
+      // Cost is real and accepted: /api/doc-read counts as its own AI action,
+      // so a document question now spends two rather than one. That is the
+      // price of the question actually being answered, and readDoc is only ever
+      // set for questions genuinely about a document's contents.
+      if (readDoc) void openReader(readDoc);
       // A failed attachment upload used to only console.error, so the user found
       // out much later — when Apply mysteriously couldn't file the document.
       // Say it now, while the photo is still on their screen to re-send.
@@ -1756,6 +1874,37 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
                 {shownText}
               </div>
 
+              {m.readDoc && (
+                /* Writes nothing, so no Apply card — same reasoning as the
+                   export button below. Tapping it opens the reader with the
+                   phrase already in it and the search already running: the user
+                   asked their question in this conversation, and making them
+                   re-type it into a second box would be the app forgetting what
+                   it was just told. */
+                <button
+                  type="button"
+                  onClick={() => void openReader(m.readDoc!)}
+                  disabled={readerLoading === m.readDoc.id}
+                  className="w-full rounded-2xl border border-sage-200 bg-sage-50/70 p-3 flex items-center gap-2.5 text-left cursor-pointer hover:bg-sage-50 disabled:opacity-60 disabled:cursor-wait"
+                >
+                  <span className="w-8 h-8 rounded-xl bg-white border border-sage-200 flex items-center justify-center shrink-0">
+                    {readerLoading === m.readDoc.id
+                      ? <Loader2 className="w-4 h-4 text-sage-600 animate-spin" />
+                      : <MessageCircleQuestion className="w-4 h-4 text-sage-600" />}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] font-semibold text-sage-700 truncate">
+                      Read {m.readDoc.name}
+                    </span>
+                    <span className="block text-[12px] text-ink-500 truncate">
+                      {m.readDoc.question
+                        ? `Shows the exact wording about “${m.readDoc.question}”`
+                        : 'Shows the exact wording, straight from the document'}
+                    </span>
+                  </span>
+                </button>
+              )}
+
               {m.exportRequest && onPrepareExport && (
                 /* Not an Apply card. Nothing is being written, so there is
                    nothing to confirm here — the confirmation that matters is
@@ -2083,6 +2232,17 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
           }
         </p>
       </div>
+
+      {/* The reader, opened from an answer above. The chat never receives a
+          single character of the document — this sheet fetches the file itself
+          and calls the separate read-only endpoint. Chat is the mouthpiece; the
+          reading happens somewhere that cannot write. */}
+      <DocumentAskModal
+        doc={readerDoc?.doc ?? null}
+        isBusinessSpace={isBusinessSpace}
+        autoQuestion={readerDoc?.question}
+        onClose={() => setReaderDoc(null)}
+      />
 
       <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} name="Chat attachment" />
       {scannerEverOpened && (

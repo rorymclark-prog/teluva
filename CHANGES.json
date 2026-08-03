@@ -1,22 +1,8 @@
 {
-  "label": "v174",
+  "label": "v184",
   "changes": [
-    "Long-press (or click) now works on any displayed block of info — chronic conditions, allergies, medications, blood type, emergency contact, employer — not just ID numbers, to Copy or Share it.",
-    "That same long-press menu now has a \"Scan\" option: snap or pick a photo relevant to what you're looking at, and it opens the assistant with that photo already attached and a note about what it's for, ready for you to send.",
-    "Tap any item on a family member's Belongings card to see everything on file for it — not just the name, but make/model, serial number, purchase price, warranty, where it's kept, and photos — with an edit form right there if you're an admin.",
-    "Fixed: photographing an item you'd already filed (e.g. a medical device) and asking the assistant to update it created a second, duplicate entry instead of correcting the original. The assistant can now see what's already in the inventory and will update the existing item — or ask, if it's genuinely unsure — rather than guess and file a duplicate.",
-    "Fixed: a photo attached to an \"add this to our things\" message was silently dropped — only the text details were saved. The photo is now kept with the item.",
-    "You can now also ask the assistant to remove or correct an item in the family inventory by name, the same way you can for passports, vehicles and receipts.",
-    "Filled real gaps found in a full audit of what the assistant can set vs. what you can edit yourself: Austria now has fields for ID document type, birth certificate number, and private health insurance number; added a garage code field to Household; added Nationality and Gender to a family member's profile.",
-    "Renamed \"Sozialversicherungsnummer (SV)\" to \"Social Security Number (Sozialversicherungsnummer / SV number)\" — several people couldn't find it by searching for the English term.",
-    "Government ID numbers (SV numbers, passport numbers, tax numbers and the rest), household access codes, and bank details are now encrypted the same way saved passwords always have been — a database copy or leak no longer exposes them in plain text. Security page updated with the details.",
-    "Fixed: passport numbers were being sent to the AI assistant along with the question you asked it — they're now held back like every other ID number, only the country and expiry stay visible.",
-    "The assistant now asks which number you mean when correcting an SV number or e-card number, instead of guessing — the two look alike but are different fields.",
-    "Fixed: the \"new version available\" banner could go stale if it fired and then more updates shipped while your tab stayed open — it now always shows what's genuinely latest.",
-    "The app should feel noticeably snappier — the first load now ships about a third less code, since each screen only downloads when you actually open it instead of all twenty loading up front.",
-    "The welcome tour now mentions Calendar sync and Google Drive, and fixed a step that was silently never showing.",
-    "You can now join a second family or business space with an invite code from the menu under your family's name, not just the very first time you sign in.",
-    "The assistant can now read and update the family status line (\"everyone's at Oma's until Sunday\") — it could see everything else but not that, until now.",
-    "Fixed: a save that failed while you were offline could later be silently overwritten and lost the next time the app reconnected — it's now protected until it actually syncs."
+    "Ask about a document and the answer just appears. Before, the assistant offered you a button and waited to be asked a second time; now it opens the document, searches it, and shows you the wording itself. You ask once.",
+    "The assistant no longer opens by telling you what it can't do. When a question is about a document, the reply you see is written by Teluva, not by the AI — so \"I cannot read the content of the document\" can no longer be said about a document Teluva is in the middle of reading for you.",
+    "Fixed: an app installed from Teluva's old web address was silently frozen on an old version. Teluva was renamed, the old address kept running, and every update for the past week went to the new one — so an app opened there kept working, kept saying it was up to date, and kept showing an old Teluva. It now recognises the old address and offers to move you across."
   ]
 }
