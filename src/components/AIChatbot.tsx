@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
-import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord } from '../types';
+import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord, DocReadResult, DocPassage } from '../types';
+import { readDocument } from '../utils/docReader';
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
@@ -24,7 +25,7 @@ import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
   ClipboardPaste, ChevronRight, CalendarClock, Undo2, ChevronDown, ScanLine,
-  FolderDown, MessageCircleQuestion,
+  FolderDown, MessageCircleQuestion, Quote,
 } from 'lucide-react';
 import DocumentAskModal, { type DocumentAskModalDoc } from './DocumentAskModal';
 import type { ScannedFile } from './DocumentScannerModal';
@@ -186,6 +187,19 @@ interface ChatMessage {
    * to the vault and a lease is prose a landlord wrote. Tapping it runs the
    * separate, read-only /api/doc-read. See sanitizeReadDoc in server.js. */
   readDoc?: { id: string; name: string; question: string };
+  /* The document read that belongs to THIS message, rendered inline below it.
+   *
+   * Deliberately never persisted: patchRead() updates state without touching
+   * saveChatHistory, so passages from a lease never reach the stored chat
+   * history. They are cheap to fetch again and expensive to leak — the whole
+   * design keeps document text out of everything the chat model can see, and
+   * writing it into the history that gets replayed into that model would undo
+   * exactly that. Reopening an old conversation shows the question and the
+   * Read button, not the clauses. */
+  readKey?: string;          // stable handle for patching this message as the read progresses
+  readPending?: boolean;
+  readResult?: DocReadResult;
+  readError?: string;
   applied?: boolean;
   image?: string;             // legacy single dataUrl preview — kept for messages persisted before multi-attach
   images?: string[];          // dataUrl previews on a user message — swapped to Storage URLs once uploaded, see send()
@@ -211,6 +225,127 @@ function readingLine(readDoc: { name: string; question: string }): string {
   return q
     ? `Reading “${readDoc.name}” for “${q}” now — you'll see the document's own wording, not mine.`
     : `Opening “${readDoc.name}” and searching it now — you'll see the document's own wording, not mine.`;
+}
+
+/* How many passages the conversation shows before deferring to the full sheet.
+ * A chat bubble is a poor place to scroll through nine clauses, and the sheet
+ * exists precisely for that. Three is enough to answer most questions outright;
+ * the count of what is left is always stated, never quietly dropped. */
+const INLINE_PASSAGE_LIMIT = 3;
+/* Same reasoning as the sheet's cap: on the screen where someone decides
+ * whether to believe "it isn't in there", fifty German stems read as flailing
+ * and make the claim less credible, not more. */
+const INLINE_TERMS_PREVIEW = 6;
+
+const pageList = (pages: number[]): string =>
+  pages.length <= 2 ? pages.join(' and ') : `${pages.slice(0, -1).join(', ')} and ${pages[pages.length - 1]}`;
+
+/**
+ * The document's own words, in the conversation.
+ *
+ * Everything rendered here is either a slice the server cut out of text this
+ * browser extracted, or a fixed string written in this file. Nothing the chat
+ * model wrote appears in it — that is what makes "Teluva quotes, it does not
+ * advise" a property of the code rather than a promise about a model.
+ */
+function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
+  if (msg.readPending) {
+    return (
+      <div className="flex items-center gap-2 rounded-2xl border border-cream-200 bg-white/70 px-3.5 py-3 text-[13px] text-ink-500">
+        <Loader2 className="w-3.5 h-3.5 animate-spin text-sage-600" />
+        Reading {msg.readDoc?.name || 'the document'}…
+      </div>
+    );
+  }
+
+  if (msg.readError) {
+    return (
+      <div className="rounded-2xl border border-rosa-200 bg-rosa-50 px-3.5 py-3 text-[13px] leading-relaxed text-rosa-800">
+        {msg.readError}
+      </div>
+    );
+  }
+
+  const result = msg.readResult;
+  if (!result) return null;
+
+  const { coverage } = result;
+  const unread = coverage.pagesWithoutText;
+  // Surfaced passages only. The set-aside ones still travel in the payload and
+  // are shown in the full sheet — putting them in the conversation unlabelled
+  // would present text the reader decided was NOT about this question as though
+  // it were the answer.
+  const surfaced = result.passages.filter((p: DocPassage) => p.surfaced !== false);
+  const shown = surfaced.slice(0, INLINE_PASSAGE_LIMIT);
+  const moreCount = surfaced.length - shown.length;
+
+  const terms = result.searchedFor.slice(0, INLINE_TERMS_PREVIEW);
+  const termsRest = result.searchedFor.length - terms.length;
+  const termLine = terms.length
+    ? `Searched for: ${terms.join(', ')}${termsRest > 0 ? `, and ${termsRest} more` : ''}.`
+    : '';
+
+  if (shown.length === 0) {
+    // A FIXED TEMPLATE, and the most important text in this component.
+    //
+    // "Your lease doesn't mention that" is the single most damaging sentence
+    // this feature could produce, and it is the DEFAULT output of every
+    // extraction gap, missed synonym and image-only page. So nothing here is
+    // allowed to say it: the claim is about the search, never about the
+    // document, and any page we failed to read is named out loud.
+    return (
+      <div className="rounded-2xl border border-honey-200 bg-honey-50 px-3.5 py-3 space-y-2">
+        <p className="text-[13.5px] font-semibold text-ink-900">No passage matched those words.</p>
+        <p className="text-[13px] leading-relaxed text-ink-700">
+          That doesn&rsquo;t mean the document doesn&rsquo;t cover it — wording, scan quality and
+          search terms all affect this. {termLine}
+        </p>
+        {unread.length > 0 && (
+          <p className="text-[13px] leading-relaxed text-honey-900">
+            I also couldn&rsquo;t read {unread.length === 1 ? 'page' : 'pages'} {pageList(unread)} at
+            all, so I can&rsquo;t tell you it isn&rsquo;t in {unread.length === 1 ? 'that one' : 'those'}.
+          </p>
+        )}
+        {unread.length === 0 && !coverage.verifiable && (
+          <p className="text-[13px] leading-relaxed text-honey-900">
+            This was read as an image rather than as text, so a word the reader missed would look
+            exactly like a word that isn&rsquo;t there.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {shown.map((p: DocPassage, i: number) => (
+        <div key={i} data-copy-scan="1" className="rounded-2xl border border-cream-300 bg-cream-50 px-3.5 py-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="chip bg-sage-100 text-sage-700">{p.topic}</span>
+            <span className="chip bg-cream-200 text-ink-600 tabular-nums">page {p.page}</span>
+            {!coverage.verifiable && <span className="chip bg-honey-100 text-honey-800">read from an image</span>}
+            {!p.matchedSearch && (
+              // Honest attribution of why this is on screen: the deterministic
+              // sweep did not find it, so a model chose it. A different level of
+              // trust, said out loud rather than blended in with the rest.
+              <span className="chip bg-cream-200 text-ink-500">nearby, not a direct match</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Quote className="w-3.5 h-3.5 text-ink-300 shrink-0 mt-1" />
+            <p className="text-[13.5px] leading-relaxed text-ink-800 whitespace-pre-wrap">{p.text}</p>
+          </div>
+        </div>
+      ))}
+
+      <p className="text-[12px] leading-relaxed text-ink-500">
+        {msg.readDoc?.name ? `From ${msg.readDoc.name}. ` : ''}
+        These are its own words — Teluva doesn&rsquo;t interpret them or give legal advice.
+        {moreCount > 0 && ` ${moreCount} more ${moreCount === 1 ? 'passage' : 'passages'} matched — open the reader to see ${moreCount === 1 ? 'it' : 'them'}.`}
+        {unread.length > 0 && ` I couldn't read ${unread.length === 1 ? 'page' : 'pages'} ${pageList(unread)}, so I can't speak for ${unread.length === 1 ? 'it' : 'them'}.`}
+      </p>
+    </div>
+  );
 }
 
 interface Props {
@@ -391,6 +526,60 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
    * vault. If the id no longer resolves (deleted in another tab, or the list
    * moved on), say so plainly rather than opening an empty sheet.
    */
+  /**
+   * Read the document and put its own words in the conversation.
+   *
+   * "I just want the AI to answer in chat" — so the answer is rendered HERE,
+   * under the message that prompted it, and not behind a button that opens a
+   * sheet. Chat is the mouthpiece for the vault; a pointer to a second screen
+   * is a signpost, not an answer.
+   *
+   * The document's text still never touches the chat model. This calls the same
+   * read-only /api/doc-read the sheet does (via utils/docReader.ts) and renders
+   * the passages the server sliced out of text extracted in this browser. The
+   * chat model contributed one document id and one search phrase, and sees
+   * nothing that comes back.
+   *
+   * loadDocuments() runs here rather than being carried on the message so the
+   * document's downloadUrl never enters the chat transcript either.
+   */
+  const runInlineRead = useCallback(async (
+    target: { id: string; name: string; question: string },
+    readKey: string,
+  ) => {
+    // Matched on readKey, not object identity: each patch REPLACES the message
+    // object, so a second patch keyed on the original reference would silently
+    // find nothing and the spinner would spin for ever.
+    const patchRead = (p: Partial<ChatMessage>) =>
+      setMessages((prev) => prev.map((m) => (m.readKey === readKey ? { ...m, ...p } : m)));
+
+    try {
+      const docs = await loadDocuments();
+      const found = (docs || []).find((d) => d.id === target.id);
+      if (!found) {
+        patchRead({
+          readPending: false,
+          readError: `I can't find “${target.name}” in the vault any more — it may have been removed.`,
+        });
+        return;
+      }
+
+      const outcome = await readDocument(
+        { name: found.name, category: found.category, fileType: found.fileType, src: found.downloadUrl },
+        target.question,
+        { isBusinessSpace },
+      );
+
+      if (outcome.kind === 'result') patchRead({ readPending: false, readResult: outcome.result });
+      else patchRead({ readPending: false, readError: outcome.message });
+    } catch {
+      patchRead({
+        readPending: false,
+        readError: `I couldn't open “${target.name}” just now — please try again, or open it from the Documents screen.`,
+      });
+    }
+  }, [isBusinessSpace]);
+
   const openReader = useCallback(async (target: { id: string; name: string; question: string }) => {
     setReaderLoading(target.id);
     try {
@@ -1133,6 +1322,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         // path by which model prose about a document's contents can reach the
         // screen, rather than a rule asking it not to.
         text: readDoc ? readingLine(readDoc) : (data.reply || '…'),
+        readKey: readDoc ? `${readDoc.id}::${performance.now()}` : undefined,
+        readPending: !!readDoc,
         edits: edits.length ? edits : undefined,
         exportRequest,
         readDoc,
@@ -1152,22 +1343,23 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       startStreaming(assistantMsg.text);
       refreshAiUsage(); // this call just counted against this month's quota — keep the indicator honest
 
-      // OPEN THE READER ITSELF — don't wait to be asked twice.
+      // READ IT NOW, IN THE CONVERSATION — don't wait to be asked twice.
       //
       // The user has already said what they want to know. Answering "here is a
       // button that will find out" makes them ask the same question a second
       // time in a different way, which is the app forgetting what it was told
-      // one line earlier. Chat is meant to be the mouthpiece for the documents,
-      // not a signpost to a second place to ask.
+      // one line earlier.
       //
-      // The button below the message stays — it is how you reopen the sheet
-      // after closing it, and it is the fallback if this auto-open fails.
+      // The passages land inline under this message (see InlineDocAnswer). The
+      // button below stays as a way into the full sheet — where the search box,
+      // the set-aside passages and the who-can-answer list live — but nothing
+      // has to be tapped to get an answer.
       //
       // Cost is real and accepted: /api/doc-read counts as its own AI action,
-      // so a document question now spends two rather than one. That is the
-      // price of the question actually being answered, and readDoc is only ever
-      // set for questions genuinely about a document's contents.
-      if (readDoc) void openReader(readDoc);
+      // so a document question spends two rather than one. That is the price of
+      // the question actually being answered, and readDoc is only ever set for
+      // questions genuinely about a document's contents.
+      if (readDoc && assistantMsg.readKey) void runInlineRead(readDoc, assistantMsg.readKey);
       // A failed attachment upload used to only console.error, so the user found
       // out much later — when Apply mysteriously couldn't file the document.
       // Say it now, while the photo is still on their screen to re-send.
@@ -1874,13 +2066,15 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
                 {shownText}
               </div>
 
+              {/* The answer itself, in the conversation — no tap required. */}
+              {m.readDoc && <InlineDocAnswer msg={m} />}
+
               {m.readDoc && (
                 /* Writes nothing, so no Apply card — same reasoning as the
-                   export button below. Tapping it opens the reader with the
-                   phrase already in it and the search already running: the user
-                   asked their question in this conversation, and making them
-                   re-type it into a second box would be the app forgetting what
-                   it was just told. */
+                   export button below. The passages are already above; this is
+                   the way into the full sheet, where the search box, the
+                   set-aside passages and the list of people who can actually
+                   advise you live. */
                 <button
                   type="button"
                   onClick={() => void openReader(m.readDoc!)}
@@ -1894,12 +2088,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="block text-[13px] font-semibold text-sage-700 truncate">
-                      Read {m.readDoc.name}
+                      Open {m.readDoc.name}
                     </span>
                     <span className="block text-[12px] text-ink-500 truncate">
-                      {m.readDoc.question
-                        ? `Shows the exact wording about “${m.readDoc.question}”`
-                        : 'Shows the exact wording, straight from the document'}
+                      Search it again, see everything it found, or share a clause
                     </span>
                   </span>
                 </button>

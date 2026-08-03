@@ -4,11 +4,14 @@ import { getDocumentPlaceholderSvg } from '../utils/svgPlaceholders';
 import {
   FileText, Upload, Eye, Download, Plus,
   Sparkles, FileImage, ShieldCheck, AlertCircle,
-  Camera, X, RefreshCcw, AlertTriangle, CheckSquare, Share2, Check, Loader2
+  Camera, X, RefreshCcw, AlertTriangle, CheckSquare, Share2, Check, Loader2,
+  MessageCircleQuestion
 } from 'lucide-react';
+import DocumentAskModal from './DocumentAskModal';
+import { canAskAboutDocument } from '../utils/docReadEligibility';
 import { motion } from 'motion/react';
 import { hashDataUrl, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch } from '../utils/documentDedup';
-import { canShare, shareMultiple, downloadZip } from '../utils/share';
+import { canShare, shareFile, shareMultiple, downloadZip } from '../utils/share';
 import { compileImageToPdf } from '../utils/pdfCompile';
 import PdfThumbnail from './PdfThumbnail';
 import { ScannedFile } from './DocumentScannerModal';
@@ -84,6 +87,7 @@ export default function MemberDocuments({
   const [pendingHash, setPendingHash] = useState<string>('');
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
+  const [askingDoc, setAskingDoc] = useState<FamilyDocument | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState<'share' | 'zip' | null>(null);
   const [isPdfCompiling, setIsPdfCompiling] = useState(false);
@@ -285,6 +289,16 @@ export default function MemberDocuments({
     }
     return getDocumentPlaceholderSvg(doc.name, doc.category, member.name, doc.uploadedAt);
   };
+
+  // Only documents whose REAL bytes we hold may be read. getDocSource above
+  // falls back to a placeholder SVG that this app drew itself, and pointing the
+  // reader at one would search a picture of a filename and truthfully report
+  // that it says nothing about repairs — the single most dangerous sentence
+  // this feature can produce, manufactured out of our own artwork.
+  const askableDoc = (doc: FamilyDocument) =>
+    !!doc.fileData
+    && doc.fileData !== 'PLACEHOLDER'
+    && canAskAboutDocument({ category: doc.category, name: doc.name, fileType: doc.fileType, isBusinessSpace });
 
   const handleDownload = (doc: FamilyDocument) => {
     const src = getDocSource(doc);
@@ -734,14 +748,35 @@ export default function MemberDocuments({
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDownload(doc)}
-                        className="p-1.5 text-ink-400 hover:text-ink-800 hover:bg-cream-100 rounded-xl transition-colors cursor-pointer"
-                        title="Download"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
+                      {askableDoc(doc) && (
+                        <button
+                          type="button"
+                          onClick={() => setAskingDoc(doc)}
+                          className="p-1.5 text-ink-400 hover:text-ink-800 hover:bg-cream-100 rounded-xl transition-colors cursor-pointer"
+                          title="Ask what this document says"
+                        >
+                          <MessageCircleQuestion className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canShare ? (
+                        <button
+                          type="button"
+                          onClick={() => void shareFile(getDocSource(doc), doc.fileName || doc.name)}
+                          className="p-1.5 text-ink-400 hover:text-ink-800 hover:bg-cream-100 rounded-xl transition-colors cursor-pointer"
+                          title="Share"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleDownload(doc)}
+                          className="p-1.5 text-ink-400 hover:text-ink-800 hover:bg-cream-100 rounded-xl transition-colors cursor-pointer"
+                          title="Download"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      )}
                       <ConfirmDeleteButton
                         // Honest copy: this really does remove it everywhere
                         // now — the profile, the shared Document Vault and
@@ -771,6 +806,20 @@ export default function MemberDocuments({
           />
         </Suspense>
       )}
+
+      <DocumentAskModal
+        doc={askingDoc ? {
+          id: askingDoc.id,
+          name: askingDoc.name,
+          category: askingDoc.category,
+          fileType: askingDoc.fileType,
+          // Safe: askableDoc() already established real bytes exist, so this
+          // never resolves to the placeholder branch of getDocSource.
+          src: getDocSource(askingDoc),
+        } : null}
+        isBusinessSpace={isBusinessSpace}
+        onClose={() => setAskingDoc(null)}
+      />
     </div>
   );
 }

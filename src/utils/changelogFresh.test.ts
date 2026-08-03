@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs';
 
 const changes = JSON.parse(readFileSync('CHANGES.json', 'utf8'));
-const deployed = /family-info-organizer:(v\d+)/.exec(readFileSync('run-service.yaml', 'utf8'))?.[1];
+const deployed = /teluva:(v\d+)/.exec(readFileSync('run-service.yaml', 'utf8'))?.[1];
 
 if (!deployed) throw new Error('changelogFresh: could not read the image tag from run-service.yaml');
 if (changes.label !== deployed) {

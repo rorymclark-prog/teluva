@@ -14,7 +14,12 @@
 // the one in-flight setup instead of racing to redo it.
 let pdfjsReady: Promise<typeof import('pdfjs-dist')> | null = null;
 
-function loadPdfjs() {
+// Exported (additively — nothing else about this module changed) so that
+// utils/docText.ts can share this ONE loader instead of standing up a second
+// singleton. Two modules each configuring GlobalWorkerOptions.workerSrc is
+// precisely the double-init race described above, and a document list mounting
+// thumbnails while the user opens the document reader is exactly when it fires.
+export function loadPdfjs() {
   if (!pdfjsReady) {
     pdfjsReady = (async () => {
       const pdfjs = await import('pdfjs-dist');

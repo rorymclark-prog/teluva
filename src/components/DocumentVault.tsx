@@ -4,10 +4,12 @@ import { loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, uploadV
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import { auth } from '../lib/firebase';
 import DocumentViewer from './DocumentViewer';
+import DocumentAskModal from './DocumentAskModal';
+import { canAskAboutDocument } from '../utils/docReadEligibility';
 import {
   FolderLock, Upload, Search, Eye, Cloud, CloudOff,
   Plus, X, Check, Loader2, File, AlertCircle, AlertTriangle,
-  CheckSquare, Share2, Download, ImagePlus
+  CheckSquare, Share2, Download, ImagePlus, MessageCircleQuestion
 } from 'lucide-react';
 import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch } from '../utils/documentDedup';
 import { canShare, shareMultiple, downloadZip } from '../utils/share';
@@ -704,6 +706,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   // Reuse the same in-app viewer the per-member Documents tab uses, instead of
   // a bare new-tab download link — same PDF/image rendering, same layout.
   const [viewingDoc, setViewingDoc] = useState<VaultDocument | null>(null);
+  const [askingDoc, setAskingDoc] = useState<VaultDocument | null>(null);
   const VAULT_CATEGORY_TO_FAMILY: Record<VaultCategory, FamilyDocument['category']> = {
     Identity: 'ID', Education: 'Education', Medical: 'Health',
     Financial: 'Other', Legal: 'Other', Travel: 'Travel', Other: 'Other',
@@ -959,6 +962,27 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
                       <Eye className="w-3 h-3" />
                       View
                     </button>
+                    {/* Recall-only reader. Hidden rather than disabled where it
+                        cannot apply (medical, insurance-pending-legal-review,
+                        business spaces, images with no text to extract) —
+                        canAskAboutDocument mirrors the server's own gate, which
+                        stays authoritative. See utils/docReadEligibility.ts. */}
+                    {canAskAboutDocument({
+                      category: doc.category,
+                      name: doc.name,
+                      fileType: doc.fileType,
+                      isBusinessSpace,
+                    }) && (
+                      <button
+                        type="button"
+                        onClick={() => setAskingDoc(doc)}
+                        className="btn-quiet text-xs px-3 py-1.5"
+                        title="Ask what this document says"
+                      >
+                        <MessageCircleQuestion className="w-3 h-3" />
+                        Ask
+                      </button>
+                    )}
                     <ConfirmDeleteButton
                       onConfirm={() => handleDelete(doc)}
                       ariaLabel={`Delete "${doc.name}" everywhere`}
@@ -989,6 +1013,18 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
         document={viewingDoc ? toFamilyDoc(viewingDoc) : null}
         memberName={viewingDoc ? (memberName(viewingDoc.memberId) ?? (isBusinessSpace ? 'the team' : 'the family')) : ''}
         onClose={() => setViewingDoc(null)}
+      />
+
+      <DocumentAskModal
+        doc={askingDoc ? {
+          id: askingDoc.id,
+          name: askingDoc.name,
+          category: askingDoc.category,
+          fileType: askingDoc.fileType,
+          src: askingDoc.downloadUrl,
+        } : null}
+        isBusinessSpace={isBusinessSpace}
+        onClose={() => setAskingDoc(null)}
       />
     </div>
   );

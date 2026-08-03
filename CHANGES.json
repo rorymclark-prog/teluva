@@ -1,8 +1,8 @@
 {
-  "label": "v184",
+  "label": "v185",
   "changes": [
-    "Ask about a document and the answer just appears. Before, the assistant offered you a button and waited to be asked a second time; now it opens the document, searches it, and shows you the wording itself. You ask once.",
-    "The assistant no longer opens by telling you what it can't do. When a question is about a document, the reply you see is written by Teluva, not by the AI — so \"I cannot read the content of the document\" can no longer be said about a document Teluva is in the middle of reading for you.",
-    "Fixed: an app installed from Teluva's old web address was silently frozen on an old version. Teluva was renamed, the old address kept running, and every update for the past week went to the new one — so an app opened there kept working, kept saying it was up to date, and kept showing an old Teluva. It now recognises the old address and offers to move you across."
+    "The answer now appears in the chat itself. Ask what your lease says about repairs and the clauses come back in the conversation, with page numbers, quoted word for word — no sheet to open, nothing to tap. The document speaks for itself, right where you asked.",
+    "Fixed: documents wouldn't load at all on the new address. Teluva's file storage was still only expecting the old web address, so every attempt to read a document failed with \"Failed to fetch\". Both addresses are now allowed.",
+    "When nothing matches, Teluva says exactly that — and says what it searched for, and names any page it couldn't read. It will not tell you your document doesn't mention something, because that is the one thing it has no way to know."
   ]
 }

@@ -11,6 +11,7 @@ import Dashboard from './components/Dashboard';
 import FamilyOnboarding from './components/FamilyOnboarding';
 import FamilySettings from './components/FamilySettings';
 import UpdateBanner from './components/UpdateBanner';
+import GlobalCopyScan from './components/GlobalCopyScan';
 
 // ---------------------------------------------------------------------------
 // AppInner — reads FamilyContext and gates which screen to show
@@ -78,6 +79,7 @@ export default function App() {
       <FamilyProvider>
         <ChatDraftProvider>
           <AppInner />
+          <GlobalCopyScan />
         </ChatDraftProvider>
       </FamilyProvider>
       <UpdateBanner />

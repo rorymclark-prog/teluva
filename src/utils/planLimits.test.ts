@@ -6,6 +6,7 @@ import assert from 'node:assert';
 import {
   PLAN_LIMITS, planFromField, monthKeyUtc, resetDateLabelUtc,
   isAiLimitReached, canAddMember, aiLimitMessage, seatLimitMessage,
+  resolvePlan, TRIAL_DAYS, trialExpiryIso,
 } from './planLimits';
 
 // --- Plan limits table ------------------------------------------------------
@@ -80,5 +81,33 @@ const seatMsg = seatLimitMessage(10, 'free');
 assert.ok(seatMsg.includes('10 members'));
 assert.ok(seatMsg.includes('free plan'));
 assert.ok(seatMsg.includes('10'));
+
+// --- resolvePlan: lazy expiry ------------------------------------------------
+const NOW = new Date('2026-07-28T12:00:00Z');
+assert.strictEqual(resolvePlan(null, NOW), 'free');
+assert.strictEqual(resolvePlan(undefined, NOW), 'free');
+assert.strictEqual(resolvePlan({}, NOW), 'free');
+assert.strictEqual(resolvePlan({ plan: 'free' }, NOW), 'free');
+// No expiry at all — the original pre-trial precedent (a hand-flipped field
+// with no end date) stays paid forever.
+assert.strictEqual(resolvePlan({ plan: 'paid' }, NOW), 'paid');
+// Still in the future — paid.
+assert.strictEqual(resolvePlan({ plan: 'paid', planExpiresAt: '2026-08-11T12:00:00Z' }, NOW), 'paid');
+// Exactly at the expiry instant — expired (inclusive boundary, same as
+// isAiLimitReached treating "at the cap" as reached).
+assert.strictEqual(resolvePlan({ plan: 'paid', planExpiresAt: '2026-07-28T12:00:00Z' }, NOW), 'free');
+// In the past — expired.
+assert.strictEqual(resolvePlan({ plan: 'paid', planExpiresAt: '2026-01-01T00:00:00Z' }, NOW), 'free');
+// A garbage/unparseable expiry must not crash or silently grant paid forever
+// — treated as "no usable expiry", so it stays paid (same as absent), not
+// thrown away as free. The field is server-written, but this keeps a typo
+// from either crashing the client or silently expiring a real grant early.
+assert.strictEqual(resolvePlan({ plan: 'paid', planExpiresAt: 'not-a-date' }, NOW), 'paid');
+
+// --- trialExpiryIso: exactly TRIAL_DAYS days out, UTC ------------------------
+assert.strictEqual(TRIAL_DAYS, 14);
+assert.strictEqual(trialExpiryIso(new Date('2026-07-01T09:00:00Z')), '2026-07-15T09:00:00.000Z');
+// Month-end rollover handled by native Date UTC arithmetic, not manual math.
+assert.strictEqual(trialExpiryIso(new Date('2026-07-25T00:00:00Z')), '2026-08-08T00:00:00.000Z');
 
 console.log('planLimits.test.ts: all assertions passed');

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Settings, Users, Upload, Save, Compass, ListChecks } from 'lucide-react';
+import { X, Settings, Users, Upload, Save, Compass, ListChecks, RefreshCw, Loader2, Check } from 'lucide-react';
+import { checkForUpdate, applyUpdate } from '../utils/appUpdate';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { HubSettings, IdCountry } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -29,6 +30,11 @@ interface HubSettingsModalProps {
   /** Reopens the guided setup interview (FamilyInterview.tsx) from the start — "reachable again from settings after completion" per its brief. Omit to hide the row (business spaces, or a caller with no write access). */
   onOpenInterview?: () => void;
 }
+
+// Falls back to 'dev' exactly as UpdateBanner does, so a local build reads as
+// local rather than as a nameless release.
+const APP_LABEL =
+  typeof __APP_LABEL__ !== 'undefined' && __APP_LABEL__ ? __APP_LABEL__ : 'dev build';
 
 export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, onClose, onSave, onReplayTour, onOpenInterview }: HubSettingsModalProps) {
   useBodyScrollLock(isOpen);
@@ -348,7 +354,21 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
             </div>
 
             {/* Footer actions */}
-            <div className="flex items-center justify-end space-x-3 pt-4 mt-4 border-t border-cream-200">
+            <div className="flex flex-wrap items-center justify-end gap-3 pt-4 mt-4 border-t border-cream-200">
+              {/* Which build am I actually running? Until now nothing in the app
+                  answered that: the build stamp existed but was read only by
+                  UpdateBanner, so "is my update live?" could only be settled by
+                  hunting for a feature and guessing. A user on a stale tab and a
+                  user hitting a genuine bug look identical without it, and the
+                  first thing to establish in any support conversation is which
+                  one you are talking to. Deliberately plain and unclickable —
+                  it is a fact to read out, not a control. */}
+              <span className="mr-auto flex flex-col gap-0.5 min-w-0">
+                <span className="text-[12px] text-ink-400 tabular-nums select-text">
+                  Teluva {APP_LABEL}
+                </span>
+                <UpdateCheckRow />
+              </span>
               <button
                 type="button"
                 onClick={onClose}
@@ -369,5 +389,73 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
         </div>
       )}
     </AnimatePresence>
+  );
+}
+
+/**
+ * "Check for updates" — the answer to a question the update BANNER structurally
+ * cannot answer.
+ *
+ * The banner only fires when the app is open as a deploy lands. Anyone who
+ * closes and reopens the app gets the new build silently on reopen, so the
+ * banner correctly never appears — and they are left with no way to tell an
+ * update apart from a stale tab, which is exactly how a fixed bug gets reported
+ * as still broken. This asks on demand, with the same comparison.
+ *
+ * Four states, and the fourth is the one that matters: `checkForUpdate` returns
+ * null when it could not reach the server, and that is reported as "couldn't
+ * check", never as "up to date". Telling someone they are current when we do
+ * not know is the failure this control exists to prevent.
+ */
+function UpdateCheckRow() {
+  const [state, setState] = useState<'idle' | 'checking' | 'current' | 'stale' | 'unknown'>('idle');
+  const [newLabel, setNewLabel] = useState('');
+
+  const run = async () => {
+    setState('checking');
+    const res = await checkForUpdate();
+    if (!res) { setState('unknown'); return; }
+    if (res.updateAvailable) {
+      setNewLabel(res.deployed.label);
+      setState('stale');
+    } else {
+      setState('current');
+    }
+  };
+
+  if (state === 'stale') {
+    return (
+      <button
+        type="button"
+        onClick={() => void applyUpdate()}
+        className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-clay-600 hover:text-clay-700 cursor-pointer"
+      >
+        <RefreshCw className="w-3 h-3" />
+        {newLabel ? `${newLabel} is ready — update now` : 'An update is ready — update now'}
+      </button>
+    );
+  }
+
+  if (state === 'current') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[12px] text-sage-600">
+        <Check className="w-3 h-3" /> You&rsquo;re on the latest version
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void run()}
+      disabled={state === 'checking'}
+      className="inline-flex items-center gap-1.5 text-[12px] text-ink-500 hover:text-ink-800 cursor-pointer disabled:cursor-wait self-start"
+    >
+      {state === 'checking'
+        ? <><Loader2 className="w-3 h-3 animate-spin" /> Checking…</>
+        : state === 'unknown'
+          ? <><RefreshCw className="w-3 h-3" /> Couldn&rsquo;t check — tap to try again</>
+          : <><RefreshCw className="w-3 h-3" /> Check for updates</>}
+    </button>
   );
 }

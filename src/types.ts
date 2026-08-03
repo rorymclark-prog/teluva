@@ -674,6 +674,93 @@ export interface VaultDocument {
   contentHash?: string;  // SHA-256 of the file bytes — powers duplicate detection; absent on documents saved before this existed
 }
 
+// --- Recall-only document reader ("what does my lease say about repairs?") ---
+//
+// THE LOAD-BEARING INVARIANT: the model never writes a sentence the user reads.
+// Every visible string is either (a) a slice of the user's OWN document, cut by
+// the server from text the client extracted, or (b) a fixed template in this
+// codebase. That is what makes "recall, not advice" a property of the system
+// rather than a promise about model behaviour — the only version of the claim a
+// lawyer can actually check. Mirrors the discipline of PolicyObligation above.
+//
+// Note what is deliberately ABSENT from every interface below: there is no
+// `reply`, no `answer`, no `summary`, no `meaning`, no `appliesToYou`. There is
+// nowhere to PUT an opinion, so one cannot be stored, cached or rendered.
+
+/** One page of text pulled out of a document, client-side, at read time. */
+export interface DocPage {
+  n: number;      // 1-based page number
+  text: string;   // the page's text layer, verbatim; '' when the page is an image
+}
+
+/**
+ * How much of the document we could actually READ. This is what stands between
+ * the user and the single most dangerous sentence this feature can produce —
+ * "your lease doesn't say anything about that". A negative statement is only
+ * ever renderable when `pagesWithoutText` is empty; otherwise the UI must name
+ * the pages it could not read instead of implying it read the whole thing.
+ */
+export interface DocCoverage {
+  pagesTotal: number;
+  pagesWithText: number;
+  pagesWithoutText: number[];  // 1-based page numbers with no usable text layer
+  /** false for photos/scans, where extracted text is OCR and cannot be checked
+   *  against a ground truth. When false, NO negative claim may be rendered and
+   *  every passage is badged as read from an image. */
+  verifiable: boolean;
+}
+
+/**
+ * One passage the reader surfaced. The model returns ONLY the offsets — never
+ * the text. The server slices `text` out of the page it already holds, so a
+ * paraphrase, a truncation that reverses meaning, or an invented sentence
+ * cannot ride in on this field: there is no string here the model authored.
+ */
+export interface DocPassage {
+  page: number;
+  charStart: number;
+  charEnd: number;
+  text: string;             // sliced BY THE SERVER from the page's own text
+  topic: DocPassageTopic;   // neutral tag from the fixed list below
+  /** true when this passage was also found by the deterministic keyword sweep,
+   *  i.e. code — not the model — is the reason it is on screen. */
+  matchedSearch: boolean;
+  /**
+   * Did the model judge this passage to answer the question?
+   *
+   * Every passage in the response was found by CODE. This flag records only
+   * what the model did with it: `true` = surfaced as relevant, `false` = code
+   * found it and the model set it aside. Both are returned, because SELECTION
+   * is the one interpretive act that verbatim quoting cannot defend against —
+   * a reader that silently shows 3 of 7 clauses has editorialised, however
+   * literal each of the 3 is. Shipping the other 4 with `surfaced: false` turns
+   * that edit into something the user can open and check, which is the whole
+   * reason "showing 3 of 7" is a link and not just a number.
+   */
+  surfaced: boolean;
+}
+
+export const DOC_PASSAGE_TOPICS = [
+  'Repairs', 'Notice', 'Payment', 'Deposit', 'Termination',
+  'Duration', 'Obligations', 'Deadline', 'Contact', 'General',
+] as const;
+export type DocPassageTopic = typeof DOC_PASSAGE_TOPICS[number];
+
+/**
+ * The complete response shape of POST /api/doc-read.
+ *
+ * `totalHits` vs `passages.length` is the defence against SELECTION bias — the
+ * one interpretive act that verbatim quoting is structurally blind to. If code
+ * found 7 matches and the model surfaced 3, the UI says "showing 3 of 7" and
+ * the user can see the gap rather than trusting the model's edit.
+ */
+export interface DocReadResult {
+  passages: DocPassage[];
+  searchedFor: string[];   // the exact terms swept for — shown verbatim to the user
+  totalHits: number;       // hits the deterministic sweep found, before ranking
+  coverage: DocCoverage;
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;

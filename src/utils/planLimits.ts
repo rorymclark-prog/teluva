@@ -29,6 +29,38 @@ export function planFromField(planField: unknown): Plan {
   return planField === 'paid' ? 'paid' : 'free';
 }
 
+// A "paid" grant is only paid while it hasn't expired — `planExpiresAt` is an
+// ISO string stamped at grant time (a new space's trial, or a manual/tester
+// grant). No value means an indefinite grant, the original pre-trial
+// precedent (an admin hand-flipping "plan" in the Firestore console with no
+// end date). This is deliberately lazy, not cron-driven: nothing "runs out" a
+// plan on a schedule — reading past its own expiresAt IS the downgrade, the
+// same principle monthKeyUtc already uses (a new period is just a new key,
+// nothing has to fire an event to start it).
+export function resolvePlan(
+  info: { plan?: unknown; planExpiresAt?: unknown } | null | undefined,
+  now: Date = new Date(),
+): Plan {
+  if (planFromField(info?.plan) !== 'paid') return 'free';
+  const expiresAt = info?.planExpiresAt;
+  if (typeof expiresAt === 'string' && expiresAt) {
+    const t = Date.parse(expiresAt);
+    if (!Number.isNaN(t) && t <= now.getTime()) return 'free';
+  }
+  return 'paid';
+}
+
+// 14 days of full paid limits from signup — enough to scan every document in
+// one sitting ("enough for them to set up all their docs"). Stamped onto a
+// new space by /api/create-family and /api/create-space.
+export const TRIAL_DAYS = 14;
+
+export function trialExpiryIso(from: Date = new Date()): string {
+  const d = new Date(from);
+  d.setUTCDate(d.getUTCDate() + TRIAL_DAYS);
+  return d.toISOString();
+}
+
 // Month key is UTC-based (YYYY-MM), not the space's local time. A space (a
 // family or a business) has members who may be in different timezones and
 // there is no stored "space timezone" field to key off — UTC is the only

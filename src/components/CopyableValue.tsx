@@ -54,9 +54,13 @@ export default function CopyableValue({ value, label, className, children }: Pro
     if (!firedRef.current) setMenuOpen(true);
   }, []);
 
+  // Prefix with the label so a pasted/shared value is self-explanatory —
+  // "SV number: 1234567890", not a bare number nobody can place out of context.
+  const copyText = label ? `${label}: ${value}` : value;
+
   const doCopy = async () => {
     try {
-      await navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(copyText);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch { /* clipboard unavailable — nothing to fall back to, fail quiet */ }
@@ -65,7 +69,7 @@ export default function CopyableValue({ value, label, className, children }: Pro
 
   const doShare = async () => {
     try {
-      await navigator.share({ title: label, text: value });
+      await navigator.share({ title: label, text: copyText });
     } catch { /* share sheet cancelled/unavailable — not an error worth surfacing */ }
     setMenuOpen(false);
   };
@@ -109,7 +113,7 @@ export default function CopyableValue({ value, label, className, children }: Pro
   // invalid HTML. "relative inline-block" keeps the same visual sizing a
   // span would have had.
   return (
-    <div className={`relative inline-block ${className || ''}`}>
+    <div data-copy-scan="1" className={`relative inline-block ${className || ''}`}>
       <div
         onPointerDown={startPress}
         onPointerUp={cancelPress}
