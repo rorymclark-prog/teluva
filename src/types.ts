@@ -726,6 +726,13 @@ export interface DocPassage {
    *  i.e. code — not the model — is the reason it is on screen. */
   matchedSearch: boolean;
   /**
+   * The clause rendered into the app's language, when the document is in a
+   * different one. Model prose, and the only generated text on a passage —
+   * `text` above is always shipped and always shown beside it, so a translation
+   * that drifts sits directly under words the reader can check.
+   */
+  translation?: string;
+  /**
    * Did the model judge this passage to answer the question?
    *
    * Every passage in the response was found by CODE. This flag records only
@@ -759,6 +766,15 @@ export interface DocReadResult {
   searchedFor: string[];   // the exact terms swept for — shown verbatim to the user
   totalHits: number;       // hits the deterministic sweep found, before ranking
   coverage: DocCoverage;
+  /**
+   * A short answer in the app's language, written from the surfaced passages.
+   *
+   * Empty whenever `passages` is empty — enforced server-side, not requested of
+   * the model. A sentence about someone's lease with nothing underneath it is
+   * the exact output this feature exists to make impossible, so the two travel
+   * together or not at all.
+   */
+  answer?: string;
   /**
    * True when NOTHING contained the words and these clauses were chosen for
    * subject matter instead. The UI must say so: presenting them as matches

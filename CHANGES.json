@@ -1,8 +1,8 @@
 {
-  "label": "v187",
+  "label": "v188",
   "changes": [
-    "Scanned documents are now read properly — all of them, not one page in nine. Teluva was handing your whole PDF to Google to unpack, and on a nine-page lease Google managed exactly one page and rejected the other eight. Teluva now prepares each page itself before sending it, and the same lease reads front to back.",
-    "Ask in your own words, get the clause anyway. If nothing in the document contains the words you typed, Teluva now looks for the parts that are about what you asked instead of shrugging. Ask about an electrician and you get the repair and maintenance clauses — clearly labelled as related rather than as matches, so you know which is which.",
-    "A page with text and a page that's a photo can now live in the same document. Teluva reads the text pages as text and the scanned pages as pictures, instead of giving up on the whole file because one page happened to have a text layer."
+    "Ask about your document and you now get an answer, in your own language — not just a pile of clauses. Teluva reads the relevant parts and tells you plainly where you stand, who to contact and by when, with the document's own words quoted underneath so you can check every word of it.",
+    "Foreign-language documents are translated. An Austrian lease, a Spanish contract: each quoted clause appears in the language the app is set to, with the original still shown beneath it.",
+    "It now reads the whole document, not just the parts containing your words. Searching for \"electrician\" used to miss the block with your managing agent's phone number, because that block doesn't contain the word — it just happens to be the most useful thing on the page. Teluva now considers every clause and picks the ones that actually bear on your question."
   ]
 }

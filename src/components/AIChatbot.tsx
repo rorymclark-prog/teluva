@@ -318,6 +318,20 @@ function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
 
   return (
     <div className="space-y-2">
+      {result.answer && (
+        // The answer, and the only place in this component where a sentence
+        // someone reads was written by a model rather than sliced out of their
+        // document. It is rendered FIRST because it is what was asked for, and
+        // the quotes it was built from are directly below it — which is the
+        // whole arrangement: a claim and its source on one screen, so the
+        // reader can check the interesting sentence against the German.
+        <div className="rounded-2xl border border-sage-200 bg-sage-50 px-3.5 py-3 space-y-1.5">
+          <p className="text-[13.5px] leading-relaxed text-ink-900 whitespace-pre-wrap">{result.answer}</p>
+          <p className="text-[11.5px] leading-relaxed text-ink-500">
+            From the parts of your document below — check them before you act on this.
+          </p>
+        </div>
+      )}
       {result.related && (
         // Nothing contained the words the user typed; these clauses are on
         // screen because they are ABOUT what was asked. Saying which of the two
@@ -341,9 +355,16 @@ function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
               <span className="chip bg-cream-200 text-ink-500">nearby, not a direct match</span>
             )}
           </div>
+          {p.translation && (
+            // The translation goes ABOVE the original, because for a reader who
+            // does not speak the document's language the original is evidence
+            // rather than information — but it stays on screen, in full, so the
+            // translation is checkable rather than a replacement.
+            <p className="text-[13.5px] leading-relaxed text-ink-800">{p.translation}</p>
+          )}
           <div className="flex gap-2">
             <Quote className="w-3.5 h-3.5 text-ink-300 shrink-0 mt-1" />
-            <p className="text-[13.5px] leading-relaxed text-ink-800 whitespace-pre-wrap">{p.text}</p>
+            <p className={`text-[13.5px] leading-relaxed whitespace-pre-wrap ${p.translation ? 'text-ink-500 text-[12.5px]' : 'text-ink-800'}`}>{p.text}</p>
           </div>
         </div>
       ))}
@@ -584,7 +605,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
           contentHash: found.contentHash,
         },
         target.question,
-        { isBusinessSpace },
+        { isBusinessSpace, language: lang },
       );
 
       if (outcome.kind === 'result') patchRead({ readPending: false, readResult: outcome.result });

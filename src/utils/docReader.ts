@@ -141,7 +141,7 @@ const OCR_PAGE_LIMIT = 20;
 export async function readDocument(
   doc: DocReaderTarget,
   question: string,
-  opts: { isBusinessSpace?: boolean } = {},
+  opts: { isBusinessSpace?: boolean; language?: string } = {},
 ): Promise<DocReadOutcome> {
   const q = question.trim();
   if (!q) return { kind: 'error', message: 'Nothing to search for.' };
@@ -229,6 +229,11 @@ export async function readDocument(
         category: doc.category,
         spaceType: opts.isBusinessSpace ? 'business' : 'family',
         verifiable: coverage.verifiable,
+        // The app's language setting, not the document's and not the browser's.
+        // Someone running Teluva in English with an Austrian lease wants the
+        // answer and the translation in English; the quotes stay German because
+        // the quotes are the document.
+        language: opts.language || 'en',
       }),
     });
 
@@ -262,6 +267,7 @@ export async function readDocument(
         searchedFor: Array.isArray(data?.searchedFor) ? data.searchedFor : [],
         totalHits: typeof data?.totalHits === 'number' ? data.totalHits : 0,
         related: data?.related === true,
+        answer: typeof data?.answer === 'string' ? data.answer : '',
         // Trust the coverage WE computed from the file over anything echoed
         // back: the provenance line and the "may I render a negative?" decision
         // both come from it, and they must describe the extraction that

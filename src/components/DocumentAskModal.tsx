@@ -7,6 +7,7 @@ import {
 import { DocCoverage, DocPassage, DocReadResult } from '../types';
 import { readDocument } from '../utils/docReader';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useT } from '../i18n/LangContext';
 import { canShare } from '../utils/share';
 import { auth } from '../lib/firebase';
 import SheetGrabber from './SheetGrabber';
@@ -30,10 +31,27 @@ import SheetGrabber from './SheetGrabber';
 // pages we could not read — computed from `coverage` in this file, never trusted
 // from a flag the server sent.
 //
-// TODO (decided follow-up, deliberately not shipped in v1): a "translate this
-// clause" button. It is blocked on a lawyer's answer about whether rendering a
-// German clause in English crosses from recall into interpretation. Shipping it
-// now would be the one thing in this design that has not been signed off.
+// TRANSLATION AND THE ANSWER (v188) — the one place model prose reaches the
+// screen, and a deliberate reversal of this file's original position.
+//
+// v1 deferred a "translate this clause" button on the grounds that rendering a
+// German clause in English crosses from recall into interpretation. True, and
+// it produced a reader that handed an Austrian tenant with no electricity three
+// German paragraphs and no answer, while any general-purpose chatbot given the
+// same lease told them who to ring and what to say. A tool that is careful and
+// useless loses to one that is useful and careless, every time, and the person
+// is worse off for it.
+//
+// So an answer and a per-clause translation are now shown — under three
+// structural constraints held in CODE, not in a prompt:
+//   1. `answer` only exists on a response that also carries passages (server);
+//   2. those passages are server-sliced from the document, never model text;
+//   3. the original clause is always rendered beside its translation here.
+// The verbatim quote therefore remains the authority on screen, and every
+// generated sentence sits directly above the words it came from. What has NOT
+// changed: the zero-passage state is still the fixed template below, and no
+// path exists on which a sentence about a document travels without the
+// document's own words underneath it.
 // ---------------------------------------------------------------------------
 
 export interface DocumentAskModalDoc {
@@ -154,6 +172,7 @@ function clauseRef(text: string): string | null {
 
 export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQuestion, onClose }: DocumentAskModalProps) {
   useBodyScrollLock(!!doc);
+  const { lang } = useT();
 
   const [question, setQuestion] = useState('');
   // Two distinct busy phases because they feel completely different: pulling the
@@ -253,7 +272,7 @@ export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQue
         contentHash: doc.contentHash,
       },
       q,
-      { isBusinessSpace },
+      { isBusinessSpace, language: lang },
     );
     if (!owns()) return;
 
@@ -261,7 +280,7 @@ export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQue
     if (outcome.kind === 'result') setResult(outcome.result);
     else if (outcome.kind === 'blocked') setBlocked(outcome.message);
     else setError(outcome.message);   // 'unreadable' and 'error' both read as an error here
-  }, [doc, busy, isBusinessSpace]);
+  }, [doc, busy, isBusinessSpace, lang]);
 
   // The assistant opened this with a question already in hand — run it.
   //
@@ -394,6 +413,20 @@ export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQue
                   onOpenDocument={openDocument}
                   onAskAgain={askAgain}
                 />
+              )}
+
+              {!busy && !blocked && !error && result?.answer && visible.length > 0 && (
+                /* The answer — the only model-authored sentence in this sheet,
+                   and it exists only where passages exist (enforced server-side,
+                   see /api/doc-read). It sits directly above the quotes it was
+                   built from so the claim and its source are on one screen. */
+                <div className="rounded-2xl border border-sage-200 bg-sage-50 p-4 space-y-2">
+                  <p className="text-[15px] leading-relaxed text-ink-900 whitespace-pre-wrap">{result.answer}</p>
+                  <p className="text-[12.5px] leading-relaxed text-ink-500">
+                    Written from the passages below — they are your document&rsquo;s own words, and they
+                    are what to check before acting on any of this.
+                  </p>
+                </div>
               )}
 
               {!busy && !blocked && !error && result && visible.length > 0 && (
@@ -748,9 +781,16 @@ function QuoteCard({ passage, docName, verifiable }: QuoteCardProps) {
         {/* No serif is defined in this theme, so the "this is a quotation, not
             our prose" signal is carried by the rule, the marks and the looser
             leading rather than by a typeface we would have to import. */}
+        {passage.translation && (
+          // Above the original, because to a reader who does not speak the
+          // document's language the original is evidence rather than
+          // information — but it stays on screen in full, so the translation is
+          // something they can check rather than something they must accept.
+          <p className="text-[14.5px] leading-relaxed text-ink-900 break-words">{passage.translation}</p>
+        )}
         <div className="flex gap-2.5">
           <Quote className="w-3.5 h-3.5 text-ink-300 shrink-0 mt-1" />
-          <p className="text-[14.5px] leading-relaxed text-ink-900 whitespace-pre-wrap break-words">
+          <p className={`leading-relaxed whitespace-pre-wrap break-words ${passage.translation ? 'text-[13px] text-ink-500' : 'text-[14.5px] text-ink-900'}`}>
             &ldquo;{passage.text}&rdquo;
           </p>
         </div>
