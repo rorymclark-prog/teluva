@@ -28,7 +28,7 @@ set -euo pipefail
 
 PROJECT="gen-lang-client-0384516171"
 REGION="europe-west2"
-SERVICE="family-info-organizer"
+SERVICE="teluva"
 REPO="europe-west2-docker.pkg.dev/${PROJECT}/cloud-run-source-deploy/${SERVICE}"
 
 # Run from the project root no matter where this was invoked from — the whole

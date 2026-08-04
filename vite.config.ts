@@ -50,6 +50,13 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss(), emitVersionJson()],
     define: {
       __APP_VERSION__: JSON.stringify(BUILD_ID),
+      // The human-readable release label ("v177"), baked in so the app can SAY
+      // which build it is. __APP_VERSION__ is a millisecond build stamp — fine
+      // for the newer-than comparison UpdateBanner does, useless to read aloud
+      // when someone asks "did the update land?". Read at config time from the
+      // same CHANGES.json that feeds version.json, so the label in Settings and
+      // the label in the update toast can never disagree.
+      __APP_LABEL__: JSON.stringify(readDeployMeta().label),
     },
     resolve: {
       alias: {

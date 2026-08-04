@@ -572,6 +572,17 @@ function SelectionTransparency({
 
   return (
     <div className="space-y-1.5">
+      {result.related && (
+        // Nothing in the document contained the words that were typed; every
+        // clause below is here because it is ABOUT the subject. That has to be
+        // stated before the passages, not inferred from a chip beside them —
+        // a related clause read as a match is how someone comes away believing
+        // their lease says something it does not.
+        <p className="text-[13.5px] leading-relaxed text-ink-700">
+          Nothing in this document uses those words. These clauses are about the same subject —
+          read them yourself before relying on them.
+        </p>
+      )}
       {result.totalHits > shown && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p className="text-[13px] font-semibold text-ink-800">

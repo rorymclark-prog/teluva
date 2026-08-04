@@ -40,9 +40,19 @@
  * contract text in an order that makes clause expansion meaningless.
  * ------------------------------------------------------------------------- */
 
-// Vision's synchronous files:annotate accepts at most 5 pages per request, so a
-// multi-page scan is fetched in batches.
+// How many page images go into one images:annotate call. Vision accepts up to
+// 16; we send far fewer because the binding constraint is the 20MB request
+// ceiling, and because a batch that fails costs us every page in it.
 export const OCR_PAGES_PER_REQUEST = 5;
+
+// Base64 budget for one Vision request, under the documented 20MB ceiling with
+// room for the JSON envelope.
+export const OCR_MAX_REQUEST_BYTES = 14 * 1024 * 1024;
+
+// One rendered page. A 2200px A4 scan at JPEG 0.85 lands around 250-400KB
+// (≈500KB base64); this leaves generous headroom for a dense colour page while
+// still rejecting anything that is clearly not a rendered document page.
+export const OCR_MAX_PAGE_BYTES = 4 * 1024 * 1024;
 
 // A hard ceiling on what one read will OCR. Past this we stop and SAY we
 // stopped (the pages we never looked at are reported as unread, which blocks
@@ -66,8 +76,13 @@ export const OCR_MIN_PAGE_CONFIDENCE = 0.6;
  */
 export function ocrKind(fileType) {
   const t = (fileType || '').toLowerCase();
+  // 'file' means "a PDF the client rasterises for us". TIFF is deliberately
+  // absent: Vision only accepts it through the PDF endpoint, which is the very
+  // path that returned "Bad image data" for eight pages out of nine, and pdfjs
+  // cannot render a TIFF for us instead. Answering "this kind of file cannot be
+  // read as an image" is true and useful; accepting it and failing later is not.
   if (t.startsWith('application/pdf') || t === 'application/pdf') return 'file';
-  if (t === 'image/tiff' || t === 'image/tif') return 'file';
+  if (t === 'image/tiff' || t === 'image/tif') return null;
   if (t.startsWith('image/')) return 'image';
   return null;
 }
@@ -94,15 +109,65 @@ export function isAllowedPath(storagePath, familyId) {
   return storagePath.startsWith(`families/${familyId}/`);
 }
 
-/** Page numbers to request, in batches Vision will accept. */
-export function pageBatches(pagesTotal, maxPages = OCR_MAX_PAGES, per = OCR_PAGES_PER_REQUEST) {
-  const capped = Math.max(0, Math.min(Number(pagesTotal) || 0, maxPages));
-  const batches = [];
-  for (let start = 1; start <= capped; start += per) {
-    const batch = [];
-    for (let n = start; n < start + per && n <= capped; n++) batch.push(n);
-    batches.push(batch);
+/**
+ * Validate the rendered page images a client sent.
+ *
+ * These arrive from the browser, so nothing about them is assumed: the page
+ * numbers order the result and must be real integers, the payloads are handed
+ * straight to Google and must be base64 and bounded, and the count must be
+ * capped or one request could spend an unbounded amount of someone else's
+ * money. Returns a REASON on rejection, because "please try again" on a
+ * document that will never work is worse than saying what is wrong.
+ */
+export function validateOcrImages(images) {
+  if (!Array.isArray(images) || images.length === 0) {
+    return { ok: false, error: 'No page images were sent for reading.' };
   }
+  if (images.length > OCR_MAX_PAGES) {
+    return { ok: false, error: `Only the first ${OCR_MAX_PAGES} pages can be read at once.` };
+  }
+  const seen = new Set();
+  const out = [];
+  let total = 0;
+  for (const p of images) {
+    const n = p?.n;
+    const image = p?.image;
+    if (!Number.isInteger(n) || n < 1 || n > 10000) return { ok: false, error: 'Page images are not in the expected format.' };
+    if (seen.has(n)) continue;                       // a duplicate page is dropped, never OCR'd twice
+    if (typeof image !== 'string' || image.length === 0) return { ok: false, error: 'Page images are not in the expected format.' };
+    // Reject a data: prefix rather than stripping it. Vision wants raw base64,
+    // and quietly repairing a payload shape hides a client bug until the day it
+    // produces something we cannot repair.
+    if (!/^[A-Za-z0-9+/=\r\n]+$/.test(image)) return { ok: false, error: 'Page images are not in the expected format.' };
+    if (image.length > OCR_MAX_PAGE_BYTES) return { ok: false, error: 'One of those pages is too large to read — try a lower-resolution copy.' };
+    total += image.length;
+    seen.add(n);
+    out.push({ n, image });
+  }
+  if (!out.length) return { ok: false, error: 'No page images were sent for reading.' };
+  if (total > OCR_MAX_PAGES * OCR_MAX_PAGE_BYTES) return { ok: false, error: 'That scan is too large to read here — try a lower-resolution copy.' };
+  return { ok: true, images: out.sort((a, b) => a.n - b.n) };
+}
+
+/**
+ * Group rendered pages into requests Vision will accept — bounded by BOTH the
+ * page count and the total bytes, since one dense colour page can be worth
+ * several sparse ones and it is the byte ceiling that returns a bare 400.
+ */
+export function imageBatches(images, per = OCR_PAGES_PER_REQUEST, maxBytes = OCR_MAX_REQUEST_BYTES) {
+  const batches = [];
+  let batch = [];
+  let bytes = 0;
+  for (const p of images) {
+    if (batch.length > 0 && (batch.length >= per || bytes + p.image.length > maxBytes)) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(p);
+    bytes += p.image.length;
+  }
+  if (batch.length) batches.push(batch);
   return batches;
 }
 
@@ -130,22 +195,3 @@ export function pageFromVisionResponse(resp, fallbackPageNumber) {
   return { n, text, confidence: typeof conf === 'number' ? conf : null };
 }
 
-/**
- * Assemble the coverage the client would otherwise have computed from a text
- * layer — with verifiable:false, which is what makes every downstream "we can't
- * claim a negative" branch fire.
- */
-export function buildOcrCoverage(pages, pagesTotal) {
-  const total = Math.max(Number(pagesTotal) || 0, pages.length);
-  const read = new Set(pages.map((p) => p.n));
-  const pagesWithoutText = [];
-  for (let n = 1; n <= total; n++) if (!read.has(n)) pagesWithoutText.push(n);
-  return {
-    pagesTotal: total,
-    pagesWithText: pages.length,
-    pagesWithoutText,
-    // NEVER true from this module. Every passage sliced out of this text is
-    // OCR's reading of a photograph, and the app must say so.
-    verifiable: false,
-  };
-}

@@ -394,8 +394,28 @@ function clusterFires(cluster, normalizedQuestion, words) {
         if (w.startsWith(t) && w.length - t.length <= 3) return true;
       }
     }
+    // German builds words by gluing them together, and the join is exactly
+    // where a prefix test stops working: someone typing "Elektriker" is asking
+    // about the same thing as the trigger "elektro", but neither string is a
+    // prefix of the other — they diverge at the seventh character. Same for
+    // "Heizkörper"/"heizung", "Wasserschaden"/"wasser". A six-character shared
+    // stem is long enough that an accidental collision is rare and short enough
+    // to survive the seam, and firing a cluster wrongly only ever costs a few
+    // extra search terms — see the recall-over-precision note at the top.
+    if (t.length >= 6) {
+      for (const w of wordSet) {
+        if (w.length >= 6 && sharedPrefixLength(w, t) >= 6) return true;
+      }
+    }
   }
   return false;
+}
+
+function sharedPrefixLength(a, b) {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a[i] === b[i]) i += 1;
+  return i;
 }
 
 /**
@@ -839,4 +859,87 @@ export function isEligible(input) {
   if (spaceType === 'business') return { ok: false, reason: 'business' };
 
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Clause listing — the way out of the empty-search dead end
+// ---------------------------------------------------------------------------
+
+/**
+ * Every clause in the document, in reading order, whether or not anything
+ * matched.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * The sweep above is a keyword search, and a keyword search has one failure
+ * mode that no amount of tuning removes: the user's word is simply not in the
+ * document. Someone with two dead sockets types "Elektriker". An Austrian lease
+ * says "Elektroleitungen", "Erhaltungspflichten", "Behebung". Zero hits — and
+ * before this function existed, zero hits meant zero CANDIDATES, which meant
+ * the ranking model was never called at all and the user was told, in effect,
+ * that their lease is silent about electrics while § 8 sits there saying who
+ * pays for them.
+ *
+ * The old answer to that was to keep adding synonyms to SYNONYM_CLUSTERS. That
+ * is an infinite job: every trade, every appliance, every dialect word, in two
+ * languages, forever — and each gap is invisible until a real person hits it
+ * and is told something false.
+ *
+ * So when the search finds nothing, we stop searching and start LISTING: hand
+ * the model the document's own clauses and let it point at the ones that deal
+ * with what was asked. That is a judgement about relevance, which is exactly
+ * what a language model is for, and it generalises to words nobody enumerated.
+ *
+ * WHAT THIS DOES NOT CHANGE: the model still only ever returns ids. Every
+ * character the user reads is still sliced by the server out of the page it
+ * holds. Nothing is generated, and a clause the model nominates is marked
+ * matchedSearch:false so the UI can say plainly that these are related clauses
+ * rather than matches for the words that were typed.
+ */
+export function splitClauses(pages, opts = {}) {
+  const max = Number.isFinite(opts.max) ? opts.max : 400;
+  const minChars = Number.isFinite(opts.minChars) ? opts.minChars : 40;
+  const out = [];
+
+  for (const p of Array.isArray(pages) ? pages : []) {
+    const text = typeof p?.text === 'string' ? p.text : '';
+    const page = typeof p?.n === 'number' ? p.n : null;
+    if (!text || page === null) continue;
+
+    // Keyed by start offset, keeping the LONGEST range that starts there.
+    // expandToClause widens backwards to the numbered-clause marker, so three
+    // sentences under "(4)" all report the same start and progressively later
+    // ends; keeping the longest collapses them into the one paragraph a human
+    // would call the clause, instead of three nested near-duplicates.
+    const byStart = new Map();
+
+    let i = 0;
+    let guard = 0;
+    while (i < text.length && guard < 20000) {
+      guard += 1;
+      while (i < text.length && WHITESPACE.test(text[i])) i += 1;
+      if (i >= text.length) break;
+
+      const { charStart, charEnd } = expandToClause(text, i, Math.min(i + 1, text.length));
+      const s = Math.max(0, Math.min(charStart, text.length));
+      const e = Math.max(s, Math.min(charEnd, text.length));
+
+      const prev = byStart.get(s);
+      if (!prev || e > prev) byStart.set(s, e);
+
+      // Forward progress is not optional: expandToClause can legitimately
+      // return a range that starts BEFORE i and ends AT i, and a loop that
+      // trusted its end offset would sit still forever.
+      i = e > i ? e : i + 1;
+    }
+
+    for (const [s, e] of [...byStart.entries()].sort((a, b) => a[0] - b[0])) {
+      const slice = text.slice(s, e);
+      if (slice.trim().length < minChars) continue;
+      out.push({ page, charStart: s, charEnd: e, text: slice });
+      if (out.length >= max) return out;
+    }
+  }
+
+  return out;
 }

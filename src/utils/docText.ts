@@ -278,3 +278,131 @@ function buildCoverage(
 function unreadableCoverage(): DocCoverage {
   return { pagesTotal: 1, pagesWithText: 0, pagesWithoutText: [1], verifiable: false };
 }
+
+// ---------------------------------------------------------------------------
+// Rasterising pages for OCR
+// ---------------------------------------------------------------------------
+
+// The long edge we render a page to before handing it to OCR. Vision reads a
+// printed A4 page reliably from about 1600px on the long edge; the scans in a
+// real vault arrive between 1600 and 2600 and read at 0.88–0.93 confidence, so
+// this sits at the top of that band. Going higher buys nothing and costs upload
+// time and phone memory on exactly the devices least able to spare either.
+const OCR_RENDER_LONG_EDGE = 2200;
+
+// JPEG rather than PNG, and 0.85 rather than 0.92: OCR cares about edge
+// contrast in glyphs, which survives this comfortably, and a page of scanned
+// text is ~250KB here against ~4MB as PNG.
+const OCR_RENDER_QUALITY = 0.85;
+
+export interface RenderedPage {
+  n: number;
+  /** Base64 JPEG, no data: prefix — the shape Vision's `image.content` wants. */
+  image: string;
+}
+
+/**
+ * Render specific pages of a PDF to JPEGs for OCR.
+ *
+ * WHY THE CLIENT DOES THIS RATHER THAN HANDING THE PDF TO THE SERVER
+ * ------------------------------------------------------------------
+ * v186 sent the whole PDF to Vision's files:annotate and let Vision rasterise
+ * it. On the first real document anyone tried — a 12MB, nine-page scan of a
+ * Vienna lease — Vision returned "Bad image data" for eight of the nine pages
+ * and read only page 9, which happened to hold the smallest image in the file.
+ * The result was an app that had OCR, said it had OCR, and could not read the
+ * document.
+ *
+ * The pages themselves were fine: extracted and posted to images:annotate
+ * individually, the very same page images came back at 0.88–0.93 confidence
+ * with full text. The fault was entirely in handing Vision a large PDF and
+ * asking it to do the rasterising.
+ *
+ * So we rasterise. pdfjs is already loaded here — it just opened this document
+ * to look for a text layer — and rendering a page is what it is best at. What
+ * the server receives is one modest JPEG per page, which is the input Vision is
+ * most reliable on, and the failure mode changes shape entirely: a page that
+ * cannot be rendered is one page reported as unread, not eight.
+ *
+ * Pages are rendered ONE AT A TIME and the canvas is released between them. A
+ * 2200px page is ~25MB of RGBA; nine of those held at once is how you get a
+ * blank tab on an iPhone.
+ */
+export async function renderDocPages(
+  src: string,
+  pageNumbers: number[],
+): Promise<RenderedPage[]> {
+  if (!pageNumbers.length) return [];
+  const pdfjs = await loadPdfjs();
+  const doc = await pdfjs.getDocument({ url: src }).promise;
+  const out: RenderedPage[] = [];
+  try {
+    for (const n of pageNumbers) {
+      if (n < 1 || n > doc.numPages) continue;
+      let canvas: HTMLCanvasElement | null = null;
+      try {
+        const page = await doc.getPage(n);
+        const base = page.getViewport({ scale: 1 });
+        // pdfjs's scale 1 is 72dpi — an A4 page is 595x842 there, far too small
+        // to read. So this is normally an UPSCALE (~2.6x for A4), which lands
+        // near the embedded scan's own resolution. Clamped so a pathologically
+        // small page size cannot ask for a canvas the device can't allocate.
+        const scale = Math.min(OCR_RENDER_LONG_EDGE / Math.max(base.width, base.height), 6);
+        const viewport = page.getViewport({ scale });
+
+        canvas = document.createElement('canvas');
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) continue;
+        // Scanned pages are photographs of white paper; without this, any page
+        // with transparency renders text onto black and OCR reads nothing.
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+        const url = canvas.toDataURL('image/jpeg', OCR_RENDER_QUALITY);
+        const comma = url.indexOf(',');
+        if (comma > 0) out.push({ n, image: url.slice(comma + 1) });
+      } catch {
+        // One page that will not render is one page we report as unread. It
+        // must never cost us the pages either side of it.
+      } finally {
+        if (canvas) { canvas.width = 0; canvas.height = 0; }
+      }
+    }
+  } finally {
+    try { doc.cleanup(); } catch { /* nothing useful to do */ }
+  }
+  return out;
+}
+
+/**
+ * Fold OCR'd pages into the coverage computed from the text layer.
+ *
+ * Coverage is the safety-critical number in this feature: it is what decides
+ * whether the app is ever allowed to say "your document doesn't mention that".
+ * Merging it is therefore done HERE, in one pure function, rather than in the
+ * component that happens to need it — and it is deliberately pessimistic in
+ * both directions.
+ *
+ * verifiable goes to false and never comes back. A document where OCR read one
+ * page and the text layer supplied eight is, as a whole, no longer something we
+ * can promise matches the ink — and the passage the user ends up reading may be
+ * the OCR'd one. Tracking provenance per page and re-deriving it per passage
+ * would be more precise and would give three separate places for the wrong
+ * answer to leak out of; one document-wide flag cannot.
+ */
+export function mergeOcrCoverage(base: DocCoverage, ocrPageNumbers: number[]): DocCoverage {
+  const read = new Set(ocrPageNumbers.filter((n) => Number.isInteger(n) && n > 0));
+  if (read.size === 0) return base;
+
+  const stillMissing = base.pagesWithoutText.filter((n) => !read.has(n));
+  const pagesTotal = Math.max(base.pagesTotal, ...read);
+  return {
+    pagesTotal,
+    pagesWithText: Math.max(0, pagesTotal - stillMissing.length),
+    pagesWithoutText: stillMissing,
+    verifiable: false,
+  };
+}

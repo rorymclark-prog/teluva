@@ -318,6 +318,16 @@ function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
 
   return (
     <div className="space-y-2">
+      {result.related && (
+        // Nothing contained the words the user typed; these clauses are on
+        // screen because they are ABOUT what was asked. Saying which of the two
+        // happened is not a detail — a related clause presented as a match is
+        // how someone ends up believing a lease says something it does not.
+        <p className="text-[13px] leading-relaxed text-ink-600 px-0.5">
+          Nothing in this document uses those words. These parts are about the same thing —
+          read them yourself before relying on them.
+        </p>
+      )}
       {shown.map((p: DocPassage, i: number) => (
         <div key={i} data-copy-scan="1" className="rounded-2xl border border-cream-300 bg-cream-50 px-3.5 py-3 space-y-2">
           <div className="flex flex-wrap items-center gap-1.5">

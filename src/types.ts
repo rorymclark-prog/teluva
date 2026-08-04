@@ -759,6 +759,13 @@ export interface DocReadResult {
   searchedFor: string[];   // the exact terms swept for — shown verbatim to the user
   totalHits: number;       // hits the deterministic sweep found, before ranking
   coverage: DocCoverage;
+  /**
+   * True when NOTHING contained the words and these clauses were chosen for
+   * subject matter instead. The UI must say so: presenting them as matches
+   * would be the same misleading-with-true-statements failure the rest of this
+   * feature is built to avoid, only pointed the other way.
+   */
+  related?: boolean;
 }
 
 export interface CalendarEvent {

@@ -28,7 +28,7 @@
  * ------------------------------------------------------------------------- */
 
 import { auth } from '../lib/firebase';
-import { extractDocText } from './docText';
+import { extractDocText, mergeOcrCoverage, renderDocPages } from './docText';
 import type { DocCoverage, DocPage, DocPassage, DocReadResult } from '../types';
 
 export interface DocReaderTarget {
@@ -78,9 +78,30 @@ export type DocReadOutcome =
  */
 async function runOcr(
   doc: DocReaderTarget,
-  pagesTotal: number,
-): Promise<{ pages: DocPage[]; coverage: DocCoverage } | null> {
+  missingPages: number[],
+): Promise<DocPage[] | null> {
   try {
+    /* PDFs are rasterised HERE and sent as page images; anything else is left
+     * for the server to fetch from Storage by path.
+     *
+     * v186 sent the PDF itself and let Vision rasterise it, and on the first
+     * real nine-page scan anyone tried Vision returned "Bad image data" for
+     * eight of the nine pages — while reading the ninth perfectly, so the
+     * feature looked like it worked and answered from one page. Rendering the
+     * pages ourselves is not an optimisation; it is the difference between
+     * reading a document and reading a ninth of it.
+     */
+    const isPdf = (doc.fileType || '').toLowerCase().includes('pdf');
+    let images: { n: number; image: string }[] | undefined;
+    if (isPdf) {
+      // Only the pages we could not read. A document where page 1 has a text
+      // layer and the rest are scans is a real thing — a signed contract with a
+      // scanned annexe — and OCR'ing the whole file for it would be slower and
+      // would needlessly mark the born-digital pages as unverifiable.
+      images = await renderDocPages(doc.src, missingPages.slice(0, OCR_PAGE_LIMIT));
+      if (!images.length) return null;
+    }
+
     const token = await auth.currentUser?.getIdToken();
     const resp = await fetch('/api/doc-ocr', {
       method: 'POST',
@@ -88,11 +109,8 @@ async function runOcr(
       body: JSON.stringify({
         storagePath: doc.storagePath,
         fileType: doc.fileType,
-        // pdfjs already opened the file to look for a text layer, so the true
-        // page count is known here. The server needs it to ask Vision for the
-        // right pages — and to know which ones it never got to.
-        pagesTotal,
         contentHash: doc.contentHash,
+        images,
       }),
     });
     if (!resp.ok) return null;
@@ -102,26 +120,15 @@ async function runOcr(
       .filter((p: unknown): p is DocPage =>
         !!p && typeof (p as DocPage).n === 'number' && typeof (p as DocPage).text === 'string')
       .map((p: DocPage) => ({ n: p.n, text: p.text }));
-    if (!pages.length) return null;
-
-    const cov = data.coverage || {};
-    return {
-      pages,
-      coverage: {
-        pagesTotal: typeof cov.pagesTotal === 'number' ? cov.pagesTotal : pages.length,
-        pagesWithText: pages.length,
-        pagesWithoutText: Array.isArray(cov.pagesWithoutText) ? cov.pagesWithoutText : [],
-        // Hardcoded, never read from the response. This is the single flag that
-        // makes every passage carry a "read from an image" badge and blocks the
-        // UI from claiming a document doesn't say something — a server bug or a
-        // tampered response must not be able to switch it on.
-        verifiable: false,
-      },
-    };
+    return pages.length ? pages : null;
   } catch {
     return null;
   }
 }
+
+// Mirrors OCR_MAX_PAGES on the server. Sending more would be rejected wholesale
+// rather than truncated, which would turn a long document into no answer at all.
+const OCR_PAGE_LIMIT = 20;
 
 /**
  * Extract a document's text in the browser, sweep it server-side, and return
@@ -160,11 +167,28 @@ export async function readDocument(
   // So we ask the server to read the pixels. Everything that comes back is
   // marked verifiable:false, which is what puts a "read from an image" badge on
   // every passage and stops the UI from ever rendering a negative from it.
-  if (coverage.pagesWithText === 0 && doc.storagePath) {
-    const ocr = await runOcr(doc, coverage.pagesTotal);
-    if (ocr) {
-      pages = ocr.pages;
-      coverage = ocr.coverage;
+  //
+  // Every page we could not read is offered to OCR — not only the all-or-
+  // nothing case. A contract whose first page is born-digital and whose
+  // remaining eight are a scanned annexe used to skip OCR entirely, because
+  // "does this document have any text at all?" answered yes.
+  if (coverage.pagesWithoutText.length > 0 && doc.storagePath) {
+    const ocrPages = await runOcr(doc, coverage.pagesWithoutText);
+    if (ocrPages?.length) {
+      const byPage = new Map<number, DocPage>(pages.map((p) => [p.n, p] as [number, DocPage]));
+      const read: number[] = [];
+      for (const p of ocrPages) {
+        // A page OCR returned empty is a page we still have not read. Putting
+        // it in the map anyway would mark it covered and let the UI claim the
+        // document is silent on the strength of a blank page.
+        if (!p.text.trim()) continue;
+        byPage.set(p.n, { n: p.n, text: p.text });
+        read.push(p.n);
+      }
+      if (read.length) {
+        pages = [...byPage.values()].sort((a, b) => a.n - b.n);
+        coverage = mergeOcrCoverage(coverage, read);
+      }
     }
   }
 
@@ -237,6 +261,7 @@ export async function readDocument(
         passages: Array.isArray(data?.passages) ? (data.passages as DocPassage[]) : [],
         searchedFor: Array.isArray(data?.searchedFor) ? data.searchedFor : [],
         totalHits: typeof data?.totalHits === 'number' ? data.totalHits : 0,
+        related: data?.related === true,
         // Trust the coverage WE computed from the file over anything echoed
         // back: the provenance line and the "may I render a negative?" decision
         // both come from it, and they must describe the extraction that

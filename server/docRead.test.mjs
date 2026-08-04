@@ -28,6 +28,7 @@ import {
   computeCoverage,
   canRenderNegative,
   isEligible,
+  splitClauses,
   MAX_HITS,
   MAX_PASSAGE_CHARS,
 } from './docRead.mjs';
@@ -648,4 +649,82 @@ test('nothing in this module can produce a string the model authored', () => {
     const raw = PAGES.find((p) => p.n === h.page).text;
     assert.ok(raw.includes(raw.slice(h.charStart, h.charEnd)));
   }
+});
+
+// ---------------------------------------------------------------------------
+// splitClauses — the way out of the empty-search dead end
+// ---------------------------------------------------------------------------
+//
+// When the keyword sweep finds nothing, this list is the ONLY thing the model
+// gets to choose from. A clause missing here is a clause that can never be
+// shown, which puts the user back where they started: told, in effect, that
+// their lease is silent about something it addresses in full.
+
+test('splitClauses covers a page end to end, with no gaps', () => {
+  const text = [
+    '§ 8 Erhaltungspflichten',
+    '(4) Der Mieter hat die im Inneren gelegenen Elektroleitungen auf eigene Kosten zu warten.',
+    'Ausgenommen hiervon sind ernste Schäden des Hauses, deren Behebung dem Vermieter obliegt.',
+    '§ 12 Mängelanzeige',
+    'Der Mieter hat auftretende Mängel binnen 14 Tagen schriftlich anzuzeigen.',
+  ].join('\n');
+
+  const clauses = splitClauses([{ n: 1, text }]);
+  assert.ok(clauses.length >= 2, 'a two-section page yields at least two clauses');
+  assert.ok(clauses.every((c) => c.page === 1));
+  assert.ok(clauses.every((c) => c.charEnd > c.charStart));
+
+  // Every clause must be an exact slice of the page — this list is what the
+  // server later cuts the user's quotes out of, so an offset that does not
+  // address its own text is a quote that silently shows something else.
+  for (const c of clauses) assert.equal(text.slice(c.charStart, c.charEnd), c.text);
+
+  // The substance of the page has to be REACHABLE. Both meaning-inverting
+  // fragments live in the middle of clauses, so their absence would not show up
+  // as a missing clause — only as a wrong answer.
+  const all = clauses.map((c) => c.text).join('\n');
+  assert.ok(all.includes('Elektroleitungen'), 'the electrical clause is in the list');
+  assert.ok(all.includes('Ausgenommen hiervon'), 'so is the exception that inverts it');
+  assert.ok(all.includes('14 Tagen'), 'and the deadline');
+});
+
+test('splitClauses collapses the sentences of one numbered clause together', () => {
+  const text = '(4) Erste Regel gilt hier. Zweite Regel gilt ebenso. Dritte Regel gilt auch.';
+  const clauses = splitClauses([{ n: 1, text }]);
+  // Expanding each sentence back to its "(4)" marker yields three ranges with
+  // the SAME start; keeping only the longest is what turns them into the one
+  // paragraph a human would call the clause.
+  const starts = clauses.map((c) => c.charStart);
+  assert.equal(new Set(starts).size, starts.length, 'no two clauses share a start offset');
+});
+
+test('splitClauses terminates and respects its cap', () => {
+  const text = 'Ein hinreichend langer Satz mit genug Zeichen darin. '.repeat(400);
+  const clauses = splitClauses([{ n: 1, text }], { max: 25 });
+  assert.equal(clauses.length, 25, 'the cap is honoured rather than running to the end');
+});
+
+test('splitClauses survives the shapes a bad extraction produces', () => {
+  assert.deepEqual(splitClauses([]), []);
+  assert.deepEqual(splitClauses(null), []);
+  assert.deepEqual(splitClauses([{ n: 1, text: '' }]), []);
+  assert.deepEqual(splitClauses([{ n: 1, text: '   \n\n  ' }]), []);
+  assert.deepEqual(splitClauses([{ text: 'no page number here at all, which is a bug upstream' }]), []);
+  // Fragments too short to be a clause are dropped rather than shown as one.
+  assert.deepEqual(splitClauses([{ n: 1, text: 'Ja. Nein. Ok.' }]), []);
+});
+
+test('expandQuery fires a cluster across a German compound seam', () => {
+  // The bug this exists for: someone with two dead sockets types "Elektriker".
+  // Neither "elektriker" nor the trigger "elektro" is a prefix of the other —
+  // they diverge at the seventh character — so the repairs cluster never fired
+  // and an Austrian lease full of Elektroleitungen returned nothing.
+  const terms = expandQuery('Elektriker');
+  assert.ok(terms.includes('erhaltungspflicht'), 'the repairs cluster fired');
+  assert.ok(terms.includes('reparatur'));
+  assert.ok(terms.length > 5, 'and brought its whole vocabulary with it');
+
+  // The seam rule must not fire on a merely similar-looking short word.
+  const unrelated = expandQuery('Fassade');
+  assert.ok(!unrelated.includes('erhaltungspflicht'), 'an unrelated word does not drag in the cluster');
 });
