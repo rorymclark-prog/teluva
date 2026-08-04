@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord, DocReadResult, DocPassage } from '../types';
-import { readDocument } from '../utils/docReader';
+import { readDocument, EXPECTED_READER_VERSION } from '../utils/docReader';
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
@@ -269,6 +269,19 @@ function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
   const result = msg.readResult;
   if (!result) return null;
 
+  /* This answer came out of an older reader.
+   *
+   * Chat messages are stored whole, so every reader result ever produced is
+   * still on screen somewhere above, rendered by today's code and therefore
+   * indistinguishable from an answer given a second ago. The cost is not
+   * cosmetic: it is scrolling back, seeing the answer that prompted a fix, and
+   * concluding the fix didn't work — or acting on a worse answer than the app
+   * would give now. So say which it is, and where the current one lives.
+   *
+   * Absent-means-old is safe: the stamp is sent on every response, so the only
+   * way to have none is to predate it. */
+  const stale = (result.readerVersion ?? 0) < EXPECTED_READER_VERSION;
+
   const { coverage } = result;
   const unread = coverage.pagesWithoutText;
   // Surfaced passages only. The set-aside ones still travel in the payload and
@@ -291,6 +304,13 @@ function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
     ? `Searched for: ${terms.join(', ')}${termsRest > 0 ? `, and ${termsRest} more` : ''}.`
     : '';
 
+  const staleNote = stale ? (
+    <p className="rounded-2xl border border-cream-300 bg-cream-100 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-ink-600">
+      This was answered by an earlier version of the reader — it&rsquo;s kept here as a record of the
+      conversation. Ask the same question again for what it would say today.
+    </p>
+  ) : null;
+
   if (shown.length === 0) {
     // A FIXED TEMPLATE, and the most important text in this component.
     //
@@ -300,30 +320,34 @@ function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
     // allowed to say it: the claim is about the search, never about the
     // document, and any page we failed to read is named out loud.
     return (
-      <div className="rounded-2xl border border-honey-200 bg-honey-50 px-3.5 py-3 space-y-2">
-        <p className="text-[13.5px] font-semibold text-ink-900">No passage matched those words.</p>
-        <p className="text-[13px] leading-relaxed text-ink-700">
-          That doesn&rsquo;t mean the document doesn&rsquo;t cover it — wording, scan quality and
-          search terms all affect this. {termLine}
-        </p>
-        {unread.length > 0 && (
-          <p className="text-[13px] leading-relaxed text-honey-900">
-            I also couldn&rsquo;t read {unread.length === 1 ? 'page' : 'pages'} {pageList(unread)} at
-            all, so I can&rsquo;t tell you it isn&rsquo;t in {unread.length === 1 ? 'that one' : 'those'}.
+      <div className="space-y-2">
+        {staleNote}
+        <div className="rounded-2xl border border-honey-200 bg-honey-50 px-3.5 py-3 space-y-2">
+          <p className="text-[13.5px] font-semibold text-ink-900">No passage matched those words.</p>
+          <p className="text-[13px] leading-relaxed text-ink-700">
+            That doesn&rsquo;t mean the document doesn&rsquo;t cover it — wording, scan quality and
+            search terms all affect this. {termLine}
           </p>
-        )}
-        {unread.length === 0 && !coverage.verifiable && (
-          <p className="text-[13px] leading-relaxed text-honey-900">
-            This was read as an image rather than as text, so a word the reader missed would look
-            exactly like a word that isn&rsquo;t there.
-          </p>
-        )}
+          {unread.length > 0 && (
+            <p className="text-[13px] leading-relaxed text-honey-900">
+              I also couldn&rsquo;t read {unread.length === 1 ? 'page' : 'pages'} {pageList(unread)} at
+              all, so I can&rsquo;t tell you it isn&rsquo;t in {unread.length === 1 ? 'that one' : 'those'}.
+            </p>
+          )}
+          {unread.length === 0 && !coverage.verifiable && (
+            <p className="text-[13px] leading-relaxed text-honey-900">
+              This was read as an image rather than as text, so a word the reader missed would look
+              exactly like a word that isn&rsquo;t there.
+            </p>
+          )}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-2">
+      {staleNote}
       {result.answer && (
         // The answer, and the only place in this component where a sentence
         // someone reads was written by a model rather than sliced out of their

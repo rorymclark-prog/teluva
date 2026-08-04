@@ -59,6 +59,16 @@ export const BLOCKED_COPY: Record<string, string> = {
   business: 'This is only available in family spaces for now.',
 };
 
+/**
+ * The reader generation this build expects back from the server — the client
+ * half of DOC_READER_VERSION in server.js, and the two must be bumped together.
+ *
+ * A chat bubble stores its result whole and re-renders it forever, so an answer
+ * given by an older reader keeps appearing in the conversation looking current.
+ * Comparing against this is what lets the UI say so out loud.
+ */
+export const EXPECTED_READER_VERSION = 2;
+
 export type DocReadOutcome =
   | { kind: 'result'; result: DocReadResult }
   /** A deliberate, explainable refusal (403) — calm copy, not a red error. */

@@ -1212,6 +1212,22 @@ const DOC_READ_LANGS = new Map([
   ['af', 'Afrikaans'],
 ]);
 
+/* Which generation of the reader produced a result.
+ *
+ * A chat bubble is stored verbatim — passages and all — and re-rendered on every
+ * later visit, so an answer given by an OLDER reader sits in the conversation
+ * looking exactly like one given today. That is not a cosmetic problem: it is
+ * how someone concludes a fix didn't work, or worse, acts on a worse answer than
+ * the app would give them now.
+ *
+ * A stamp is deterministic where a heuristic is not — "no answer field" is also
+ * what a legitimately empty read looks like. Bump this whenever a change would
+ * make the reader answer the same question differently.
+ *   1 — recall-only: passages, no prose
+ *   2 — answers and translates; clauses, not keyword hits, are the candidates
+ */
+const DOC_READER_VERSION = 2;
+
 // Answers stay short. This is a paragraph telling someone what their document
 // says and who to ring, not an essay — and a cap makes "it started summarising
 // the whole lease" a bounded failure.
@@ -1709,6 +1725,7 @@ app.post('/api/doc-read', async (req, res) => {
       answer: passages.length > 0 ? answer : '',
       searchedFor: terms,
       totalHits,
+      readerVersion: DOC_READER_VERSION,
       // `related` says these clauses were chosen for subject matter, not for
       // containing the words. The client MUST label them differently: showing a
       // related clause under a heading that implies it matched is the same

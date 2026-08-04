@@ -1,7 +1,7 @@
 {
-  "label": "v191",
+  "label": "v192",
   "changes": [
-    "Passports can hold a photo of the page. When you add or edit a passport there's now a \"Take photo\" button that opens the camera straight away, and a \"Choose file\" next to it. The page appears as a thumbnail on the passport, and tapping it opens it full-size — which is the thing a consulate asks for when a passport goes missing abroad, and it carries everything nobody thinks to type in.",
-    "The photo is filed as a document, not stuffed into the record. It lands in that person's Documents like any other scan, so it syncs, exports and shares the same way — and a passport that already had a scan filed under it still finds it."
+    "An old answer no longer passes itself off as a current one. Your chat keeps every document answer it has ever given, and they are re-drawn by whatever version of the app you're running now — so an answer from before a fix looked exactly like one given today. Older ones now say so, and tell you to ask again.",
+    "The reader itself is unchanged in this release. Ask a document question again and you get today's reader: the answer up top, the clauses it came from underneath, translated into your language."
   ]
 }

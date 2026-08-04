@@ -790,6 +790,14 @@ export interface DocReadResult {
   totalHits: number;       // hits the deterministic sweep found, before ranking
   coverage: DocCoverage;
   /**
+   * Which generation of the reader produced this (see DOC_READER_VERSION).
+   *
+   * Absent on results stored in the chat before the stamp existed. Chat bubbles
+   * are persisted whole and re-rendered forever, so without this an answer from
+   * an older reader is indistinguishable from one given today.
+   */
+  readerVersion?: number;
+  /**
    * A short answer in the app's language, written from the surfaced passages.
    *
    * Empty whenever `passages` is empty — enforced server-side, not requested of
