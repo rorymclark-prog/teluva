@@ -25,7 +25,7 @@ import {
   Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
   ClipboardPaste, ChevronRight, CalendarClock, Undo2, ChevronDown, ScanLine,
-  FolderDown, MessageCircleQuestion, Quote,
+  FolderDown, MessageCircleQuestion, Quote, RefreshCw,
 } from 'lucide-react';
 import DocumentAskModal, { type DocumentAskModalDoc } from './DocumentAskModal';
 import type { ScannedFile } from './DocumentScannerModal';
@@ -269,7 +269,7 @@ const pageList = (pages: number[]): string =>
  * model wrote appears in it — that is what makes "Teluva quotes, it does not
  * advise" a property of the code rather than a promise about a model.
  */
-function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
+function InlineDocAnswer({ msg, onAskAgain }: { msg: ChatMessage; onAskAgain?: () => void }) {
   if (msg.readPending) {
     return (
       <div className="flex items-center gap-2 rounded-2xl border border-cream-200 bg-white/70 px-3.5 py-3 text-[13px] text-ink-500">
@@ -325,11 +325,29 @@ function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
     ? `Searched for: ${terms.join(', ')}${termsRest > 0 ? `, and ${termsRest} more` : ''}.`
     : '';
 
+  /* "Ask the same question again" was advice, and advice you have to act on by
+   * scrolling, retyping and remembering exactly how you phrased it is advice
+   * most people won't take — they'll read the old answer instead. The button
+   * resends the question the PERSON typed, not readDoc.question: on a stale
+   * result that field holds whatever the old reader was given, which on a
+   * pre-v194 bubble is the single keyword that caused the bad answer. */
   const staleNote = stale ? (
-    <p className="rounded-2xl border border-cream-300 bg-cream-100 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-ink-600">
-      This was answered by an earlier version of the reader — it&rsquo;s kept here as a record of the
-      conversation. Ask the same question again for what it would say today.
-    </p>
+    <div className="rounded-2xl border border-cream-300 bg-cream-100 px-3.5 py-2.5 space-y-2">
+      <p className="text-[12.5px] leading-relaxed text-ink-600">
+        This was answered by an earlier version of the reader — it&rsquo;s kept here as a record of the
+        conversation. The reader has changed since; ask again for what it would say today.
+      </p>
+      {onAskAgain && (
+        <button
+          type="button"
+          onClick={onAskAgain}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-sage-300 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-sage-700 cursor-pointer hover:bg-sage-50"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Ask this again
+        </button>
+      )}
+    </div>
   ) : null;
 
   if (shown.length === 0) {
@@ -2178,7 +2196,23 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
               </div>
 
               {/* The answer itself, in the conversation — no tap required. */}
-              {m.readDoc && <InlineDocAnswer msg={m} />}
+              {m.readDoc && (
+                <InlineDocAnswer
+                  msg={m}
+                  onAskAgain={(() => {
+                    // What the person typed, not what the old reader was sent.
+                    // Attachments are deliberately not carried over: the read
+                    // works off the stored document, and re-uploading a photo
+                    // from a months-old bubble would file it a second time.
+                    for (let j = i - 1; j >= 0; j--) {
+                      const t = messages[j].role === 'user' ? messages[j].text.trim() : '';
+                      if (t && !t.startsWith('📎')) return () => void send(t, null);
+                      if (messages[j].role === 'user') break;
+                    }
+                    return undefined;
+                  })()}
+                />
+              )}
 
               {m.readDoc && (
                 /* Writes nothing, so no Apply card — same reasoning as the
