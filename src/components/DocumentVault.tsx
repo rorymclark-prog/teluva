@@ -1022,6 +1022,8 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
           category: askingDoc.category,
           fileType: askingDoc.fileType,
           src: askingDoc.downloadUrl,
+          storagePath: askingDoc.storagePath,
+          contentHash: askingDoc.contentHash,
         } : null}
         isBusinessSpace={isBusinessSpace}
         onClose={() => setAskingDoc(null)}

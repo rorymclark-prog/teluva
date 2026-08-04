@@ -565,7 +565,14 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       }
 
       const outcome = await readDocument(
-        { name: found.name, category: found.category, fileType: found.fileType, src: found.downloadUrl },
+        {
+          name: found.name,
+          category: found.category,
+          fileType: found.fileType,
+          src: found.downloadUrl,
+          storagePath: found.storagePath,
+          contentHash: found.contentHash,
+        },
         target.question,
         { isBusinessSpace },
       );
@@ -599,6 +606,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
           category: found.category,
           fileType: found.fileType,
           src: found.downloadUrl,
+          storagePath: found.storagePath,
+          contentHash: found.contentHash,
         },
         question: target.question,
       });

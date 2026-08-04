@@ -89,16 +89,15 @@ export function canAskAboutDocument(input: {
   const category = (input.category || '').trim().toLowerCase();
   if (category === 'medical' || category === 'health') return false;
 
-  // NOT excluded here: images. They have no text layer and v1 does not OCR
-  // (see docText.ts for why that path is deferred rather than merely unbuilt),
-  // so the reader genuinely cannot quote one — but hiding the button was worse
-  // than useless in practice. A photographed lease is the single most likely
-  // document a person wants read, and the first real user hunted for a button
-  // that had been silently deleted from under them, learning nothing. Showing
-  // it costs nothing: DocumentAskModal checks coverage BEFORE it posts, so an
-  // image gets "there's no text in this to search — it's a photo" and spends no
-  // AI action. An explanation the user can reach beats a mystery they can't.
-  // This is also where the OCR path will switch on, with no UI change needed.
+  // NOT excluded here: images — and as of v186 they are fully readable.
+  //
+  // The button was kept visible even while the reader could not quote a photo,
+  // because hiding it was worse than useless: a photographed lease is the single
+  // most likely document a person wants read, and the first real user hunted for
+  // a control that had been silently deleted from under them, learning nothing.
+  // That decision is why switching OCR on needed no change here at all — the
+  // entry point was already in the right place, and utils/docReader.ts simply
+  // stopped giving up when there was no text layer.
 
   // The insurance back-door: the ONLY thing standing between an insurance
   // policy and the general reader is this flag. Flipping INSURANCE_READER_ENABLED

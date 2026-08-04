@@ -1,8 +1,9 @@
 {
-  "label": "v185",
+  "label": "v186",
   "changes": [
-    "The answer now appears in the chat itself. Ask what your lease says about repairs and the clauses come back in the conversation, with page numbers, quoted word for word — no sheet to open, nothing to tap. The document speaks for itself, right where you asked.",
-    "Fixed: documents wouldn't load at all on the new address. Teluva's file storage was still only expecting the old web address, so every attempt to read a document failed with \"Failed to fetch\". Both addresses are now allowed.",
-    "When nothing matches, Teluva says exactly that — and says what it searched for, and names any page it couldn't read. It will not tell you your document doesn't mention something, because that is the one thing it has no way to know."
+    "Teluva can now read scanned documents. Most of what a family actually keeps is a photo or a scan — a lease off the copier, an insurance letter photographed on the kitchen table — and until now Teluva could only read documents that were born as digital text. Ask about a scanned lease and you now get the clause back, quoted, with its page number.",
+    "It tells you when it read from a picture rather than from text. Passages from a scan carry a \"read from an image\" tag, because reading ink off a photograph is a different kind of certainty to reading a text file — and Teluva still will not tell you your document doesn't say something, since a word it misread looks exactly like a word that was never there.",
+    "A page it couldn't make out is named, not skipped. If three pages of a nine-page scan are too blurred to read, it says which three rather than quietly searching the other six and calling it done.",
+    "Reading a scan happens once. The result is kept with the document, so every question after the first comes back straight away."
   ]
 }

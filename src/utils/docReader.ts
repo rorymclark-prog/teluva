@@ -29,7 +29,7 @@
 
 import { auth } from '../lib/firebase';
 import { extractDocText } from './docText';
-import type { DocCoverage, DocPassage, DocReadResult } from '../types';
+import type { DocCoverage, DocPage, DocPassage, DocReadResult } from '../types';
 
 export interface DocReaderTarget {
   name: string;
@@ -37,6 +37,17 @@ export interface DocReaderTarget {
   fileType: string;
   /** data: or https: URL of the file itself. */
   src: string;
+  /**
+   * Object path in the vault bucket. Required for the OCR fallback — without it
+   * a document with no text layer simply cannot be read, because the server
+   * needs to fetch the bytes itself (it will not accept a URL, and it will not
+   * read a path outside the caller's own family; see server/docOcr.mjs).
+   *
+   * Absent for anything stored inline as a data: URL rather than in Storage.
+   */
+  storagePath?: string;
+  /** Invalidates the server-side OCR cache when a scan is replaced. */
+  contentHash?: string;
 }
 
 /** The server sends a reason code, never the words — the app owns the wording. */
@@ -55,6 +66,62 @@ export type DocReadOutcome =
   /** We could not read the document at all. NOT the same as "nothing found". */
   | { kind: 'unreadable'; message: string; coverage: DocCoverage }
   | { kind: 'error'; message: string };
+
+/**
+ * Ask the server to read a document that has no text layer.
+ *
+ * Returns null on any failure rather than throwing: a document we could not
+ * OCR is the same situation as a document with no text layer, and the caller
+ * already has an honest, carefully-worded branch for that. Turning it into an
+ * error would replace "I couldn't read this" with "something went wrong",
+ * which tells the user less.
+ */
+async function runOcr(
+  doc: DocReaderTarget,
+  pagesTotal: number,
+): Promise<{ pages: DocPage[]; coverage: DocCoverage } | null> {
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    const resp = await fetch('/api/doc-ocr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({
+        storagePath: doc.storagePath,
+        fileType: doc.fileType,
+        // pdfjs already opened the file to look for a text layer, so the true
+        // page count is known here. The server needs it to ask Vision for the
+        // right pages — and to know which ones it never got to.
+        pagesTotal,
+        contentHash: doc.contentHash,
+      }),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!Array.isArray(data?.pages) || data.pages.length === 0) return null;
+    const pages: DocPage[] = data.pages
+      .filter((p: unknown): p is DocPage =>
+        !!p && typeof (p as DocPage).n === 'number' && typeof (p as DocPage).text === 'string')
+      .map((p: DocPage) => ({ n: p.n, text: p.text }));
+    if (!pages.length) return null;
+
+    const cov = data.coverage || {};
+    return {
+      pages,
+      coverage: {
+        pagesTotal: typeof cov.pagesTotal === 'number' ? cov.pagesTotal : pages.length,
+        pagesWithText: pages.length,
+        pagesWithoutText: Array.isArray(cov.pagesWithoutText) ? cov.pagesWithoutText : [],
+        // Hardcoded, never read from the response. This is the single flag that
+        // makes every passage carry a "read from an image" badge and blocks the
+        // UI from claiming a document doesn't say something — a server bug or a
+        // tampered response must not be able to switch it on.
+        verifiable: false,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Extract a document's text in the browser, sweep it server-side, and return
@@ -83,10 +150,28 @@ export async function readDocument(
     };
   }
 
-  // Short-circuit BEFORE spending a request. A photographed or fully-scanned
-  // document has no text to sweep, and the honest answer is "I can't search
-  // this", not "nothing matched". Those two sentences look identical to a user
-  // and mean opposite things.
+  // NO TEXT LAYER — the normal case, not the exception.
+  //
+  // A phone photo of a lease, a copier PDF, a scan from the library machine:
+  // most of what a family actually keeps arrives as pixels. Before v186 this
+  // was the end of the road and the reader answered "there is no text in this
+  // document for me to search" to nearly every real question.
+  //
+  // So we ask the server to read the pixels. Everything that comes back is
+  // marked verifiable:false, which is what puts a "read from an image" badge on
+  // every passage and stops the UI from ever rendering a negative from it.
+  if (coverage.pagesWithText === 0 && doc.storagePath) {
+    const ocr = await runOcr(doc, coverage.pagesTotal);
+    if (ocr) {
+      pages = ocr.pages;
+      coverage = ocr.coverage;
+    }
+  }
+
+  // Still nothing readable — either OCR was unavailable (no storage path, an
+  // outage) or it genuinely could not make out a single page. The honest answer
+  // is "I can't search this", not "nothing matched". Those two sentences look
+  // identical to a user and mean opposite things.
   if (coverage.pagesWithText === 0) {
     return {
       kind: 'unreadable',
@@ -97,10 +182,14 @@ export async function readDocument(
       // no extractor for. Claiming "all 1 pages are scanned images" for a .docx
       // would be a confident falsehood from the very code that exists to avoid
       // producing one.
+      // Reached only AFTER OCR has also failed or was unavailable, so the old
+      // wording ("all N pages are scanned images") would now be misleading —
+      // being a scan is no longer the reason. What is true is narrower: we
+      // tried both ways and could not make out any words.
       message:
         coverage.pagesTotal > 1
-          ? `There is no text in this document for me to search — all ${coverage.pagesTotal} pages are scanned images. Open it and read it yourself; I would only be guessing.`
-          : 'I couldn’t get any text out of this document — it may be a scan, a photo, or a format I can’t read. Open it and read it yourself; I would only be guessing.',
+          ? `I couldn’t make out any words in this document — all ${coverage.pagesTotal} pages came back blank, even reading it as an image. Open it and read it yourself; I would only be guessing.`
+          : 'I couldn’t make out any words in this document — it may be too blurred or low-contrast to read, or a format I can’t open. Open it and read it yourself; I would only be guessing.',
     };
   }
 

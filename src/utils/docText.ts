@@ -73,18 +73,23 @@ export async function extractDocText(
 ): Promise<{ pages: DocPage[]; coverage: DocCoverage }> {
   const type = (fileType || '').toLowerCase();
 
-  // Images: no text layer, and v1 does NOT OCR them.
+  // Images have no text layer to extract HERE — but they are no longer the end
+  // of the road.
   //
-  // The OCR path is deliberately deferred, and the reason is the load-bearing
-  // invariant rather than effort: OCR output cannot be checked against a ground
-  // truth. Every other passage in this feature is a slice the server cuts out
-  // of text we extracted, so "this string is really in your document" is
-  // verifiable by construction. An OCR'd string is the model's (or Tesseract's)
-  // reading of pixels — nothing downstream can confirm it, which means no
-  // negative claim could ever be safely rendered from it, and a passage badged
-  // "we think it says this" is worse than no feature at all for a document
-  // someone is about to rely on. So the reader is simply not offered for
-  // photos; docReadEligibility.ts hides the button for image/* types.
+  // v1 refused them outright, and the reasoning was the load-bearing invariant
+  // rather than effort: every other passage is a slice cut out of text this
+  // module extracted, so "this string is really in your document" holds by
+  // construction, while an OCR'd string is a machine's reading of pixels that
+  // nothing downstream can confirm.
+  //
+  // That reasoning was right and the scope was wrong. The first real document
+  // anyone tried was a nine-page scan of a lease, and that is the NORMAL case
+  // for a family vault. So utils/docReader.ts now falls through to /api/doc-ocr
+  // whenever this returns no readable pages, and everything OCR produces is
+  // marked verifiable:false — which badges every passage and, crucially, still
+  // forbids the one sentence that was never safe: "your document doesn't
+  // mention that". The invariant weakened by exactly one step and was made
+  // visible rather than quietly dropped.
   if (type.startsWith('image/')) {
     return { pages: [], coverage: unreadableCoverage() };
   }

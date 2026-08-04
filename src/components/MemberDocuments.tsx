@@ -816,6 +816,8 @@ export default function MemberDocuments({
           // Safe: askableDoc() already established real bytes exist, so this
           // never resolves to the placeholder branch of getDocSource.
           src: getDocSource(askingDoc),
+          storagePath: askingDoc.storagePath,
+          contentHash: askingDoc.contentHash,
         } : null}
         isBusinessSpace={isBusinessSpace}
         onClose={() => setAskingDoc(null)}

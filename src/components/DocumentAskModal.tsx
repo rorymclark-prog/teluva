@@ -43,6 +43,12 @@ export interface DocumentAskModalDoc {
   fileType: string;
   /** data: or https: URL of the file itself — handed straight to extractDocText. */
   src: string;
+  /** Object path in the vault bucket. Without it, a scanned document (no text
+   *  layer) cannot be OCR'd — the server fetches the bytes itself and refuses
+   *  anything outside the caller's own family. See server/docOcr.mjs. */
+  storagePath?: string;
+  /** Invalidates the server-side OCR cache when a scan is replaced. */
+  contentHash?: string;
 }
 
 export interface DocumentAskModalProps {
@@ -238,7 +244,14 @@ export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQue
     // refusal rather than an error) must not drift between the two, so there is
     // one implementation and two ways of drawing it.
     const outcome = await readDocument(
-      { name: doc.name, category: doc.category, fileType: doc.fileType, src: doc.src },
+      {
+        name: doc.name,
+        category: doc.category,
+        fileType: doc.fileType,
+        src: doc.src,
+        storagePath: doc.storagePath,
+        contentHash: doc.contentHash,
+      },
       q,
       { isBusinessSpace },
     );
