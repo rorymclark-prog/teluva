@@ -289,6 +289,18 @@ export interface PassportRecord {
   expiryDate?: string;
   issueDate?: string;
   notes?: string;
+  /**
+   * The photo of the passport page — held as the ID of a document in the
+   * member's own documents list, NOT as image data on this record.
+   *
+   * A member's whole record is JSON.stringify'd into localStorage on every
+   * change, three-way merged field by field on every save, and shipped into the
+   * AI chat context on every turn. A passport photo inline here would be a few
+   * hundred KB doing all four of those, per passport, per member — and the
+   * Firestore document limit is 1MB. The documents list already has somewhere
+   * for bytes to live, so the passport points at it.
+   */
+  photoDocId?: string;
 }
 
 // A visa or work permit. "country" is the country it's valid IN (not the

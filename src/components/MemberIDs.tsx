@@ -1,12 +1,13 @@
 import React, { Suspense, useState, useEffect } from 'react';
 import { FamilyMember, PassportRecord, IdentityRecord, FamilyDocument, IdCountry } from '../types';
 import {
-  Plus, Pencil, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye, Maximize2, Camera,
+  Plus, Pencil, Check, X, Globe, ShieldCheck, Car, MapPin, BookOpen, Eye, Maximize2, Camera, Upload,
 } from 'lucide-react';
 import ImageLightbox from './ImageLightbox';
 import ShowCardModal from './ShowCardModal';
 import type { ScannedFile } from './DocumentScannerModal';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
+import { compressImageToAvatar } from '../utils/imageCompress';
 import PrivacyNote from './PrivacyNote';
 import EmptyState from './EmptyState';
 
@@ -57,6 +58,14 @@ function countryToken(raw: string): string | undefined {
 // "passport" (and the country when known). Lets us show a "view scan" icon next to
 // the number so the document behind it is one tap away.
 function findPassportScan(p: PassportRecord, docs?: FamilyDocument[]): FamilyDocument | undefined {
+  // An explicitly attached photo wins over every guess below. Those heuristics
+  // exist for passports saved before a photo could be attached at all, and they
+  // are guesses — matching on a document's NAME. Once someone has actually
+  // pointed at the page, there is nothing left to infer.
+  if (p.photoDocId) {
+    const exact = (docs || []).find(d => d.id === p.photoDocId && d.fileData);
+    if (exact) return exact;
+  }
   const idDocs = (docs || []).filter(d => d.category === 'ID' && d.fileData && /passport/i.test(d.name));
   if (idDocs.length === 0) return undefined;
   const country = (p.country || '').toLowerCase();
@@ -141,6 +150,7 @@ interface PassportFormState {
   expiryDate: string;
   issueDate: string;
   notes: string;
+  photoDocId: string;
 }
 
 const emptyPassportForm = (): PassportFormState => ({
@@ -149,6 +159,7 @@ const emptyPassportForm = (): PassportFormState => ({
   expiryDate: '',
   issueDate: '',
   notes: '',
+  photoDocId: '',
 });
 
 const passportToForm = (p: PassportRecord): PassportFormState => ({
@@ -157,16 +168,124 @@ const passportToForm = (p: PassportRecord): PassportFormState => ({
   expiryDate: p.expiryDate || '',
   issueDate: p.issueDate || '',
   notes: p.notes || '',
+  photoDocId: p.photoDocId || '',
 });
+
+/**
+ * Photo of the passport page.
+ *
+ * A passport number typed into a box is a transcription; the page itself is the
+ * evidence — it is what a consulate asks for when the passport is lost abroad,
+ * and it carries the things nobody thinks to type in (the machine-readable
+ * strip, the issuing authority, the signature).
+ *
+ * "Take photo" first, upload second, because that is the actual moment: the
+ * passport is in one hand and the phone in the other. `capture="environment"`
+ * opens the rear camera directly on a phone and degrades to an ordinary file
+ * picker on a desktop, so one control covers both without a branch.
+ *
+ * The bytes go to the member's documents; this holds only the id. See
+ * PassportRecord.photoDocId for why that separation is not optional.
+ */
+function PassportPhotoField({
+  docId, documents, onAttach, onClear, onView,
+}: {
+  docId: string;
+  documents?: FamilyDocument[];
+  onAttach: (dataUrl: string, fileName: string, fileType: string) => void;
+  onClear: () => void;
+  onView: (src: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [tooBig, setTooBig] = useState(false);
+  const doc = docId ? documents?.find(d => d.id === docId) : undefined;
+
+  const take = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Clear the input FIRST: without this, choosing the same file twice in a
+    // row fires no change event and the second attempt silently does nothing.
+    e.target.value = '';
+    if (!file) return;
+    setTooBig(false);
+    setBusy(true);
+    try {
+      const raw: string = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result || ''));
+        r.onerror = () => reject(new Error('read failed'));
+        r.readAsDataURL(file);
+      });
+      // A modern phone camera produces 4-8MB per shot. Passport pages are read,
+      // not enlarged, so 1600px is generous — and the alternative is a member
+      // record that fails to save with no explanation the user can act on.
+      const shrunk = file.type.startsWith('image/')
+        ? await compressImageToAvatar(raw, 1600, 0.85)
+        : raw;
+      if (shrunk.length > 3_000_000) { setTooBig(true); return; }
+      onAttach(shrunk, file.name || 'passport.jpg', file.type || 'image/jpeg');
+    } catch {
+      setTooBig(true);   // one honest failure state rather than a silent no-op
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (doc?.fileData) {
+    return (
+      <div className="flex items-center gap-2.5">
+        <button
+          type="button"
+          onClick={() => onView(doc.fileData!)}
+          className="shrink-0 w-14 h-10 rounded-lg overflow-hidden border border-clay-200 bg-white"
+          title="View the photo"
+        >
+          <img src={doc.fileData} alt="Passport page" className="w-full h-full object-cover" />
+        </button>
+        <span className="text-[12.5px] text-ink-600 flex-1 min-w-0 truncate">Photo attached</span>
+        <button type="button" onClick={onClear} className="btn-quiet text-xs px-2.5 py-1.5">
+          <X className="w-3.5 h-3.5" /> Remove
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <label className="field-label">Photo of the passport page (optional)</label>
+      <div className="flex gap-2">
+        <label className="btn-quiet text-xs px-3 py-2 cursor-pointer min-h-11 flex-1 justify-center">
+          <Camera className="w-4 h-4" /> {busy ? 'Adding…' : 'Take photo'}
+          <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={take} disabled={busy} />
+        </label>
+        <label className="btn-quiet text-xs px-3 py-2 cursor-pointer min-h-11 flex-1 justify-center">
+          <Upload className="w-4 h-4" /> Choose file
+          <input type="file" accept="image/*,application/pdf" className="sr-only" onChange={take} disabled={busy} />
+        </label>
+      </div>
+      {tooBig && (
+        <p className="text-[12px] text-clay-700 mt-1.5">
+          That image was too large to attach. Try taking the photo again, or add it under Documents instead.
+        </p>
+      )}
+    </div>
+  );
+}
 
 function PassportForm({
   initial,
   onSave,
   onCancel,
+  documents,
+  onAttachPhoto,
+  onViewScan,
 }: {
   initial?: PassportRecord;
   onSave: (p: PassportRecord) => void;
   onCancel: () => void;
+  documents?: FamilyDocument[];
+  /** Files the photo away as a real document and returns its id. */
+  onAttachPhoto: (dataUrl: string, fileName: string, fileType: string) => string;
+  onViewScan: (src: string) => void;
 }) {
   const [form, setForm] = useState<PassportFormState>(
     initial ? passportToForm(initial) : emptyPassportForm()
@@ -184,6 +303,7 @@ function PassportForm({
       expiryDate: form.expiryDate || undefined,
       issueDate: form.issueDate || undefined,
       notes: form.notes.trim() || undefined,
+      photoDocId: form.photoDocId || undefined,
     });
   };
 
@@ -214,6 +334,14 @@ function PassportForm({
           <input type="date" className="field" value={form.expiryDate} onChange={set('expiryDate')} />
         </div>
       </div>
+      <PassportPhotoField
+        docId={form.photoDocId}
+        documents={documents}
+        onAttach={(dataUrl, fileName, fileType) =>
+          setForm(prev => ({ ...prev, photoDocId: onAttachPhoto(dataUrl, fileName, fileType) }))}
+        onClear={() => setForm(prev => ({ ...prev, photoDocId: '' }))}
+        onView={onViewScan}
+      />
       <input className="field" placeholder="Notes (optional)" value={form.notes} onChange={set('notes')} />
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5">
@@ -236,6 +364,7 @@ function PassportsSection({
   onViewScan,
   memberName,
   onShowCard,
+  onAttachPhoto,
 }: {
   passports: PassportRecord[];
   onChange: (next: PassportRecord[]) => void;
@@ -243,6 +372,7 @@ function PassportsSection({
   onViewScan: (src: string) => void;
   memberName: string;
   onShowCard: (data: ShowCardData) => void;
+  onAttachPhoto: (dataUrl: string, fileName: string, fileType: string) => string;
 }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -279,6 +409,9 @@ function PassportsSection({
         <PassportForm
           onSave={handleAdd}
           onCancel={() => setAdding(false)}
+          documents={documents}
+          onAttachPhoto={onAttachPhoto}
+          onViewScan={onViewScan}
         />
       )}
 
@@ -292,6 +425,9 @@ function PassportsSection({
                 initial={p}
                 onSave={handleUpdate}
                 onCancel={() => setEditId(null)}
+                documents={documents}
+                onAttachPhoto={onAttachPhoto}
+                onViewScan={onViewScan}
               />
             </div>
           ) : (
@@ -311,6 +447,19 @@ function PassportsSection({
                 )}
                 {p.notes && <p className="text-[12px] text-ink-500">{p.notes}</p>}
               </div>
+              {findPassportScan(p, documents)?.fileData && (
+                // The page itself, one tap away. A passport lost abroad is the
+                // moment this record exists for, and a thumbnail is the fastest
+                // proof that the photo really is attached to THIS passport
+                // rather than sitting somewhere in Documents.
+                <button
+                  onClick={() => onViewScan(findPassportScan(p, documents)!.fileData!)}
+                  className="shrink-0 w-16 h-11 rounded-lg overflow-hidden border border-cream-200 bg-cream-50"
+                  title="View the passport page"
+                >
+                  <img src={findPassportScan(p, documents)!.fileData} alt="" className="w-full h-full object-cover" />
+                </button>
+              )}
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => onShowCard({
@@ -1236,6 +1385,29 @@ export default function MemberIDs({ member, onUpdate, onAddDocument, country = '
   const [scannerEverOpened, setScannerEverOpened] = useState(false);
   useEffect(() => { if (scannerOpen) setScannerEverOpened(true); }, [scannerOpen]);
 
+  /* File a passport photo as a real document and hand back its id.
+   *
+   * Returns the id SYNCHRONOUSLY and generates it here rather than waiting for
+   * a save to come back, because the form needs something to hold right now and
+   * onAddDocument is fire-and-forget. Date.now() alone is not enough — two
+   * photos attached in the same millisecond would collide and the second would
+   * overwrite the first's link.
+   */
+  const handleAttachPassportPhoto = (dataUrl: string, fileName: string, fileType: string): string => {
+    const id = `doc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    onAddDocument(member.id, {
+      id,
+      name: `${member.name}'s passport page`,
+      category: 'ID',
+      fileType,
+      fileName,
+      fileSize: Math.round(dataUrl.length * 0.75),   // base64 -> bytes, close enough to display
+      uploadedAt: new Date().toLocaleDateString('en-CA'),
+      fileData: dataUrl,
+    });
+    return id;
+  };
+
   const handleScanResult = (file: ScannedFile) => {
     onAddDocument(member.id, {
       id: 'doc-' + Date.now().toString(),
@@ -1278,6 +1450,7 @@ export default function MemberIDs({ member, onUpdate, onAddDocument, country = '
         onViewScan={setViewScanSrc}
         memberName={member.name}
         onShowCard={setShowCard}
+        onAttachPhoto={handleAttachPassportPhoto}
       />
 
       <ImageLightbox src={viewScanSrc} onClose={() => setViewScanSrc(null)} />

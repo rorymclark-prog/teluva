@@ -1,8 +1,7 @@
 {
-  "label": "v190",
+  "label": "v191",
   "changes": [
-    "It no longer tells you something isn't in your document. It cannot know that — a figure left blank on a printed form, a handwritten amount, a page that scanned poorly and a genuinely silent contract all look identical from the inside. So it now says what it found and, where it came up short, that it couldn't find it and you should check the page yourself.",
-    "It flags contradictions instead of picking a side. Your lease says in one place that dogs are absolutely fine and in another that pets are prohibited. Both now come back, side by side, rather than whichever one it happened to read first.",
-    "Answers stopped citing numbers you can't see. It was referring to \"clause 112\" — an internal position in a list that never appears on your screen. It now points at the page instead."
+    "Passports can hold a photo of the page. When you add or edit a passport there's now a \"Take photo\" button that opens the camera straight away, and a \"Choose file\" next to it. The page appears as a thumbnail on the passport, and tapping it opens it full-size — which is the thing a consulate asks for when a passport goes missing abroad, and it carries everything nobody thinks to type in.",
+    "The photo is filed as a document, not stuffed into the record. It lands in that person's Documents like any other scan, so it syncs, exports and shares the same way — and a passport that already had a scan filed under it still finds it."
   ]
 }
