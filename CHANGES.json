@@ -1,7 +1,7 @@
 {
-  "label": "v192",
+  "label": "v193",
   "changes": [
-    "An old answer no longer passes itself off as a current one. Your chat keeps every document answer it has ever given, and they are re-drawn by whatever version of the app you're running now — so an answer from before a fix looked exactly like one given today. Older ones now say so, and tell you to ask again.",
-    "The reader itself is unchanged in this release. Ask a document question again and you get today's reader: the answer up top, the clauses it came from underneath, translated into your language."
+    "A finished document read stops saying it's still reading. The line above the answer was written the moment the search started and never updated, so every answer in your chat — including ones from weeks ago — claimed to be happening right that second. It now reads in the past tense once the search is done.",
+    "Changing the app's language now reaches the document reader. The reader was being handed whichever language was set when the chat first opened, so switching afterwards left answers and translations in the old one until you reloaded."
   ]
 }

@@ -227,6 +227,27 @@ function readingLine(readDoc: { name: string; question: string }): string {
     : `Opening “${readDoc.name}” and searching it now — you'll see the document's own wording, not mine.`;
 }
 
+/**
+ * The same line once the read has finished.
+ *
+ * The message text is written once, when the read STARTS, and never patched —
+ * so without this every completed read says "reading it now" for the rest of
+ * the conversation's life. On a message from a previous session that is worse
+ * than untidy: it reads as though the answer below is being produced this
+ * second, which is exactly the wrong thing to believe about a stored one.
+ *
+ * Past tense is the only change. The same rule applies as above: it may say
+ * what the APP did, never anything about what the document turned out to
+ * contain — a hint either way here would be contradicted by the passages a
+ * centimetre below it.
+ */
+function readDoneLine(readDoc: { name: string; question: string }): string {
+  const q = (readDoc.question || '').trim();
+  return q
+    ? `Looked through “${readDoc.name}” for “${q}” — below is the document's own wording, not mine.`
+    : `Searched “${readDoc.name}” — below is the document's own wording, not mine.`;
+}
+
 /* How many passages the conversation shows before deferring to the full sheet.
  * A chat bubble is a poor place to scroll through nine clauses, and the sheet
  * exists precisely for that. Three is enough to answer most questions outright;
@@ -659,7 +680,11 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         readError: `I couldn't open “${target.name}” just now — please try again, or open it from the Documents screen.`,
       });
     }
-  }, [isBusinessSpace]);
+    // `lang` belongs here: it decides the language the answer and every
+    // translation come back in. Left out, this closure keeps whatever language
+    // was set when the chat first rendered, and changing the app's language
+    // silently has no effect on the one feature it matters most to.
+  }, [isBusinessSpace, lang]);
 
   const openReader = useCallback(async (target: { id: string; name: string; question: string }) => {
     setReaderLoading(target.id);
@@ -2103,7 +2128,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
           const isStreamingThis = m.role === 'assistant' && streamWordCount !== null && i === messages.length - 1;
           const shownText = isStreamingThis
             ? m.text.trim().split(/\s+/).filter(Boolean).slice(0, streamWordCount!).join(' ')
-            : m.text;
+            // Derived, not stored: m.text froze at "reading it now" when the
+            // read started, and a finished read must stop claiming to be
+            // in progress — see readDoneLine.
+            : (m.readDoc && !m.readPending ? readDoneLine(m.readDoc) : m.text);
           return (
           <div key={i} className={`flex items-start gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
             <div
