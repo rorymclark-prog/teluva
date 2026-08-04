@@ -733,6 +733,17 @@ export interface DocPassage {
    */
   translation?: string;
   /**
+   * The model's relevance order (0 = most relevant), carried ALONGSIDE the
+   * document order the passages are sorted into.
+   *
+   * A surface that can only show three passages must choose them by this and
+   * then render the chosen three in document order. Choosing by position
+   * instead is what put three page-1 notes about energy-supplier registration
+   * in the chat while the clause saying who actually repairs the wiring, on
+   * page 8, never appeared.
+   */
+  rank?: number;
+  /**
    * Did the model judge this passage to answer the question?
    *
    * Every passage in the response was found by CODE. This flag records only

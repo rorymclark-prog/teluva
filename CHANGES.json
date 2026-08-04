@@ -1,8 +1,8 @@
 {
-  "label": "v188",
+  "label": "v190",
   "changes": [
-    "Ask about your document and you now get an answer, in your own language — not just a pile of clauses. Teluva reads the relevant parts and tells you plainly where you stand, who to contact and by when, with the document's own words quoted underneath so you can check every word of it.",
-    "Foreign-language documents are translated. An Austrian lease, a Spanish contract: each quoted clause appears in the language the app is set to, with the original still shown beneath it.",
-    "It now reads the whole document, not just the parts containing your words. Searching for \"electrician\" used to miss the block with your managing agent's phone number, because that block doesn't contain the word — it just happens to be the most useful thing on the page. Teluva now considers every clause and picks the ones that actually bear on your question."
+    "It no longer tells you something isn't in your document. It cannot know that — a figure left blank on a printed form, a handwritten amount, a page that scanned poorly and a genuinely silent contract all look identical from the inside. So it now says what it found and, where it came up short, that it couldn't find it and you should check the page yourself.",
+    "It flags contradictions instead of picking a side. Your lease says in one place that dogs are absolutely fine and in another that pets are prohibited. Both now come back, side by side, rather than whichever one it happened to read first.",
+    "Answers stopped citing numbers you can't see. It was referring to \"clause 112\" — an internal position in a list that never appears on your screen. It now points at the page instead."
   ]
 }

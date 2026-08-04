@@ -276,7 +276,13 @@ function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
   // would present text the reader decided was NOT about this question as though
   // it were the answer.
   const surfaced = result.passages.filter((p: DocPassage) => p.surfaced !== false);
-  const shown = surfaced.slice(0, INLINE_PASSAGE_LIMIT);
+  // Pick by relevance, then read in document order. Slicing the
+  // document-ordered list would let page 1 fill every slot on a lease whose
+  // substance is on pages 7 and 8 — see DocPassage.rank.
+  const shown = [...surfaced]
+    .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
+    .slice(0, INLINE_PASSAGE_LIMIT)
+    .sort((a, b) => a.page - b.page || a.charStart - b.charStart);
   const moreCount = surfaced.length - shown.length;
 
   const terms = result.searchedFor.slice(0, INLINE_TERMS_PREVIEW);
@@ -330,6 +336,19 @@ function InlineDocAnswer({ msg }: { msg: ChatMessage }) {
           <p className="text-[11.5px] leading-relaxed text-ink-500">
             From the parts of your document below — check them before you act on this.
           </p>
+          {!coverage.verifiable && (
+            // A FIXED template, not a request to the model. The answer above is
+            // prose, and prose can drift into "your lease doesn't cover that" —
+            // the one claim that cannot be true of a document read off
+            // photographs, where a handwritten figure or a blank in a printed
+            // form is invisible. The model is told not to; this says it anyway,
+            // in words that live in the codebase and cannot drift.
+            <p className="text-[11.5px] leading-relaxed text-honey-900">
+              This was read from images of the pages, so I can tell you what I found — never that
+              something isn&rsquo;t in there. Handwriting and blanks in a printed form often don&rsquo;t
+              come through.
+            </p>
+          )}
         </div>
       )}
       {result.related && (

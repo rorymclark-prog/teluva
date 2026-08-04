@@ -214,7 +214,13 @@ export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQue
   const visible = useMemo(() => {
     if (!result) return [];
     if (showAllPassages) return result.passages;
-    return surfaced.slice(0, INITIAL_VISIBLE_PASSAGES);
+    // Chosen by relevance, then read in document order — see DocPassage.rank.
+    // Slicing the document-ordered list gave page 1 every slot on a lease whose
+    // answer is on pages 7 and 8.
+    return [...surfaced]
+      .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
+      .slice(0, INITIAL_VISIBLE_PASSAGES)
+      .sort((a, b) => a.page - b.page || a.charStart - b.charStart);
   }, [result, showAllPassages, surfaced]);
 
   const docId = doc?.id ?? null;
@@ -426,6 +432,18 @@ export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQue
                     Written from the passages below — they are your document&rsquo;s own words, and they
                     are what to check before acting on any of this.
                   </p>
+                  {!canRenderNegativeFrom(result.coverage) && (
+                    // Fixed copy, not a model instruction. The answer above is
+                    // prose and prose drifts; this says the thing that must be
+                    // said about a document read off images, in words that live
+                    // in this file.
+                    <p className="text-[12.5px] leading-relaxed text-honey-900">
+                      Read from images of the pages{result.coverage.pagesWithoutText.length > 0
+                        ? `, and ${plural(result.coverage.pagesWithoutText.length, 'page', 'pages')} ${pageList(result.coverage.pagesWithoutText)} couldn't be read at all`
+                        : ''}. So this can tell you what was found — never that something isn&rsquo;t in
+                      there. Handwriting and blanks in a printed form often don&rsquo;t come through.
+                    </p>
+                  )}
                 </div>
               )}
 
