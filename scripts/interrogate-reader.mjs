@@ -96,7 +96,7 @@ function ask(c) {
     matched: hitAt.some((h) => h.page === x.page && h.at >= x.charStart && h.at < x.charEnd),
   }));
   const listing = clauses.map((x) => `[${x.id}] p${x.page}: ${x.text.slice(0, 400).replace(/\s+/g, ' ')}`).join('\n');
-  return fetch(`https://${process.env.VERTEX_LOCATION || 'europe-west1'}-aiplatform.googleapis.com/v1/projects/${process.env.VERTEX_PROJECT || 'gen-lang-client-0384516171'}/locations/${process.env.VERTEX_LOCATION || 'europe-west1'}/publishers/google/models/gemini-2.5-flash:generateContent`, {
+  return fetch(`https://${process.env.VERTEX_LOCATION || 'europe-west1'}-aiplatform.googleapis.com/v1/projects/${process.env.VERTEX_PROJECT || 'gen-lang-client-0384516171'}/locations/${process.env.VERTEX_LOCATION || 'europe-west1'}/publishers/google/models/${process.env.READER_MODEL || 'gemini-2.5-flash'}:generateContent`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({

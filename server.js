@@ -67,6 +67,22 @@ const VERTEX_LOCATION = process.env.VERTEX_LOCATION || 'europe-west1';
 // The image model differs by backend: Vertex publishes gemini-2.5-flash-image
 // ("Nano Banana"); the dev API used gemini-3.1-flash-image.
 const MODEL_TEXT = 'gemini-2.5-flash';
+/* Two models, split by whether the job needs JUDGMENT or just EXTRACTION.
+ *
+ * Everything ran on Flash until "the chat bot seems a bit dumb". Measured on
+ * the real lease with scripts/interrogate-reader.mjs: Pro 13/13, Flash 9/13 —
+ * and Flash's failures were the ones that matter. It said "the lease does not
+ * cover broadband" (the sentence this whole feature exists to never say), gave
+ * up entirely on a German question about the notice period, and cited six
+ * clause ids that did not exist. Pro also writes in shorter sentences and keeps
+ * the numbers (EUR 350 + VAT, EUR 200 standby) Flash dropped.
+ *
+ * So: Pro where a person reads the sentence and decides something, Flash for
+ * the fixed-schema extractors (scan a receipt, read a measurement, classify a
+ * prompt) where the answer is a field, temperature is 0, and Flash is already
+ * right. Pro costs ~4x per token; MODEL_SMART is an env var so dialling it back
+ * is one `gcloud run services update`, not a deploy. */
+const MODEL_SMART = process.env.MODEL_SMART || 'gemini-2.5-pro';
 const MODEL_IMAGE = USE_VERTEX ? 'gemini-2.5-flash-image' : 'gemini-3.1-flash-image';
 const AI_CONSENT_VERSION = 1;
 
@@ -789,7 +805,7 @@ app.post('/api/chat', async (req, res) => {
         ? '- Use "cv" for a team member\'s CV/résumé (career roles, education, certificates/qualifications, skills, languages) — this is a BUSINESS-space-only edit kind. "member" must be an existing team member. Their CURRENT employer/job-title/work-phone/work-address are separate profile fields, not part of "cv" and not editable through any edit kind — never invent a field for them; if the user states one of those, say in your reply that it can be set from their profile\'s Edit form. IF A CV/RÉSUMÉ PHOTO OR PDF IS ATTACHED (a printed or handwritten résumé, not a passport/ID/certificate): read it and emit ONLY {"kind":"cv",...} for it, extracting whatever roles/education/qualifications/skills/languages it contains — do NOT ALSO emit a {"kind":"document"} edit for the same image, even though the general "keepable document" guidance below would otherwise suggest filing it as one. A CV is filed into the person\'s CV tab, not the Document Vault.'
         : '');
 
-    const callGemini = () => generateContent(MODEL_TEXT, {
+    const callGemini = () => generateContent(MODEL_SMART, {
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents,
       generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
@@ -1116,7 +1132,7 @@ app.post('/api/insurance-read', async (req, res) => {
     if (hasText) parts.push({ text: `POLICY TEXT:\n${text.slice(0, 30000)}` });
     if (hasImage) parts.push({ inlineData: { mimeType: image.mimeType, data: image.data } });
 
-    const gRes = await generateContent(MODEL_TEXT, {
+    const gRes = await generateContent(MODEL_SMART, {
       systemInstruction: { parts: [{ text: INSURANCE_READ_SYSTEM }] },
       contents: [{ role: 'user', parts }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0 },
@@ -1659,7 +1675,7 @@ app.post('/api/doc-read', async (req, res) => {
         const listing = candidates
           .map((c) => `[${c.id}] ${c.text.slice(0, DOC_READ_EXCERPT_CHARS).replace(/\s+/g, ' ')}`)
           .join('\n');
-        const gRes = await generateContent(MODEL_TEXT, {
+        const gRes = await generateContent(MODEL_SMART, {
           systemInstruction: { parts: [{ text: docReadSystem(lang, {
             fromImages: verifiable !== true,
             unreadPages: computeCoverage(pages, { verifiable: verifiable === true }).pagesWithoutText,

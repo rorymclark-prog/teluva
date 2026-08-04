@@ -1,6 +1,7 @@
 {
-  "label": "v195",
+  "label": "v196",
   "changes": [
-    "An old answer in your chat now has an \"Ask this again\" button. When the reader has been improved since an answer was given, the note that says so no longer just tells you to retype the question — it re-sends the question you originally asked, through today's reader."
+    "The assistant and the document reader now run on a stronger model. Tested on a real 9-page lease, the old one got 9 of 13 questions right and the new one got all 13 — including the German question it used to give up on entirely, and the ones where it wrongly said \"the lease does not cover that\". Answers take a few seconds longer and are shorter and more specific.",
+    "An old answer in your chat now has an \"Ask this again\" button, so a reply given before an improvement can be re-asked without retyping it."
   ]
 }
