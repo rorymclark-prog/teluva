@@ -1,7 +1,7 @@
 {
-  "label": "v193",
+  "label": "v194",
   "changes": [
-    "A finished document read stops saying it's still reading. The line above the answer was written the moment the search started and never updated, so every answer in your chat — including ones from weeks ago — claimed to be happening right that second. It now reads in the past tense once the search is done.",
-    "Changing the app's language now reaches the document reader. The reader was being handed whichever language was set when the chat first opened, so switching afterwards left answers and translations in the old one until you reloaded."
+    "Asking about a document now sends your whole question, not one word out of it. \"Under what conditions can I call an electrician or plumber for repairs\" was being cut down to \"conditions\" before the reader ever saw it — so it answered the keyword instead of the question. It now reads your question as you asked it.",
+    "The list of words it searched for is readable again. It was showing you its internal spelling guesses — \"coenditioens\", \"pluember\" — which is a poor look on the one screen where it tells you it found nothing. It still searches for every spelling; it just no longer pretends they are words."
   ]
 }

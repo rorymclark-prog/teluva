@@ -375,6 +375,38 @@ export function expandQuery(question) {
   return [...terms].sort((a, b) => b.length - a.length || (a < b ? -1 : a > b ? 1 : 0));
 }
 
+/**
+ * The subset of expandQuery's terms that is fit to show a person.
+ *
+ * umlautVariants branches at every a/o/u because it cannot know which ones
+ * were umlauts — necessary for matching, and it costs nothing to search for a
+ * word that appears nowhere. But those branches are not words: "conditions"
+ * generates "coenditioens", and the user is then told, in the app's own voice,
+ * "Searched for: coenditioens, coenditions, conditioens, conditions".
+ *
+ * That is not a cosmetic complaint. The screen it appears on is the one where
+ * someone decides whether to believe "nothing in your lease matched" — and an
+ * app that appears unable to spell the word it just searched for has given
+ * them a good reason not to. So: search wide, show only real words.
+ *
+ * A term survives if the user actually typed it, or if it came from a curated
+ * cluster (those are hand-written, correct in both spellings, and are the
+ * interesting part of the list — they are what shows the search reached into
+ * German).
+ */
+export function displayTerms(question, terms) {
+  const q = normalizeForSearch(question);
+  const typed = new Set(q.split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+  const curated = new Set();
+  for (const cluster of SYNONYM_CLUSTERS) {
+    for (const t of cluster.terms) curated.add(normalizeForSearch(t));
+  }
+  const shown = (Array.isArray(terms) ? terms : []).filter((t) => typed.has(t) || curated.has(t));
+  // Never return an empty list where there was something to say: if every term
+  // was machine-made, the honest thing is still to name what was searched.
+  return shown.length > 0 ? shown : (Array.isArray(terms) ? terms : []);
+}
+
 function clusterFires(cluster, normalizedQuestion, words) {
   const wordSet = new Set(words);
   for (const trigger of cluster.triggers) {

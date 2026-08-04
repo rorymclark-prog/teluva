@@ -20,6 +20,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DOC_PASSAGE_TOPICS,
+  displayTerms,
   normalizeForSearch,
   normalizeWithMap,
   expandQuery,
@@ -727,4 +728,29 @@ test('expandQuery fires a cluster across a German compound seam', () => {
   // The seam rule must not fire on a merely similar-looking short word.
   const unrelated = expandQuery('Fassade');
   assert.ok(!unrelated.includes('erhaltungspflicht'), 'an unrelated word does not drag in the cluster');
+});
+
+test('the terms shown to a person are words, not umlaut branches', () => {
+  // umlautVariants branches at every a/o/u, so "conditions" searches for
+  // "coenditioens" too. Necessary for matching a German document; ruinous on
+  // screen. Rory saw "Searched for: coenditioens, coenditions, conditioens,
+  // conditions" under the sentence "no passage matched those words" — an app
+  // that cannot spell its own search term has undermined the one claim on that
+  // screen that has to be believed.
+  const terms = expandQuery('conditions');
+  assert.ok(terms.includes('coenditioens'), 'the branch is still generated, and still searched for');
+  assert.deepEqual(displayTerms('conditions', terms), ['conditions']);
+
+  // Curated cluster terms survive: they are hand-written, correct in both
+  // spellings, and are the part of the list worth showing — they are what
+  // demonstrates the search reached into German at all.
+  const q = 'can I call an electrician for repairs';
+  const shown = displayTerms(q, expandQuery(q));
+  assert.ok(shown.includes('reparatur'), 'German cluster terms are shown');
+  assert.ok(shown.includes('electrician'), "so are the user's own words");
+  assert.ok(!shown.some((t) => t.includes('electriciaen') || t.includes('repaeirs')),
+    'the mangled branches are not');
+
+  // Never silently show nothing where there was something to name.
+  assert.ok(displayTerms('zzz', ['zzze', 'zzz']).length > 0);
 });

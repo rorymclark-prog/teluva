@@ -53,6 +53,11 @@ const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-pl
 const token = (await (await auth.getClient()).getAccessToken()).token;
 
 const CASES = [
+  { id: 'rory-tradesman', lang: 'en',
+    q: 'under what conditions can i call an electrician or plumber for repairs',
+    want: [/hausverwaltung|property manag|802 66 30|report|written|own cost|bear/i],
+    mustNot: [/(document|lease) does not (mention|cover|say)|there is no mention/i] },
+
   { id: 'direct-fact',   lang: 'en', q: 'how much is the rent and when is it due?',
     // The rent FIGURE is a blank in this printed form, so a correct answer
     // reports what it found and says it could not find the amount — never that

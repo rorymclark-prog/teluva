@@ -27,6 +27,7 @@ import { trimContext } from './server/chatContext.mjs';
 import {
   DOC_PASSAGE_TOPICS,
   expandQuery,
+  displayTerms,
   sweep,
   expandToClause,
   computeCoverage,
@@ -548,9 +549,14 @@ function sanitizeReadDoc(raw, contextDocuments, spaceType) {
   return {
     id,
     name: typeof match.name === 'string' ? match.name.slice(0, 200) : '',
-    // A short search phrase to prefill, NOT an answer and NOT a sentence shown
-    // as prose — the reader treats it exactly as if the user had typed it.
-    question: (typeof raw.question === 'string' ? raw.question.trim() : '').slice(0, 120),
+    // The user's own question, NOT an answer and NOT a sentence shown as prose
+    // — the reader treats it exactly as if the user had typed it.
+    //
+    // 300, not 120: this used to be a 1-4 word search phrase, and a cap sized
+    // for a keyword silently amputates a real question. "under what conditions
+    // can I call an electrician or plumber for repairs, and who pays" is 88 —
+    // fine — but a question with two clauses and a document name is not.
+    question: (typeof raw.question === 'string' ? raw.question.trim() : '').slice(0, 300),
   };
 }
 
@@ -615,9 +621,9 @@ DOCUMENTS have a "location" field: "on <name>'s profile" or "shared vault only".
 STORED DOCUMENTS CAN NOW BE READ ON DEMAND — just not by you, and not in this conversation. The app has a separate reader that searches a document's OWN text and shows the user the matching passages word for word, with page numbers. You cannot see any of that; you only ever have the document's name and category.
 
 When someone asks what a document actually SAYS ("what does my lease say about repairs?", "what's the notice period in my rental contract?", "does the warranty mention water damage?", "am I covered for X" about a stored contract), do this:
-- Set "readDoc" to {"id": "<the id of the matching document from FAMILY DATA's documents list>", "question": "<a SHORT search phrase, 1-4 words, in the language the DOCUMENT is likely written in>"}. The app turns this into a button that opens the reader on that exact document, so the user does not have to go and find it.
+- Set "readDoc" to {"id": "<the id of the matching document from FAMILY DATA's documents list>", "question": "<the user's own question about the document>"}. The app turns this into a button that opens the reader on that exact document, so the user does not have to go and find it.
 - The "id" MUST be copied exactly from a document in FAMILY DATA's documents list. Never invent one, never guess. If no stored document plausibly matches, set "readDoc" to null and say which documents you DO have, or offer to file the one they mean.
-- For "question", give the phrase most likely to appear IN the document, not the user's wording. Someone asking about broken plugs wants "repairs" or "Reparaturen", not "broken plugs". The reader searches both English and German automatically, so one good word is enough.
+- "question" is THE QUESTION THE READER ANSWERS, not a search box. Pass the user's question as they asked it, in their words and their language. "under what conditions can I call an electrician or plumber for repairs" goes through as that whole sentence — reducing it to "conditions" or "repairs" throws away everything that made it answerable, and the reader then answers the keyword instead of the question. Strip only the conversational wrapper ("hey can you check", "in my lease"); keep every word that carries meaning. You do not need to translate it or guess the document's wording: the reader expands the question into both English and German search terms itself, and reads the document clause by clause rather than by keyword.
 - In "reply", write ONE short sentence naming the document you are opening. The app REPLACES this sentence with its own wording whenever "readDoc" is set, so it is a fallback, not the answer — do not spend effort on it, and never lead with what you cannot do. "I can only store and retrieve documents", "I cannot read the content" and "you would need to open it yourself" are all WRONG here: the app opens the document and shows the user its exact wording, so those sentences describe a limitation that no longer exists and read as a flat refusal of a request that is in fact being fulfilled.
 - NEVER quote, paraphrase, summarise, guess at or interpret what a document says, and never say what a document does or does not contain. You have no way to know, and being wrong about that is the single worst mistake available to you here. Not knowing is fine; guessing is not.
 Only ONE "readDoc" per reply, and only when the question is genuinely about a document's contents — not when someone is simply asking whether a document exists or where it is filed.
@@ -1723,7 +1729,9 @@ app.post('/api/doc-read', async (req, res) => {
     res.json({
       passages,
       answer: passages.length > 0 ? answer : '',
-      searchedFor: terms,
+      // Real words only — see displayTerms. The machine-generated umlaut
+      // branches still do the searching; they just never claim to be words.
+      searchedFor: displayTerms(q, terms),
       totalHits,
       readerVersion: DOC_READER_VERSION,
       // `related` says these clauses were chosen for subject matter, not for
