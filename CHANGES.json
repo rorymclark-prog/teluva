@@ -1,7 +1,7 @@
 {
-  "label": "v197",
+  "label": "v198",
   "changes": [
-    "A document read that never finished no longer spins for ever. If the app closed, the connection dropped, or a long scanned document stalled while it was being read, that message came back as a permanent \"Reading…\" with no way out — and it stayed that way through every reload. It now says the read didn't finish and gives you a \"Try reading it again\" button.",
-    "Every failed read has a way forward. Previously a read that errored was a dead end: no answer, and nothing on screen that could go and get it."
+    "Asking about a document is more reliable. The assistant identifies the document by name as well as by its internal id, so a single mistyped digit can no longer leave you with \"I'll check your lease\" and nothing after it.",
+    "When a document read can't be opened, that is now recorded instead of passing silently — so a failure like that can be found and fixed rather than repeating."
   ]
 }

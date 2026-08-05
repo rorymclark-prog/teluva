@@ -551,8 +551,27 @@ function sanitizeReadDoc(raw, contextDocuments, spaceType) {
   if (!id) return null;
 
   const docs = Array.isArray(contextDocuments) ? contextDocuments : [];
-  const match = docs.find((d) => d && typeof d.id === 'string' && d.id === id);
-  if (!match) return null;   // an id we never offered — dropped, never resolved
+  /* Resolve by id, then by NAME.
+   *
+   * Exact-id-only is brittle in the one way that matters: vault ids are 16-digit
+   * strings minted from Date.now(), and a model that transposes one digit
+   * produces null — which reaches the user as an assistant that says "I'll check
+   * your lease" and then does nothing at all, with no error anywhere. The name,
+   * meanwhile, is the thing the model demonstrably gets right (it is in the
+   * reply). Matching on it costs nothing in safety: the candidate list is still
+   * only the documents THIS request's client sent, so the model still cannot
+   * name a document the user does not have. */
+  let match = docs.find((d) => d && typeof d.id === 'string' && d.id === id);
+  if (!match && typeof raw.name === 'string' && raw.name.trim()) {
+    const want = raw.name.trim().toLowerCase();
+    match = docs.find((d) => d && typeof d.name === 'string' && d.name.trim().toLowerCase() === want);
+    if (match) console.warn(`[chat] readDoc id "${id}" not in the ${docs.length}-doc list — resolved by name instead`);
+  }
+  if (!match) {
+    // Loud, because the user-visible symptom of this is silence.
+    console.warn(`[chat] readDoc DROPPED: id "${id}" and name ${JSON.stringify(raw.name)} match none of the ${docs.length} documents sent`);
+    return null;
+  }
 
   const gate = isEligible({
     category: match.category,
@@ -560,10 +579,13 @@ function sanitizeReadDoc(raw, contextDocuments, spaceType) {
     spaceType,
     insuranceReaderOn: FEATURE_INSURANCE_READER,
   });
-  if (!gate.ok) return null;
+  if (!gate.ok) {
+    console.warn(`[chat] readDoc BLOCKED by the ${gate.reason} gate: ${JSON.stringify(match.name)} (${match.category})`);
+    return null;
+  }
 
   return {
-    id,
+    id: match.id,
     name: typeof match.name === 'string' ? match.name.slice(0, 200) : '',
     // The user's own question, NOT an answer and NOT a sentence shown as prose
     // — the reader treats it exactly as if the user had typed it.
@@ -852,11 +874,25 @@ app.post('/api/chat', async (req, res) => {
     parsed.export = sanitizeExportRequest(parsed.export);
     // Resolved against the document list the CLIENT sent in this same request,
     // so the model cannot name a document it was not shown. See sanitizeReadDoc.
+    const proposedRead = parsed.readDoc;
     parsed.readDoc = sanitizeReadDoc(
       parsed.readDoc,
       context?.documents,
       context?.isBusinessSpace ? 'business' : 'family',
     );
+    /* The silent failure this app could not see.
+     *
+     * "I'll check your Home Lease Agreement" with nothing under it is what the
+     * user gets whenever readDoc ends up null, and null is not an error: it is
+     * the ordinary value for every message that isn't about a document. So the
+     * one case that matters — the model MEANT to open the reader and the app
+     * dropped it, or the model promised in prose and never asked — left no
+     * trace anywhere. It does now. */
+    if (proposedRead && !parsed.readDoc) {
+      console.warn(`[chat] readDoc proposed but not resolved (${(context?.documents || []).length} docs in context)`);
+    } else if (!proposedRead && /\b(check|open|read|look at|search)\b[^.]{0,60}\b(lease|agreement|contract|policy|document)\b/i.test(parsed.reply || '')) {
+      console.warn(`[chat] reply PROMISES a document but readDoc is null (${(context?.documents || []).length} docs in context): ${String(parsed.reply).slice(0, 120)}`);
+    }
 
     await recordAiUsage(caller.familyId); // successful call — count it
     res.json(parsed);
