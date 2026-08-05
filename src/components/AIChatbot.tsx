@@ -241,6 +241,30 @@ function readingLine(readDoc: { name: string; question: string }): string {
  * contain — a hint either way here would be contradicted by the passages a
  * centimetre below it.
  */
+/**
+ * A read that was in flight when the app last closed is DEAD, not pending.
+ *
+ * readPending is persisted with the rest of the message, and nothing restarts
+ * the read on restore — so a conversation reopened after the app was closed
+ * (or the tab killed, or the phone's PWA evicted) mid-read comes back with a
+ * spinner that spins for ever and no way out of it. That is literally what
+ * "it does this and never comes back" looks like, and it survives every
+ * reload because the stuck state is what gets saved again.
+ *
+ * The read itself is cheap to redo and its result was deliberately never
+ * stored, so the honest restored state is "interrupted, try again" — which is
+ * also the only state with a button on it.
+ */
+function revivePendingReads<T extends { readPending?: boolean; readResult?: unknown }>(msgs: T[]): T[] {
+  return msgs.map((m) => (m.readPending && !m.readResult
+    ? { ...m, readPending: false, readError: 'INTERRUPTED' }
+    : m));
+}
+
+/** Sentinel for the state above — replaced with real prose at render time so
+ *  the stored transcript never carries a UI string. */
+const READ_INTERRUPTED = 'INTERRUPTED';
+
 function readDoneLine(readDoc: { name: string; question: string }): string {
   const q = (readDoc.question || '').trim();
   return q
@@ -269,7 +293,11 @@ const pageList = (pages: number[]): string =>
  * model wrote appears in it — that is what makes "Teluva quotes, it does not
  * advise" a property of the code rather than a promise about a model.
  */
-function InlineDocAnswer({ msg, onAskAgain }: { msg: ChatMessage; onAskAgain?: () => void }) {
+function InlineDocAnswer({ msg, onAskAgain, onRetryRead }: {
+  msg: ChatMessage;
+  onAskAgain?: () => void;
+  onRetryRead?: () => void;
+}) {
   if (msg.readPending) {
     return (
       <div className="flex items-center gap-2 rounded-2xl border border-cream-200 bg-white/70 px-3.5 py-3 text-[13px] text-ink-500">
@@ -280,9 +308,27 @@ function InlineDocAnswer({ msg, onAskAgain }: { msg: ChatMessage; onAskAgain?: (
   }
 
   if (msg.readError) {
+    const interrupted = msg.readError === READ_INTERRUPTED;
     return (
-      <div className="rounded-2xl border border-rosa-200 bg-rosa-50 px-3.5 py-3 text-[13px] leading-relaxed text-rosa-800">
-        {msg.readError}
+      <div className="rounded-2xl border border-rosa-200 bg-rosa-50 px-3.5 py-3 space-y-2">
+        <p className="text-[13px] leading-relaxed text-rosa-800">
+          {interrupted
+            ? `This read didn't finish — the app closed before “${msg.readDoc?.name || 'the document'}” came back.`
+            : msg.readError}
+        </p>
+        {/* Every failed read now has a way forward. Without this the message is
+            a dead end: the answer is not there, and nothing on screen can go
+            and get it. */}
+        {onRetryRead && (
+          <button
+            type="button"
+            onClick={onRetryRead}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-rosa-300 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-rosa-700 cursor-pointer hover:bg-rosa-50"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Try reading it again
+          </button>
+        )}
       </div>
     );
   }
@@ -677,25 +723,36 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         return;
       }
 
-      const outcome = await readDocument(
-        {
-          name: found.name,
-          category: found.category,
-          fileType: found.fileType,
-          src: found.downloadUrl,
-          storagePath: found.storagePath,
-          contentHash: found.contentHash,
-        },
-        target.question,
-        { isBusinessSpace, language: lang },
-      );
+      /* A read that never settles leaves a spinner on screen with no way out,
+       * and this one has real ways to stall: a large scanned PDF is fetched,
+       * rasterised page by page and OCR'd. Three minutes is far longer than a
+       * healthy nine-page lease takes and still finite, which is the point —
+       * "it's taking too long" is recoverable, an eternal spinner is not. */
+      const outcome = await Promise.race([
+        readDocument(
+          {
+            name: found.name,
+            category: found.category,
+            fileType: found.fileType,
+            src: found.downloadUrl,
+            storagePath: found.storagePath,
+            contentHash: found.contentHash,
+          },
+          target.question,
+          { isBusinessSpace, language: lang },
+        ),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('read-timeout')), 180_000)),
+      ]);
 
       if (outcome.kind === 'result') patchRead({ readPending: false, readResult: outcome.result });
       else patchRead({ readPending: false, readError: outcome.message });
-    } catch {
+    } catch (e) {
       patchRead({
         readPending: false,
-        readError: `I couldn't open “${target.name}” just now — please try again, or open it from the Documents screen.`,
+        readError: (e as Error)?.message === 'read-timeout'
+          ? `Reading “${target.name}” took too long and I stopped waiting. Long scanned documents can take a while — trying again often works.`
+          : `I couldn't open “${target.name}” just now — please try again, or open it from the Documents screen.`,
       });
     }
     // `lang` belongs here: it decides the language the answer and every
@@ -887,13 +944,15 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       try {
         const raw = localStorage.getItem(chatKey(familyId, uid));
         const cached = raw ? JSON.parse(raw) : [];
-        return Array.isArray(cached) ? cached : current;
+        return Array.isArray(cached) ? revivePendingReads(cached) : current;
       } catch { return current; }
     });
     hydrated.current = true;         // the cache is now safe to write again
 
     loadChatHistory(uid).then(history => {
-      if (history.length > 0) setMessages(history);
+      // StoredChatMessage is a loose shape (role: string) that db.ts widens on
+      // the way out; the runtime objects are ChatMessages and carry readPending.
+      if (history.length > 0) setMessages(revivePendingReads(history as unknown as ChatMessage[]));
     });
   }, [uid, familyId]);
 
@@ -2199,6 +2258,15 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
               {m.readDoc && (
                 <InlineDocAnswer
                   msg={m}
+                  onRetryRead={m.readError && m.readDoc && m.readKey
+                    ? () => {
+                        // Same readKey, so the patch lands on THIS message
+                        // rather than creating a second answer below it.
+                        setMessages((prev) => prev.map((x) => (x.readKey === m.readKey
+                          ? { ...x, readError: undefined, readPending: true } : x)));
+                        void runInlineRead(m.readDoc!, m.readKey!);
+                      }
+                    : undefined}
                   onAskAgain={(() => {
                     // What the person typed, not what the old reader was sent.
                     // Attachments are deliberately not carried over: the read

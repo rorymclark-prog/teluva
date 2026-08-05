@@ -1,7 +1,7 @@
 {
-  "label": "v196",
+  "label": "v197",
   "changes": [
-    "The assistant and the document reader now run on a stronger model. Tested on a real 9-page lease, the old one got 9 of 13 questions right and the new one got all 13 — including the German question it used to give up on entirely, and the ones where it wrongly said \"the lease does not cover that\". Answers take a few seconds longer and are shorter and more specific.",
-    "An old answer in your chat now has an \"Ask this again\" button, so a reply given before an improvement can be re-asked without retyping it."
+    "A document read that never finished no longer spins for ever. If the app closed, the connection dropped, or a long scanned document stalled while it was being read, that message came back as a permanent \"Reading…\" with no way out — and it stayed that way through every reload. It now says the read didn't finish and gives you a \"Try reading it again\" button.",
+    "Every failed read has a way forward. Previously a read that errored was a dead end: no answer, and nothing on screen that could go and get it."
   ]
 }
