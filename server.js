@@ -1522,39 +1522,56 @@ app.post('/api/doc-ocr', async (req, res) => {
        * exact same pages read at 0.88–0.93 with full text. The pages were never
        * the problem; handing Vision a 12MB PDF to rasterise was.
        */
-      const wanted = validateOcrImages(images);
-      if (!wanted.ok) return res.status(400).json({ error: wanted.error });
+      /* A CACHE PROBE: no images, just "do you already have this document?"
+       *
+       * Rasterising nine pages of a 12MB scan in a phone browser is the
+       * slowest thing in the whole read — slower than Vision and slower than
+       * the model — and it was being redone on every single question, purely
+       * to hand the server pages it already had cached under this contentHash.
+       * On Rory's lease that pushed the round trip past the client's own
+       * ceiling: the server answered in 66s and the phone had already given up.
+       *
+       * So the client now asks before it renders. No images means no OCR: fall
+       * straight through to the response below, which returns whatever is
+       * cached. If that turns out to be nothing, the client renders and asks
+       * again — one wasted round trip on a cold document, against not
+       * re-rendering a warm one for the rest of its life. */
+      const probeOnly = !Array.isArray(images) || images.length === 0;
+      if (!probeOnly) {
+        const wanted = validateOcrImages(images);
+        if (!wanted.ok) return res.status(400).json({ error: wanted.error });
 
-      const haveText = new Set(cachedPages.map((p) => p.n));
-      const todo = wanted.images.filter((p) => !haveText.has(p.n));
+        const haveText = new Set(cachedPages.map((p) => p.n));
+        const todo = wanted.images.filter((p) => !haveText.has(p.n));
 
-      for (const batch of imageBatches(todo)) {
-        const r = await fetch(VISION_IMAGES, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            requests: batch.map((p) => ({
-              image: { content: p.image },
-              features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
-            })),
-          }),
-        });
-        if (!r.ok) {
-          console.error('vision images:annotate failed', r.status, (await r.text()).slice(0, 300));
-          // Keep what earlier batches produced. Pages we did not get become
-          // pages the client reports as unread, which is honest and which
-          // blocks any claim that the document does not say something.
-          break;
+        for (const batch of imageBatches(todo)) {
+          const r = await fetch(VISION_IMAGES, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              requests: batch.map((p) => ({
+                image: { content: p.image },
+                features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+              })),
+            }),
+          });
+          if (!r.ok) {
+            console.error('vision images:annotate failed', r.status, (await r.text()).slice(0, 300));
+            // Keep what earlier batches produced. Pages we did not get become
+            // pages the client reports as unread, which is honest and which
+            // blocks any claim that the document does not say something.
+            break;
+          }
+          const j = await r.json();
+          const responses = Array.isArray(j?.responses) ? j.responses : [];
+          responses.forEach((resp, i) => {
+            const page = pageFromVisionResponse(resp, batch[i]?.n);
+            // pageFromVisionResponse trusts Vision's own context.pageNumber where
+            // it has one — meaningless here, since each request is a standalone
+            // image and Vision numbers it 0/1. OUR page number is the truth.
+            if (page) pages.push({ ...page, n: batch[i].n });
+          });
         }
-        const j = await r.json();
-        const responses = Array.isArray(j?.responses) ? j.responses : [];
-        responses.forEach((resp, i) => {
-          const page = pageFromVisionResponse(resp, batch[i]?.n);
-          // pageFromVisionResponse trusts Vision's own context.pageNumber where
-          // it has one — meaningless here, since each request is a standalone
-          // image and Vision numbers it 0/1. OUR page number is the truth.
-          if (page) pages.push({ ...page, n: batch[i].n });
-        });
       }
     }
 

@@ -86,6 +86,33 @@ export type DocReadOutcome =
  * error would replace "I couldn't read this" with "something went wrong",
  * which tells the user less.
  */
+/** One POST to /api/doc-ocr. Called twice: once as a cache probe with no
+ *  images, and once for real with the rendered pages. */
+async function postOcr(
+  doc: DocReaderTarget,
+  images: { n: number; image: string }[] | undefined,
+): Promise<DocPage[] | null> {
+  const token = await auth.currentUser?.getIdToken();
+  const resp = await fetch('/api/doc-ocr', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({
+      storagePath: doc.storagePath,
+      fileType: doc.fileType,
+      contentHash: doc.contentHash,
+      images,
+    }),
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  if (!Array.isArray(data?.pages) || data.pages.length === 0) return null;
+  const pages: DocPage[] = data.pages
+    .filter((p: unknown): p is DocPage =>
+      !!p && typeof (p as DocPage).n === 'number' && typeof (p as DocPage).text === 'string')
+    .map((p: DocPage) => ({ n: p.n, text: p.text }));
+  return pages.length ? pages : null;
+}
+
 async function runOcr(
   doc: DocReaderTarget,
   missingPages: number[],
@@ -103,6 +130,28 @@ async function runOcr(
      */
     const isPdf = (doc.fileType || '').toLowerCase().includes('pdf');
     let images: { n: number; image: string }[] | undefined;
+
+    /* ASK BEFORE RENDERING.
+     *
+     * renderDocPages rasterises every unread page of the PDF in the browser,
+     * and on a phone with a 12MB nine-page scan that is by far the slowest step
+     * of a read — slower than Vision, slower than the model. It was running on
+     * every question, to produce images the server already had OCR'd and cached
+     * under this contentHash. Measured on the real lease: the server answered
+     * in 66s while the client had already passed its own 180s ceiling and shown
+     * "took too long".
+     *
+     * So: one cheap request first. A hit costs a round trip and skips the
+     * rendering entirely; a miss costs the same round trip and we render as
+     * before. Requires a contentHash — without one the server refuses to trust
+     * its cache anyway, so probing would always miss. */
+    if (isPdf && doc.contentHash && doc.storagePath) {
+      const cached = await postOcr(doc, undefined);
+      if (cached && missingPages.every((n) => cached.some((p) => p.n === n && p.text.trim()))) {
+        return cached;
+      }
+    }
+
     if (isPdf) {
       // Only the pages we could not read. A document where page 1 has a text
       // layer and the rest are scans is a real thing — a signed contract with a
@@ -112,25 +161,7 @@ async function runOcr(
       if (!images.length) return null;
     }
 
-    const token = await auth.currentUser?.getIdToken();
-    const resp = await fetch('/api/doc-ocr', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({
-        storagePath: doc.storagePath,
-        fileType: doc.fileType,
-        contentHash: doc.contentHash,
-        images,
-      }),
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    if (!Array.isArray(data?.pages) || data.pages.length === 0) return null;
-    const pages: DocPage[] = data.pages
-      .filter((p: unknown): p is DocPage =>
-        !!p && typeof (p as DocPage).n === 'number' && typeof (p as DocPage).text === 'string')
-      .map((p: DocPage) => ({ n: p.n, text: p.text }));
-    return pages.length ? pages : null;
+    return await postOcr(doc, images);
   } catch {
     return null;
   }

@@ -1,6 +1,7 @@
 {
-  "label": "v200",
+  "label": "v201",
   "changes": [
-    "Asking about a document now actually opens it. The same file is stored under two different internal ids — one in the shared vault, one on the person's profile — and the assistant kept naming the profile one, which the reader didn't recognise. That is why \"I'll check your Home Lease Agreement\" was followed by nothing at all. Both forms now resolve."
+    "Asking a second question about the same document is now much faster. Your phone was re-scanning every page of the document from scratch on every single question — the slowest part of the whole thing — to produce pages the server had already read and saved. It now checks first, and skips straight to the answer.",
+    "This is what made a read time out and give up on a long scanned lease, even though the answer was ready."
   ]
 }
