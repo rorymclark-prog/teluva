@@ -562,6 +562,29 @@ function sanitizeReadDoc(raw, contextDocuments, spaceType) {
    * only the documents THIS request's client sent, so the model still cannot
    * name a document the user does not have. */
   let match = docs.find((d) => d && typeof d.id === 'string' && d.id === id);
+
+  /* THE "doc-" PREFIX. This is what actually broke it.
+   *
+   * The same file appears TWICE in the context under two different ids: the
+   * shared vault list carries "1785493248830419", and the owner's profile
+   * carries the linkage id "doc-1785493248830419" (fileScans mints that form,
+   * and buildContext derives ownership with `ownerOfDocId.get('doc-' + d.id)`).
+   * The model, sensibly, quoted the one attached to the person — and this
+   * function only ever looked at the vault list, so it matched nothing and the
+   * read silently never happened. Production log, verbatim:
+   *   readDoc DROPPED: id "doc-1785493248830419" ... match none of the 19 sent
+   *
+   * Two ids for one document is the real defect; until they are unified, both
+   * forms must resolve here. Still a strict equality against the list this
+   * request sent — no prefix stripping loosens that. */
+  if (!match && id.startsWith('doc-')) {
+    const bare = id.slice(4);
+    match = docs.find((d) => d && typeof d.id === 'string' && d.id === bare);
+    if (match) console.warn(`[chat] readDoc id "${id}" carried the profile "doc-" prefix — resolved to the vault id`);
+  }
+  if (!match) {
+    match = docs.find((d) => d && typeof d.id === 'string' && `doc-${d.id}` === id);
+  }
   if (!match && typeof raw.name === 'string' && raw.name.trim()) {
     const want = raw.name.trim().toLowerCase();
     match = docs.find((d) => d && typeof d.name === 'string' && d.name.trim().toLowerCase() === want);
@@ -660,7 +683,7 @@ STORED DOCUMENTS CAN NOW BE READ ON DEMAND — just not by you, and not in this 
 
 When someone asks what a document actually SAYS ("what does my lease say about repairs?", "what's the notice period in my rental contract?", "does the warranty mention water damage?", "am I covered for X" about a stored contract), do this:
 - Set "readDoc" to {"id": "<the id of the matching document from FAMILY DATA's documents list>", "question": "<the user's own question about the document>"}. The app turns this into a button that opens the reader on that exact document, so the user does not have to go and find it.
-- The "id" MUST be copied exactly from a document in FAMILY DATA's documents list. Never invent one, never guess. If no stored document plausibly matches, set "readDoc" to null and say which documents you DO have, or offer to file the one they mean.
+- The "id" MUST be copied exactly from FAMILY DATA's TOP-LEVEL "documents" list — the shared vault list. NOT from a member's own "documents" array: the same file appears in both, and the copy on a person's profile carries a different id (it starts with "doc-"). Use the top-level one. Also set "name" to that document's name exactly as listed. Never invent an id, never guess. If no stored document plausibly matches, set "readDoc" to null and say which documents you DO have, or offer to file the one they mean.
 - "question" is THE QUESTION THE READER ANSWERS, not a search box. Pass the user's question as they asked it, in their words and their language. "under what conditions can I call an electrician or plumber for repairs" goes through as that whole sentence — reducing it to "conditions" or "repairs" throws away everything that made it answerable, and the reader then answers the keyword instead of the question. Strip only the conversational wrapper ("hey can you check", "in my lease"); keep every word that carries meaning. You do not need to translate it or guess the document's wording: the reader expands the question into both English and German search terms itself, and reads the document clause by clause rather than by keyword.
 - In "reply", write ONE short sentence naming the document you are opening. The app REPLACES this sentence with its own wording whenever "readDoc" is set, so it is a fallback, not the answer — do not spend effort on it, and never lead with what you cannot do. "I can only store and retrieve documents", "I cannot read the content" and "you would need to open it yourself" are all WRONG here: the app opens the document and shows the user its exact wording, so those sentences describe a limitation that no longer exists and read as a flat refusal of a request that is in fact being fulfilled.
 - NEVER quote, paraphrase, summarise, guess at or interpret what a document says, and never say what a document does or does not contain. You have no way to know, and being wrong about that is the single worst mistake available to you here. Not knowing is fine; guessing is not.

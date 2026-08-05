@@ -34,6 +34,21 @@ test('an exact id resolves', () => {
   assert.equal(ask({ id: LEASE.id, name: 'whatever', question: 'q' })?.id, LEASE.id);
 });
 
+test('the profile "doc-" id resolves to the vault document', () => {
+  /* THE ACTUAL PRODUCTION FAILURE, from the logs:
+   *   readDoc DROPPED: id "doc-1785493248830419" ... match none of the 19 sent
+   * One file, two ids: the vault list has "1785493248830419" and the owner's
+   * profile has "doc-1785493248830419". The model quoted the profile one — the
+   * more specific, person-attached form — and the read silently never ran. The
+   * user saw "I'll check your Home Lease Agreement" and then nothing, for days.
+   */
+  assert.equal(ask({ id: `doc-${LEASE.id}`, question: 'q' })?.id, LEASE.id);
+});
+
+test('a "doc-" id for a document not in the list is still refused', () => {
+  assert.equal(ask({ id: 'doc-9999999999999999', question: 'q' }), null);
+});
+
 test('a WRONG id with the right name still resolves', () => {
   // Vault ids are 16 digits minted from Date.now(). One transposed digit used
   // to mean the reader silently never opened — which is indistinguishable, to

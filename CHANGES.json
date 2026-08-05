@@ -1,8 +1,6 @@
 {
-  "label": "v199",
+  "label": "v200",
   "changes": [
-    "The document reader was giving up 20 seconds in — and hiding it. Reading a lease properly takes about 45 seconds; past 20 the app quietly abandoned the read and showed you a plain word search instead, laid out exactly like a real answer. That is why a question about repairs came back as three paragraphs about storm insurance. The limit now matches how long the work actually takes.",
-    "If a read ever does fall back, the app says so on screen and offers to read it properly, instead of presenting a word search as the answer.",
-    "Fixed the \"answered by an earlier version of the reader\" note appearing on brand-new answers. It was showing on every single read, which made the one notice that matters worthless."
+    "Asking about a document now actually opens it. The same file is stored under two different internal ids — one in the shared vault, one on the person's profile — and the assistant kept naming the profile one, which the reader didn't recognise. That is why \"I'll check your Home Lease Agreement\" was followed by nothing at all. Both forms now resolve."
   ]
 }
