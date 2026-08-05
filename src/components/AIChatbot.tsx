@@ -349,6 +349,28 @@ function InlineDocAnswer({ msg, onAskAgain, onRetryRead }: {
    * way to have none is to predate it. */
   const stale = (result.readerVersion ?? 0) < EXPECTED_READER_VERSION;
 
+  /* The read fell back to a keyword sweep. Say so, ABOVE the passages — the
+   * whole failure was that this state looked exactly like a good answer. */
+  const degradedNote = result.degraded ? (
+    <div className="rounded-2xl border border-honey-200 bg-honey-50 px-3.5 py-2.5 space-y-2">
+      <p className="text-[12.5px] leading-relaxed text-honey-900">
+        This one timed out before it could work through the whole document, so below is what a
+        plain word search turned up — real wording from your document, but not sorted by what you
+        asked, and with no summary. Trying again usually gets the full read.
+      </p>
+      {onRetryRead && (
+        <button
+          type="button"
+          onClick={onRetryRead}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-honey-300 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-honey-900 cursor-pointer hover:bg-honey-50"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Read it properly
+        </button>
+      )}
+    </div>
+  ) : null;
+
   const { coverage } = result;
   const unread = coverage.pagesWithoutText;
   // Surfaced passages only. The set-aside ones still travel in the payload and
@@ -407,6 +429,7 @@ function InlineDocAnswer({ msg, onAskAgain, onRetryRead }: {
     return (
       <div className="space-y-2">
         {staleNote}
+        {degradedNote}
         <div className="rounded-2xl border border-honey-200 bg-honey-50 px-3.5 py-3 space-y-2">
           <p className="text-[13.5px] font-semibold text-ink-900">No passage matched those words.</p>
           <p className="text-[13px] leading-relaxed text-ink-700">
@@ -433,6 +456,7 @@ function InlineDocAnswer({ msg, onAskAgain, onRetryRead }: {
   return (
     <div className="space-y-2">
       {staleNote}
+      {degradedNote}
       {result.answer && (
         // The answer, and the only place in this component where a sentence
         // someone reads was written by a model rather than sliced out of their

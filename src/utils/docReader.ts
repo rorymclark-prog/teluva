@@ -278,6 +278,20 @@ export async function readDocument(
         totalHits: typeof data?.totalHits === 'number' ? data.totalHits : 0,
         related: data?.related === true,
         answer: typeof data?.answer === 'string' ? data.answer : '',
+        /* THESE TWO WERE MISSING, AND THE OMISSION WAS INVISIBLE.
+         *
+         * This object is rebuilt field by field, so a field added on the server
+         * simply never arrives — no type error, because both are optional, and
+         * no test, because nothing asserted on them. readerVersion's absence
+         * meant `(undefined ?? 0) < 2`, so the "answered by an earlier version
+         * of the reader" note fired on EVERY read, including the one three
+         * seconds old. A staleness warning that is always on is worse than
+         * none: it teaches the reader to ignore the one notice that matters.
+         *
+         * Same bug class as the reader's own root cause — one end changed, the
+         * other was never told. Whitelist mappings are where that happens. */
+        readerVersion: typeof data?.readerVersion === 'number' ? data.readerVersion : undefined,
+        degraded: data?.degraded === true,
         // Trust the coverage WE computed from the file over anything echoed
         // back: the provenance line and the "may I render a negative?" decision
         // both come from it, and they must describe the extraction that

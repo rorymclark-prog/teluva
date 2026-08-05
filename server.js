@@ -1258,7 +1258,28 @@ const DOC_READ_EXCERPT_CHARS = 400;  // per-candidate excerpt sent to the model,
 // Capping keeps charEnd honest — the returned offsets always address exactly
 // the text we return — at the cost of a long clause being shown cut short.
 const DOC_READ_MAX_PASSAGE_CHARS = 1500;
-const DOC_READ_TIMEOUT_MS = 20000;
+/* 150s, not 20.
+ *
+ * THIS ONE NUMBER WAS THE BUG. The model is given up to 200 clauses of a lease
+ * and asked to select, rank, translate and answer in one call — measured, that
+ * is ~30s on Flash and can exceed 60s on Pro. At 20s it aborted, and the catch
+ * below silently returned the raw keyword sweep instead: page-1 boilerplate in
+ * document order, every topic "General", no answer. That degraded output is
+ * shaped exactly like a successful read, so for a week the app confidently
+ * showed a user asking about repairs three paragraphs about storm insurance.
+ *
+ * Production logs had been saying "[doc-read] model step unavailable: This
+ * operation was aborted" the whole time. Nothing surfaced it, and the
+ * interrogation harness never caught it because the harness has no timeout —
+ * it was measuring a code path production could not reach.
+ *
+ * MEASURED on the real 9-page lease (interrogate-reader.mjs, which now reports
+ * latency against this constant and fails when a case uses more than 60% of it):
+ * mean 47s, slowest 65s. 150s is that slowest case plus headroom for a longer
+ * document and a busier region. The client's own ceiling is 180s and it shows a
+ * spinner while it waits, so a slow read is visible rather than silently wrong.
+ * Cloud Run's request timeout is 300s, so this stays well inside it. */
+const DOC_READ_TIMEOUT_MS = 150000;
 
 // Languages the reader will answer in — the app's own UI languages, from
 // src/i18n/locales.ts. An allow-list rather than free text: the value is
@@ -1704,9 +1725,21 @@ app.post('/api/doc-read', async (req, res) => {
     let answer = '';
     let related = false;
 
+    /* Did the read actually READ, or did it fall back to the raw keyword sweep?
+     *
+     * The fallback returns real clauses from the real document, so it is honest
+     * — but it is not an answer, and it looked identical to one. Same layout,
+     * same "these are its own words" line, no prose, page-1 boilerplate first
+     * because document order is all it has. A person cannot tell the difference
+     * and has no reason to suspect there is one. So the difference now travels
+     * to the client and is stated on screen. */
+    let degraded = false;
+    let modelStartedAt = Date.now();
+
     if (candidates.length > 0) {
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), DOC_READ_TIMEOUT_MS);
+      modelStartedAt = Date.now();
       try {
         const listing = candidates
           .map((c) => `[${c.id}] ${c.text.slice(0, DOC_READ_EXCERPT_CHARS).replace(/\s+/g, ' ')}`)
@@ -1750,7 +1783,8 @@ app.post('/api/doc-read', async (req, res) => {
           if (typeof parsed?.answer === 'string') answer = parsed.answer.slice(0, DOC_READ_MAX_ANSWER).trim();
         }
       } catch (e) {
-        console.error('[doc-read] model step unavailable:', e?.message || e);
+        console.error(`[doc-read] model step unavailable after ${Date.now() - modelStartedAt}ms (timeout ${DOC_READ_TIMEOUT_MS}ms, ${candidates.length} clauses, ${MODEL_SMART}):`, e?.message || e);
+        degraded = true;
         // The deterministic sweep is the FLOOR. Losing the answer and the
         // ranking degrades the result; returning nothing would produce the most
         // dangerous outcome this feature has, which is a user concluding their
@@ -1786,6 +1820,8 @@ app.post('/api/doc-read', async (req, res) => {
       searchedFor: displayTerms(q, terms),
       totalHits,
       readerVersion: DOC_READER_VERSION,
+      // See `degraded` above: keyword hits in document order, not a read.
+      degraded,
       // `related` says these clauses were chosen for subject matter, not for
       // containing the words. The client MUST label them differently: showing a
       // related clause under a heading that implies it matched is the same

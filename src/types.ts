@@ -798,6 +798,14 @@ export interface DocReadResult {
    */
   readerVersion?: number;
   /**
+   * True when the ranking/answering model step failed and the server fell back
+   * to the raw keyword sweep: real clauses from the real document, in document
+   * order, with no answer and no topics. Honest, but NOT a read — and visually
+   * identical to one, which is how a week of "it gave me three paragraphs about
+   * storm insurance" happened. The UI must say so.
+   */
+  degraded?: boolean;
+  /**
    * A short answer in the app's language, written from the surfaced passages.
    *
    * Empty whenever `passages` is empty — enforced server-side, not requested of

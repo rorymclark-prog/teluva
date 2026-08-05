@@ -119,10 +119,24 @@ function ask(c) {
   });
 }
 
+/* THE HARNESS MUST RUN UNDER PRODUCTION'S OWN CLOCK.
+ *
+ * This file graded the model's ANSWERS and never its LATENCY, so it passed
+ * 13/13 while every real read in production aborted at DOC_READ_TIMEOUT_MS and
+ * silently fell back to the raw keyword sweep. It was measuring a code path the
+ * app could not reach. The budget is read out of server.js so it can never
+ * drift from the deployed value. */
+const TIMEOUT_MS = Number(SRC.match(/const DOC_READ_TIMEOUT_MS = (\d+)/)?.[1] || 0);
+if (!TIMEOUT_MS) throw new Error('DOC_READ_TIMEOUT_MS not found in server.js');
+
 const only = process.argv.slice(3);
 const run = only.length ? CASES.filter(c => only.includes(c.id)) : CASES;
 const results = [];
-for (const c of run) results.push(await ask(c));   // sequential: keeps quota calm
+for (const c of run) {                              // sequential: keeps quota calm
+  const t0 = Date.now();
+  const r = await ask(c);
+  results.push({ ...r, ms: Date.now() - t0 });
+}
 
 for (const r of results) {
   const { c } = r;
@@ -141,4 +155,20 @@ for (const r of results) {
   console.log(`Q: ${c.q}`);
   console.log(`A: ${a || '(none)'}`);
   console.log(`   pages: ${r.kept.filter((x) => x.x).map((x) => 'p' + x.x.page).join(' ')}`);
+  console.log(`   took:  ${(r.ms / 1000).toFixed(1)}s of the ${(TIMEOUT_MS / 1000).toFixed(0)}s budget${r.ms > TIMEOUT_MS ? '  ❌ WOULD HAVE ABORTED IN PRODUCTION' : ''}`);
+}
+
+const timings = results.filter((r) => typeof r.ms === 'number').map((r) => r.ms);
+if (timings.length) {
+  const slowest = Math.max(...timings);
+  const mean = Math.round(timings.reduce((a, b) => a + b, 0) / timings.length);
+  console.log(`\nlatency: mean ${(mean / 1000).toFixed(1)}s, slowest ${(slowest / 1000).toFixed(1)}s, budget ${(TIMEOUT_MS / 1000).toFixed(0)}s`);
+  // Headroom, not a bare pass: a case finishing at 95% of the budget passes
+  // today and aborts tomorrow on a slower document or a busier region.
+  if (slowest > TIMEOUT_MS * 0.6) {
+    console.log(`❌ TOO CLOSE TO THE LIMIT — the slowest case used ${Math.round((slowest / TIMEOUT_MS) * 100)}% of DOC_READ_TIMEOUT_MS.`);
+    console.log('   In production an abort does not error: it silently returns the keyword sweep,');
+    console.log('   which looks exactly like a real answer. Raise the budget or shrink the prompt.');
+    process.exitCode = 1;
+  }
 }
