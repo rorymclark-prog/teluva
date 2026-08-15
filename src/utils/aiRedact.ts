@@ -39,13 +39,24 @@
 //
 //   members[].identifiers  (NationalIdentifiers: ssn, nationalId,
 //       driversLicenseNo, taxId, insuranceNo)
-//       Government identity numbers. This is the LEGACY identifier block; the
-//       actively-used one is members[].identity (IdentityRecord), which is what
-//       MemberIDs renders and what the system prompt's canonical "identity"
-//       field keys map onto. See the NOTE below.
+//       Government identity numbers. Not "legacy" in the sense of unused —
+//       it is the live data model behind SecureSecrets.tsx's "National ID &
+//       SSN credentials" panel, the single most sensitive manual-entry form
+//       in the app (no AI write path exists for it at all — manual-only, see
+//       aiEditCoverage.test.ts). members[].identity (IdentityRecord) is the
+//       SEPARATE, also-live block MemberIDs renders and the system prompt's
+//       canonical "identity" field keys map onto — the two coexist. Whole
+//       block dropped here rather than split like `identity` is, because
+//       nothing about a raw SSN is useful to answer a chat question the way
+//       an expiry date is. Was REDACTED from AI context from the start, but
+//       — found in the 2026-08-15 chat-function audit — was NEVER encrypted
+//       at rest; see vaultFields.ts's protectIdentifiers/revealIdentifiers.
 //
 //   members[].financialAccounts  (accountNumber, routingNumber)
-//       Bank account + routing numbers on a person's profile.
+//       Bank account + routing numbers on a person's profile, entered
+//       through the same SecureSecrets.tsx panel ("Financial reference &
+//       utilities"), also manual-only. Same audit, same finding, same fix —
+//       see vaultFields.ts's protectFinancialAccounts/revealFinancialAccounts.
 //
 //   members[].identity — the ID NUMBERS only (see REDACTED_IDENTITY_KEYS).
 //       Rory's call, 2026-07-28: strip the numbers, keep the dates. The whole
@@ -89,13 +100,19 @@
 // ---------------------------------------------------------------------------
 
 /** Household credential keys that must never leave the browser in AI context. */
-export const REDACTED_HOUSEHOLD_KEYS = ['doorCode', 'garageCode', 'wifiPassword', 'alarmCode'] as const;
+export const REDACTED_HOUSEHOLD_KEYS = ['doorCode', 'garageCode', 'wifiPassword'] as const;
 
 /** Bank-record keys that must never leave the browser in AI context. */
 export const REDACTED_BANK_KEYS = ['iban', 'bic'] as const;
 
 /** Member-profile keys that must never leave the browser in AI context. */
 export const REDACTED_MEMBER_KEYS = ['identifiers', 'financialAccounts'] as const;
+
+/** NationalIdentifiers keys — see the header note above. `notes` stays plain. */
+export const REDACTED_NATIONAL_ID_KEYS = ['ssn', 'nationalId', 'driversLicenseNo', 'taxId', 'insuranceNo'] as const;
+
+/** FinancialAccount keys — see the header note above. bankName/accountType/notes stay plain. */
+export const REDACTED_FINANCIAL_ACCOUNT_KEYS = ['accountNumber', 'routingNumber'] as const;
 
 /**
  * Government/insurance ID NUMBERS inside members[].identity.

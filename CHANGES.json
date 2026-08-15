@@ -1,15 +1,6 @@
 {
-  "label": "v203",
+  "label": "v204",
   "changes": [
-    "Fixed: two devices saving around the same time could silently overwrite each other's family member or calendar changes — a passport scanned on one phone could vanish minutes later because of an unrelated save on another. Every save now merges field-by-field against the current cloud copy instead of overwriting it whole.",
-    "Fixed: visa numbers were being stored in plain text and sent to the assistant unredacted — now encrypted at rest and withheld from AI chat, matching passports and other ID numbers.",
-    "Fixed: the assistant's \"what's coming up\" heads-up was missing overdue care visits, unbooked referrals, and lapsed funeral cover.",
-    "Fixed: the calendar the assistant sees for \"what's coming up\" could fill up with far-future events and miss things happening this week.",
-    "Fixed: if you asked the assistant to update a family member's info and the name was ambiguous or didn't match anyone, it could silently apply to the wrong person or mark itself done having changed nothing. It now tells you when it couldn't tell who you meant, and skips instead of guessing.",
-    "Fixed: assistant edits or deletions to a referral, vehicle, or similar record could silently do nothing without saying why.",
-    "Fixed: Undo now correctly warns when a deleted or directly-edited record from an assistant change can't be restored, instead of staying silent about it.",
-    "Fixed: dismissing a suggested change in AI chat could reappear after a refresh; starting a new chat could leave old \"Applied\"/duplicate markers showing on the first message of the new one.",
-    "Fixed: if part of a batch of assistant changes failed to save partway through, retrying could quietly save some of it twice — you're now pointed to Undo first instead.",
-    "Removed a leftover \"alarm code\" field the assistant's instructions mentioned but the app never actually had."
+    "Fixed: ID numbers (SSN, driver's licence, tax ID, insurance number) and bank account/routing numbers entered under Secure Secrets were being stored without encryption, even though the panel was labelled \"Stored locally.\" Both are now encrypted at rest, the same as passwords and other credentials in that section, and the label now says so correctly."
   ]
 }

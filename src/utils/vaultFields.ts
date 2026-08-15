@@ -29,8 +29,8 @@
 // untouched field as a fresh edit.
 // ---------------------------------------------------------------------------
 
-import { IdentityRecord, HouseholdInfo, FinancesInfo, BankAccount, PassportRecord, VisaRecord } from '../types';
-import { REDACTED_IDENTITY_KEYS, REDACTED_HOUSEHOLD_KEYS, REDACTED_BANK_KEYS } from './aiRedact';
+import { IdentityRecord, HouseholdInfo, FinancesInfo, BankAccount, PassportRecord, VisaRecord, NationalIdentifiers, FinancialAccount } from '../types';
+import { REDACTED_IDENTITY_KEYS, REDACTED_HOUSEHOLD_KEYS, REDACTED_BANK_KEYS, REDACTED_NATIONAL_ID_KEYS, REDACTED_FINANCIAL_ACCOUNT_KEYS } from './aiRedact';
 
 /** A round-trip call to the server's encrypt or decrypt endpoint, batched. */
 export type VaultTransform = (values: string[]) => Promise<string[]>;
@@ -221,3 +221,26 @@ export const protectVisas = (visas: VisaRecord[] | undefined, fn: VaultTransform
   protectArrayFields<VisaRecord>(visas, VISA_NUMBER_KEYS, fn);
 export const revealVisas = (visas: VisaRecord[] | undefined, fn: VaultTransform) =>
   revealArrayFields<VisaRecord>(visas, VISA_NUMBER_KEYS, fn);
+
+// members[].identifiers (SSN, national ID, driver's licence, tax ID,
+// insurance number) and members[].financialAccounts (bank account/routing
+// number). Both were already stripped from AI context by
+// REDACTED_MEMBER_KEYS in aiRedact.ts — but that only stops them reaching
+// Gemini; nothing stopped them reaching Firestore in plaintext. Found in the
+// SecureSecrets.tsx panel, which is manual-write-only (no AI edit path exists
+// for either field — confirmed by aiEditCoverage.test.ts listing
+// financialAccounts as manual-only) and is literally titled "National ID &
+// SSN credentials" / "Financial reference & utilities" under a lock icon —
+// the strongest implied promise of protection anywhere in the app, on
+// exactly the fields (a Social Security Number, a bank account number) that
+// had none. 2026-08-15 chat-function audit, same session as the visas gap
+// above; same root cause, one field group deeper.
+export const protectIdentifiers = (identifiers: NationalIdentifiers | undefined, fn: VaultTransform) =>
+  protectFields(identifiers, REDACTED_NATIONAL_ID_KEYS, fn);
+export const revealIdentifiers = (identifiers: NationalIdentifiers | undefined, fn: VaultTransform) =>
+  revealFields(identifiers, REDACTED_NATIONAL_ID_KEYS, fn);
+
+export const protectFinancialAccounts = (accounts: FinancialAccount[] | undefined, fn: VaultTransform) =>
+  protectArrayFields<FinancialAccount>(accounts, REDACTED_FINANCIAL_ACCOUNT_KEYS, fn);
+export const revealFinancialAccounts = (accounts: FinancialAccount[] | undefined, fn: VaultTransform) =>
+  revealArrayFields<FinancialAccount>(accounts, REDACTED_FINANCIAL_ACCOUNT_KEYS, fn);

@@ -228,12 +228,12 @@ export default function SecureSecrets({ member, onUpdateMember, onOpenPrivacy }:
           </div>
         </div>
         <span className="hidden sm:inline-flex items-center chip bg-sage-100/10 border border-sage-500/20 text-sage-400">
-          Stored locally
+          Encrypted
         </span>
       </div>
 
       <PrivacyNote onOpenPrivacy={onOpenPrivacy}>
-        Only signed-in members of your family can see this. Login passwords are encrypted before they're stored.
+        Only signed-in members of your family can see this. ID numbers, bank details and login passwords are all encrypted before they're stored.
       </PrivacyNote>
 
       {successMsg && (

@@ -6,7 +6,8 @@ import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
 import { markDirty, clearDirty, isDirty } from './pendingSync';
 import {
   protectIdentity, revealIdentity, protectPassports, revealPassports,
-  protectVisas, revealVisas,
+  protectVisas, revealVisas, protectIdentifiers, revealIdentifiers,
+  protectFinancialAccounts, revealFinancialAccounts,
   protectHousehold, revealHousehold, protectFinances, revealFinances,
 } from './vaultFields';
 
@@ -111,11 +112,15 @@ export const markHintSeen = (hint: string): void => {
 
 // Every place a member document crosses the Firestore boundary needs the
 // same encrypt/decrypt fields touched — identity numbers, passport numbers,
-// and visa/permit numbers (nested under travel.visas, not a top-level array
-// like passports — easy to miss, which is exactly how it shipped unencrypted
-// until the 2026-08-15 chat-function audit). One pair of helpers so the three
-// call sites below (reveal-for-merge, protect-for-write, reveal-on-load)
-// can't drift out of sync with each other.
+// visa/permit numbers (nested under travel.visas, not a top-level array like
+// passports — easy to miss, which is exactly how it shipped unencrypted until
+// the 2026-08-15 chat-function audit), and — found the same day, same root
+// cause one field group deeper — identifiers (SSN/driver's licence/tax ID/
+// insurance number) and financialAccounts (bank account/routing number) from
+// SecureSecrets.tsx, which had NO encryption at all, not even a missed one:
+// nothing here ever called protectSecrets on them before this fix. One pair
+// of helpers so the three call sites below (reveal-for-merge, protect-for-
+// write, reveal-on-load) can't drift out of sync with each other.
 async function revealMemberSensitive(raw: FamilyMember): Promise<FamilyMember> {
   return {
     ...raw,
@@ -124,6 +129,8 @@ async function revealMemberSensitive(raw: FamilyMember): Promise<FamilyMember> {
     travel: raw.travel
       ? { ...raw.travel, visas: await revealVisas(raw.travel.visas, revealSharedSecrets) }
       : raw.travel,
+    identifiers: await revealIdentifiers(raw.identifiers, revealSharedSecrets),
+    financialAccounts: await revealFinancialAccounts(raw.financialAccounts, revealSharedSecrets),
   };
 }
 
@@ -135,6 +142,8 @@ async function protectMemberSensitive(merged: FamilyMember): Promise<FamilyMembe
     travel: merged.travel
       ? { ...merged.travel, visas: await protectVisas(merged.travel.visas, protectSecrets) }
       : merged.travel,
+    identifiers: await protectIdentifiers(merged.identifiers, protectSecrets),
+    financialAccounts: await protectFinancialAccounts(merged.financialAccounts, protectSecrets),
   };
 }
 

@@ -6,7 +6,8 @@ import assert from 'node:assert';
 import {
   protectIdentity, revealIdentity, protectHousehold, revealHousehold,
   protectFinances, revealFinances, protectPassports, revealPassports,
-  protectVisas, revealVisas, revealCached, VaultTransform,
+  protectVisas, revealVisas, protectIdentifiers, revealIdentifiers,
+  protectFinancialAccounts, revealFinancialAccounts, revealCached, VaultTransform,
 } from './vaultFields';
 import { mergeShared } from './mergeShared';
 
@@ -109,6 +110,51 @@ const fakeReveal: VaultTransform = async (values) => values.map(v =>
 
   const r = await revealVisas(p, fakeReveal) as any;
   assert.strictEqual(r[0].number, 'AT-VISA-9988');
+}
+
+// ── identifiers (SecureSecrets.tsx: SSN, driver's licence, tax ID, insurance
+//    number) — found with NO protect/reveal call anywhere, not even a missed
+//    field on an otherwise-covered record like visas above (2026-08-15 audit) ─
+
+{
+  const identifiers = { ssn: '123-45-6789', nationalId: '', driversLicenseNo: 'DL-EM98334', taxId: 'TX-EMILY-44', insuranceNo: 'BCBS-84221A', notes: 'cards in the safe' };
+  const p = await protectIdentifiers(identifiers, fakeProtect) as any;
+  assert.notStrictEqual(p.ssn, identifiers.ssn);
+  assert.notStrictEqual(p.driversLicenseNo, identifiers.driversLicenseNo);
+  assert.notStrictEqual(p.taxId, identifiers.taxId);
+  assert.notStrictEqual(p.insuranceNo, identifiers.insuranceNo);
+  assert.strictEqual(p.notes, 'cards in the safe', 'notes are not a credential — untouched');
+  assert.strictEqual(p.nationalId, '', 'an empty field is left alone, not encrypted into "enc:fake:"');
+
+  const r = await revealIdentifiers(p, fakeReveal) as any;
+  assert.strictEqual(r.ssn, '123-45-6789');
+  assert.strictEqual(r.driversLicenseNo, 'DL-EM98334');
+  assert.strictEqual(r.taxId, 'TX-EMILY-44');
+  assert.strictEqual(r.insuranceNo, 'BCBS-84221A');
+
+  assert.strictEqual(await protectIdentifiers(undefined, fakeProtect), undefined);
+}
+
+// ── financialAccounts (SecureSecrets.tsx: bank account/routing number) —
+//    same finding, same session, one field group deeper than identifiers ──
+
+{
+  const accounts = [
+    { id: 'bank-1', bankName: 'Chase Bank', accountType: 'Checking', accountNumber: '982245104', routingNumber: 'RT-021000021', notes: 'Both parents hold signatures.' },
+    { id: 'bank-2', bankName: 'PG&E', accountType: 'Utility', accountNumber: '' },
+  ];
+  const p = await protectFinancialAccounts(accounts, fakeProtect) as any;
+  assert.notStrictEqual(p[0].accountNumber, accounts[0].accountNumber);
+  assert.notStrictEqual(p[0].routingNumber, accounts[0].routingNumber);
+  assert.strictEqual(p[0].bankName, 'Chase Bank', 'bank name is not a credential — untouched');
+  assert.strictEqual(p[0].accountType, 'Checking');
+  assert.deepStrictEqual(p[1], accounts[1], 'a record with nothing sensitive set is untouched');
+
+  const r = await revealFinancialAccounts(p, fakeReveal) as any;
+  assert.strictEqual(r[0].accountNumber, '982245104');
+  assert.strictEqual(r[0].routingNumber, 'RT-021000021');
+
+  assert.strictEqual(await protectFinancialAccounts(undefined, fakeProtect), undefined);
 }
 
 // ── revealCached: offline-friendly cache ───────────────────────────────────

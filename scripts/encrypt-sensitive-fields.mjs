@@ -1,10 +1,19 @@
 // ---------------------------------------------------------------------------
 // One-time migration: encrypt existing PLAINTEXT identity numbers, passport
-// numbers, household codes, and bank IBAN/BIC — everything the app now
-// protects at rest going forward (see src/utils/vaultFields.ts, and
+// numbers, visa/permit numbers, household codes, bank IBAN/BIC, national ID
+// numbers (SSN etc.), and financial account/routing numbers — everything the
+// app now protects at rest going forward (see src/utils/vaultFields.ts, and
 // server.js's /api/vault/protect + /api/vault/reveal-shared). New writes are
 // already encrypted by the app itself; this only touches data that predates
 // that change.
+//
+// travel.visas[].number, identifiers.*, and financialAccounts[].* were added
+// 2026-08-15 (chat-function audit): the visa case is closing a gap in the
+// #172 fix earlier this same session — the app-side encryption shipped then,
+// but no migration for pre-existing plaintext visa numbers was ever written.
+// identifiers/financialAccounts is a separate, previously-undiscovered finding
+// (see aiRedact.ts's header comment) — the app-side fix and this migration
+// are shipping together, so there's no equivalent gap for those two.
 //
 // Uses the EXACT SAME algorithm as server.js's encryptSecret (AES-256-GCM,
 // random 12-byte IV, tag bound to the family via AAD, 'enc:2:iv:tag:ct'
@@ -12,7 +21,8 @@
 // app's existing /api/vault/reveal-shared without any special-casing.
 //
 // The field lists below are a deliberate COPY of
-// REDACTED_IDENTITY_KEYS / REDACTED_HOUSEHOLD_KEYS / REDACTED_BANK_KEYS from
+// REDACTED_IDENTITY_KEYS / REDACTED_HOUSEHOLD_KEYS / REDACTED_BANK_KEYS /
+// REDACTED_NATIONAL_ID_KEYS / REDACTED_FINANCIAL_ACCOUNT_KEYS from
 // src/utils/aiRedact.ts — kept in sync by hand, same as every other
 // standalone .mjs script here, which cannot import a .ts file directly. If
 // that list changes, this one must too.
@@ -50,8 +60,10 @@ const REDACTED_IDENTITY_KEYS = [
   'residencePermitNumber', 'nationalIdNumber', 'birthCertNumber',
   'medicalAidNumber', 'insuranceGroupNumber', 'citizenshipCertNumber', 'driversLicenseNumber',
 ];
-const REDACTED_HOUSEHOLD_KEYS = ['doorCode', 'garageCode', 'wifiPassword', 'alarmCode'];
+const REDACTED_HOUSEHOLD_KEYS = ['doorCode', 'garageCode', 'wifiPassword'];
 const REDACTED_BANK_KEYS = ['iban', 'bic'];
+const REDACTED_NATIONAL_ID_KEYS = ['ssn', 'nationalId', 'driversLicenseNo', 'taxId', 'insuranceNo'];
+const REDACTED_FINANCIAL_ACCOUNT_KEYS = ['accountNumber', 'routingNumber'];
 
 const rawKey = process.env.VAULT_ENC_KEY || '';
 if (!rawKey) {
@@ -85,27 +97,67 @@ async function migrateMembers(familyId) {
   for (const memberDoc of members.docs) {
     const data = memberDoc.data();
     const update = {};
-    let changedHere = false;
+    let anyChange = false; // whether THIS member gets written at all — each field
+                            // group below tracks its own local flag rather than
+                            // reusing this one, so a change in one group can't
+                            // cause an unrelated, unchanged array to be rewritten
+                            // (that was a latent no-op bug in the old passports
+                            // check, fixed 2026-08-15 alongside the new fields).
 
     const identity = data.identity;
     if (identity && typeof identity === 'object') {
       for (const key of REDACTED_IDENTITY_KEYS) {
         const enc = encryptSecret(identity[key], familyId);
-        if (enc) { update[`identity.${key}`] = enc; changedHere = true; fields++; }
+        if (enc) { update[`identity.${key}`] = enc; anyChange = true; fields++; }
+      }
+    }
+
+    const identifiers = data.identifiers;
+    if (identifiers && typeof identifiers === 'object') {
+      for (const key of REDACTED_NATIONAL_ID_KEYS) {
+        const enc = encryptSecret(identifiers[key], familyId);
+        if (enc) { update[`identifiers.${key}`] = enc; anyChange = true; fields++; }
       }
     }
 
     if (Array.isArray(data.passports) && data.passports.length) {
+      let passportsChanged = false;
       const newPassports = data.passports.map((p) => {
         const enc = p && typeof p === 'object' ? encryptSecret(p.number, familyId) : null;
         if (!enc) return p;
-        changedHere = true; fields++;
+        passportsChanged = true; fields++;
         return { ...p, number: enc };
       });
-      if (changedHere) update.passports = newPassports; // whole array — Firestore has no per-index dot-path here
+      if (passportsChanged) { update.passports = newPassports; anyChange = true; } // whole array — Firestore has no per-index dot-path here
     }
 
-    if (changedHere) {
+    if (Array.isArray(data.financialAccounts) && data.financialAccounts.length) {
+      let accountsChanged = false;
+      const newAccounts = data.financialAccounts.map((a) => {
+        if (!a || typeof a !== 'object') return a;
+        const next = { ...a };
+        for (const k of REDACTED_FINANCIAL_ACCOUNT_KEYS) {
+          const enc = encryptSecret(a[k], familyId);
+          if (enc) { next[k] = enc; accountsChanged = true; fields++; }
+        }
+        return next;
+      });
+      if (accountsChanged) { update.financialAccounts = newAccounts; anyChange = true; }
+    }
+
+    const travel = data.travel;
+    if (travel && typeof travel === 'object' && Array.isArray(travel.visas) && travel.visas.length) {
+      let visasChanged = false;
+      const newVisas = travel.visas.map((v) => {
+        const enc = v && typeof v === 'object' ? encryptSecret(v.number, familyId) : null;
+        if (!enc) return v;
+        visasChanged = true; fields++;
+        return { ...v, number: enc };
+      });
+      if (visasChanged) { update['travel.visas'] = newVisas; anyChange = true; } // dot-path replaces just travel.visas, leaves rest of travel intact
+    }
+
+    if (anyChange) {
       touched++;
       console.log(`  ${APPLY ? 'encrypting' : 'would encrypt'} families/${familyId}/family_members/${memberDoc.id} (${data.name || 'unnamed'})`);
       if (APPLY) await memberDoc.ref.update(update);
