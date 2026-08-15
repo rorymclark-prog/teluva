@@ -148,6 +148,13 @@ export interface FamilyMember {
   // them is detected as stale and silently regenerated on next view.
   astrologyBlurb?: { text: string; sign: string; generatedAt: string; forInputs: string };
   birthHospital?: string;
+  // Namenstag — 'MM-DD', a recurring month/day with no year (see utils/nameDay.ts).
+  // Only ever what the FAMILY set: the name→day table suggests, this field is
+  // the answer they kept, and every surface that celebrates a name day (the
+  // daily notification cron included) reads this and nothing else. That is also
+  // why the server needs no copy of the table.
+  nameDay?: string;
+  nameDayFeast?: string;     // e.g. 'Hl. Josef' — shown so the date is checkable, never guessed
   taxNumber?: string;        // personal tax / social-security number — useful for a family member too, not business-only
   startDate?: string;        // YYYY-MM-DD — unused for a family member; an employee's start-of-employment date in a business space
   nationality?: string;     // comma-separated is fine, free text

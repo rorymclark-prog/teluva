@@ -142,6 +142,27 @@ export function redactFinances<T>(finances: T): T {
 }
 
 /**
+ * Strip the VALUE out of every "Important Numbers" entry (FamilyInfo.numbers),
+ * keeping label and note.
+ *
+ * This is the one free-form bucket in the whole app: everywhere else a number
+ * gets a typed home — an IBAN, an SV number, a policy number — with its own
+ * named key that the rest of this file already redacts. "Important Numbers" is
+ * where a family puts whatever didn't fit that scheme, labelled in their own
+ * words ("Mia's social security", "the safe combination", "landlord's account
+ * number"), and every one of those free-text VALUES was going into the Gemini
+ * prompt on every chat turn regardless of what it actually held. Redacting a
+ * label-matched subset would have meant maintaining a second guess-list beside
+ * the labels people actually type; stripping the value unconditionally needs
+ * no guessing and is consistent with every other credential in this file.
+ * "What numbers do we have on file?" still answers from the labels alone.
+ */
+export function redactInfoNumbers<T>(numbers: T): T {
+  if (!Array.isArray(numbers)) return numbers;
+  return numbers.map((n) => (isPlainObject(n) ? omit(n, ['value']) : n)) as T;
+}
+
+/**
  * Strip the legacy national-identifier block, per-member bank accounts, and the
  * government/insurance ID NUMBERS inside `identity`, from one already-slimmed
  * member object. Identity expiry dates and scheme names survive — see

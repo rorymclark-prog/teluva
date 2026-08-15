@@ -155,10 +155,22 @@ assert.strictEqual(body.end.timeZone, 'Europe/Vienna');
 assert.strictEqual(body.start.dateTime, '2026-08-01T09:30:00');
 assert.strictEqual(body.end.dateTime, '2026-08-01T10:30:00', 'defaults to a 1-hour block when the event has no explicit end time');
 
-// An event with no time set falls back to a sane default window rather than
-// crashing or producing an invalid Google API payload.
+// An event with no time is a real ALL-DAY event, not a 9am appointment.
+// This used to fall back to a fake 09:00-10:00 dateTime window — which put a
+// birthday or a passport-expiry reminder in the middle of the day like a
+// meeting instead of the all-day banner, on every calendar that read it. The
+// correct Google shape is `date` (not `dateTime`), no timeZone, and an
+// EXCLUSIVE end of the following day.
 const untimed = buildGoogleCalendarEventBody({ ...base, time: undefined });
-assert.strictEqual(untimed.start.dateTime, '2026-08-01T09:00:00');
-assert.strictEqual(untimed.end.dateTime, '2026-08-01T10:00:00');
+assert.strictEqual((untimed.start as any).date, '2026-08-01');
+assert.strictEqual((untimed.end as any).date, '2026-08-02', 'end is exclusive: the day AFTER, not the same day');
+assert.strictEqual((untimed.start as any).dateTime, undefined, 'must not be a timed event');
+assert.strictEqual((untimed.start as any).timeZone, undefined, 'all-day events carry no timeZone');
+
+// Crossing midnight rolls the END DATE too — (h+1)%24 on the same date used to
+// put 23:30's end before its own start, which Google's API rejects outright.
+const lateNight = buildGoogleCalendarEventBody({ ...base, time: '23:30' });
+assert.strictEqual(lateNight.start.dateTime, '2026-08-01T23:30:00');
+assert.strictEqual(lateNight.end.dateTime, '2026-08-02T00:30:00', 'end rolls into the next calendar day');
 
 console.log('googleCalendarSync.test.ts: all assertions passed');

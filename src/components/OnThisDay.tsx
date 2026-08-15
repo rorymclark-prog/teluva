@@ -2,6 +2,7 @@ import type { ElementType } from 'react';
 import { Calendar, Sparkles, Cake, Ruler, GraduationCap, PartyPopper, Plane, BookOpen, Quote } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FamilyMember, CalendarEvent, ContactEntry } from '../types';
+import { daysUntilNameDay } from '../utils/nameDay';
 
 // "On this day" — the emotional daily hook on the home screen. Pure/presentational:
 // everything here is derived from members + events + the current date, no network,
@@ -101,6 +102,37 @@ function birthdayInsight(m: { id: string; name: string; birthdate?: string }, to
     text: `🎂 ${first} turns ${turningAge} ${when}`,
     tone: 'honey',
     score: 1000 - days * 10,
+  };
+}
+
+/* Namenstag today, or within the next few days.
+ *
+ * Reads ONLY the stored `nameDay` — never the name→day table. A day the family
+ * has not confirmed must not appear on the home screen as something to
+ * celebrate; the offer to set one lives on the person's own profile, where it
+ * can be checked against the saint it belongs to. The window is shorter than
+ * the birthday's ten days because a name day is a smaller occasion: nobody
+ * needs a week's notice to say "alles Gute zum Namenstag".
+ *
+ * Scored just under the same day's birthday so that when both land together —
+ * which is common, since plenty of people are named for the saint whose day
+ * they were born on — the birthday leads. */
+function nameDayInsight(m: FamilyMember, today: Date): Insight | null {
+  const days = m.nameDay ? daysUntilNameDay(m.nameDay, today) : null;
+  if (days === null || days > 3) return null;
+
+  const first = firstName(m.name);
+  const when = days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
+  const feast = (m.nameDayFeast || '').trim();
+
+  return {
+    key: `nameday-${m.id}`,
+    icon: PartyPopper,
+    text: days === 0
+      ? `💐 It's ${first}'s name day${feast ? ` — ${feast}` : ''}`
+      : `💐 ${first}'s name day is ${when}${feast ? ` (${feast})` : ''}`,
+    tone: 'sage',
+    score: 995 - days * 10,
   };
 }
 
@@ -285,6 +317,8 @@ function buildInsights(members: FamilyMember[], events: CalendarEvent[], contact
   for (const m of members) {
     const b = birthdayInsight(m, today);
     if (b) candidates.push(b);
+    const n = nameDayInsight(m, today);
+    if (n) candidates.push(n);
     const g = growthInsight(m, today);
     if (g) candidates.push(g);
     const s = sayingInsight(m, today);

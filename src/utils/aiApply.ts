@@ -3,6 +3,7 @@ import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
 import { partitionNewEvents } from './calendarDedup';
+import { isValidNameDay } from './nameDay';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 const VALID_FAMILY_ROLES: MemberRole[] = ['Parent', 'Child', 'Grandparent', 'Other'];
@@ -40,6 +41,21 @@ const MEMBER_FIELD_MAP: Record<string, (m: FamilyMember, v: string) => FamilyMem
   nickname: (m, v) => ({ ...m, nickname: v }),
   birthdate: (m, v) => ({ ...m, birthdate: v }),
   place_of_birth: (m, v) => ({ ...m, placeOfBirth: v }),
+  // Namenstag. Stored as 'MM-DD' — a name day has no year. The model is asked
+  // for that form but will sometimes send a full ISO date because every other
+  // date field in this app is one, so trim it here rather than dropping the
+  // edit: a rejected write that reports success is exactly the silent no-op
+  // this codebase keeps having to hunt down. An empty value clears the field
+  // (clear_field routes through this same map), and anything else is refused.
+  name_day: (m, v) => {
+    const raw = String(v || '').trim();
+    if (!raw) return { ...m, nameDay: undefined, nameDayFeast: undefined };
+    const monthDay = /^\d{4}-(\d{2}-\d{2})$/.exec(raw)?.[1] || raw;
+    if (!isValidNameDay(monthDay)) { console.warn('AI: ignoring malformed name day', v); return m; }
+    // The feast belongs to whatever day was previously stored, so a new date
+    // must not keep the old label — better blank than mislabelled.
+    return { ...m, nameDay: monthDay, nameDayFeast: undefined };
+  },
   nationality: (m, v) => ({ ...m, nationality: v }),
   languages: (m, v) => ({ ...m, languages: v }),
   gender: (m, v) => ({ ...m, gender: v }),

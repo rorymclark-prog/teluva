@@ -10,7 +10,7 @@ import {
   loadAssets, uploadAssetPhoto,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
-import { redactHousehold, redactFinances, redactMember } from '../utils/aiRedact';
+import { redactHousehold, redactFinances, redactMember, redactInfoNumbers } from '../utils/aiRedact';
 // Edit/delete-existing-records feature: display labels + apply-time re-resolution
 // live here (this shared component only gets append-only wiring).
 import { annotateDestructiveEdits } from '../utils/aiDestructive';
@@ -747,27 +747,23 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         return;
       }
 
-      /* A read that never settles leaves a spinner on screen with no way out,
-       * and this one has real ways to stall: a large scanned PDF is fetched,
-       * rasterised page by page and OCR'd. Three minutes is far longer than a
-       * healthy nine-page lease takes and still finite, which is the point —
-       * "it's taking too long" is recoverable, an eternal spinner is not. */
-      const outcome = await Promise.race([
-        readDocument(
-          {
-            name: found.name,
-            category: found.category,
-            fileType: found.fileType,
-            src: found.downloadUrl,
-            storagePath: found.storagePath,
-            contentHash: found.contentHash,
-          },
-          target.question,
-          { isBusinessSpace, language: lang },
-        ),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('read-timeout')), 180_000)),
-      ]);
+      /* The three-minute ceiling that stops a stalled read from leaving a
+       * spinner with no way out now lives INSIDE readDocument (see
+       * DOC_READ_CLIENT_TIMEOUT_MS), so it applies identically here and in the
+       * Document Vault's sheet. A timeout it was each call site's job to
+       * remember is a timeout half the app doesn't have. */
+      const outcome = await readDocument(
+        {
+          name: found.name,
+          category: found.category,
+          fileType: found.fileType,
+          src: found.downloadUrl,
+          storagePath: found.storagePath,
+          contentHash: found.contentHash,
+        },
+        target.question,
+        { isBusinessSpace, language: lang },
+      );
 
       if (outcome.kind === 'result') patchRead({ readPending: false, readResult: outcome.result });
       else patchRead({ readPending: false, readError: outcome.message });
@@ -1168,7 +1164,12 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       id: a.id, name: a.name, category: a.category, make: a.make, model: a.model,
       serialNumber: a.serialNumber, assignedMember: a.assignedMember,
     }));
-    return { members: slimMembers(members), info, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx };
+    // info.numbers is the one free-text bucket in the vault — nothing forces
+    // what goes in the "value" of an "Important Numbers" entry, so unlike
+    // every other field here it cannot be redacted by naming a key. Strip the
+    // value unconditionally rather than send it to Gemini on every turn.
+    const infoCtx = info ? { ...info, numbers: redactInfoNumbers(info.numbers) } : info;
+    return { members: slimMembers(members), info: infoCtx, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {
@@ -2282,12 +2283,22 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
               {m.readDoc && (
                 <InlineDocAnswer
                   msg={m}
-                  onRetryRead={m.readError && m.readDoc && m.readKey
+                  /* Gated on "can this be re-run", not on "did it error".
+                   * InlineDocAnswer renders a "Read it properly" button in the
+                   * DEGRADED branch too — a read that timed out inside the
+                   * model step and fell back to the raw keyword sweep. That
+                   * button was being drawn with no handler, so the one case
+                   * where retrying is most likely to work did nothing at all
+                   * when tapped. */
+                  onRetryRead={(m.readError || m.readResult?.degraded) && m.readDoc && m.readKey
                     ? () => {
                         // Same readKey, so the patch lands on THIS message
                         // rather than creating a second answer below it.
+                        // readResult is cleared too: retrying a DEGRADED read
+                        // must not leave the fallback's passages on screen
+                        // underneath a spinner, where they read as the answer.
                         setMessages((prev) => prev.map((x) => (x.readKey === m.readKey
-                          ? { ...x, readError: undefined, readPending: true } : x)));
+                          ? { ...x, readError: undefined, readResult: undefined, readPending: true } : x)));
                         void runInlineRead(m.readDoc!, m.readKey!);
                       }
                     : undefined}

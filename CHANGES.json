@@ -1,7 +1,14 @@
 {
-  "label": "v201",
+  "label": "v202",
   "changes": [
-    "Asking a second question about the same document is now much faster. Your phone was re-scanning every page of the document from scratch on every single question — the slowest part of the whole thing — to produce pages the server had already read and saved. It now checks first, and skips straight to the answer.",
-    "This is what made a read time out and give up on a long scanned lease, even though the answer was ready."
+    "New: Namenstag (name day). If your name has one in the Austrian calendar, your profile now offers it — tap once to keep it, and it shows up on the home screen and in your daily notification alongside birthdays. Nothing is guessed for a name the calendar doesn't recognise, and you can also set or correct one by hand on the Edit profile screen.",
+    "Fixed: someone removed from a family (or who left one) kept getting that family's birthday and reminder notifications on their phone indefinitely. Their device is now dropped from the notification list the moment they leave.",
+    "Fixed: opening the document reader from the Document Vault (rather than from chat) could spin forever on a slow connection with no way back except closing the screen. It now gives up gracefully after three minutes, same as chat.",
+    "Fixed: Household and Finances could flip to showing raw encrypted text on screen after a change synced in from another device or family member.",
+    "Fixed: someone born on 29 February never got a birthday notification in an ordinary year.",
+    "Fixed: two celebrations landing on the same day (two birthdays, or a birthday and a name day) could silently cancel each other out as a notification.",
+    "Fixed: birthdays, passport/permit expiry and other date-only reminders synced to Google Calendar as a 9am meeting instead of an all-day event.",
+    "Fixed: the assistant can now update or delete a visa, vaccination or referral record it filed, and Undo now covers those too.",
+    "Fixed: a few smaller things — a retry button on a timed-out document read that didn't do anything, a free-text \"Important Numbers\" value that was being sent to the AI unnecessarily, an emoji in a calendar export that could corrupt the file, photo-measurement readings not counting against the monthly AI limit, and the document reader charging an AI action on a search that never reached the AI."
   ]
 }

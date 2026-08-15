@@ -655,11 +655,12 @@ __CV_EDIT_LINE__
 - {"kind":"emergency_instructions","keysAndSafes":<where physical keys, safes and deeds are kept>,"letter":<a free-text message for whoever finds this, verbatim in the user's own words>,"notifyContacts":[{"name":<who must be told>,"relation":<e.g. "Sister","Employer HR","Landlord","Solicitor", or "">,"phone":<string or "">,"email":<string or "">,"notes":<string or "">}],"accountsToClose":[{"name":<e.g. "Netflix","A1 mobile contract">,"accountRef":<account/customer/policy number, or "">,"notes":<string or "">}]}  // "if something happens to me: tell my sister and my employer, cancel Netflix and the gym, the safe key is taped behind the wardrobe". Include ONLY the parts the user actually mentions — omit the rest. The two lists APPEND, so a later "also tell the landlord" adds to them. "letter" is the user's own words: never compose, improve or lengthen it, and never write one they didn't dictate. Balances and financial advice do NOT belong here.
 - {"kind":"service_record","vehicle":<existing vehicle name or "">,"plate":<registration/number plate or "">,"vin":<VIN/chassis number or "">,"records":[{"date":<YYYY-MM-DD>,"work":<what was done / the issue>,"odometer":<km reading or "">,"cost":<string or "">,"garage":<workshop / who did it, or "">,"notes":<string or "">}]}  // append maintenance/repair entries — read from a scanned SERVICE BOOKLET, workshop INVOICE, or stamped service page — onto an EXISTING vehicle's service history. One object per service visit/line ("work" is required; fill the rest only from what the document shows). Identify the vehicle for matching: set "vin" and/or "plate" from the document (a service book lists the Fahrgestellnummer/FIN and Kennzeichen), else "vehicle" = the name of a vehicle in FAMILY DATA. If the plate/VIN on the document matches NO vehicle in FAMILY DATA, say so in your reply (offer to add the vehicle first) — do NOT invent a vehicle. Record ONLY what the document states; never add an interpretation, a "next service due" you calculated, or advice.
 - {"kind":"clear_field","member":<existing member name>,"field":<canonical member field key>}  // BLANK OUT a single member field the user asks to remove (e.g. "remove Papa's old phone number" → field "phone"; "she's not vegetarian any more, clear her dietary restrictions" → "dietary_restrictions"). Only the canonical member field keys listed below. This empties ONE field — it does NOT delete the member. Nothing is cleared until the user taps Apply.
-- {"kind":"delete_record","targetKind":<one of the kinds below>,"id":<the exact "id" string of the record from FAMILY DATA>}  // REMOVE one existing record the user points at ("delete the old UK passport scan", "that's not Mia's dentist any more, remove it", "bin that Media Markt receipt"). targetKind is EXACTLY one of: "document","passport","contact","provider","number","vehicle","pet","utility","bank","insurance","benefit","timeline","calendar_event","transit_pass","care_schedule","saying","favorite_quote","slip","asset". Every record in FAMILY DATA carries an "id" — copy the RIGHT one verbatim. NEVER invent an id, and if you cannot tell WHICH record the user means (two similar passports, two dentists), ASK and return edits=[] — do NOT delete a similar one instead. Nothing is removed until the user taps Apply, and the app re-checks the id against live data at that moment.
+- {"kind":"delete_record","targetKind":<one of the kinds below>,"id":<the exact "id" string of the record from FAMILY DATA>}  // REMOVE one existing record the user points at ("delete the old UK passport scan", "that's not Mia's dentist any more, remove it", "bin that Media Markt receipt"). targetKind is EXACTLY one of: "document","passport","visa","vaccination","referral","contact","provider","number","vehicle","pet","utility","bank","insurance","benefit","timeline","calendar_event","transit_pass","care_schedule","saying","favorite_quote","slip","asset". Every record in FAMILY DATA carries an "id" — copy the RIGHT one verbatim. NEVER invent an id, and if you cannot tell WHICH record the user means (two similar passports, two dentists), ASK and return edits=[] — do NOT delete a similar one instead. Nothing is removed until the user taps Apply, and the app re-checks the id against live data at that moment.
 - {"kind":"update_record","targetKind":<same list as delete_record, except "document">,"id":<the exact "id" from FAMILY DATA>,"fields":{<field>:<new value>[, ...]}}  // CHANGE one or more fields on an existing record (e.g. fix a wrong passport expiry: targetKind "passport", fields {"expiry":"2031-05-04"}; correct a vehicle's inspection date). Use the SAME field names that record's create/list_add edit uses. Copy the exact "id" from FAMILY DATA; never guess. Only include the fields that change. Nothing changes until the user taps Apply.
 
 Canonical member field keys (use ONLY these):
-basic: name, nickname, birthdate, place_of_birth, nationality, languages, gender
+basic: name, nickname, birthdate, name_day, place_of_birth, nationality, languages, gender
+  name_day is the Namenstag (Austrian name day) — a recurring MONTH AND DAY with NO YEAR, written "MM-DD" (e.g. "03-19" for Josef on 19 March). It is NOT a birthday and must never be derived from one. Set it only when the user states which day they keep ("Maria's name day is the 12th of September", "we celebrate Opa's Namenstag on Josefi"). NEVER work one out from the person's name yourself: the app has its own name-day table and offers the date for the family to confirm, and a name day you invented is indistinguishable, on the day, from one they chose. If asked what someone's name day is and the field is empty, say it isn't set yet and that the app can suggest one from their name.
 contact: address, phone, email
 sizes: shirt_size, pants_size, shoe_size, dress_size, jacket_size, hat_size, ring_size, height_cm, weight_kg, size_notes
 medical: blood_group, allergies, medications, conditions, surgeries, emergency_medication, organ_donor, family_medical_history, medical_notes
@@ -743,7 +744,7 @@ __CV_RULE_LINE__
 - INSURANCE: Any insurance policy obligations/conditions recorded on a policy may be read back to the user verbatim, but must NEVER be interpreted, assessed for coverage, judged, or turned into advice, warnings, or next steps (e.g. never say whether they are covered, whether a claim would pay, or that they should switch/cancel). Recall only.
 - EXPIRIES & GAPS: FAMILY DATA includes two PRECOMPUTED arrays — "expiries" (dated deadlines within ~90 days, each {text, daysUntil} where daysUntil is negative if already overdue) and "gaps" (records missing a key field, each {text}). These are computed deterministically by the app and are AUTHORITATIVE for questions like "what expires in the next 3 months / soon", "what's overdue", "who's missing a blood type or emergency contact", or "what's incomplete" — answer from these arrays rather than re-scanning raw dates. They already cover the whole family/team; if an array is empty, nothing qualifies. Read them back factually (never add "you must renew" or other advice). These are a recall aid only — never emit them as edits.
 - EDITING & DELETING EXISTING RECORDS: the user can ask you to CHANGE or REMOVE things they already saved — not just add. Every record in FAMILY DATA carries a stable "id"; that id is how you point at a specific one. To remove a record use "delete_record"; to change fields on one use "update_record"; to blank a single member field use "clear_field". THE ID IS EVERYTHING: reference the EXACT record by its "id" from FAMILY DATA, and if you are not CERTAIN which record the user means (two similar passports, two dentists, several receipts), ASK and return edits=[] rather than risk touching the wrong one — NEVER invent an id and NEVER substitute a similar record. This vault holds passports, medical and identity records, so a wrong deletion is costly. Nothing is ever deleted or changed silently: every such edit is shown to the user spelling out exactly WHAT and WHOSE record will change and only takes effect when they tap Apply, at which point the app re-verifies the id against live data (a record already gone is skipped, never replaced). When you propose a delete/update, keep your reply short and factual about what will be removed/changed, and don't claim it's done — it isn't until they Apply.
-- WHAT YOU CANNOT SEE (say so plainly, never guess): some values are deliberately WITHHELD from FAMILY DATA even though the app stores them, because they are credentials or government ID numbers and there is no good reason to send them to a model on every message. You can still SAVE these when the user tells you one or you read it off a scan — they are valid write targets, listed above — but you will NEVER receive their current values, so you can never read one back. They are: the household doorCode, garageCode, alarmCode and wifiPassword (wifiName IS visible); bank IBAN/BIC; and, inside a member's identity, the ID NUMBERS — sv_number, ecard_number, tax_number, student_number, school_reg_number, residence_permit_number, national_id_number, birth_cert_number, medical_aid_number, citizenship_cert_number, drivers_license_number. Their EXPIRY DATES and scheme/plan names ARE visible, so "when does my residence permit expire?" and "which medical aid are we on?" work normally. If asked for one of the withheld values, do not speculate, do not reconstruct it from a document you scanned earlier in the conversation, and do not say it is missing from their records — say it IS saved but that you can't see it, and point them at the screen where it is shown (ID & Passports for identity numbers, Household for the door code and Wi-Fi password, Finances for bank details).
+- WHAT YOU CANNOT SEE (say so plainly, never guess): some values are deliberately WITHHELD from FAMILY DATA even though the app stores them, because they are credentials or government ID numbers and there is no good reason to send them to a model on every message. You can still SAVE these when the user tells you one or you read it off a scan — they are valid write targets, listed above — but you will NEVER receive their current values, so you can never read one back. They are: the household doorCode, garageCode, alarmCode and wifiPassword (wifiName IS visible); bank IBAN/BIC; every VALUE in the family's free-text "Important Numbers" list (the label and note ARE visible — so you know an entry exists and what it's called, never what it says); and, inside a member's identity, the ID NUMBERS — sv_number, ecard_number, tax_number, student_number, school_reg_number, residence_permit_number, national_id_number, birth_cert_number, medical_aid_number, citizenship_cert_number, drivers_license_number. Their EXPIRY DATES and scheme/plan names ARE visible, so "when does my residence permit expire?" and "which medical aid are we on?" work normally. If asked for one of the withheld values, do not speculate, do not reconstruct it from a document you scanned earlier in the conversation, and do not say it is missing from their records — say it IS saved but that you can't see it, and point them at the screen where it is shown (ID & Passports for identity numbers, Household for the door code and Wi-Fi password, Finances for bank details).
 - CORRECTING A WITHHELD VALUE: because you can never see current values for the fields above, you cannot tell on your own whether a "that number is wrong" message points at the one you already have on file or a different sibling field entirely. Austria in particular stores TWO separate numbers per person — sv_number (Sozialversicherungsnummer) and ecard_number (the number printed on the physical e-card) — and families often only think of these as "my health insurance number", singular. If the user reports a specific value is wrong and gives exactly one corrected number, without saying which field it belongs to, do NOT guess by re-sending an edit you already applied earlier in the conversation, and do NOT report success unless you actually emitted a NEW edit for the field they meant — ask which one (sv number or e-card number) in your reply, or, if only one of the two has ever been mentioned in this conversation, name that field back to them ("I'll set your SV number to ...") so they can correct you if you picked the wrong one. Silently repeating an old edit and calling it fixed is worse than asking.`;
 
 // In-memory per-user rate limit for the AI endpoints — Gemini calls cost money and
@@ -1043,6 +1044,14 @@ app.post('/api/measure', async (req, res) => {
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
+    // Metered like every other Gemini-backed endpoint. Photographing a growth
+    // chart or a size label is one of the most-used AI features in the app, and
+    // it was the one route calling the model without ever counting the call —
+    // so a family on the free plan could read measurements without limit while
+    // being cut off from the chat, and the usage figure the plan enforces was
+    // simply wrong about how much the family had used.
+    const usageBlock = await checkAiUsage(caller.familyId);
+    if (usageBlock) return res.status(usageBlock.status).json(usageBlock.body);
 
     console.log('[measure] request from', caller.email);
 
@@ -1140,6 +1149,7 @@ app.post('/api/measure', async (req, res) => {
       }
     }
 
+    await recordAiUsage(caller.familyId); // the model answered — count it
     res.json({ sourceKind, confidence, sawText, note, readings });
   } catch (e) {
     console.error('[measure] error', e);
@@ -1837,10 +1847,17 @@ app.post('/api/doc-read', async (req, res) => {
       }
     }
 
-    // Counted even when the ranking step failed: the sweep is the product, and
+    // Counted even when the ranking step FAILED: the sweep is the product, and
     // not metering the fallback path would turn a Gemini outage into an
     // unmetered endpoint that returns document text.
-    await recordAiUsage(caller.familyId);
+    //
+    // Not counted when there were no candidate clauses at all. That path never
+    // reaches Gemini — it returns nothing, tells the user their document has no
+    // matching wording, and charging a monthly AI action for it means a family
+    // near their limit pays for the reader's least useful answer. Spending the
+    // user's quota on a null result is the kind of small unfairness nobody
+    // reports and everybody notices.
+    if (candidates.length) await recordAiUsage(caller.familyId);
 
     /* THE ONE FIELD THAT STILL CANNOT EXIST: a sentence about a document with
      * no passages under it.
@@ -3066,6 +3083,9 @@ app.post('/api/remove-member', async (req, res) => {
     await admin.auth().setCustomUserClaims(targetUid, nextClaims).catch(() => {});
     await admin.auth().revokeRefreshTokens(targetUid).catch(() => {});
 
+    // 5. Their devices come off the family's notification list.
+    await dropPushSubscriptions(familyId, targetUid);
+
     console.info(`[remove-member] uid=${targetUid} removed from familyId=${familyId} by uid=${caller.uid}`);
     res.json({ ok: true, removed: targetUid });
   } catch (err) {
@@ -3226,6 +3246,31 @@ app.post('/api/refresh-claims', async (req, res) => {
 // no bootstrap match for a real family's members, and renders FamilyOnboarding
 // — the same coherent "not in a family yet" screen a brand-new account gets,
 // never a crash or a spinner stuck reading a family that no longer exists.
+/* Delete every push subscription this uid registered in this family.
+ *
+ * A subscription is per-DEVICE (keyed by a hash of the push endpoint) and lives
+ * under the family, not the user — so removing someone's role, their profile
+ * mirror and their custom claims leaves their phone still on the family's
+ * notification list. It keeps buzzing with other people's birthdays and, worse,
+ * with the deadline digest, which names passports and residence permits. The
+ * push service never reports an error for it either, because the device is
+ * perfectly happy to receive them; nothing self-heals.
+ *
+ * So this runs on every path out of a family. sendToFamily ALSO filters by
+ * current membership — two independent checks, because the one that leaks here
+ * leaks personal data to somebody who was deliberately removed. */
+async function dropPushSubscriptions(familyId, uid) {
+  try {
+    const snap = await adminDb.collection(`families/${familyId}/pushSubscriptions`).where('uid', '==', uid).get();
+    await Promise.all(snap.docs.map((d) => d.ref.delete().catch(() => {})));
+    if (snap.size) console.info(`[push] removed ${snap.size} subscription(s) for uid=${uid} leaving familyId=${familyId}`);
+  } catch (err) {
+    // Never fail the removal itself over this — a member who cannot be removed
+    // is the worse outcome. The membership filter in sendToFamily still holds.
+    console.error(`[push] could not prune subscriptions for uid=${uid} in ${familyId}:`, err);
+  }
+}
+
 async function removeMemberFromFamilySpace(uid, familyId) {
   const userRef = adminDb.doc(`users/${uid}`);
   await adminDb.runTransaction(async (tx) => {
@@ -3449,6 +3494,7 @@ app.post('/api/leave-family', async (req, res) => {
 
     await adminDb.doc(`families/${familyId}/roles/${caller.uid}`).delete();
     await removeMemberFromFamilySpace(caller.uid, familyId);
+    await dropPushSubscriptions(familyId, caller.uid);
 
     console.log(`[leave-family] ${caller.email} (${caller.uid}) left family ${familyId}.`);
     res.json({ ok: true });
@@ -3818,18 +3864,37 @@ app.post('/api/push/unsubscribe', async (req, res) => {
 // the container runs.
 function viennaMonthDay(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Vienna', month: '2-digit', day: '2-digit',
+    timeZone: 'Europe/Vienna', year: 'numeric', month: '2-digit', day: '2-digit',
   }).formatToParts(now);
+  const year = Number(parts.find((p) => p.type === 'year')?.value);
   const month = Number(parts.find((p) => p.type === 'month')?.value);
   const day = Number(parts.find((p) => p.type === 'day')?.value);
-  return { month, day };
+  return { year, month, day };
 }
 
-// Does a YYYY-MM-DD string fall on the given month/day (ignoring year)?
-function matchesMonthDay(dateStr, month, day) {
+const isLeapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+/* Does a YYYY-MM-DD string fall on the given month/day (ignoring year)?
+ *
+ * 29 FEBRUARY. Three years in four that date does not exist, and a plain
+ * equality check means a child born on it is the one person in the family the
+ * app never wishes a happy birthday — silently, and only visible to whoever
+ * notices they were skipped. The convention is the one OnThisDay.tsx already
+ * uses on the client (occurrenceInYear): in an ordinary year the day collapses
+ * to 28 February, so the notification lands the day before it otherwise would
+ * rather than not at all. Both halves of the app must agree here, or the card
+ * on the home screen and the notification fire on different days.
+ * `year` is the Vienna year — leapness has to be asked of the year the run is
+ * happening in, not the year of birth. */
+function matchesMonthDay(dateStr, month, day, year) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim());
   if (!m) return false;
-  return Number(m[2]) === month && Number(m[3]) === day;
+  const storedMonth = Number(m[2]);
+  const storedDay = Number(m[3]);
+  if (storedMonth === month && storedDay === day) return true;
+  return storedMonth === 2 && storedDay === 29
+    && month === 2 && day === 28
+    && Number.isFinite(year) && !isLeapYear(year);
 }
 
 // Send one notification to every subscription of a family, pruning any that the
@@ -3839,9 +3904,26 @@ async function sendToFamily(familyRef, payloadObj) {
   const subsSnap = await familyRef.collection('pushSubscriptions').get();
   const payload = JSON.stringify(payloadObj);
   let sent = 0;
+
+  /* Who is actually in this family RIGHT NOW. dropPushSubscriptions already
+   * prunes on the way out, so in normal operation this changes nothing — it is
+   * here for the subscription that escapes pruning: a failed delete, a removal
+   * path added later, a doc written before this rule existed. The blast radius
+   * of getting it wrong (another family's medical and travel deadlines pushed
+   * to an ex-member's phone) justifies one extra read per send.
+   * A subscription with no uid at all predates the field and is left alone
+   * rather than silently dropped — better a stale notification than a family
+   * that quietly stops getting any. */
+  const roleIds = new Set((await familyRef.collection('roles').get()).docs.map((d) => d.id));
+
   for (const doc of subsSnap.docs) {
     const s = doc.data();
     if (!s || !s.endpoint || !s.keys) continue;
+    if (s.uid && roleIds.size && !roleIds.has(s.uid)) {
+      console.warn(`[push] dropping subscription ${doc.id}: uid=${s.uid} is no longer a member of ${familyRef.id}`);
+      await doc.ref.delete().catch(() => {});
+      continue;
+    }
     try {
       await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, payload);
       sent += 1;
@@ -3936,7 +4018,12 @@ function tomorrowsEvents(events, today) {
 }
 
 async function runDailyCelebrations() {
-  const { month, day } = viennaMonthDay();
+  const { year, month, day } = viennaMonthDay();
+  // 'MM-DD' — the exact shape a member's stored Namenstag uses (see
+  // utils/nameDay.ts). The server holds no name→day table of its own: a name
+  // day is only ever celebrated once a family has put it on the member, so
+  // there is one dataset, on the client, and nothing here to drift from it.
+  const monthDay = `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   // Midnight UTC of today's Vienna date — the fixed point every deadline is
   // measured from, so a run at 06:00 and a run at 23:00 agree.
   const nowVienna = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
@@ -3957,11 +4044,23 @@ async function runDailyCelebrations() {
     const membersSnap = await familyRef.collection('family_members').get();
     for (const mDoc of membersSnap.docs) {
       const mem = mDoc.data() || {};
-      if (matchesMonthDay(mem.birthdate, month, day)) {
-        const name = String(mem.name || 'Someone in your family').trim();
+      const name = String(mem.name || 'Someone in your family').trim();
+      if (matchesMonthDay(mem.birthdate, month, day, year)) {
         celebrations.push({
+          key: `bday-${mDoc.id}`,
           title: `🎂 It's ${name}'s birthday!`,
           body: `Wish ${name} a happy birthday today.`,
+        });
+      }
+      // Namenstag. Only ever the month-day the family stored on this member —
+      // never derived here. See utils/nameDay.ts for why the suggestion and the
+      // stored fact are kept apart.
+      if (typeof mem.nameDay === 'string' && mem.nameDay === monthDay) {
+        const feast = String(mem.nameDayFeast || '').trim();
+        celebrations.push({
+          key: `nameday-${mDoc.id}`,
+          title: `💐 ${name}'s name day`,
+          body: feast ? `Today is ${feast} — ${name}'s Namenstag.` : `Today is ${name}'s Namenstag.`,
         });
       }
     }
@@ -3969,11 +4068,12 @@ async function runDailyCelebrations() {
     // Business anniversary (business spaces only), from the info/info doc.
     const infoSnap = await familyRef.collection('info').doc('info').get();
     const info = infoSnap.exists ? (infoSnap.data() || {}) : {};
-    if (info.type === 'business' && matchesMonthDay(info.foundingDate, month, day)) {
+    if (info.type === 'business' && matchesMonthDay(info.foundingDate, month, day, year)) {
       const bizName = String(info.name || 'Your business').trim();
       const years = yearsSinceFoundingServer(info.foundingDate);
       const yearPart = years && years > 0 ? ` — ${ordinalServer(years)} year!` : '';
       celebrations.push({
+        key: 'anniversary',
         title: `🎉 ${bizName}'s anniversary`,
         body: `Today marks another year for ${bizName}${yearPart}`,
       });
@@ -3985,7 +4085,13 @@ async function runDailyCelebrations() {
         title: c.title,
         body: c.body,
         url: '/',
-        tag: `celebration-${month}-${day}`,
+        /* The tag must identify THE CELEBRATION, not the date. A shared
+         * `celebration-MM-DD` tag is a replacement key: two people born on the
+         * same day, or a birthday and a name day landing together, produced two
+         * sends and one surviving notification — the second silently overwrote
+         * the first on the phone. Sisters with the same birthday is exactly the
+         * case a family app must not get wrong. */
+        tag: `celebration-${month}-${day}-${c.key}`,
       });
     }
 

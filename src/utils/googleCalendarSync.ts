@@ -66,24 +66,45 @@ export const isGoogleOriginEventId = (id: string): boolean => id.startsWith('gca
  * pushed event coming back in, rather than an imported event going back
  * out).
  */
-export function buildGoogleCalendarEventBody(ev: CalendarEvent) {
-  const startDateTime = ev.time ? `${ev.date}T${ev.time}:00` : `${ev.date}T09:00:00`;
-  const [h, m] = (ev.time || '09:00').split(':').map(Number);
-  const endH = String((h + 1) % 24).padStart(2, '0');
-  const endM = String(m).padStart(2, '0');
-  const endDateTime = `${ev.date}T${endH}:${endM}:00`;
+/** 'YYYY-MM-DD' plus one day, in local calendar terms (Google's all-day `end` is exclusive). */
+function nextDay(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const t = new Date(y, (m || 1) - 1, d || 1);
+  t.setDate(t.getDate() + 1);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
 
-  return {
+export function buildGoogleCalendarEventBody(ev: CalendarEvent) {
+  const base = {
     summary: `[Family Hub] ${ev.title}`,
     description: `${ev.description || ''}\n\nSynced from Family Hub.\nCategory: ${ev.category}`,
-    start: {
-      dateTime: startDateTime,
-      timeZone: 'Europe/Vienna',
-    },
-    end: {
-      dateTime: endDateTime,
-      timeZone: 'Europe/Vienna',
-    },
+  };
+
+  /* NO TIME MEANS ALL DAY. Most of what this app puts on a calendar has no
+   * clock attached — a birthday, a passport expiry, a school holiday, the day
+   * the car inspection is due. Those were being pushed as a 09:00–10:00
+   * appointment, which is not a rounding error: on the phone they stopped
+   * showing in the all-day banner at the top of the day and became a 9am
+   * meeting that looks like somewhere you have to be. Google's shape for a
+   * true all-day event is `date` (not `dateTime`), with an EXCLUSIVE end of
+   * the following day and no timeZone field. */
+  if (!ev.time) {
+    return { ...base, start: { date: ev.date }, end: { date: nextDay(ev.date) } };
+  }
+
+  // A timed event runs an hour. Crossing midnight has to roll the DATE too —
+  // `(h + 1) % 24` on the same date produced an end before its own start for
+  // anything at 23:xx, which Google rejects outright.
+  const [h, m] = ev.time.split(':').map(Number);
+  const endsNextDay = h + 1 >= 24;
+  const endDate = endsNextDay ? nextDay(ev.date) : ev.date;
+  const endH = String((h + 1) % 24).padStart(2, '0');
+  const endM = String(m || 0).padStart(2, '0');
+
+  return {
+    ...base,
+    start: { dateTime: `${ev.date}T${ev.time}:00`, timeZone: 'Europe/Vienna' },
+    end: { dateTime: `${endDate}T${endH}:${endM}:00`, timeZone: 'Europe/Vienna' },
   };
 }
 

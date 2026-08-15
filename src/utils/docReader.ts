@@ -179,7 +179,45 @@ const OCR_PAGE_LIMIT = 20;
  * /api/doc-read call whichever entry point invoked it. Only the entry point
  * differs.
  */
+/* The read is a pipeline across two machines: fetch the file, rasterise the
+ * pages that have no text layer, OCR them on the server, then rank and answer.
+ * Every one of those steps can stall without ever rejecting — a dropped mobile
+ * connection produces a fetch that simply never settles.
+ *
+ * The ceiling lives HERE, not at the call sites. It used to live in the chat's
+ * call site only, so the same pipeline entered from the Document Vault could
+ * spin forever with the question box disabled and no way back except closing
+ * the sheet. A timeout that protects one of two entrances is not a timeout;
+ * putting it inside the shared function is what makes it a property of the
+ * read rather than of whoever remembered to wrap it.
+ *
+ * Three minutes is far longer than a healthy nine-page lease takes (measured:
+ * ~50s server-side, ~2s for a cached OCR probe) and still finite — which is the
+ * whole point. "It took too long" is recoverable; a spinner is not. */
+export const DOC_READ_CLIENT_TIMEOUT_MS = 180_000;
+
 export async function readDocument(
+  doc: DocReaderTarget,
+  question: string,
+  opts: { isBusinessSpace?: boolean; language?: string } = {},
+): Promise<DocReadOutcome> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      readDocumentInner(doc, question, opts),
+      new Promise<DocReadOutcome>((resolve) => {
+        timer = setTimeout(() => resolve({
+          kind: 'error',
+          message: `Reading “${doc.name}” took too long and I stopped waiting. Long scanned documents can take a while — trying again often works.`,
+        }), DOC_READ_CLIENT_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function readDocumentInner(
   doc: DocReaderTarget,
   question: string,
   opts: { isBusinessSpace?: boolean; language?: string } = {},

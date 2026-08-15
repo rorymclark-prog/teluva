@@ -7,6 +7,7 @@ import { soonestCare, careDueLabel } from '../utils/care';
 import { sunSign, elementTint } from '../utils/astrology';
 import { computeBirthChart } from '../utils/birthChart';
 import { isHintSeen, markHintSeen } from '../utils/db';
+import { resolveNameDay, formatNameDay, daysUntilNameDay } from '../utils/nameDay';
 import MemberBelongings from './MemberBelongings';
 
 // Proof of address: an ID-category scan named like a Meldezettel / registration
@@ -53,6 +54,7 @@ export default function MemberOverview({
   onShuffleAstrology,
   astrologyBlurb,
   astrologyCappedToday = false,
+  onSetNameDay,
 }: {
   member: FamilyMember;
   onViewDocument?: (src: string) => void;
@@ -63,6 +65,8 @@ export default function MemberOverview({
   astrologyBlurb?: { text: string; loading: boolean; error: string | null };
   /** True once today's insight has already been generated for these inputs — one per member per local day. */
   astrologyCappedToday?: boolean;
+  /** Store a Namenstag ('MM-DD' + the feast it belongs to). Omitted = read-only viewer, so no "add" offer is drawn. */
+  onSetNameDay?: (date: string, feast?: string) => void;
 }) {
   // First-time discovery nudge for the dice icon — dismissed for good the
   // first time it's actually clicked, per device/space (isHintSeen/db.ts).
@@ -84,6 +88,12 @@ export default function MemberOverview({
 
   const care = soonestCare(member.careSchedule);
   const showCare = care && (care.due.status === 'overdue' || care.due.status === 'due-soon');
+
+  // Namenstag. resolveNameDay returns either the day the family STORED or a
+  // suggestion from the name table — never conflates the two, so the card can
+  // celebrate one and merely offer the other. null for the many names that
+  // have no name day at all, which draws nothing.
+  const nameDay = resolveNameDay(member);
 
   const tiles: { label: string; value: string }[] = [];
   if (age) tiles.push({ label: 'Age', value: age });
@@ -182,6 +192,61 @@ export default function MemberOverview({
         <p className="flex items-center justify-center gap-1.5 text-[12px] text-ink-400">
           <Lock className="w-3.5 h-3.5" /> Medical details on file — open the <b className="text-ink-500 font-semibold">Medical</b> tab to view.
         </p>
+      )}
+
+      {/* Namenstag. Two states, deliberately drawn differently: a day the
+          family CHOSE reads as a fact, a day the calendar merely suggests reads
+          as an offer with the saint named so it can be checked. A member whose
+          name has no name day gets nothing here at all — see utils/nameDay.ts. */}
+      {nameDay?.source === 'stored' && (
+        <div className="card p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-sage-50 flex items-center justify-center text-xl shrink-0" aria-hidden="true">💐</div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">Name day</p>
+            <p className="text-[14px] font-semibold text-ink-800">
+              {formatNameDay(nameDay.date)}
+              {nameDay.feast && <span className="text-ink-400 font-normal"> · {nameDay.feast}</span>}
+            </p>
+            {(() => {
+              const d = daysUntilNameDay(nameDay.date);
+              if (d === null) return null;
+              return <p className="text-[12.5px] text-ink-500">{d === 0 ? 'Today 🎉' : d === 1 ? 'Tomorrow' : `In ${d} days`}</p>;
+            })()}
+          </div>
+        </div>
+      )}
+      {nameDay?.source === 'suggested' && onSetNameDay && (
+        <div className="card p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-cream-100 flex items-center justify-center text-xl shrink-0" aria-hidden="true">💐</div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">Name day</p>
+            <p className="text-[13px] text-ink-600 leading-snug">
+              In the Austrian calendar, <b className="text-ink-800">{nameDay.suggestion.matched}</b> falls on{' '}
+              <b className="text-ink-800">{formatNameDay(nameDay.suggestion.date)}</b> ({nameDay.suggestion.feast}).
+            </p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => onSetNameDay(nameDay.suggestion.date, nameDay.suggestion.feast)}
+                className="px-3 py-1.5 rounded-xl bg-clay-500 text-white text-[12.5px] font-semibold cursor-pointer hover:bg-clay-600"
+              >
+                Keep {formatNameDay(nameDay.suggestion.date)}
+              </button>
+              {/* Several names genuinely have two days and which one a family
+                  keeps is theirs to say, so the alternative is offered as an
+                  equal choice rather than hidden behind an edit screen. */}
+              {nameDay.suggestion.alsoOn && (
+                <button
+                  type="button"
+                  onClick={() => onSetNameDay(nameDay.suggestion.alsoOn!.date, nameDay.suggestion.alsoOn!.feast)}
+                  className="px-3 py-1.5 rounded-xl bg-cream-200 text-ink-700 text-[12.5px] font-semibold cursor-pointer hover:bg-cream-300"
+                >
+                  Or {formatNameDay(nameDay.suggestion.alsoOn.date)} ({nameDay.suggestion.alsoOn.feast})
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {zodiac && (

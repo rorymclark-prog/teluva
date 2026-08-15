@@ -468,16 +468,34 @@ export function parseIcs(
 // ---------------------------------------------------------------------------
 
 /** Fold a content line at 75 octets, as the spec requires. */
+/* RFC 5545 folds at 75 OCTETS, not 75 JavaScript characters — and the two are
+ * different for exactly the text a family calendar is full of. A German umlaut
+ * is two bytes; an emoji is four bytes AND two JS characters, so slicing by
+ * index can cut a surrogate pair in half and produce a lone surrogate that no
+ * calendar can decode. "🎂 Shyam's Birthday" is the ordinary case here, not a
+ * contrived one — this app writes that title itself.
+ *
+ * Identical implementation to server/calendarPublish.mjs's foldLine (the
+ * subscribable feed), so a title exported to a file and the same title served
+ * over the feed fold the same way. */
+const utf8Len = (s: string): number => new TextEncoder().encode(s).length;
+
 function foldLine(line: string): string {
-  if (line.length <= 75) return line;
-  const out: string[] = [line.slice(0, 75)];
-  let rest = line.slice(75);
-  while (rest.length > 74) {
-    out.push(' ' + rest.slice(0, 74));
-    rest = rest.slice(74);
+  if (utf8Len(line) <= 75) return line;
+  const out: string[] = [];
+  let current = '';
+  let limit = 75;                       // first line 75, continuations 74 (leading space)
+  for (const ch of line) {              // iterates code points, never half a pair
+    if (utf8Len(current) + utf8Len(ch) > limit) {
+      out.push(current);
+      current = ch;
+      limit = 74;
+    } else {
+      current += ch;
+    }
   }
-  if (rest) out.push(' ' + rest);
-  return out.join('\r\n');
+  if (current) out.push(current);
+  return out.map((seg, i) => (i === 0 ? seg : ' ' + seg)).join('\r\n');
 }
 
 const stamp = (d: Date) =>

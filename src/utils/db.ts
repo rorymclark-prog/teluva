@@ -578,11 +578,21 @@ export type SharedDocName = keyof typeof SHARED_DOCS;
  * Returns an unsubscribe function. Safe to call when signed out (no-op).
  */
 // Currently unused (no call sites) — infrastructure for a future live view.
-// GOTCHA for whoever wires this up for 'household' or 'finances': those two
-// docs have encrypted fields (see saveReferenceDoc/loadReferenceDoc), and
-// this function hands `cb` the RAW snapshot with no decrypt step. A live
-// subscriber for either of those needs to run the value through
-// revealHousehold/revealFinances (vaultFields.ts) itself before using it.
+/* Live subscription to a shared reference doc.
+ *
+ * DECRYPTS HERE. 'household' and 'finances' carry app-layer-encrypted fields
+ * (door code, wifi password, IBANs — see saveReferenceDoc/loadReferenceDoc),
+ * and this function used to hand the caller the raw Firestore snapshot with a
+ * comment telling each subscriber to decrypt it themselves. Both subscribers
+ * were written without doing that, which is what a warning comment buys you:
+ * loadHousehold() painted the real door code, then the first remote write from
+ * another device replaced it, live and in front of the user, with
+ * `enc:2:…` — and any Save from that screen would then have written the
+ * ciphertext BACK as if it were the plaintext value, encrypting it twice.
+ *
+ * So the decrypt is part of the subscription now and cannot be forgotten. The
+ * sequence guard matters because decryption is async: snapshots can resolve out
+ * of order, and applying a stale one would silently revert a newer edit. */
 export function subscribeReferenceDoc<T>(
   name: SharedDocName,
   cb: (value: T | null, commit: () => void) => void,
@@ -591,18 +601,46 @@ export function subscribeReferenceDoc<T>(
   const { key, localKey } = SHARED_DOCS[name];
   const scopedKey = `${localKey}_${FAMILY_ID}`;
   const docRef = doc(db, 'families', FAMILY_ID, 'reference', key);
-  return onSnapshot(
+
+  const decrypt = async (value: any): Promise<any> => {
+    if (value === null) return null;
+    if (name === 'household') return (await revealHousehold(value, revealSharedSecrets)) ?? value;
+    if (name === 'finances') return (await revealFinances(value, revealSharedSecrets)) ?? value;
+    return value;
+  };
+
+  let seq = 0;
+  let applied = 0;
+  let stopped = false;
+
+  const unsubscribe = onSnapshot(
     docRef,
     (snap) => {
-      const value = snap.exists() ? (snap.data() as T) : null;
-      cb(value, () => {
-        if (value === null) return;
-        noteSeen(key, value);
-        try { localStorage.setItem(scopedKey, JSON.stringify(value)); } catch { /* quota */ }
+      const mine = ++seq;
+      const raw = snap.exists() ? (snap.data() as T) : null;
+      void decrypt(raw).then((value) => {
+        // A slower earlier snapshot must never overwrite a newer one, and
+        // nothing is applied after the caller unsubscribed.
+        if (stopped || mine <= applied) return;
+        applied = mine;
+        cb(value as T | null, () => {
+          if (value === null) return;
+          noteSeen(key, value);
+          // The cache holds the DECRYPTED value, matching what loadHousehold /
+          // loadFinances write there — one shape in that key, not two.
+          try { localStorage.setItem(scopedKey, JSON.stringify(value)); } catch { /* quota */ }
+        });
+      }).catch((err) => {
+        // Decryption failing (offline, key rotation) must not blank the screen:
+        // keep whatever the view already had rather than showing ciphertext or
+        // nothing at all.
+        console.error(`Could not decrypt live update for ${key}:`, err);
       });
     },
     (error) => console.error(`Live updates for ${key} stopped:`, error),
   );
+
+  return () => { stopped = true; unsubscribe(); };
 }
 
 // Every save below takes an OPTIONAL `base` — the exact value the caller's

@@ -24,7 +24,7 @@ import type { AiEdit } from '../components/AIChatbot';
 
 // Which store a created record lives in — drives how handleUndoAiEdits reverses it.
 export type UndoDomain =
-  | 'member' | 'memberNested' | 'transitPass' | 'serviceRecord'
+  | 'member' | 'memberNested' | 'transitPass' | 'vaccination' | 'visa' | 'serviceRecord'
   | 'contact' | 'number' | 'provider'
   | 'calendar' | 'vehicle' | 'pet' | 'utility'
   | 'bank' | 'insurance' | 'benefit'
@@ -92,6 +92,19 @@ export function diffMemberUndo(before: FamilyMember[], after: FamilyMember[]): U
     }
     for (const rec of diffNewIds(prev.travel?.transitPasses, m.travel?.transitPasses)) {
       out.push({ domain: 'transitPass', id: rec.id, memberId: m.id, label: `${(m.nickname || m.name || '').trim()}: ${(rec as any).name || 'travel pass'}` });
+    }
+    // Vaccinations and visas were the two nested collections v145-v148 made
+    // filable and deletable by the assistant (see MEMBER_ARRAY in
+    // aiDestructive.ts) without ever being added HERE — so "Apply" recorded no
+    // undo entry for either, and a card that says "Undo this" quietly did
+    // nothing for the record it names. Same shape as the transitPass block
+    // above, because the bug was that this block was never extended to match it.
+    const who = (m.nickname || m.name || '').trim();
+    for (const rec of diffNewIds(prev.medical?.vaccinations, m.medical?.vaccinations)) {
+      out.push({ domain: 'vaccination', id: rec.id, memberId: m.id, label: `${who}: ${(rec as any).name || 'vaccination'}` });
+    }
+    for (const rec of diffNewIds(prev.travel?.visas, m.travel?.visas)) {
+      out.push({ domain: 'visa', id: rec.id, memberId: m.id, label: `${who}: ${(rec as any).country ? `${(rec as any).country} visa` : 'visa'}` });
     }
   }
   return out;

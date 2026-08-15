@@ -1266,7 +1266,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     const idsFor = (...ds: UndoDomain[]) => new Set(records.filter(r => ds.includes(r.domain)).map(r => r.id));
 
     // --- Members: whole new profiles + nested records + transit passes ---
-    if (records.some(r => r.domain === 'member' || r.domain === 'memberNested' || r.domain === 'transitPass')) {
+    if (records.some(r => r.domain === 'member' || r.domain === 'memberNested' || r.domain === 'transitPass' || r.domain === 'vaccination' || r.domain === 'visa')) {
       const removeMemberIds = idsFor('member');
       const beforeIds = new Set(membersRef.current.map(m => m.id));
       for (const id of removeMemberIds) { if (beforeIds.has(id)) undone++; else missing++; }
@@ -1282,6 +1282,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           } else if (r.domain === 'transitPass') {
             const arr = mm.travel?.transitPasses;
             if (arr?.some(x => x.id === r.id)) { mm = { ...mm, travel: { ...mm.travel, transitPasses: arr.filter(x => x.id !== r.id) } }; undone++; }
+            else missing++;
+          } else if (r.domain === 'vaccination') {
+            const arr = mm.medical?.vaccinations;
+            if (arr?.some(x => x.id === r.id)) { mm = { ...mm, medical: { ...mm.medical, vaccinations: arr.filter(x => x.id !== r.id) } }; undone++; }
+            else missing++;
+          } else if (r.domain === 'visa') {
+            const arr = mm.travel?.visas;
+            if (arr?.some(x => x.id === r.id)) { mm = { ...mm, travel: { ...mm.travel, visas: arr.filter(x => x.id !== r.id) } }; undone++; }
             else missing++;
           }
         }
@@ -2506,6 +2514,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                   onShuffleAstrology={isAdmin ? () => (canUseAI ? shuffleAstrology(selectedMember.id) : setConsentOpen(true)) : undefined}
                                   astrologyBlurb={astroBlurb[selectedMember.id]}
                                   astrologyCappedToday={astrologyCappedToday}
+                                  onSetNameDay={!demo && canWrite ? (date, feast) => {
+                                    void persistChanges(membersRef.current.map(m => (
+                                      m.id === selectedMember.id ? { ...m, nameDay: date, nameDayFeast: feast } : m
+                                    )));
+                                  } : undefined}
                                 />
                               )}
                               {/* `events` is the shared family calendar. Both of these

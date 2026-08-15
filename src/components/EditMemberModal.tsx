@@ -10,6 +10,7 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import { BUSINESS_ROLE_PRESETS } from '../utils/businessRoles';
 import SheetGrabber from './SheetGrabber';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { suggestNameDay, isValidNameDay, formatNameDay } from '../utils/nameDay';
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -42,6 +43,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [role, setRole] = useState<MemberRole>('Child');
   const [customRole, setCustomRole] = useState('');
   const [birthdate, setBirthdate] = useState('');
+  const [nameDay, setNameDay] = useState('');       // 'MM-DD', free text while typing
+  const [nameDayFeast, setNameDayFeast] = useState('');
   const [birthTime, setBirthTime] = useState('');
   const [placeOfBirth, setPlaceOfBirth] = useState('');
   const [nationality, setNationality] = useState('');
@@ -105,6 +108,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
         setRole(member.role);
       }
       setBirthdate(member.birthdate || '');
+      setNameDay(member.nameDay || '');
+      setNameDayFeast(member.nameDayFeast || '');
       setBirthTime(member.birthTime || '');
       setPlaceOfBirth(member.placeOfBirth || '');
       setNationality(member.nationality || '');
@@ -274,6 +279,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const handleSaveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !member) return;
+    if (nameDay && !isValidNameDay(nameDay)) return; // inline error is already visible; don't save garbage
 
     let finalAvatarUrl: string | undefined = undefined;
     if (avatarMode === 'current' || avatarMode === 'upload') {
@@ -288,6 +294,11 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       nickname: nickname.trim() || undefined,
       role: finalRole,
       birthdate: birthdate || undefined,
+      // A hand-typed date that no longer matches the suggestion it was picked
+      // from doesn't carry that suggestion's feast label — better a blank
+      // second line than a saint's day attached to the wrong date.
+      nameDay: nameDay || undefined,
+      nameDayFeast: nameDay && nameDay === member.nameDay ? member.nameDayFeast : (nameDayFeast || undefined),
       birthTime: birthTime || undefined,
       placeOfBirth: placeOfBirth.trim() || undefined,
       nationality: nationality.trim() || undefined,
@@ -420,6 +431,43 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                   />
                 </div>
               </div>
+
+              {/* Namenstag — family-only, like the Child role above. A business
+                  space is a team, not a household; nobody expects a colleague's
+                  saint's day to be tracked here. Free text rather than a picker:
+                  most families type "19.03" or "March 19" faster than they'd
+                  find it in a date control, and the parse only needs month+day. */}
+              {!isBusinessSpace && (
+                <div className="grid grid-cols-2 gap-4 items-end">
+                  <div>
+                    <label className="field-label">Name day (Namenstag)</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="MM-DD, e.g. 03-19"
+                      value={nameDay}
+                      onChange={(e) => { setNameDay(e.target.value.trim()); setNameDayFeast(''); }}
+                      className="field"
+                    />
+                  </div>
+                  {(() => {
+                    const suggestion = suggestNameDay(name, nickname);
+                    if (!suggestion || nameDay === suggestion.date) return <div />;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => { setNameDay(suggestion.date); setNameDayFeast(suggestion.feast); }}
+                        className="text-[12.5px] font-semibold text-clay-600 hover:text-clay-700 cursor-pointer pb-2.5 text-left"
+                      >
+                        Use {formatNameDay(suggestion.date)} ({suggestion.feast})
+                      </button>
+                    );
+                  })()}
+                  {nameDay && !isValidNameDay(nameDay) && (
+                    <p className="text-[12px] text-rosa-600 -mt-2 col-span-2">Use MM-DD, e.g. 03-19 for 19 March.</p>
+                  )}
+                </div>
+              )}
 
               {isBusinessSpace && role === 'Custom' && (
                 <input
