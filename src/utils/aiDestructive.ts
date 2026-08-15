@@ -77,11 +77,21 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   visa: { country: 'country', number: 'number', expiryDate: 'expiryDate', expiry: 'expiryDate', permitType: 'permitType', issuingAuthority: 'issuingAuthority', sponsor: 'sponsor', conditions: 'conditions', status: 'status', notes: 'notes' },
   // A referral's STATUS is the field that actually changes over time — open ->
   // booked -> done — so "mark that X-ray as done" is the whole point of this row.
-  referral: { kind: 'kind', date: 'date', reason: 'reason', status: 'status', appointmentDate: 'appointmentDate', providerName: 'providerName', notes: 'notes' },
+  // The referralKind/referralDate/referralReason/referralProvider aliases exist
+  // because that is the EXACT vocabulary the system prompt teaches the model to
+  // use when FILING a referral (see server.js's document-edit instructions) —
+  // an update_record for the same record could easily reuse it, and without the
+  // alias buildPatch's allowlist would silently drop it (found 2026-08-15,
+  // chat-function audit).
+  referral: { kind: 'kind', referralKind: 'kind', date: 'date', referralDate: 'date', reason: 'reason', referralReason: 'reason', status: 'status', appointmentDate: 'appointmentDate', providerName: 'providerName', referralProvider: 'providerName', notes: 'notes' },
   contact: { name: 'name', relation: 'relation', phone: 'phone', email: 'email', birthdate: 'birthdate', note: 'note' },
   provider: { name: 'name', type: 'type', specialty: 'specialty', practiceName: 'practiceName', phone: 'phone', afterHoursPhone: 'afterHoursPhone', email: 'email', address: 'address', forMember: 'forMember', note: 'note' },
   number: { label: 'label', value: 'value', note: 'note' },
-  vehicle: { name: 'name', make: 'make', model: 'model', year: 'year', registration: 'registration', vin: 'vin', fuelType: 'fuelType', assignedMember: 'assignedMember', insurer: 'insurer', insuranceNumber: 'insuranceNumber', insuranceRenewal: 'insuranceRenewal', inspectionExpiry: 'inspectionExpiry', vignetteExpiry: 'vignetteExpiry', lastService: 'lastService', parkingPermit: 'parkingPermit', parkingPermitExpiry: 'parkingPermitExpiry', notes: 'notes' },
+  // serviceIntervalMonths is a real Vehicle field (types.ts) the create prompt
+  // (server.js list_add) already teaches the model to set — it was missing
+  // here, so "change the service interval to 12 months" on an existing vehicle
+  // silently changed nothing (found 2026-08-15, chat-function audit).
+  vehicle: { name: 'name', make: 'make', model: 'model', year: 'year', registration: 'registration', vin: 'vin', fuelType: 'fuelType', assignedMember: 'assignedMember', insurer: 'insurer', insuranceNumber: 'insuranceNumber', insuranceRenewal: 'insuranceRenewal', inspectionExpiry: 'inspectionExpiry', vignetteExpiry: 'vignetteExpiry', lastService: 'lastService', serviceIntervalMonths: 'serviceIntervalMonths', parkingPermit: 'parkingPermit', parkingPermitExpiry: 'parkingPermitExpiry', notes: 'notes' },
   pet: { name: 'name', species: 'species', vet: 'vet', vaccinations: 'vaccinations', microchip: 'microchip', notes: 'notes' },
   utility: { type: 'type', provider: 'provider', accountNumber: 'accountNumber', notes: 'notes' },
   bank: { bankName: 'bankName', accountHolder: 'accountHolder', iban: 'iban', bic: 'bic', notes: 'notes' },
@@ -93,6 +103,10 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   asset: { name: 'name', category: 'category', assignedMember: 'assignedMember', make: 'make', model: 'model', serialNumber: 'serialNumber', purchaseDate: 'purchaseDate', purchasePrice: 'purchasePrice', notes: 'notes' },
 };
 
+// The numeric fields a record here carries — everything else in UPDATE_FIELDS
+// is a string, so this is a short exception list rather than a type lookup.
+const NUMERIC_FIELDS = new Set(['intervalMonths', 'serviceIntervalMonths']);
+
 // Build the (whitelisted, key-renamed) patch object for an update_record edit.
 function buildPatch(targetKind: string, fields?: Record<string, string>): Record<string, any> {
   const allow = UPDATE_FIELDS[targetKind] || {};
@@ -100,8 +114,7 @@ function buildPatch(targetKind: string, fields?: Record<string, string>): Record
   for (const [k, v] of Object.entries(fields || {})) {
     const key = allow[k];
     if (!key) continue;
-    // intervalMonths is the one numeric field a record here carries.
-    patch[key] = key === 'intervalMonths' ? Number(v) : v;
+    patch[key] = NUMERIC_FIELDS.has(key) ? Number(v) : v;
   }
   return patch;
 }
@@ -137,6 +150,14 @@ function recordPhrase(targetKind: string, r: any): string {
     case 'document': return `document “${r.name || ''}”`;
     case 'slip': return `slip ${r.item || ''}${r.shop ? ' from ' + r.shop : ''}`.trim();
     case 'asset': return `${r.name || 'item'}${(r.make || r.model) ? ' (' + [r.make, r.model].filter(Boolean).join(' ') + ')' : ''}`.trim();
+    // These three were the v145-v148 additions to MEMBER_ARRAY above and never
+    // got a matching case here — they fell through to the generic prettyKind
+    // ("visa", "vaccination", "referral"), so a confirm-before-destroy label
+    // couldn't distinguish WHICH one was about to be deleted or changed, the
+    // one thing this label exists to do (found 2026-08-15, chat-function audit).
+    case 'visa': return `${r.country || ''} visa${r.number ? ' ' + r.number : ''}`.trim() || 'visa';
+    case 'vaccination': return `vaccination${r.name ? ` “${r.name}”` : ''}`.trim();
+    case 'referral': return `${r.kind || 'referral'}${r.reason ? ' — ' + r.reason : ''}${r.date ? ' (' + r.date + ')' : ''}`.trim();
     default: return prettyKind(targetKind);
   }
 }
@@ -265,19 +286,30 @@ export async function applyDestructiveEdits(edits: AiEdit[], ctxMembers: FamilyM
   for (const e of [...dels, ...upds]) {
     if (!(e.targetKind in MEMBER_ARRAY)) continue;
     const cfg = MEMBER_ARRAY[e.targetKind];
-    let hit = false;
+    // `found` (the record exists) and `changed` (something in it actually
+    // moved) are tracked separately — every other store below (2 onward)
+    // already does this. Collapsing them into one `hit` flag was the bug:
+    // an update_record whose fields were all unrecognized (buildPatch
+    // returns {}) still set `hit` as soon as the record was FOUND, so it was
+    // marked dirty and silently skipped no skipNote at all — the card came
+    // back "Applied ✓" having changed nothing, with no clue why (found
+    // 2026-08-15, chat-function audit; same root cause behind the
+    // recordPhrase gap above).
+    let found = false;
+    let changed = false;
     workingMembers = workingMembers.map((m: any) => {
-      if (hit) return m;
+      if (found) return m;
       const arr = cfg.get(m);
       const idx = arr.findIndex((r: any) => r.id === e.id);
       if (idx < 0) return m;
-      hit = true;
-      if (e.kind === 'delete_record') return cfg.set(m, arr.filter((r: any) => r.id !== e.id));
+      found = true;
+      if (e.kind === 'delete_record') { changed = true; return cfg.set(m, arr.filter((r: any) => r.id !== e.id)); }
       const patch = buildPatch(e.targetKind, e.fields);
       if (!Object.keys(patch).length) return m; // nothing valid to change
+      changed = true;
       return cfg.set(m, arr.map((r: any) => (r.id === e.id ? { ...r, ...patch } : r)));
     });
-    if (hit) membersDirty = true; else skipNote(e);
+    if (changed) membersDirty = true; else skipNote(e);
   }
 
   // 2) Documents — delete only, routed through deleteDocumentEverywhere so the

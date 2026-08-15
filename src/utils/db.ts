@@ -2,10 +2,11 @@ import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, F
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { mergeShared, mergeIdList } from './mergeShared';
+import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
 import { markDirty, clearDirty, isDirty } from './pendingSync';
 import {
   protectIdentity, revealIdentity, protectPassports, revealPassports,
+  protectVisas, revealVisas,
   protectHousehold, revealHousehold, protectFinances, revealFinances,
 } from './vaultFields';
 
@@ -14,6 +15,11 @@ import {
 // never collide with a document called 'members'.
 const MEMBER_IDS_KEY = 'metadata:members';
 const EVENT_IDS_KEY = 'metadata:events';
+
+// Per-member merge-base key — same lastSeen/noteSeen mechanism the reference
+// docs use below (getSeen/noteSeen), just namespaced under 'member:' so it
+// can never collide with MEMBER_IDS_KEY or a reference doc called 'members'.
+const memberSeenKey = (id: string) => `member:${id}`;
 
 // One shared vault for the whole household. Every authorised family account
 // (see firestore.rules) reads and writes this same path, so Mama, Papa and the
@@ -75,46 +81,111 @@ export const markHintSeen = (hint: string): void => {
 
 // Returns true when the data reached Firestore, false when it only landed in
 // localStorage — callers surface that so silent sync failures are impossible.
+//
+// Each member document is a real three-way merge (mergeShared) against the
+// server's current copy, not a blind {merge:true} overwrite. It used to not
+// be: this comment used to claim "one document each, written with
+// {merge:true}, so two people editing two different members never collide" —
+// that was false, because EVERY save writes EVERY member's document, not
+// just the one the user actually touched. A device that loaded once this
+// morning and is still open this afternoon would, on its next unrelated save
+// (editing anyone, adding a document, an AI chat edit, an Undo), silently
+// rewrite every OTHER member's document from its now-stale in-memory copy —
+// reverting scalar fields another device had since changed, and replacing
+// array fields (documents, passports, visas, vaccinations, referrals…)
+// wholesale, because {merge:true} does not deep-merge arrays. Confirmed live
+// in the 2026-08-15 chat-function audit: a parent scanning a child's second
+// passport on one device could have it silently erased by an unrelated save
+// from the other parent's stale device minutes later.
+//
+// The fix mirrors saveReferenceDoc below exactly: read each member's CURRENT
+// server copy inside the transaction, diff the writer's value against the
+// base it was actually built from (mergeShared's base/local/server
+// three-way), and write only the merged result — so a member this device
+// never touched comes back out unchanged (server wins), and a member both
+// devices touched merges field-by-field instead of one write clobbering the
+// other. As with vaultFields.ts's CALLER RESPONSIBILITY note: reveal happens
+// BEFORE the diff, protect AFTER — or the diff sees ciphertext and treats
+// every untouched field as a fresh edit. The INDEX merge below (mergeIdList)
+// is unchanged — it was already correct, this only closes the per-document gap.
+
+// Every place a member document crosses the Firestore boundary needs the
+// same encrypt/decrypt fields touched — identity numbers, passport numbers,
+// and visa/permit numbers (nested under travel.visas, not a top-level array
+// like passports — easy to miss, which is exactly how it shipped unencrypted
+// until the 2026-08-15 chat-function audit). One pair of helpers so the three
+// call sites below (reveal-for-merge, protect-for-write, reveal-on-load)
+// can't drift out of sync with each other.
+async function revealMemberSensitive(raw: FamilyMember): Promise<FamilyMember> {
+  return {
+    ...raw,
+    identity: await revealIdentity(raw.identity, revealSharedSecrets),
+    passports: await revealPassports(raw.passports, revealSharedSecrets),
+    travel: raw.travel
+      ? { ...raw.travel, visas: await revealVisas(raw.travel.visas, revealSharedSecrets) }
+      : raw.travel,
+  };
+}
+
+async function protectMemberSensitive(merged: FamilyMember): Promise<FamilyMember> {
+  return {
+    ...merged,
+    identity: await protectIdentity(merged.identity, protectSecrets),
+    passports: await protectPassports(merged.passports, protectSecrets),
+    travel: merged.travel
+      ? { ...merged.travel, visas: await protectVisas(merged.travel.visas, protectSecrets) }
+      : merged.travel,
+  };
+}
+
 export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolean> {
   const user = auth.currentUser;
   let cloudOk = false;
 
   if (user) {
     try {
-      // The per-member documents are already safe — one document each, written
-      // with {merge:true}, so two people editing two different members never
-      // collide. The INDEX was not: `{ids: [...]}` was written as a whole array,
-      // so a stale device could drop a member somebody else had just added. The
-      // member's document survived, but nothing listed it, so it vanished from
-      // every screen. Merge the index the same way the reference docs are
-      // merged, inside a transaction so read-merge-write is atomic.
-      // Encrypt ID numbers/passport numbers before they leave the browser.
-      // Firestore writes a full document per member with {merge:true} — no
-      // three-way diff involved for this collection (unlike the reference
-      // docs below), so there is no plaintext-vs-ciphertext comparison risk
-      // here: it is safe to protect right before the write. Fired
-      // concurrently, not one member after another.
-      const protectedMembers = await Promise.all(members.map(async (m) => ({
-        ...m,
-        identity: await protectIdentity(m.identity, protectSecrets),
-        passports: await protectPassports(m.passports, protectSecrets),
-      })));
-
       const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'members');
       const localIds = members.map(m => m.id).filter(Boolean);
-      const mergedIds = await runTransaction(db, async (tx) => {
-        const metaSnap = await tx.get(metaRef);                 // reads must precede writes
+      const targets = members.filter(m => m.id);
+      const memberRefs = targets.map(m => doc(db, 'families', FAMILY_ID, 'family_members', m.id));
+
+      const { mergedIds, mergedMembers } = await runTransaction(db, async (tx) => {
+        // ALL reads before ANY write — the metadata index and every member
+        // doc being touched, read together up front.
+        const metaSnap = await tx.get(metaRef);
+        const memberSnaps = await Promise.all(memberRefs.map(r => tx.get(r)));
+
         const serverIds = (metaSnap.exists() ? (metaSnap.data().ids as string[]) : undefined) || [];
         const ids = mergeIdList(getSeen<string[]>(MEMBER_IDS_KEY), localIds, serverIds);
 
-        for (const member of protectedMembers) {
-          if (!member.id) continue;
-          tx.set(doc(db, 'families', FAMILY_ID, 'family_members', member.id), member as any, { merge: true });
-        }
+        // Decrypt every server copy up front (concurrently, not one member
+        // after another — same concurrency style the old encrypt-before-write
+        // here used to have).
+        const servers = await Promise.all(memberSnaps.map(async (snap) => {
+          if (!snap.exists()) return undefined;
+          return revealMemberSensitive(snap.data() as FamilyMember);
+        }));
+
+        const mergedMembers = targets.map((local, i) =>
+          mergeShared<FamilyMember>(getSeen<FamilyMember>(memberSeenKey(local.id)), local, servers[i]));
+
+        // Only re-encrypt + write docs that actually changed vs. the server's
+        // (decrypted) copy — a member nobody touched costs nothing here.
+        const toWrite = mergedMembers
+          .map((merged, i) => ({ merged, ref: memberRefs[i], server: servers[i] }))
+          .filter(({ merged, server }) => server === undefined || !deepEqual(merged, server));
+        const protectedWrites = await Promise.all(toWrite.map(async ({ merged, ref }) => ({
+          ref,
+          value: await protectMemberSensitive(merged),
+        })));
+        for (const { ref, value } of protectedWrites) tx.set(ref, value as any);
+
         tx.set(metaRef, { ids });
-        return ids;
+        return { mergedIds: ids, mergedMembers };
       });
+
       noteSeen(MEMBER_IDS_KEY, mergedIds);
+      for (const m of mergedMembers) noteSeen(memberSeenKey(m.id), m);
       cloudOk = true;
     } catch (error) {
       console.error('Error saving to Firestore:', error);
@@ -192,15 +263,16 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
         const snaps = await Promise.all(membersReqs);
         const rawMembers = snaps.map(s => s.data() as FamilyMember).filter(Boolean);
 
-        // Decrypt ID numbers/passport numbers. revealIdentity/revealPassports
-        // use a local ciphertext cache internally, so a value seen once stays
-        // readable offline (see vaultFields.ts) — this is what keeps a screen
-        // like Emergency essentials usable without signal after first sync.
-        const members = await Promise.all(rawMembers.map(async (m) => ({
-          ...m,
-          identity: await revealIdentity(m.identity, revealSharedSecrets),
-          passports: await revealPassports(m.passports, revealSharedSecrets),
-        })));
+        // Decrypt ID numbers/passport/visa numbers (see revealMemberSensitive
+        // above). The underlying reveal* calls use a local ciphertext cache
+        // internally, so a value seen once stays readable offline (see
+        // vaultFields.ts) — this is what keeps a screen like Emergency
+        // essentials usable without signal after first sync.
+        const members = await Promise.all(rawMembers.map(revealMemberSensitive));
+
+        // Merge base for the next per-member write (see saveFamilyMembers) —
+        // this load IS what this device's screen is about to be built from.
+        for (const m of members) noteSeen(memberSeenKey(m.id), m);
 
         // Cache locally (plaintext — this is what the rest of the app reads)
         localStorage.setItem(membersKey(), JSON.stringify(members));
@@ -242,28 +314,46 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
   return null;
 }
 
+// Same per-document merge as saveFamilyMembers above — see the note there for
+// why a blind {merge:true} whole-array write was unsafe here too (Dashboard's
+// applyCalendarEdits builds `events` from React state loaded once at mount,
+// with no live listener). No encrypted fields on CalendarEvent, so this is
+// the same shape without the reveal/protect wrapper.
+const eventSeenKey = (id: string) => `event:${id}`;
+
 export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boolean> {
   const user = auth.currentUser;
   let cloudOk = false;
 
   if (user) {
     try {
-      // Same index merge as saveFamilyMembers above — see the note there.
       const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'events');
       const localIds = events.map(e => e.id).filter(Boolean);
-      const mergedIds = await runTransaction(db, async (tx) => {
+      const targets = events.filter(e => e.id);
+      const eventRefs = targets.map(e => doc(db, 'families', FAMILY_ID, 'calendar_events', e.id));
+
+      const { mergedIds, mergedEvents } = await runTransaction(db, async (tx) => {
         const metaSnap = await tx.get(metaRef);
+        const eventSnaps = await Promise.all(eventRefs.map(r => tx.get(r)));
+
         const serverIds = (metaSnap.exists() ? (metaSnap.data().ids as string[]) : undefined) || [];
         const ids = mergeIdList(getSeen<string[]>(EVENT_IDS_KEY), localIds, serverIds);
 
-        for (const event of events) {
-          if (!event.id) continue;
-          tx.set(doc(db, 'families', FAMILY_ID, 'calendar_events', event.id), event as any, { merge: true });
-        }
+        const servers = eventSnaps.map(snap => (snap.exists() ? (snap.data() as CalendarEvent) : undefined));
+        const mergedEvents = targets.map((local, i) =>
+          mergeShared<CalendarEvent>(getSeen<CalendarEvent>(eventSeenKey(local.id)), local, servers[i]));
+
+        mergedEvents.forEach((merged, i) => {
+          const server = servers[i];
+          if (server !== undefined && deepEqual(merged, server)) return; // untouched — nothing to write
+          tx.set(eventRefs[i], merged as any);
+        });
+
         tx.set(metaRef, { ids });
-        return ids;
+        return { mergedIds: ids, mergedEvents };
       });
       noteSeen(EVENT_IDS_KEY, mergedIds);
+      for (const e of mergedEvents) noteSeen(eventSeenKey(e.id), e);
       cloudOk = true;
     } catch (error) {
       console.error('Error saving to Firestore:', error);
@@ -311,6 +401,9 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
         const eventReqs = ids.map(id => getDoc(doc(db, 'families', FAMILY_ID, 'calendar_events', id)));
         const snaps = await Promise.all(eventReqs);
         const events = snaps.map(s => s.data() as CalendarEvent).filter(Boolean);
+
+        // Merge base for the next per-event write (see saveCalendarEvents).
+        for (const e of events) noteSeen(eventSeenKey(e.id), e);
 
         localStorage.setItem(calendarKey(), JSON.stringify(events));
         return events.length > 0 ? events : null;
@@ -577,7 +670,9 @@ export type SharedDocName = keyof typeof SHARED_DOCS;
  *
  * Returns an unsubscribe function. Safe to call when signed out (no-op).
  */
-// Currently unused (no call sites) — infrastructure for a future live view.
+// Used via hooks/useSharedDoc.ts, mounted for the lifetime of ~13 views
+// (VehiclesView, FinancesView, ImportantInfo, etc.) — NOT the family_members
+// collection, which has no equivalent subscription (see saveFamilyMembers).
 /* Live subscription to a shared reference doc.
  *
  * DECRYPTS HERE. 'household' and 'finances' carry app-layer-encrypted fields

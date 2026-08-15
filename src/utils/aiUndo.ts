@@ -149,8 +149,21 @@ export function diffFinancesUndo(before: FinancesInfo, after: FinancesInfo): Und
 // Field-set edits mutate existing records in place, so they cannot be reversed
 // by deleting a created id. Count them so the Undo affordance can say plainly
 // that these particular changes remain (e.g. "Sophie's shoe size stays set").
+//
+// delete_record and update_record belong in this same bucket and were missing
+// (found 2026-08-15, chat-function audit, independently twice): they never
+// went through diffMemberUndo/mapNewIds above — applyDestructiveEdits runs
+// them separately and produces no UndoRecord at all — so a delete or an
+// in-place field update riding in the same batch as reversible creates was
+// silently excluded from BOTH the manifest AND this count. The Undo button's
+// own summary then reported only what it undid and said nothing about the
+// deleted/updated record still standing — worse than the wording being merely
+// imprecise, it was invisible.
 export function countIrreversibleEdits(edits: AiEdit[]): number {
-  return edits.filter((e) => e.kind === 'member' || e.kind === 'household_set' || e.kind === 'cv').length;
+  return edits.filter((e) =>
+    e.kind === 'member' || e.kind === 'household_set' || e.kind === 'cv'
+    || e.kind === 'delete_record' || e.kind === 'update_record',
+  ).length;
 }
 
 // --- Where-it-landed (task A) -----------------------------------------------
@@ -195,6 +208,27 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
     case 'cv': return `${who(e.member)}'s profile · CV`;
     case 'estate_record': return 'Wills & estate';
     case 'service_record': return 'Household · vehicle service history';
+    // delete_record/update_record don't carry a `member` name — the person
+    // (if any) is already named inside `e.label`, built by
+    // annotateDestructiveEdits in aiDestructive.ts (e.g. "…from Rory's
+    // profile") — this only needs to say WHICH SECTION. Fell through to the
+    // generic 'Saved' before, which reads backwards for a deletion (found
+    // 2026-08-15, chat-function audit — same finding as countIrreversibleEdits
+    // above).
+    case 'delete_record':
+    case 'update_record': {
+      const tk = (e as any).targetKind as string;
+      const SECTION: Record<string, string> = {
+        passport: 'ID & Passports', transit_pass: 'Travel', care_schedule: 'Care schedule',
+        saying: 'Sayings', favorite_quote: 'Favourite quotes', vaccination: 'Medical · Vaccinations',
+        visa: 'Travel · Visas', referral: 'Medical · Referrals & results', document: 'Document Vault',
+        contact: 'Contacts', provider: 'Providers & services', number: 'Important numbers',
+        vehicle: 'Household · Vehicles', pet: 'Household · Pets', utility: 'Household · Utilities',
+        bank: 'Finances · Banks', insurance: 'Finances · Insurance', benefit: 'Finances · Benefits',
+        timeline: 'Family timeline', calendar_event: 'Calendar', slip: 'Slips', asset: 'Assets',
+      };
+      return SECTION[tk] || cap(tk.replace(/_/g, ' '));
+    }
     default: return 'Saved';
   }
 }

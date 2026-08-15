@@ -1068,12 +1068,19 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
     if (hasMemberEdits(edits)) {
       const before = membersRef.current;
-      const next = applyMemberEdits(before, edits, isBusinessSpace);
+      // `skipped` names any member/passport/etc. edit whose "member" text
+      // resolveMember couldn't pin down to exactly one person (no match, or
+      // an ambiguous one) — surfaced here the same way applyDestructiveEdits'
+      // own notes are, so a card that quietly changed nothing for one of its
+      // edits doesn't just read "Applied ✓" (found 2026-08-15, chat-function
+      // audit).
+      const { members: next, skipped } = applyMemberEdits(before, edits, isBusinessSpace);
       membersRef.current = next; // so a following fileScans→handleAddDocument merges onto this
       setMembers(next);
       const ok = await saveFamilyMembers(next);
       if (!ok) failures.push('family members');
       else undo.push(...diffMemberUndo(before, next));
+      if (skipped.length) { console.warn('AI member edit:', skipped.join(' ')); showToast(skipped.join(' ')); }
     }
     if (hasInfoEdits(edits)) {
       const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [] };
@@ -1244,7 +1251,27 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     }
 
     if (failures.length > 0) {
-      throw new Error(`Couldn't save to cloud: ${failures.join(', ')}. Check your connection and try again.`);
+      // A failure partway through (say, finances after members already saved)
+      // used to throw a plain Error with nothing about what had already
+      // landed. AIChatbot's catch left the card un-applied — still showing
+      // "Apply" — so a well-meaning retry re-submitted the ENTIRE edits[]
+      // array from scratch: every append-only domain above (new members,
+      // contacts, calendar events, household/finances rows, timeline,
+      // shopping, assets, recipes, estate records, …) has no id-based
+      // idempotency, so whatever already saved got duplicated (found
+      // 2026-08-15, chat-function audit). `undo` above only ever gained an
+      // entry from a domain block whose `ok` was true, so at THIS point it is
+      // an accurate manifest of exactly what already saved — attach it to the
+      // thrown error so the caller can mark the card applied (Apply →
+      // Applied+Undo) instead of leaving it retry-ready. Undo removes the
+      // partial saves first; a re-apply after that is clean, same as any
+      // other Undo→re-apply cycle.
+      const err: any = new Error(
+        `Some of this couldn't be saved to the cloud (${failures.join(', ')}) — but the rest already did. `
+        + `Check your connection, then use Undo on this card before trying again, so nothing gets saved twice.`,
+      );
+      err.partialUndo = undo;
+      throw err;
     }
     return undo;
   };

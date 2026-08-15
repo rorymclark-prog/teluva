@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
-import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord, DocReadResult, DocPassage } from '../types';
+import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord, DocReadResult, DocPassage, InsurancePolicy } from '../types';
 import { readDocument, EXPECTED_READER_VERSION } from '../utils/docReader';
 import { auth } from '../lib/firebase';
 import {
@@ -10,6 +10,7 @@ import {
   loadAssets, uploadAssetPhoto,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
+import { boundCalendar } from '../utils/calendarWindow';
 import { redactHousehold, redactFinances, redactMember, redactInfoNumbers } from '../utils/aiRedact';
 // Edit/delete-existing-records feature: display labels + apply-time re-resolution
 // live here (this shared component only gets append-only wiring).
@@ -852,10 +853,13 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   // never unmount it again — same reasoning as Dashboard.tsx's ExportPackModal.
   const [scannerEverOpened, setScannerEverOpened] = useState(false);
   useEffect(() => { if (scannerOpen) setScannerEverOpened(true); }, [scannerOpen]);
-  // Heads-up card: vehicles + slips aren't in `members`, so load them once (same
-  // sources NeedsAttention uses) to feed the deterministic expiry/gap index.
+  // Heads-up card: vehicles + slips + insurance aren't in `members`, so load
+  // them once (same sources NeedsAttention uses) to feed the deterministic
+  // expiry/gap index. hInsurance feeds computeFuneralCoverNudges — a lapsed
+  // funeral policy is exactly the kind of thing this card exists to surface.
   const [hVehicles, setHVehicles] = useState<Vehicle[]>([]);
   const [hSlips, setHSlips] = useState<SlipItem[]>([]);
+  const [hInsurance, setHInsurance] = useState<InsurancePolicy[]>([]);
   // Honest usage indicator ("12 of 30 AI actions used this month") — read
   // from the server, never recomputed client-side. null while loading/
   // unavailable, in which case the indicator just doesn't show.
@@ -1028,6 +1032,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     let cancelled = false;
     loadHousehold().then((h) => { if (!cancelled) setHVehicles(h?.vehicles || []); }).catch(() => { if (!cancelled) setHVehicles([]); });
     loadSlips().then((s) => { if (!cancelled) setHSlips(s || []); }).catch(() => { if (!cancelled) setHSlips([]); });
+    loadFinances().then((f) => { if (!cancelled) setHInsurance(f?.insurance || []); }).catch(() => { if (!cancelled) setHInsurance([]); });
     loadAiUsage().then((u) => { if (!cancelled) setAiUsage(u); }).catch(() => { if (!cancelled) setAiUsage(null); });
     return () => { cancelled = true; };
   }, [familyId]);
@@ -1036,8 +1041,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   // feeds buildContext, so the card and the AI agree. Recomputed only when its
   // inputs change.
   const insights = useMemo(
-    () => computeChatInsights({ members, vehicles: hVehicles, slips: hSlips }),
-    [members, hVehicles, hSlips],
+    () => computeChatInsights({ members, vehicles: hVehicles, slips: hSlips, insurance: hInsurance }),
+    [members, hVehicles, hSlips, hInsurance],
   );
   const headsUp = [...insights.expiries, ...insights.gaps].slice(0, 4);
   const dismissHeadsUp = () => { markHintSeen(headsUpKey); setHeadsUpDismissed(true); };
@@ -1048,42 +1053,20 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     setError(null);
     setInput('');
     setAttachments([]);
+    // All the per-message card state below is keyed by ARRAY INDEX, not a
+    // stable message id — resetting `messages` to [] restarts indices at 0,
+    // so without this, the new chat's first proposal card would silently
+    // inherit whatever docDuplicates[0]/expandedEdits[0]/etc. was left over
+    // from the previous chat: an "Applied" tick on a message never applied,
+    // a duplicate-doc warning that belonged to a different upload, or a card
+    // stuck mid-spinner. Found 2026-08-15, chat-function audit.
+    setApplyingIdx(null);
+    setDocDuplicates({});
+    setExpandedEdits({});
+    setConfirmingUndoIdx(null);
+    setUndoingIdx(null);
     try { localStorage.removeItem(chatKey(familyId, uid)); } catch { /* ignore */ }
     if (uid) saveChatHistory(uid, []);
-  };
-
-  /* The calendar, bounded.
-   *
-   * Every event ever synced used to go to the model on every single message. On
-   * the live account that is 554 entries and 88% of the entire payload — enough
-   * to blow the server's context cap on its own, which silently truncated the
-   * JSON and took the authoritative expiry data with it. An imported Google
-   * Calendar only makes this worse over time, and it is the one input a user can
-   * grow without limit without meaning to.
-   *
-   * A window instead. Chat needs the calendar to answer "what's on this week"
-   * and to avoid creating a duplicate event; neither needs 2019. Recent past is
-   * kept because "when was that appointment?" is a real question, and undated
-   * entries are kept rather than guessed at. Newest-first, capped, so a
-   * pathological calendar cannot dominate what the assistant sees about people.
-   */
-  const CAL_PAST_DAYS = 60;
-  const CAL_FUTURE_DAYS = 365;
-  const CAL_MAX = 150;
-  const boundCalendar = (events: { date?: string }[]) => {
-    const today = new Date();
-    const floor = new Date(today); floor.setDate(floor.getDate() - CAL_PAST_DAYS);
-    const ceil = new Date(today); ceil.setDate(ceil.getDate() + CAL_FUTURE_DAYS);
-    const iso = (d: Date) => d.toLocaleDateString('en-CA');
-    const from = iso(floor), to = iso(ceil);
-    return (events || [])
-      .filter((e) => {
-        const d = String(e?.date || '');
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return true;   // undated: keep, don't guess
-        return d >= from && d <= to;
-      })
-      .sort((a, b) => String(b?.date || '').localeCompare(String(a?.date || '')))
-      .slice(0, CAL_MAX);
   };
 
   const buildContext = async () => {
@@ -1127,7 +1110,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     // above) — the AUTHORITATIVE answer for "what expires in the next N months"
     // and "what's missing", so the model never has to eyeball raw dates. Compact:
     // just the factual text + daysUntil (negative = overdue).
-    const insights = computeChatInsights({ members, vehicles: household?.vehicles || [], slips: slips || [] });
+    const insights = computeChatInsights({ members, vehicles: household?.vehicles || [], slips: slips || [], insurance: finances?.insurance || [] });
     const expiries = insights.expiries.map((n) => ({ text: n.text, daysUntil: n.days }));
     const gaps = insights.gaps.map((n) => ({ text: n.text }));
     // slips carry ids so the AI can target one for delete_record/update_record ("bin that Media Markt receipt").
@@ -1999,6 +1982,20 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       });
     } catch (e: any) {
       setError(e?.message || "Couldn't save those changes.");
+      // A partial failure (Dashboard.handleApplyAiEdits — see its comment)
+      // stamps e.partialUndo with the manifest of whatever DID save before
+      // the failure. Marking the card applied with that manifest swaps
+      // Apply for Applied+Undo, so a well-meaning retap can't blindly
+      // re-submit the whole edit list and duplicate what already landed —
+      // Undo removes the partial saves first, then re-apply is clean (found
+      // 2026-08-15, chat-function audit).
+      if (e?.partialUndo?.length) {
+        setMessages(prev => {
+          const updated = prev.map((m, i) => i === idx ? { ...m, applied: true, undo: e.partialUndo } : m);
+          if (uid) saveChatHistory(uid, slimForCloud(updated));
+          return updated;
+        });
+      }
     } finally {
       setApplyingIdx(null);
     }
@@ -2017,7 +2014,17 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   };
 
   const dismissEdits = (idx: number) => {
-    setMessages(prev => prev.map((m, i) => i === idx ? { ...m, edits: undefined } : m));
+    // Mirrors undoEdits' no-undo-records branch below: clearing `edits` from
+    // local state only was never written back to chat history, so a reload
+    // (or a resumed chat on another device) restored the dismissed proposal
+    // as if it were never dismissed — same "unpersisted" bug class as the
+    // apply path, just on the cancel path (found 2026-08-15, chat-function
+    // audit).
+    setMessages(prev => {
+      const updated = prev.map((m, i) => i === idx ? { ...m, edits: undefined } : m);
+      if (uid) saveChatHistory(uid, slimForCloud(updated));
+      return updated;
+    });
     setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
   };
 
@@ -2032,13 +2039,34 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     const msg = messages[idx];
     const records = msg?.undo || [];
     if (!onUndoEdits || !records.length) {
-      // Nothing reversible was captured — just flip the card back so it can be re-applied.
+      // Nothing reversible was captured — just flip the card back so it can be
+      // re-applied. Re-tapping Apply is safe even for a delete/update: the
+      // record's id is re-resolved against live data at that moment, and
+      // since it's already gone/already set, it just no-ops with a note —
+      // never a double-delete or a duplicate.
+      //
+      // A batch that is PURELY delete_record/update_record edits (e.g. "bin
+      // that old passport", nothing created) lands here — records.length is
+      // 0 because there was never anything TO manifest, not because Undo
+      // succeeded. Before this fix that meant the exact case this button
+      // exists to warn about — "I tapped Undo and the deletion is still
+      // gone" — got the SAME silent flip-back as the harmless "nothing to
+      // undo" case, with no explanation either way (found 2026-08-15,
+      // chat-function audit — the other half of #169/#170: that fix covers
+      // the MIXED batch, still going through onUndoEdits below; this covers
+      // the pure-destructive batch, which never reaches it).
+      const irreversible = countIrreversibleEdits(msg?.edits || []);
       setMessages(prev => {
         const updated = prev.map((m, i) => i === idx ? { ...m, applied: false, undo: undefined } : m);
         if (uid) saveChatHistory(uid, slimForCloud(updated));
         return updated;
       });
       setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
+      setError(
+        irreversible > 0
+          ? `${irreversible} change${irreversible === 1 ? '' : 's'} here (a field update, like a size or an address, or a record that was deleted outright) can't be auto-undone and stay${irreversible === 1 ? 's' : ''} as applied.`
+          : null,
+      );
       return;
     }
     setUndoingIdx(idx);
@@ -2051,13 +2079,17 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       });
       // Clear any duplicate flags so a re-Apply re-checks the vault from scratch.
       setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
-      // Field-set edits (a shoe size, an address) change a value in place rather
-      // than create a record, so undo can't reverse them — say so plainly instead
-      // of implying the card was wiped clean.
+      // Field-set edits (a shoe size, an address), and — since 2026-08-15 —
+      // record deletes/updates from the same batch, change something in place
+      // or remove it outright rather than create a fresh record, so undo can't
+      // reverse them — say so plainly instead of implying the card was wiped
+      // clean. Wording covers both shapes (a field staying set vs. a record
+      // staying deleted) since countIrreversibleEdits no longer distinguishes
+      // them — see its doc comment in aiUndo.ts for why they're one bucket.
       const irreversible = countIrreversibleEdits(msg.edits || []);
       const notes: string[] = [];
       if (res.missing > 0) notes.push(`${res.missing} couldn't be found (already changed or removed) and were left as they are`);
-      if (irreversible > 0) notes.push(`${irreversible} field change${irreversible === 1 ? '' : 's'} (like a size or an address) can't be auto-undone and stay${irreversible === 1 ? 's' : ''} set`);
+      if (irreversible > 0) notes.push(`${irreversible} change${irreversible === 1 ? '' : 's'} (a field update, like a size or an address, or a record that was deleted outright) can't be auto-undone and stay${irreversible === 1 ? 's' : ''} as applied`);
       setError(
         notes.length
           ? `Undid ${res.undone} item${res.undone === 1 ? '' : 's'}. ${notes.join('; ')}.`

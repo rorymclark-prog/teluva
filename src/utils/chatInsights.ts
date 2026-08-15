@@ -1,6 +1,6 @@
 import { IdCard, HeartPulse, PhoneCall, Car, Shirt } from 'lucide-react';
-import { FamilyMember, Vehicle, SlipItem } from '../types';
-import { Nudge, computeNudges, computeVehicleNudges, computeSlipNudges } from '../components/NeedsAttention';
+import { FamilyMember, Vehicle, SlipItem, InsurancePolicy } from '../types';
+import { Nudge, computeNudges, computeVehicleNudges, computeSlipNudges, computeFuneralCoverNudges } from '../components/NeedsAttention';
 import { vehicleLabel } from './vehicle';
 import { sizeStaleness } from './sizeStaleness';
 import { todayISO } from './age';
@@ -15,9 +15,16 @@ import { todayISO } from './age';
 // no existing nudge produces them.
 
 // Key prefixes of the nudges that represent a dated EXPIRY / deadline — as
-// opposed to birthdays, growth checks, missing-info prompts, care visits, etc.
-// These are the only nudge kinds the heads-up surface treats as "expires soon".
-const EXPIRY_PREFIXES = ['exp-', 'id-', 'pass-', 'visa-', 'cvqual-', 'veh-', 'slip-return-', 'slip-warranty-'];
+// opposed to birthdays, growth checks, missing-info prompts, etc. These are
+// the only nudge kinds the heads-up surface treats as "expires soon".
+//
+// care-/ref-/funeral- were missing until the 2026-08-15 chat-function audit:
+// an overdue care visit, an unbooked referral, and a lapsed funeral policy are
+// exactly as "the family should know this now" as a passport or an MOT, but
+// none of them starts with any prefix that was here — "expiries" silently
+// dropped all three, and chat both under- and over-answered ("nothing's
+// overdue" when a referral had sat unbooked for weeks).
+const EXPIRY_PREFIXES = ['exp-', 'id-', 'pass-', 'visa-', 'cvqual-', 'veh-', 'slip-return-', 'slip-warranty-', 'care-', 'ref-', 'funeral-'];
 const isExpiryNudge = (n: Nudge) => EXPIRY_PREFIXES.some((p) => n.key.startsWith(p));
 
 export interface ChatInsights {
@@ -29,13 +36,14 @@ export interface ChatInsights {
 // compute fns use their own (wider) windows; filtering to <= horizonDays here
 // re-tightens them to the heads-up ask without touching their logic.
 export function computeChatInsights(
-  { members, vehicles, slips }: { members: FamilyMember[]; vehicles: Vehicle[]; slips: SlipItem[] },
+  { members, vehicles, slips, insurance = [] }: { members: FamilyMember[]; vehicles: Vehicle[]; slips: SlipItem[]; insurance?: InsurancePolicy[] },
   horizonDays = 90,
 ): ChatInsights {
   const expiries = [
     ...computeNudges(members),
     ...computeVehicleNudges(vehicles),
     ...computeSlipNudges(slips),
+    ...computeFuneralCoverNudges(insurance),
   ]
     .filter((n) => isExpiryNudge(n) && n.days != null && n.days <= horizonDays)
     .sort((a, b) => (a.days ?? 0) - (b.days ?? 0));

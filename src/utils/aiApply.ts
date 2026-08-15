@@ -130,13 +130,35 @@ const MEMBER_FIELD_MAP: Record<string, (m: FamilyMember, v: string) => FamilyMem
 function resolveMember(members: FamilyMember[], name: string): FamilyMember | undefined {
   const n = (name || '').trim().toLowerCase();
   if (!n) return undefined;
-  return members.find(m => m.name.toLowerCase() === n || (m.nickname || '').toLowerCase() === n)
-    || members.find(m => m.name.toLowerCase().includes(n) || n.includes(m.name.toLowerCase()));
+  const exact = members.find(m => m.name.toLowerCase() === n || (m.nickname || '').toLowerCase() === n);
+  if (exact) return exact;
+  // Substring fallback — "Mia" for "Miabella", or the model dropping a
+  // surname — but ONLY when it's unambiguous. With two members whose names
+  // both contain the given text (e.g. "Ann" and "Annabelle"), .find() used
+  // to silently take whichever came first in the array: an edit meant for
+  // one person could write to the other's profile with no indication
+  // anything was wrong (found 2026-08-15, chat-function audit). An ambiguous
+  // match now resolves to "not found" — surfaced by the caller as a skipped-
+  // edit note — rather than guessing, the same rule aiDestructive.ts already
+  // documents for its own targeting: never substitute something similar.
+  const matches = members.filter(m => m.name.toLowerCase().includes(n) || n.includes(m.name.toLowerCase()));
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
-// Apply member + passport edits, returning the next members array.
-export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBusinessSpace?: boolean): FamilyMember[] {
+// Apply member + passport edits, returning the next members array plus any
+// user-facing notes for edits that named a member resolveMember couldn't
+// pin down (no match, or an ambiguous one) — those edits are skipped, not
+// guessed at, and the skip used to be completely silent: the card still
+// showed "Applied ✓" for a field that never actually changed (found
+// 2026-08-15, chat-function audit).
+export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBusinessSpace?: boolean): { members: FamilyMember[]; skipped: string[] } {
   let next = members;
+  const skipped: string[] = [];
+  const resolve = (name: string | undefined, what: string): FamilyMember | undefined => {
+    const target = resolveMember(next, name || '');
+    if (!target) skipped.push(`Couldn't tell which family member "${(name || '').trim() || '(unnamed)'}" was — a ${what} change was skipped.`);
+    return target;
+  };
   // Pass 1: create any new members first, so later field edits can target them.
   for (const e of edits) {
     if (e.kind === 'new_member' && e.name) {
@@ -146,12 +168,12 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
   // Pass 2: field + passport edits.
   for (const e of edits) {
     if (e.kind === 'member') {
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, e.field ? e.field.replace(/_/g, ' ') : 'profile');
       const fn = MEMBER_FIELD_MAP[e.field];
       if (!target || !fn) { if (!fn) console.warn('AI: unknown field', e.field); continue; }
       next = next.map(m => (m.id === target.id ? fn(m, e.value) : m));
     } else if (e.kind === 'passport') {
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, 'passport');
       if (!target) continue;
       // The AI can re-extract the same passport across multiple messages (a
       // re-scanned photo, or the same document referenced by more than one
@@ -173,7 +195,7 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
         next = next.map(m => (m.id === target.id ? { ...m, passports: [...(m.passports || []), rec] } : m));
       }
     } else if (e.kind === 'transit_pass') {
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, 'transit pass');
       if (!target || !e.name) continue;
       const rec = {
         id: newId(), name: e.name,
@@ -185,7 +207,7 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
         ? { ...m, travel: { ...(m.travel || {}), transitPasses: [...(m.travel?.transitPasses || []), rec] } }
         : m));
     } else if (e.kind === 'care_schedule') {
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, 'care schedule');
       if (!target || !e.careKind) continue;
       const rec = {
         id: newId(), kind: e.careKind, provider: e.provider || undefined,
@@ -195,7 +217,7 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
       };
       next = next.map(m => (m.id === target.id ? { ...m, careSchedule: [...(m.careSchedule || []), rec] } : m));
     } else if (e.kind === 'visa') {
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, 'visa');
       if (!target || !e.country || !e.country.trim()) continue;
       // Same country + same expiry is the same permit re-scanned. A renewal has
       // a different expiry and is a genuinely new record, so it is kept.
@@ -218,7 +240,7 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
         ? { ...m, travel: { ...(m.travel || {}), visas: [...(m.travel?.visas || []), rec] } }
         : m));
     } else if (e.kind === 'vaccination') {
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, 'vaccination');
       if (!target || !e.name || !e.name.trim()) continue;
       // A vaccination card photographed twice must not double every jab. Same
       // vaccine on the same date is the same jab — dates disagreeing is a real
@@ -237,7 +259,7 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
         ? { ...m, medical: { ...(m.medical || {}), vaccinations: [...(m.medical?.vaccinations || []), rec] } }
         : m));
     } else if (e.kind === 'saying') {
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, 'saying');
       if (!target || !e.text || !e.text.trim()) continue;
       const rec = {
         id: newId(),
@@ -247,7 +269,7 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
       };
       next = next.map(m => (m.id === target.id ? { ...m, sayings: [...(m.sayings || []), rec] } : m));
     } else if (e.kind === 'favorite_quote') {
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, 'favourite quote');
       if (!target || !e.text || !e.text.trim()) continue;
       const rec = {
         id: newId(),
@@ -262,7 +284,7 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
       // HIDDEN_IN_FAMILY) and the system prompt (server.js only offers this
       // edit kind when context.isBusinessSpace) — belt-and-braces so even a
       // replayed/legacy chat card can't write cv data into a family space.
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, 'CV');
       if (!target) continue;
       const existingCv = target.cv || {};
       const norm = (s?: string) => (s || '').trim().toLowerCase();
@@ -312,13 +334,13 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
       // with an empty value — so a "clear" can only ever touch a known field, never
       // wipe a whole record. Confirm-before-destroy still applies: like every edit
       // it only runs when the user taps Apply on a card that spells out the change.
-      const target = resolveMember(next, e.member);
+      const target = resolve(e.member, e.field ? `clear ${e.field.replace(/_/g, ' ')}` : 'clear field');
       const fn = MEMBER_FIELD_MAP[e.field];
       if (!target || !fn) { if (!fn) console.warn('AI: unknown field', e.field); continue; }
       next = next.map(m => (m.id === target.id ? fn(m, '') : m));
     }
   }
-  return next;
+  return { members: next, skipped };
 }
 
 // Sensible recurrence when the AI didn't state an interval.
@@ -412,11 +434,23 @@ export function duplicateCalendarEdits(events: CalendarEvent[], edits: AiEdit[])
   return partitionNewEvents(events, candidates).duplicates.map(c => c.title);
 }
 
+// The only 5 HouseholdInfo scalar fields the AI is ever allowed to write. AiEdit's
+// TS type already narrows `field` to this same union, but that is compile-time
+// only — edits arrive at runtime as JSON from the model, so a hallucinated or
+// prompt-drift field name (e.g. 'alarmCode', which was briefly claimed as a valid
+// write target in server.js's prompt despite HouseholdInfo never having had one;
+// found in the 2026-08-15 chat-function audit) would otherwise be written as an
+// untyped Firestore field with no UI ever reading it back. Every other AI-write
+// path in this codebase (aiDestructive.ts's UPDATE_FIELDS) already whitelists
+// like this; household_set was the one that didn't.
+const HOUSEHOLD_SET_FIELDS = new Set(['address', 'doorCode', 'wifiName', 'wifiPassword', 'garageCode']);
+
 // Apply household edits: set scalar fields (address, wifi, door code) or append to lists.
 export function applyHouseholdEdits(h: HouseholdInfo, edits: AiEdit[]): HouseholdInfo {
   let next = { ...h };
   for (const e of edits) {
     if (e.kind === 'household_set') {
+      if (!HOUSEHOLD_SET_FIELDS.has(e.field)) continue;
       // Guard: never let an empty value clobber an existing field.
       if (e.value && e.value.trim()) next = { ...next, [e.field]: e.value.trim() };
     } else if (e.kind === 'list_add') {

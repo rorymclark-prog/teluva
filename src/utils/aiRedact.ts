@@ -24,6 +24,15 @@
 //       back ("what's the wifi password?"). They remain visible in the Household
 //       view, which is where they were always primarily read from.
 //
+//       'alarmCode' USED TO be listed alongside these three, and the system
+//       prompt (server.js) told the model it was a valid household_set write
+//       target — but HouseholdInfo (types.ts) has never had an alarmCode
+//       field, and the household_set field enum never listed it either.
+//       Removed from both places 2026-08-15, chat-function audit; see
+//       applyHouseholdEdits (aiApply.ts) for the whitelist that now stops any
+//       field name this list-and-the-prompt drift again could produce from
+//       being written at all.
+//
 //   finances.banks[].iban / .bic
 //       Payment credentials. bankName/accountHolder/notes are KEPT so "which
 //       banks do we have?" still works.
@@ -56,6 +65,17 @@
 //       found on 2026-07-30. country/expiryDate/issueDate are KEPT: "when
 //       does my passport expire" is a real, useful question and neither date
 //       is a credential.
+//
+//   members[].travel.visas[].number
+//       Same government-ID category and same reasoning as passports[].number
+//       directly above — a visa/permit number is exactly the class of ID
+//       this file exists to keep out of a third-party prompt, and it lives
+//       nested two levels down (member.travel.visas[]), easy to miss when
+//       auditing only `identity`. Found unredacted (and unencrypted at rest —
+//       see vaultFields.ts) in the 2026-08-15 chat-function audit. country /
+//       expiryDate / permitType / issuingAuthority / sponsor / status /
+//       conditions are KEPT — none is a credential, and "when does my permit
+//       expire" / "who sponsors it" are real questions people ask.
 //
 // NOT removed, on purpose — read the note before "tidying" these up:
 //   members[].identity expiry dates and scheme names (residencePermitExpiry,
@@ -178,6 +198,13 @@ export function redactMember<T>(member: T): T {
   const passports = stripped.passports;
   if (Array.isArray(passports)) {
     stripped.passports = passports.map((p) => (isPlainObject(p) ? omit(p, ['number']) : p));
+  }
+  const travel = stripped.travel;
+  if (isPlainObject(travel)) {
+    const visas = travel.visas;
+    stripped.travel = Array.isArray(visas)
+      ? { ...travel, visas: visas.map((v) => (isPlainObject(v) ? omit(v, ['number']) : v)) }
+      : travel;
   }
   return stripped as T;
 }

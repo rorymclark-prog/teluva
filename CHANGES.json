@@ -1,14 +1,15 @@
 {
-  "label": "v202",
+  "label": "v203",
   "changes": [
-    "New: Namenstag (name day). If your name has one in the Austrian calendar, your profile now offers it — tap once to keep it, and it shows up on the home screen and in your daily notification alongside birthdays. Nothing is guessed for a name the calendar doesn't recognise, and you can also set or correct one by hand on the Edit profile screen.",
-    "Fixed: someone removed from a family (or who left one) kept getting that family's birthday and reminder notifications on their phone indefinitely. Their device is now dropped from the notification list the moment they leave.",
-    "Fixed: opening the document reader from the Document Vault (rather than from chat) could spin forever on a slow connection with no way back except closing the screen. It now gives up gracefully after three minutes, same as chat.",
-    "Fixed: Household and Finances could flip to showing raw encrypted text on screen after a change synced in from another device or family member.",
-    "Fixed: someone born on 29 February never got a birthday notification in an ordinary year.",
-    "Fixed: two celebrations landing on the same day (two birthdays, or a birthday and a name day) could silently cancel each other out as a notification.",
-    "Fixed: birthdays, passport/permit expiry and other date-only reminders synced to Google Calendar as a 9am meeting instead of an all-day event.",
-    "Fixed: the assistant can now update or delete a visa, vaccination or referral record it filed, and Undo now covers those too.",
-    "Fixed: a few smaller things — a retry button on a timed-out document read that didn't do anything, a free-text \"Important Numbers\" value that was being sent to the AI unnecessarily, an emoji in a calendar export that could corrupt the file, photo-measurement readings not counting against the monthly AI limit, and the document reader charging an AI action on a search that never reached the AI."
+    "Fixed: two devices saving around the same time could silently overwrite each other's family member or calendar changes — a passport scanned on one phone could vanish minutes later because of an unrelated save on another. Every save now merges field-by-field against the current cloud copy instead of overwriting it whole.",
+    "Fixed: visa numbers were being stored in plain text and sent to the assistant unredacted — now encrypted at rest and withheld from AI chat, matching passports and other ID numbers.",
+    "Fixed: the assistant's \"what's coming up\" heads-up was missing overdue care visits, unbooked referrals, and lapsed funeral cover.",
+    "Fixed: the calendar the assistant sees for \"what's coming up\" could fill up with far-future events and miss things happening this week.",
+    "Fixed: if you asked the assistant to update a family member's info and the name was ambiguous or didn't match anyone, it could silently apply to the wrong person or mark itself done having changed nothing. It now tells you when it couldn't tell who you meant, and skips instead of guessing.",
+    "Fixed: assistant edits or deletions to a referral, vehicle, or similar record could silently do nothing without saying why.",
+    "Fixed: Undo now correctly warns when a deleted or directly-edited record from an assistant change can't be restored, instead of staying silent about it.",
+    "Fixed: dismissing a suggested change in AI chat could reappear after a refresh; starting a new chat could leave old \"Applied\"/duplicate markers showing on the first message of the new one.",
+    "Fixed: if part of a batch of assistant changes failed to save partway through, retrying could quietly save some of it twice — you're now pointed to Undo first instead.",
+    "Removed a leftover \"alarm code\" field the assistant's instructions mentioned but the app never actually had."
   ]
 }

@@ -29,7 +29,7 @@
 // untouched field as a fresh edit.
 // ---------------------------------------------------------------------------
 
-import { IdentityRecord, HouseholdInfo, FinancesInfo, BankAccount, PassportRecord } from '../types';
+import { IdentityRecord, HouseholdInfo, FinancesInfo, BankAccount, PassportRecord, VisaRecord } from '../types';
 import { REDACTED_IDENTITY_KEYS, REDACTED_HOUSEHOLD_KEYS, REDACTED_BANK_KEYS } from './aiRedact';
 
 /** A round-trip call to the server's encrypt or decrypt endpoint, batched. */
@@ -211,3 +211,13 @@ export const protectPassports = (passports: PassportRecord[] | undefined, fn: Va
   protectArrayFields<PassportRecord>(passports, PASSPORT_NUMBER_KEYS, fn);
 export const revealPassports = (passports: PassportRecord[] | undefined, fn: VaultTransform) =>
   revealArrayFields<PassportRecord>(passports, PASSPORT_NUMBER_KEYS, fn);
+
+// Same government-ID class as a passport number (see aiRedact.ts's note on
+// members[].visas[].number) — found stored in plaintext, right next to an
+// already-encrypted passports array on the same member doc, in the
+// 2026-08-15 chat-function audit.
+const VISA_NUMBER_KEYS = ['number'] as const;
+export const protectVisas = (visas: VisaRecord[] | undefined, fn: VaultTransform) =>
+  protectArrayFields<VisaRecord>(visas, VISA_NUMBER_KEYS, fn);
+export const revealVisas = (visas: VisaRecord[] | undefined, fn: VaultTransform) =>
+  revealArrayFields<VisaRecord>(visas, VISA_NUMBER_KEYS, fn);

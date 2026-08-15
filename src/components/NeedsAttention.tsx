@@ -193,7 +193,12 @@ export function computeFuneralCoverNudges(policies: InsurancePolicy[]): Nudge[] 
     if (!isFuneralPolicy(p.type)) continue;
     const label = `${p.provider || 'Funeral cover'}${p.type ? ` (${p.type})` : ''}`;
     if (p.status === 'lapsed') {
-      out.push({ key: `funeral-lapsed-${p.id}`, memberId: '', icon: ShieldCheck, tone: 'urgent', text: `${label} has lapsed — check the debit order before it's needed`, tab: 'insurance', view: 'insurance' });
+      // days: 0 — not a real countdown (a lapse has no future date to count
+      // to), but chat's "expiries" heads-up (utils/chatInsights.ts) filters
+      // out anything with days == null, and this is the single most urgent
+      // nudge this function produces. 0 sorts it first and keeps it inside
+      // any horizon, without fabricating a date this record doesn't have.
+      out.push({ key: `funeral-lapsed-${p.id}`, memberId: '', icon: ShieldCheck, tone: 'urgent', text: `${label} has lapsed — check the debit order before it's needed`, tab: 'insurance', view: 'insurance', days: 0 });
     } else if (p.status !== 'cancelled' && p.renewalDate) {
       const days = daysUntil(p.renewalDate);
       if (days !== null && days < 0) {

@@ -6,7 +6,7 @@ import assert from 'node:assert';
 import {
   protectIdentity, revealIdentity, protectHousehold, revealHousehold,
   protectFinances, revealFinances, protectPassports, revealPassports,
-  revealCached, VaultTransform,
+  protectVisas, revealVisas, revealCached, VaultTransform,
 } from './vaultFields';
 import { mergeShared } from './mergeShared';
 
@@ -92,6 +92,23 @@ const fakeReveal: VaultTransform = async (values) => values.map(v =>
 
   const r = await revealPassports(p, fakeReveal) as any;
   assert.strictEqual(r[0].number, 'P1234567');
+}
+
+// ── visas — same shape as passports above, found stored in plaintext right
+//    next to an already-encrypted passports array (2026-08-15 audit) ──────
+
+{
+  const visas = [
+    { id: 'v1', country: 'Austria', number: 'AT-VISA-9988', expiryDate: '2028-03-01' },
+    { id: 'v2', country: 'United Kingdom', number: '' },
+  ];
+  const p = await protectVisas(visas, fakeProtect) as any;
+  assert.notStrictEqual(p[0].number, visas[0].number);
+  assert.strictEqual(p[0].expiryDate, '2028-03-01');
+  assert.deepStrictEqual(p[1], { id: 'v2', country: 'United Kingdom', number: '' });
+
+  const r = await revealVisas(p, fakeReveal) as any;
+  assert.strictEqual(r[0].number, 'AT-VISA-9988');
 }
 
 // ── revealCached: offline-friendly cache ───────────────────────────────────

@@ -85,6 +85,13 @@ const member = {
     { id: 'p1', country: 'Austria', number: 'P1234567', expiryDate: '2030-05-01', issueDate: '2020-05-01' },
     { id: 'p2', country: 'South Africa' }, // no number on file
   ],
+  travel: {
+    frequentFlyer: 'AA-12345',
+    visas: [
+      { id: 'v1', country: 'Austria', number: 'AT-VISA-9988', expiryDate: '2028-03-01', permitType: 'Residence', status: 'active' },
+      { id: 'v2', country: 'United Kingdom' }, // no number on file
+    ],
+  },
 };
 const rm = redactMember(member) as any;
 
@@ -100,6 +107,14 @@ assert.ok(!('number' in rm.passports[0]), 'passport number must not be sent to t
 assert.deepStrictEqual(rm.passports[0], { id: 'p1', country: 'Austria', expiryDate: '2030-05-01', issueDate: '2020-05-01' });
 assert.deepStrictEqual(rm.passports[1], { id: 'p2', country: 'South Africa' }, 'a passport with no number is untouched');
 assert.strictEqual(member.passports[0].number, 'P1234567', 'must not mutate the input passports array');
+// Visa/permit NUMBER goes, everything else stays — same government-ID class
+// as passports, found unredacted in the 2026-08-15 chat-function audit. It
+// lives nested under travel.visas, not a top-level array like passports.
+assert.ok(!('number' in rm.travel.visas[0]), 'visa number must not be sent to the AI');
+assert.deepStrictEqual(rm.travel.visas[0], { id: 'v1', country: 'Austria', expiryDate: '2028-03-01', permitType: 'Residence', status: 'active' });
+assert.deepStrictEqual(rm.travel.visas[1], { id: 'v2', country: 'United Kingdom' }, 'a visa with no number is untouched');
+assert.strictEqual(rm.travel.frequentFlyer, 'AA-12345', 'the rest of travel is untouched');
+assert.strictEqual(member.travel.visas[0].number, 'AT-VISA-9988', 'must not mutate the input travel object');
 // `identity` is SPLIT, not dropped (Rory's call, 2026-07-28): the ID numbers go,
 // the dates and scheme names stay. This is the assertion that keeps the split
 // honest — if someone re-adds a number to the context, it fails here.
