@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Standalone live-model/unit-test interrogation harness (adversarial fix
+# verification) — scratch tooling + synthetic test images, not app code.
+.interrogation/
