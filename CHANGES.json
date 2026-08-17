@@ -1,6 +1,6 @@
 {
-  "label": "v211",
+  "label": "v212",
   "changes": [
-    "The Family calendar now puts planning first with a clearer month-and-agenda layout, month-by-month reminders for the next six months, and a permanent travel-document watch for passport, visa and residence-card renewals. Calendar connections stay one click away, and duplicate reviews now sit neatly with the Google tools they belong to."
+    "Saved scans now show the whole document instead of a tight, zoomed-in crop — the scanner requires a much better-framed shot before it will accept a page as done."
   ]
 }

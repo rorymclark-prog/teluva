@@ -190,7 +190,25 @@ export default function DocumentScannerModal({
     setRawPhoto(raw);
     setIsScanning(true);
     try {
-      const result = await scanDocument(canvas, { mode: 'extract', output: 'dataurl' });
+      // scanic's own defaults for "is this candidate even a plausible
+      // document" are very loose — minDocumentCoverageRatio defaults to 0.04
+      // and minDocumentFillRatio to 0.07, i.e. a 4-sided shape covering as
+      // little as 4% of the frame (an emblem, a logo, a corner of texture on
+      // a passport's inside cover) still counts as "valid" internally. That
+      // inflates its confidence score enough to slip past our 0.68 floor
+      // below, which is how a real passport photo ended up saved as a tight
+      // crop of just the printed eagle. The guide overlay in the viewfinder
+      // (see the border a few lines down) asks people to fill most of the
+      // frame with the document, so require the detected quad to actually
+      // cover a meaningful share of it — comfortably below what a
+      // well-framed shot achieves, but well above scanic's own floor — and
+      // let its confidence math (which applies a real penalty to
+      // now-invalid candidates) do the rejecting for us.
+      const result = await scanDocument(canvas, {
+        mode: 'extract',
+        output: 'dataurl',
+        minDocumentCoverageRatio: 0.3,
+      });
       // scanic reports success as soon as it finds ANY roughly-4-sided contour,
       // even a low-confidence one — it only uses confidence internally to
       // decide whether to retry with different edge-detection parameters (its
