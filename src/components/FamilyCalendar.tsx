@@ -22,6 +22,7 @@ import {
   findDuplicateGroups, duplicateCount, removeDuplicates, describeGroup,
 } from '../utils/calendarDuplicates';
 import { resolveEventMembers } from '../utils/eventMemberMatch';
+import { sortByRelevance } from '../utils/eventRelevance';
 import { parseIcs, buildIcs } from '../utils/ics';
 import {
   CalendarFeed, mergeFeedEvents, removeFeedEvents, feedIdForUrl, describeSync, suggestFeedLabel,
@@ -945,17 +946,27 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setTimeout(() => setReminderNote(null), 3000);
   };
 
-  // Find events on selected day
-  const selectedDayEvents = events.filter(e => e.date === selectedDateStr)
-    .sort((a, b) => (a.time || '00:00').localeCompare(b.time || '00:00'));
+  // Find events on selected day. Family-relevant items (birthdays,
+  // passport/visa renewals, and anything typed/AI-filed straight into
+  // Teluva — which is how a one-off medical appointment gets in today)
+  // surface above whatever was pulled in wholesale from a connected Google
+  // Calendar; see utils/eventRelevance.ts.
+  const selectedDayEvents = sortByRelevance(
+    events.filter(e => e.date === selectedDateStr),
+    e => e.time || '00:00',
+  );
 
-  // Quick reminder feed (Events in the next 12 days from today)
+  // Quick reminder feed (Events in the next 12 days from today), same
+  // family-relevant-first ordering.
   const todayTime = new Date(todayLocal()).getTime();
-  const upcomingReminders = events.filter(e => {
-    const evTime = new Date(e.date).getTime();
-    const diffDays = (evTime - todayTime) / (1000 * 60 * 60 * 24);
-    return diffDays >= 0 && diffDays <= 12;
-  }).sort((a, b) => a.date.localeCompare(b.date));
+  const upcomingReminders = sortByRelevance(
+    events.filter(e => {
+      const evTime = new Date(e.date).getTime();
+      const diffDays = (evTime - todayTime) / (1000 * 60 * 60 * 24);
+      return diffDays >= 0 && diffDays <= 12;
+    }),
+    e => e.date,
+  );
 
   // Real today string for highlighting the calendar cell
   const realTodayStr = todayLocal();
@@ -1647,10 +1658,21 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                           )}
                         </div>
 
-                        {/* Category chip — tinted-fill, 8px radius, full-strength text */}
-                        <span className={`inline-flex items-center gap-1 text-[11px] font-semibold rounded-lg px-2.5 py-0.5 leading-tight shrink-0 ${catStyle.bg} ${catStyle.text}`}>
-                          {ev.category}
-                        </span>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          {/* Category chip — tinted-fill, 8px radius, full-strength text */}
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-semibold rounded-lg px-2.5 py-0.5 leading-tight ${catStyle.bg} ${catStyle.text}`}>
+                            {ev.category}
+                          </span>
+                          {isGoogleOriginEventId(ev.id) && (
+                            // Explains why this card sits lower than family
+                            // items of the same or later time — it wasn't
+                            // typed into Teluva, it was pulled in wholesale
+                            // from a connected Google Calendar.
+                            <span className="text-[10px] text-ink-400 italic" title="Imported from a connected Google Calendar">
+                              Imported
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {ev.description && (
@@ -1766,7 +1788,14 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             ) : (
               <div className="space-y-2.5 text-xs leading-normal max-h-56 overflow-y-auto pr-1">
                 {upcomingReminders.slice(0, 5).map(rem => (
-                  <div key={rem.id} className="flex gap-2.5 items-start bg-cream-100 border border-cream-200 p-2.5 rounded-xl hover:bg-cream-200/50 transition-colors">
+                  <div
+                    key={rem.id}
+                    // Google-imported entries are shown, not hidden — just
+                    // visually quieter, since a family birthday or passport
+                    // renewal further out in the 12-day window may now
+                    // occupy the slot this item would otherwise have held.
+                    className={`flex gap-2.5 items-start bg-cream-100 border border-cream-200 p-2.5 rounded-xl hover:bg-cream-200/50 transition-colors ${isGoogleOriginEventId(rem.id) ? 'opacity-60' : ''}`}
+                  >
                     <Info className="w-4 h-4 text-ink-400 mt-0.5 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-ink-800 truncate pr-0.5 text-[13px]">{rem.title}</p>

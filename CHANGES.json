@@ -1,6 +1,6 @@
 {
-  "label": "v206",
+  "label": "v207",
   "changes": [
-    "Fixed: the document scanner could get stuck taller than the screen on phones, hiding the \"Use this side\" / \"Save as PDF\" button and the crop tool below the visible area with no way to scroll down to them."
+    "Calendar: birthdays, passport/visa renewals, and appointments you've added yourself now show above anything imported from a connected Google Calendar, in both the day view and the upcoming-reminders list."
   ]
 }
