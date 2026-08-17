@@ -114,7 +114,7 @@ import {
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
-  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2} from 'lucide-react';
+  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift} from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
 // Lazy-loaded main-view screens — audit finding, 2026-07-30. Exactly one of
@@ -154,6 +154,7 @@ const InMemoryView = React.lazy(() => import('./InMemoryView'));
 const WillsEstateView = React.lazy(() => import('./WillsEstateView'));
 const SlipsView = React.lazy(() => import('./SlipsView'));
 const FamilyPasswords = React.lazy(() => import('./FamilyPasswords'));
+const GiftsOccasionsView = React.lazy(() => import('./GiftsOccasionsView'));
 const ExportPackModal = React.lazy(() => import('./ExportPackModal'));
 
 // Shown only while the ACTIVE tab's chunk is still downloading — on a repeat
@@ -200,7 +201,7 @@ function isJoinLinkVisit(): boolean {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -233,7 +234,7 @@ const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
 // 'emergency' is a medical/allergy/blood-type card — no business equivalent
 // exists yet (a real workplace-incident log would be a distinct feature, not
 // a relabel of this one) so it's hidden rather than mislabeled.
-const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate'];
+const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate', 'gifts'];
 
 // A persisted astrology blurb older than this is treated as stale and quietly
 // regenerated next time that member's Overview is viewed — keeps the card
@@ -257,6 +258,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'willsEstate', icon: ScrollText },
   { id: 'slips', icon: Receipt },
   { id: 'shopping', icon: ShoppingCart },
+  { id: 'gifts', icon: Gift },
   { id: 'passwords', icon: KeyRound },
   { id: 'familyWords', icon: BookHeart },
   { id: 'chat', icon: MessageCircle },
@@ -280,6 +282,7 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     familyWords: 'Family Words',
     inMemory: 'In Memory',
     willsEstate: 'Wills & Estate',
+    gifts: 'Gifts & Occasions',
   };
   return map[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 }
@@ -2158,6 +2161,13 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'shopping' && (
           demo ? <DemoUnavailable label="The shopping list" /> : <ShoppingList key={aiDataVersion} />
+        )}
+
+        {mainView === 'gifts' && (
+          <GiftsOccasionsView
+            members={members}
+            onSelectMember={(id) => { goToMemberTab(id, 'favorites'); setMainView('profiles'); }}
+          />
         )}
 
         {mainView === 'chat' && (
