@@ -1,6 +1,6 @@
 {
-  "label": "v215",
+  "label": "v216",
   "changes": [
-    "New: Gifts & Occasions — everyone's upcoming birthdays, name days and Christmas in one place, with their wishlist right there so you know what to get and where."
+    "The guided setup now shows a visible progress bar and a colour-coded icon for what each question is about — medical, emergency contact, documents, and so on — instead of a plain grey \"Question N of 30\"."
   ]
 }

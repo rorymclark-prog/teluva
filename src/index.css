@@ -265,6 +265,16 @@
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }
+
+  /* Onboarding-interview progress fill — same warm gradient as avatar-ring,
+     so the two "how far along you are" affordances in this app share one
+     visual language. A named class, not a Tailwind arbitrary bg-[image:…]
+     utility — see the ink/clay/rosa ramp comments above for why undefined
+     arbitrary values in this app's Tailwind v4 setup fail silently instead
+     of erroring, rather than risk that here on an untested bracket class. */
+  .progress-fill {
+    background: var(--gradient-ring);
+  }
 }
 
 /* ── Motion vocabulary ────────────────────────────────────────────────── */

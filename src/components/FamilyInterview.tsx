@@ -1,5 +1,8 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
-import { X, ArrowLeft, ArrowRight, Sparkles, Camera, Check } from 'lucide-react';
+import {
+  X, ArrowLeft, ArrowRight, Sparkles, Camera, Check,
+  Users, Globe, HeartPulse, Siren, IdCard, Stethoscope, Home, ShieldCheck,
+} from 'lucide-react';
 import {
   FamilyMember, HubSettings, FamilyDocument, PassportRecord, IdentityRecord,
   HealthcareProvider, HouseholdInfo, IdCountry,
@@ -216,6 +219,10 @@ export default function FamilyInterview({
   const idx = Math.max(0, seq.indexOf(token));
   const isFirst = idx === 0;
   const isLast = idx === seq.length - 1;
+  // Bookends the whole interview, not just the numbered steps: 0% on the
+  // welcome screen, 100% once you land on Closing — so pausing partway
+  // through always shows real, visible progress, not just a dry count.
+  const progressPct = seq.length > 1 ? Math.round((idx / (seq.length - 1)) * 100) : 100;
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -230,11 +237,21 @@ export default function FamilyInterview({
       >
         <SheetGrabber onClose={pause} className="mb-2" />
 
+        {/* Progress — visible momentum, not just a number: empty on Welcome,
+            full on Closing, so a paused-and-returning family can feel how
+            far they've already gotten before reading a word. */}
+        <div className="h-1.5 w-full rounded-full bg-cream-200 overflow-hidden mb-4" aria-hidden="true">
+          <div
+            className="h-full rounded-full progress-fill transition-all duration-300 ease-out"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+
         {/* Header: honest progress + pause */}
         <div className="flex items-center justify-between gap-3 mb-4">
           {parsed.kind !== 'welcome' && parsed.kind !== 'closing' ? (
             <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400 tabular-nums">
-              Question {idx + 1} of {seq.length}
+              Step {idx + 1} of {seq.length}
             </p>
           ) : <span />}
           <button
@@ -323,34 +340,66 @@ export default function FamilyInterview({
 
 /* ─────────────────────────── Step bodies ─────────────────────────── */
 
-function StepHeader({ title, body }: { title: string; body: string }) {
+// Every step gets a colour-coded icon badge + eyebrow chip now, not just
+// Welcome — a plain "Question N of 30" on a white card read as a form to
+// get through, not a family safety checklist. Skimming the badge alone now
+// tells you what kind of thing you're about to be asked, before you've
+// read a word of the title.
+type Tone = 'clay' | 'sage' | 'dusk' | 'rosa' | 'honey';
+const TONE_CLASSES: Record<Tone, { badge: string; chip: string }> = {
+  clay: { badge: 'bg-clay-50 text-clay-600', chip: 'bg-clay-100 text-clay-700' },
+  sage: { badge: 'bg-sage-50 text-sage-600', chip: 'bg-sage-100 text-sage-700' },
+  dusk: { badge: 'bg-dusk-50 text-dusk-600', chip: 'bg-dusk-100 text-dusk-700' },
+  rosa: { badge: 'bg-rosa-50 text-rosa-600', chip: 'bg-rosa-100 text-rosa-700' },
+  honey: { badge: 'bg-honey-50 text-honey-700', chip: 'bg-honey-100 text-honey-800' },
+};
+
+function StepHeader({ icon: Icon, tone, eyebrow, title, body }: {
+  icon: React.ComponentType<{ className?: string }>;
+  tone: Tone;
+  eyebrow: string;
+  title: string;
+  body: string;
+}) {
+  const t = TONE_CLASSES[tone];
   return (
     <>
-      <h3 id="interview-step-title" className="font-display text-lg font-semibold text-ink-900 leading-snug">
-        {title}
-      </h3>
-      <p className="text-[13.5px] text-ink-600 leading-relaxed mt-1.5 mb-4">{body}</p>
+      <div className="flex items-start gap-3">
+        <div className={`w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center ${t.badge}`}>
+          <Icon className="w-5 h-5" />
+        </div>
+        <div className="min-w-0 pt-0.5">
+          <div className="mb-1.5">
+            <span className={`chip ${t.chip}`}>{eyebrow}</span>
+          </div>
+          <h3 id="interview-step-title" className="font-display text-lg font-semibold text-ink-900 leading-snug">
+            {title}
+          </h3>
+        </div>
+      </div>
+      <p className="text-[13.5px] text-ink-600 leading-relaxed mt-2.5 mb-4">{body}</p>
     </>
   );
 }
 
 function WelcomeStep() {
   return (
-    <>
-      <div className="w-10 h-10 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mb-3">
-        <Sparkles className="w-5 h-5" />
-      </div>
-      <StepHeader
-        title="Let's fill up your vault"
-        body="A blank vault doesn't help anyone. A few honest questions — the kind that actually matter in a real emergency — and yours won't be blank anymore. Answer what you know, skip what you don't, stop whenever you like: everything you enter along the way is saved and useful on its own."
-      />
-    </>
+    <StepHeader
+      icon={Sparkles}
+      tone="clay"
+      eyebrow="GETTING STARTED"
+      title="Let's fill up your vault"
+      body="A blank vault doesn't help anyone. A few honest questions — the kind that actually matter in a real emergency — and yours won't be blank anymore. Answer what you know, skip what you don't, stop whenever you like: everything you enter along the way is saved and useful on its own."
+    />
   );
 }
 
 function ClosingStep() {
   return (
     <StepHeader
+      icon={ShieldCheck}
+      tone="sage"
+      eyebrow="ALL SET"
       title="That's it — you're genuinely set up"
       body="Add photos, more documents, and everyone else's details whenever you like — from each person's profile, or from Info and Household in the menu. Come back to this setup any time from Hub settings if you want to fill in more, or redo it from scratch."
     />
@@ -392,6 +441,9 @@ function MembersStep({ members, onAddMember }: {
   return (
     <>
       <StepHeader
+        icon={Users}
+        tone="sage"
+        eyebrow="FAMILY"
         title="Who's this vault for?"
         body="Add the people in your family — just a name and, if you know it, a birthday. Photos, sizes and everything else can wait."
       />
@@ -443,6 +495,9 @@ function CountryStep({ settings, onSaveSettings, registerCommit }: {
   return (
     <>
       <StepHeader
+        icon={Globe}
+        tone="dusk"
+        eyebrow="LOCALE"
         title="Which country are you in?"
         body="This sets your real local emergency number and shapes a couple of ID questions coming up — an NHS number for the UK, medical aid for South Africa, that sort of thing."
       />
@@ -474,6 +529,9 @@ function MemberHealthStep({ member, onPatchMember, registerCommit }: {
   return (
     <>
       <StepHeader
+        icon={HeartPulse}
+        tone="rosa"
+        eyebrow="MEDICAL ESSENTIALS"
         title={`${member.name}'s blood group & allergies`}
         body="The two facts a paramedic or emergency room asks for first. Skip anything you don't know — plain text is fine."
       />
@@ -512,6 +570,9 @@ function MemberEmergencyStep({ member, onPatchMember, registerCommit }: {
   return (
     <>
       <StepHeader
+        icon={Siren}
+        tone="honey"
+        eyebrow="EMERGENCY CONTACT"
         title={`Who do we call about ${member.name}?`}
         body={`If something happens to ${member.name}, who should be phoned first?`}
       />
@@ -578,6 +639,9 @@ function MemberIdStep({ member, country, onPatchMember, onAddDocument, registerC
   return (
     <>
       <StepHeader
+        icon={IdCard}
+        tone="dusk"
+        eyebrow="IDENTITY & DOCUMENTS"
         title={`Any passport or ID worth saving for ${member.name}?`}
         body="A photo is faster than typing, and it matters most right before it expires. Scan it, type the number, or both — whatever's quickest."
       />
@@ -660,6 +724,9 @@ function DoctorStep({ demo, registerCommit }: { demo: boolean; registerCommit: (
   return (
     <>
       <StepHeader
+        icon={Stethoscope}
+        tone="sage"
+        eyebrow="HEALTHCARE"
         title="Who's your family's doctor?"
         body="Just the basics for now — you can add dentists, specialists and more later in Info."
       />
@@ -707,6 +774,9 @@ function HouseholdStep({ demo, registerCommit }: { demo: boolean; registerCommit
   return (
     <>
       <StepHeader
+        icon={Home}
+        tone="clay"
+        eyebrow="HOUSEHOLD"
         title="The practical stuff — for a babysitter, a courier, or you at 2am"
         body="Your address and Wi-Fi details, so anyone looking after your place (or your family) isn't stuck."
       />
