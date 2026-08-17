@@ -30,7 +30,7 @@ const MONTH_MS = 30.4375 * 24 * 60 * 60 * 1000;
 // export it, but the threshold itself is intentionally the same number so
 // the readiness card and the nudge digest never disagree about what "soon"
 // means for the same document.
-const PASSPORT_WARN_MONTHS = 9;
+export const PASSPORT_WARN_MONTHS = 9;
 
 export type ReadinessSeverity = 'critical' | 'important' | 'minor';
 

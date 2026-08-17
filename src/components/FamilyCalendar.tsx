@@ -3,8 +3,9 @@ import { CalendarEvent, FamilyMember } from '../types';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   Calendar, Clock, Plus, Trash2, Edit2,
-  Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X, Info,
-  Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine, Link2
+  Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X,
+  Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine, Link2,
+  ChevronDown, IdCard, ShieldCheck
 } from 'lucide-react';
 import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken, connectGoogleAccess } from '../utils/firebase';
 import { auth } from '../lib/firebase';
@@ -23,6 +24,12 @@ import {
 } from '../utils/calendarDuplicates';
 import { resolveEventMembers } from '../utils/eventMemberMatch';
 import { sortByRelevance } from '../utils/eventRelevance';
+import {
+  buildCalendarDocumentExpiries,
+  documentExpiryStatusLabel,
+} from '../utils/calendarDocumentExpiries';
+import { PASSPORT_WARN_MONTHS } from '../utils/readiness';
+import { warmAvatarColor } from '../utils/avatarPalette';
 import { parseIcs, buildIcs } from '../utils/ics';
 import {
   CalendarFeed, mergeFeedEvents, removeFeedEvents, feedIdForUrl, describeSync, suggestFeedLabel,
@@ -783,6 +790,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [remindMe, setRemindMe] = useState(true);
   const [taggedMemberIds, setTaggedMemberIds] = useState<string[]>([]);
   const [reminderNote, setReminderNote] = useState<string | null>(null);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
+  const [showAllDocumentDates, setShowAllDocumentDates] = useState(false);
 
   // Month properties
   const monthNames = [
@@ -956,17 +965,42 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     e => e.time || '00:00',
   );
 
-  // Quick reminder feed (Events in the next 12 days from today), same
-  // family-relevant-first ordering.
+  // Six-month planning horizon. The old 12-day slice made an appointment
+  // effectively invisible until it was almost upon the family. Keep the
+  // existing relevance ranking, but apply it INSIDE chronological month
+  // buckets: that keeps each month scannable without allowing a milestone
+  // five months away to drag its whole month ahead of tomorrow's appointment.
   const todayTime = new Date(todayLocal()).getTime();
-  const upcomingReminders = sortByRelevance(
-    events.filter(e => {
+  const upcomingReminders = events.filter(e => {
       const evTime = new Date(e.date).getTime();
       const diffDays = (evTime - todayTime) / (1000 * 60 * 60 * 24);
-      return diffDays >= 0 && diffDays <= 12;
-    }),
-    e => e.date,
-  );
+      return diffDays >= 0 && diffDays <= 180;
+    });
+  const upcomingReminderGroups = Array.from(
+    upcomingReminders.reduce((groups, event) => {
+      const monthKey = event.date.slice(0, 7);
+      const group = groups.get(monthKey) || [];
+      group.push(event);
+      groups.set(monthKey, group);
+      return groups;
+    }, new Map<string, CalendarEvent[]>()),
+  )
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([monthKey, monthEvents]) => ({
+      monthKey,
+      label: new Date(`${monthKey}-01T00:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
+      events: sortByRelevance(monthEvents, e => `${e.date} ${e.time || '00:00'}`),
+    }));
+
+  // Unlike generated calendar reminders, these dates come straight from the
+  // current member record. The nine-month boundary is shared with Readiness,
+  // so Calendar and Dashboard cannot disagree about whether a passport is
+  // approaching expiry.
+  const documentExpiries = useMemo(() => buildCalendarDocumentExpiries(members), [members]);
+  const watchedDocumentExpiries = documentExpiries.filter((item) => item.status !== 'later');
+  const shownDocumentExpiries = showAllDocumentDates
+    ? documentExpiries
+    : watchedDocumentExpiries.length > 0 ? watchedDocumentExpiries : documentExpiries.slice(0, 1);
 
   // Real today string for highlighting the calendar cell
   const realTodayStr = todayLocal();
@@ -981,17 +1015,30 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         </div>
       )}
 
-      {/* Header bar */}
-      <section className="border-b border-cream-300/50 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h3 className="text-xl font-display font-semibold text-ink-900 flex items-center gap-2">
-            <span className="w-1.5 h-4 bg-clay-400 rounded-full inline-block"></span>
-            Family calendar
-          </h3>
-          <p className="text-[13px] text-ink-500 mt-1">Shared planning schedule. Coordinate flights, medical appointments, milestones, and school schedules seamlessly.</p>
-        </div>
+      {/* Planning belongs first; connection plumbing is deliberately folded
+          lower down so opening Calendar answers "what is happening?" before
+          "which service does it come from?". */}
+      <section className="rounded-3xl bg-ink-900 text-white p-5 sm:p-6 shadow-soft overflow-hidden relative">
+        <div className="absolute -right-8 -top-10 w-32 h-32 rounded-full bg-clay-500/20" aria-hidden="true" />
+        <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-clay-300">Shared planning</p>
+            <h3 className="text-2xl font-display font-semibold mt-1">Family calendar</h3>
+            <p className="text-[13px] text-white/70 mt-1 max-w-xl">
+              The month, today’s agenda and the next six months — with travel documents kept in view.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              <span className="chip bg-white/10 text-white">
+                {events.filter((event) => event.date.startsWith(`${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`)).length} in {monthNames[currentMonth]}
+              </span>
+              <span className="chip bg-white/10 text-white">{upcomingReminders.length} in the next 6 months</span>
+              <span className={`chip ${needsAuth ? 'bg-white/10 text-white/70' : 'bg-sage-500 text-white'}`}>
+                {needsAuth ? 'Google offline' : 'Google connected'}
+              </span>
+            </div>
+          </div>
 
-        <div className="flex items-center gap-2 ml-auto sm:ml-0 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
           {canWrite && (
             <>
               <input
@@ -1004,7 +1051,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               <button
                 onClick={() => scanFileRef.current?.click()}
                 disabled={isScanningNotice || !aiOn}
-                className="btn-quiet text-sm disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white hover:bg-white/20 transition-colors disabled:opacity-50"
                 title="Photograph a school notice, flyer, or an old reminder/appointment card — AI extracts every date automatically"
               >
                 {isScanningNotice ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanLine className="w-4 h-4" />}
@@ -1012,13 +1059,14 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               </button>
               <button
                 onClick={handleOpenAddForm}
-                className="btn-primary text-sm"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-clay-500 px-3 py-2 text-sm font-semibold text-white hover:bg-clay-600 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 <span>Add event</span>
               </button>
             </>
           )}
+          </div>
         </div>
       </section>
 
@@ -1063,9 +1111,106 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         </div>
       )}
 
-      {/* Google Calendar Sync Panel */}
-      <div className="card rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center space-x-3">
+      {/* Persistent travel-document watch. Document numbers are intentionally
+          absent: the date and owner are enough to keep a renewal in mind, and
+          the IDs screen remains the place for the sensitive identifier. */}
+      <section className="rounded-3xl border border-honey-200 bg-honey-50 overflow-hidden">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-honey-200/60">
+          <div className="p-2.5 rounded-2xl bg-honey-100 text-honey-700 shrink-0 self-start sm:self-auto">
+            <IdCard className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-display text-[16px] font-semibold text-ink-900">Travel document watch</h4>
+              {watchedDocumentExpiries.length > 0 ? (
+                <span className="chip bg-honey-100 text-honey-700">
+                  {watchedDocumentExpiries.length} expired or within {PASSPORT_WARN_MONTHS} months
+                </span>
+              ) : documentExpiries.length > 0 ? (
+                <span className="chip bg-sage-100 text-sage-700">No renewals due soon</span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">No expiry dates on file</span>
+              )}
+            </div>
+            <p className="text-[12.5px] text-ink-500 mt-0.5">
+              Passport, visa and residence-card dates come directly from each family member’s current record.
+            </p>
+          </div>
+          {documentExpiries.length > shownDocumentExpiries.length && (
+            <button
+              type="button"
+              onClick={() => setShowAllDocumentDates(true)}
+              className="btn-quiet text-xs shrink-0"
+            >
+              Show all {documentExpiries.length} dates
+            </button>
+          )}
+          {showAllDocumentDates && documentExpiries.length > 1 && (
+            <button type="button" onClick={() => setShowAllDocumentDates(false)} className="btn-quiet text-xs shrink-0">
+              Show priority dates
+            </button>
+          )}
+        </div>
+
+        {shownDocumentExpiries.length === 0 ? (
+          <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
+            <ShieldCheck className="w-4 h-4 text-sage-600 shrink-0" />
+            Add passport, visa or residence-permit expiry dates in a family member’s ID records and they will stay visible here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-honey-200/60">
+            {shownDocumentExpiries.map((item) => {
+              const member = members.find((m) => m.id === item.memberId);
+              const urgent = item.status === 'expired';
+              const soon = item.status === 'soon';
+              return (
+                <div key={item.id} className="bg-white p-4 flex items-center gap-3 min-w-0">
+                  {member?.avatarUrl ? (
+                    <img src={member.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <span className={`w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-bold text-white uppercase shrink-0 ${warmAvatarColor(member?.avatarColor)}`}>
+                      {item.memberName.charAt(0)}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-semibold text-ink-900 truncate">{item.memberName} · {item.label}</p>
+                    <p className="text-[11.5px] text-ink-400 tabular-nums mt-0.5">Expires {item.expiryDate}</p>
+                  </div>
+                  <span className={`chip shrink-0 ${urgent ? 'bg-rosa-100 text-rosa-700' : soon ? 'bg-honey-100 text-honey-700' : 'bg-sage-100 text-sage-700'}`}>
+                    {documentExpiryStatusLabel(item)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Connections are important tools, but not the calendar's primary
+          reading task. One always-reachable disclosure keeps every import,
+          export and publishing capability without making setup dominate the
+          page after it has already been configured. */}
+      <details className="card rounded-3xl overflow-hidden group">
+        <summary className="p-4 sm:p-5 flex items-center gap-3 cursor-pointer list-none hover:bg-cream-50 transition-colors">
+          <div className="p-2 rounded-xl bg-sage-100 text-sage-600 border border-sage-200 shrink-0">
+            <Cloud className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h4 className="text-[14px] font-semibold text-ink-900">Calendar connections &amp; sharing</h4>
+            <p className="text-[12px] text-ink-500 mt-0.5">
+              Google {needsAuth ? 'is offline' : 'is connected'} · {calendarFeeds.length} subscribed calendar{calendarFeeds.length === 1 ? '' : 's'} · import, export and private sharing links
+            </p>
+          </div>
+          {duplicatesToRemove > 0 && !duplicatesDismissed && canWrite && (
+            <span className="chip bg-honey-100 text-honey-700 shrink-0">{duplicatesToRemove} duplicates</span>
+          )}
+          <ChevronDown className="w-4 h-4 text-ink-400 shrink-0 transition-transform group-open:rotate-180" />
+        </summary>
+
+        <div className="border-t border-cream-200 bg-cream-50/60 p-4 sm:p-5 space-y-4">
+          <section className="rounded-2xl border border-cream-200 bg-white p-4 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-center space-x-3">
           <div className="p-2 rounded-xl bg-sage-100 text-sage-600 border border-sage-200 shrink-0">
             <Cloud className="w-4 h-4" />
           </div>
@@ -1171,12 +1316,16 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               </button>
             </div>
           )}
-        </div>
+              </div>
+            </div>
 
-        {/* Duplicates already in the vault. Only shown when there are some —
-            a permanent "0 duplicates" row would be noise. */}
+        {/* Duplicates already in the vault. This used to be a third child of a
+            responsive horizontal flex container whose first two children were
+            the Google description and actions. At sm widths it became a peer
+            column and crossed the following calendar tools. Keeping it in this
+            explicit full-width flow fixes the structure, not just the paint. */}
         {duplicatesToRemove > 0 && !duplicatesDismissed && canWrite && (
-          <div className="mt-4 rounded-xl border border-cream-300 bg-cream-100 px-3 py-2.5">
+          <div className="rounded-xl border border-honey-200 bg-honey-50 px-3 py-2.5">
             <div className="flex items-start gap-2">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-clay-600" />
               <div className="min-w-0 flex-1">
@@ -1220,13 +1369,14 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             )}
           </div>
         )}
+          </section>
 
         {/* Any other calendar — Apple, Outlook, Proton, anything.
             Google is the only calendar Teluva talks to over an API. Every other
             one is reached two ways: a SUBSCRIPTION (a link that keeps itself up
             to date) or a one-off FILE. The subscription is the one people
             actually want, so it comes first. */}
-        <div className="mt-4 pt-4 border-t border-cream-200 space-y-3">
+          <section className="rounded-2xl border border-cream-200 bg-white p-4 space-y-3">
           <div>
             <p className="text-[13px] font-semibold text-ink-800">On a different calendar?</p>
             <p className="text-[12px] text-ink-500 leading-snug mt-0.5">
@@ -1462,14 +1612,15 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               {icsNote}
             </p>
           )}
+          </section>
         </div>
-      </div>
+      </details>
 
       {/* Main Layout: Calendar Grid (LEFT) + Daily Activities (RIGHT) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
 
         {/* MONTH CALENDAR CONTAINER */}
-        <div className="lg:col-span-7 card rounded-2xl p-5 space-y-4">
+        <div className="lg:col-span-7 card rounded-3xl p-5 sm:p-6 space-y-4">
 
           {/* Calendar Header with Controls */}
           <div className="flex items-center justify-between">
@@ -1600,11 +1751,13 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           </div>
         </div>
 
-        {/* RIGHT AREA: Day events + Upcoming feed */}
-        <div className="lg:col-span-5 space-y-6">
+        {/* `contents` lets the six-month horizon span the whole grid below the
+            calendar/agenda pair, instead of being squeezed into a narrow
+            sidebar with its important later months hidden in an inner scroll. */}
+        <div className="contents">
 
           {/* EVENTS ON SELECTED DAY */}
-          <section className="card rounded-2xl p-5 space-y-4">
+          <section className="lg:col-span-5 card rounded-3xl p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-cream-200">
               <h4 className="text-[13px] font-semibold text-ink-800">
                 Agenda: <span className="font-mono tabular-nums">{selectedDateStr}</span>
@@ -1701,7 +1854,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                                 ) : (
                                   <span
                                     key={m.id}
-                                    className={`w-5 h-5 rounded-full ${m.avatarColor} text-[10px] font-bold text-white flex items-center justify-center border-2 border-white shrink-0`}
+                                    className={`w-5 h-5 rounded-full ${warmAvatarColor(m.avatarColor)} text-[10px] font-bold text-white flex items-center justify-center border-2 border-white shrink-0`}
                                     title={m.name}
                                   >
                                     {m.name.charAt(0)}
@@ -1769,41 +1922,101 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             )}
           </section>
 
-          {/* UPCOMING REMINDERS SIDEBAR */}
-          <section className="card rounded-2xl p-5 space-y-4">
-            <h4 className="text-[13px] font-semibold text-ink-800 flex items-center gap-2 pb-2 border-b border-cream-200">
-              <Bell className="w-4 h-4 text-ink-400" />
-              Upcoming shared reminders
-            </h4>
+          {/* A preview from EVERY populated month keeps the far edge of the
+              six-month horizon visible without dumping a work calendar's
+              entire 180-day feed onto the page. Relevance sort still decides
+              which three rows represent each month; one button reveals all. */}
+          <section className="lg:col-span-12 card rounded-3xl p-5 sm:p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 pb-3 border-b border-cream-200">
+              <div>
+                <h4 className="text-[15px] font-display font-semibold text-ink-900 flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-clay-500" />
+                  Upcoming shared reminders
+                </h4>
+                <p className="text-[12.5px] text-ink-500 mt-1">Appointments and family dates through the next 180 days, grouped by month.</p>
+              </div>
+              <span className="chip bg-cream-200 text-ink-600 shrink-0">{upcomingReminders.length} reminders · 6 months</span>
+            </div>
 
             {upcomingReminders.length === 0 ? (
-              <div className="text-center py-6 flex flex-col items-center gap-3">
+              <div className="text-center py-7 flex flex-col items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
                   <Bell className="w-5 h-5" />
                 </div>
-                <p className="text-ink-400 text-[13px] italic">
-                  No reminders in the next 12 days.
-                </p>
+                <p className="text-ink-400 text-[13px] italic">No reminders in the next six months.</p>
               </div>
             ) : (
-              <div className="space-y-2.5 text-xs leading-normal max-h-56 overflow-y-auto pr-1">
-                {upcomingReminders.slice(0, 5).map(rem => (
-                  <div
-                    key={rem.id}
-                    // Google-imported entries are shown, not hidden — just
-                    // visually quieter, since a family birthday or passport
-                    // renewal further out in the 12-day window may now
-                    // occupy the slot this item would otherwise have held.
-                    className={`flex gap-2.5 items-start bg-cream-100 border border-cream-200 p-2.5 rounded-xl hover:bg-cream-200/50 transition-colors ${isGoogleOriginEventId(rem.id) ? 'opacity-60' : ''}`}
-                  >
-                    <Info className="w-4 h-4 text-ink-400 mt-0.5 shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-ink-800 truncate pr-0.5 text-[13px]">{rem.title}</p>
-                      <p className="font-mono tabular-nums text-[11px] text-ink-400 mt-0.5">{rem.date} {rem.time ? `• ${rem.time}` : ''}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {upcomingReminderGroups.map((group) => {
+                    const visibleEvents = showAllUpcoming ? group.events : group.events.slice(0, 3);
+                    return (
+                      <section key={group.monthKey} className="rounded-2xl border border-cream-200 bg-cream-50 overflow-hidden">
+                        <div className="px-4 py-2.5 border-b border-cream-200 flex items-center justify-between gap-2">
+                          <h5 className="text-[11px] font-bold text-ink-500 uppercase tracking-wide">{group.label}</h5>
+                          <span className="text-[11px] text-ink-400 tabular-nums">{group.events.length}</span>
+                        </div>
+                        <div className="divide-y divide-cream-200">
+                          {visibleEvents.map((rem) => {
+                            const resolved = resolveEventMembers(rem, members);
+                            const assigned = members.filter((m) => resolved.memberIds.includes(m.id));
+                            const categoryDot =
+                              rem.category === 'School' ? 'bg-dusk-500' :
+                              rem.category === 'Travel' ? 'bg-honey-500' :
+                              rem.category === 'Appointment' ? 'bg-rosa-500' :
+                              rem.category === 'Milestone' ? 'bg-sage-500' : 'bg-ink-400';
+                            return (
+                              <button
+                                key={rem.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDateStr(rem.date);
+                                  setEventDate(rem.date);
+                                  const [year, month] = rem.date.split('-').map(Number);
+                                  setCurrentYear(year);
+                                  setCurrentMonth(month - 1);
+                                }}
+                                className={`w-full flex gap-3 items-start p-3 text-left hover:bg-white transition-colors ${isGoogleOriginEventId(rem.id) ? 'opacity-60' : ''}`}
+                              >
+                                <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${categoryDot}`} />
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-semibold text-ink-800 truncate text-[13px]">{rem.title}</p>
+                                  <p className="font-mono tabular-nums text-[11px] text-ink-400 mt-0.5">
+                                    {new Date(`${rem.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                                    {rem.time ? ` · ${rem.time}` : ''}
+                                  </p>
+                                </div>
+                                {assigned.length > 0 && (
+                                  <div className="flex -space-x-1 shrink-0">
+                                    {assigned.slice(0, 2).map((member) => member.avatarUrl ? (
+                                      <img key={member.id} src={member.avatarUrl} alt="" title={member.name} className="w-6 h-6 rounded-full object-cover border-2 border-white" />
+                                    ) : (
+                                      <span key={member.id} title={member.name} className={`w-6 h-6 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-bold text-white ${warmAvatarColor(member.avatarColor)}`}>
+                                        {member.name.charAt(0)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {!showAllUpcoming && group.events.length > 3 && (
+                          <p className="px-4 py-2 text-[11px] font-semibold text-ink-400 border-t border-cream-200">
+                            + {group.events.length - 3} more this month
+                          </p>
+                        )}
+                      </section>
+                    );
+                  })}
+                </div>
+                {upcomingReminderGroups.some((group) => group.events.length > 3) && (
+                  <button type="button" onClick={() => setShowAllUpcoming((open) => !open)} className="btn-quiet mx-auto">
+                    <ChevronDown className={`w-4 h-4 transition-transform ${showAllUpcoming ? 'rotate-180' : ''}`} />
+                    {showAllUpcoming ? 'Show the monthly overview' : `Show all ${upcomingReminders.length} reminders`}
+                  </button>
+                )}
+              </>
             )}
           </section>
 
