@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyMember, MedicalRecord, Vaccination, IdCountry, CalendarEvent } from '../types';
-import { Plus, Trash2, Pencil, Check, X } from 'lucide-react';
+import { Plus, Trash2, Pencil, Check, X, HeartPulse, ChevronRight } from 'lucide-react';
 import HealthInsuranceRow from './HealthInsuranceRow';
 import MemberReferrals from './MemberReferrals';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
@@ -15,6 +15,8 @@ interface MemberMedicalProps {
   /** Everyone in the space — lets an untagged calendar appointment be matched to a person by name. */
   members?: readonly FamilyMember[];
   onOpenCalendar?: () => void;
+  /** Opens HealthTimeline preselected to this member — same pattern as onOpenCalendar above: this screen doesn't mount the modal itself, it just asks its parent to. */
+  onOpenHistory?: () => void;
 }
 
 function newId() {
@@ -35,7 +37,7 @@ const initMedical = (member: FamilyMember): MedicalRecord => ({
   notes: member.medical?.notes || '',
 });
 
-export default function MemberMedical({ member, onUpdate, country = 'AT', events = [], members = [], onOpenCalendar }: MemberMedicalProps) {
+export default function MemberMedical({ member, onUpdate, country = 'AT', events = [], members = [], onOpenCalendar, onOpenHistory }: MemberMedicalProps) {
   const [medical, setMedical] = useState<MedicalRecord>(() => initMedical(member));
 
   // Reset local state when member.id changes
@@ -84,6 +86,30 @@ export default function MemberMedical({ member, onUpdate, country = 'AT', events
 
   return (
     <div className="space-y-6">
+      {/* Opens the full merged timeline (vaccinations, check-ups, referrals &
+          results, growth, appointments) for THIS member — see
+          HealthTimeline.tsx / utils/healthTimeline.ts. This tab is scattered
+          facts; the timeline is the one place they read as a single history,
+          so it's offered right at the top rather than buried below the forms. */}
+      {onOpenHistory && (
+        <button
+          type="button"
+          onClick={onOpenHistory}
+          className="w-full card p-4 flex items-center justify-between gap-3 hover:bg-cream-50 transition-colors cursor-pointer"
+        >
+          <span className="flex items-center gap-2.5 text-left">
+            <span className="p-2 rounded-xl bg-rosa-100 text-rosa-600 shrink-0">
+              <HeartPulse className="w-4 h-4" />
+            </span>
+            <span>
+              <span className="block text-[14px] font-semibold text-ink-900">View full health timeline</span>
+              <span className="block text-[12px] text-ink-400">Vaccinations, check-ups, referrals, growth and appointments — all in one place</span>
+            </span>
+          </span>
+          <ChevronRight className="w-4 h-4 text-ink-400 shrink-0" />
+        </button>
+      )}
+
       {/* Booked appointments, read from the shared calendar.
           This tab is where people look for "when is the doctor?" — it was the
           first place checked when an appointment added by voice seemed to have

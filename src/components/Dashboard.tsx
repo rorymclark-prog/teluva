@@ -509,6 +509,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   const [showFamilyStats, setShowFamilyStats] = useState(false);
   const [showFamilyQuiz, setShowFamilyQuiz] = useState(false);
   const [showHealthTimeline, setShowHealthTimeline] = useState(false);
+  // Set when HealthTimeline is opened FROM a specific member's Medical tab, so
+  // it preselects them instead of defaulting to the first family member. The
+  // Dashboard's own "Health timeline" quick-action chip (family-wide) leaves
+  // this null, and HealthTimeline itself falls back to members[0] in that case.
+  const [healthTimelineMemberId, setHealthTimelineMemberId] = useState<string | null>(null);
 
   // null = no save attempted yet; true/false = last save reached cloud or not
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -2277,7 +2282,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                   <HelpCircle className="w-4 h-4" />
                   <span>Quiz</span>
                 </button>
-                <button type="button" onClick={() => setShowHealthTimeline(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
+                <button type="button" onClick={() => { setHealthTimelineMemberId(null); setShowHealthTimeline(true); }} className="btn-quiet px-3.5 py-2 text-[13px]">
                   <HeartPulse className="w-4 h-4" />
                   <span>Health timeline</span>
                 </button>
@@ -2569,6 +2574,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                                   events={events}
                                   members={members}
                                   onOpenCalendar={() => setMainView('calendar')}
+                                  onOpenHistory={() => { setHealthTimelineMemberId(selectedMember.id); setShowHealthTimeline(true); }}
                                 />
                               )}
                               {activeTab === 'care' && (
@@ -2874,7 +2880,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         <FamilyQuiz members={members} events={events} onClose={() => setShowFamilyQuiz(false)} />
       )}
       {showHealthTimeline && (
-        <HealthTimeline members={members} events={events} onClose={() => setShowHealthTimeline(false)} />
+        <HealthTimeline
+          members={members}
+          events={events}
+          initialMemberId={healthTimelineMemberId || undefined}
+          onClose={() => { setShowHealthTimeline(false); setHealthTimelineMemberId(null); }}
+        />
       )}
     </div>
   );
