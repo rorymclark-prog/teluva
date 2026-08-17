@@ -44,6 +44,13 @@ const SCAN_TYPE_OPTIONS: { type: ScanType; label: string; hint: string; icon: ty
 const AUTO_CAPTURE_INTERVAL_MS = 280;
 const AUTO_CAPTURE_STILL_CHECKS = 3;
 const AUTO_CAPTURE_DIFF_THRESHOLD = 8;
+// A brand new camera stream (first open, or right after Retake) can render a
+// handful of near-black frames while the sensor's auto-exposure is still
+// converging — and a finger briefly covering the lens while positioning the
+// phone looks identical to the diff check above: a stable, unchanging frame.
+// Either way that satisfies "held still" and would auto-fire a shot nobody
+// can read. Treat anything this dark as not-yet-usable rather than still.
+const AUTO_CAPTURE_MIN_BRIGHTNESS = 35; // average luma, 0-255 scale
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -89,6 +96,7 @@ export default function DocumentScannerModal({
   const [side, setSide] = useState<'front' | 'back'>('front');
   const [frontPhoto, setFrontPhoto] = useState<string | null>(null);
   const [isHolding, setIsHolding] = useState(false);
+  const [isTooDark, setIsTooDark] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
@@ -109,6 +117,7 @@ export default function DocumentScannerModal({
     stillCountRef.current = 0;
     prevSampleRef.current = null;
     setIsHolding(false);
+    setIsTooDark(false);
   };
 
   const stopCamera = () => {
@@ -146,6 +155,12 @@ export default function DocumentScannerModal({
       activeStreamRef.current = stream;
 
       if (videoRef.current) {
+        // Reassigning srcObject on a <video> that already has one can leave a
+        // stale/black frame painted (seen on iOS Safari) until something
+        // forces a real repaint. Clearing it first makes every camera
+        // (re)start behave like a genuinely fresh element, instead of the
+        // dark feed only clearing up once the user manually hits Retake.
+        videoRef.current.srcObject = null;
         videoRef.current.srcObject = stream;
         videoRef.current.play().catch((e) => console.error('Video activation error: ', e));
       }
@@ -226,6 +241,27 @@ export default function DocumentScannerModal({
       if (!video || video.readyState < 2 || capturedPhoto) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const frame = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+      // Gate on brightness before the stillness diff below: a too-dark frame
+      // is trivially "unchanging" against the next too-dark frame (there's
+      // nothing in either to differ), which would otherwise satisfy "held
+      // still" and auto-fire a shot nobody can read. Reset the baseline too —
+      // comparing the next (hopefully lit) frame against a dark one would
+      // read as "moved", which is exactly backwards.
+      let lumaSum = 0;
+      for (let i = 0; i < frame.length; i += 4) {
+        lumaSum += frame[i] * 0.299 + frame[i + 1] * 0.587 + frame[i + 2] * 0.114;
+      }
+      const avgLuma = lumaSum / (frame.length / 4);
+      if (avgLuma < AUTO_CAPTURE_MIN_BRIGHTNESS) {
+        stillCountRef.current = 0;
+        setIsHolding(false);
+        setIsTooDark(true);
+        prevSampleRef.current = null;
+        return;
+      }
+      setIsTooDark(false);
+
       const prev = prevSampleRef.current;
       if (prev) {
         let diffSum = 0;
@@ -449,7 +485,19 @@ export default function DocumentScannerModal({
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 flex-1 overflow-y-auto flex flex-col justify-center min-h-[280px]">
+        {/* No `justify-center` here, and `min-h-0` rather than a positive
+            min-height: both fight overflow-y-auto on a short viewport. A flex
+            item's automatic minimum height defaults to its content size
+            unless explicitly overridden, so a positive min-h (280px) forces
+            this body taller than the space left by the header+footer,
+            pushing the footer (Retake/Save, or in adjustMode nothing —
+            scanic's own Apply/Cancel toolbar) past the outer card's
+            overflow-hidden edge with nothing left to scroll TO. And
+            `justify-center` on a container whose content can overflow is the
+            classic flexbox trap where the browser can only reach part of the
+            overflow by scrolling. Reported live: capture review and the
+            crop-adjust corners screen were both unreachable below the fold. */}
+        <div className="p-5 flex-1 overflow-y-auto flex flex-col min-h-0">
           {!effectiveType ? (
             <div className="space-y-3">
               <p className="text-[13px] font-semibold text-ink-700 text-center mb-1">What are you scanning?</p>
@@ -569,8 +617,12 @@ export default function DocumentScannerModal({
               </div>
               {!isCameraLoading && (
                 <div className="absolute bottom-3 left-0 right-0 flex justify-center pointer-events-none">
-                  <span className={`chip transition-colors ${isHolding ? 'bg-clay-500/90 text-white' : 'bg-black/50 text-white/90'}`}>
-                    {isHolding ? 'Capturing…' : 'Hold steady to auto-capture, or tap to shoot'}
+                  <span
+                    className={`chip transition-colors ${
+                      isTooDark ? 'bg-rosa-600/90 text-white' : isHolding ? 'bg-clay-500/90 text-white' : 'bg-black/50 text-white/90'
+                    }`}
+                  >
+                    {isTooDark ? 'Too dark — move to better light' : isHolding ? 'Capturing…' : 'Hold steady to auto-capture, or tap to shoot'}
                   </span>
                 </div>
               )}

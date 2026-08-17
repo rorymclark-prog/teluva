@@ -1,6 +1,7 @@
 {
-  "label": "v207",
+  "label": "v208",
   "changes": [
-    "Calendar: birthdays, passport/visa renewals, and appointments you've added yourself now show above anything imported from a connected Google Calendar, in both the day view and the upcoming-reminders list."
+    "Document Scanner: fixed the capture-review and crop-adjust screens getting cut off with no way to scroll down to Save on short/phone screens.",
+    "Document Scanner: the camera no longer auto-captures a dark/black shot while it's still adjusting to light — it now waits and tells you to move to better light instead."
   ]
 }
