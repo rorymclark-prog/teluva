@@ -16,7 +16,7 @@ const isAdultRole = (r: FamilyRole | null) => r === 'admin' || r === 'member';
 export type { FamilyRole };
 
 export interface FamilyCtxValue {
-  familyId: string | null;  // null while loading or no family assigned — the ACTIVE space
+  familyId: string | null;  // null while loading, no family assigned, OR the lookup failed — see loadError
   role: FamilyRole | null;  // null while loading — the caller's role in the ACTIVE space
   uid: string | null;       // firebase auth uid
   email: string | null;
@@ -28,6 +28,15 @@ export interface FamilyCtxValue {
   spaces: SpaceMembership[]; // every space (family/business) this user belongs to — always has at
                              // least the active one, even for accounts written before spaces[] existed
   loading: boolean;
+  // Set only when the users/{uid} lookup itself THREW (network blip, quota
+  // exhaustion, cold-start hiccup) — as opposed to the lookup succeeding and
+  // simply finding no doc. Both cases leave familyId null, but they must not
+  // be shown the same screen: a real "you're new here, create a family"
+  // never happened for this signed-in person, and FamilyOnboarding's create/
+  // join flow can WRITE a brand-new family doc, which would silently orphan
+  // an existing account from its real vault if submitted while the read path
+  // is broken. App.tsx must check this before falling through to onboarding.
+  loadError: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +79,7 @@ const defaultValue: FamilyCtxValue = {
   setAiConsent: async () => {},
   spaces: [],
   loading: true,
+  loadError: null,
 };
 
 // Every account has at least one space (its active one) even if `spaces[]`
@@ -122,6 +132,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           setAiConsent,
           spaces: [],
           loading: false,
+          loadError: null,
         });
         return;
       }
@@ -173,6 +184,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             setAiConsent,
             spaces: withSpacesFallback(profile),
             loading: false,
+            loadError: null,
           });
           return;
         }
@@ -219,11 +231,13 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             setAiConsent,
             spaces: profile.spaces!,
             loading: false,
+            loadError: null,
           });
           return;
         }
 
-        // Unknown email — send to onboarding
+        // Unknown email, and the lookup itself succeeded (we definitively
+        // know there's no users/{uid} doc) — this really is a new person.
         setValue({
           familyId: null,
           role: null,
@@ -236,10 +250,20 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           setAiConsent,
           spaces: [],
           loading: false,
+          loadError: null,
         });
       } catch (err) {
+        // The lookup ITSELF failed — network blip, cold-start hiccup, a
+        // Firestore quota error, etc. We have no idea whether this account
+        // has a family or not. Do NOT let this collapse into the same state
+        // as "confirmed new user": that sends people to FamilyOnboarding,
+        // whose create-family flow can WRITE a brand-new family doc — for an
+        // existing member that would silently orphan their real vault the
+        // moment they submit it while looking at what reads as a normal
+        // "let's get you set up" screen. Surface loadError instead; App.tsx
+        // shows a retry screen, not onboarding, whenever this is set.
+        const message = err instanceof Error ? err.message : String(err);
         console.error('FamilyProvider: error resolving user doc', err);
-        // Fail safe — clear loading but leave familyId null
         setValue({
           familyId: null,
           role: null,
@@ -252,6 +276,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           setAiConsent,
           spaces: [],
           loading: false,
+          loadError: message,
         });
       }
     });

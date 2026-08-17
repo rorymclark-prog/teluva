@@ -1,6 +1,6 @@
 {
-  "label": "v216",
+  "label": "v217",
   "changes": [
-    "The guided setup now shows a visible progress bar and a colour-coded icon for what each question is about — medical, emergency contact, documents, and so on — instead of a plain grey \"Question N of 30\"."
+    "Fixed a bug where a brief connection hiccup while signing in could send an existing account to a \"set up your family vault\" screen instead of their real vault. It now shows a plain \"couldn't load your account, try again\" message instead — never a screen that looks like you need to start from scratch."
   ]
 }

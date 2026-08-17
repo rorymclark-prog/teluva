@@ -9,6 +9,7 @@ import { FamilyProvider, useFamilyCtx } from './contexts/FamilyContext';
 import { ChatDraftProvider } from './contexts/ChatDraftContext';
 import Dashboard from './components/Dashboard';
 import FamilyOnboarding from './components/FamilyOnboarding';
+import AccountLoadError from './components/AccountLoadError';
 import FamilySettings from './components/FamilySettings';
 import UpdateBanner from './components/UpdateBanner';
 import GlobalCopyScan from './components/GlobalCopyScan';
@@ -18,7 +19,7 @@ import GlobalCopyScan from './components/GlobalCopyScan';
 // ---------------------------------------------------------------------------
 
 function AppInner() {
-  const { loading, uid, familyId, isAdmin } = useFamilyCtx();
+  const { loading, uid, familyId, isAdmin, loadError } = useFamilyCtx();
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
 
   // 1. Auth/family resolution still in flight
@@ -35,12 +36,22 @@ function AppInner() {
     return <Dashboard familySettingsButton={null} />;
   }
 
-  // 3. Signed in but not yet in a family — show onboarding
+  // 3. Signed in, but the family lookup ITSELF failed — we don't actually
+  // know if this account has a vault or not. Must come before the
+  // familyId===null check below: that check can't tell "confirmed new
+  // user" apart from "couldn't check," and FamilyOnboarding's create-family
+  // flow can write a brand-new family doc, which would silently orphan an
+  // existing member's real vault if they submitted it here by mistake.
+  if (loadError) {
+    return <AccountLoadError message={loadError} />;
+  }
+
+  // 4. Signed in, lookup succeeded, confirmed not yet in a family — onboarding
   if (familyId === null) {
     return <FamilyOnboarding />;
   }
 
-  // 4. Fully loaded — render main app
+  // 5. Fully loaded — render main app
   // A row in the header's account menu (see Dashboard's accountMenuItems), not
   // the unlabelled gear icon it used to be — nobody could tell it apart from
   // the hub-settings gear sitting next to it.
