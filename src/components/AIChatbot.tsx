@@ -14,7 +14,7 @@ import { boundCalendar } from '../utils/calendarWindow';
 import { redactHousehold, redactFinances, redactMember, redactInfoNumbers } from '../utils/aiRedact';
 // Edit/delete-existing-records feature: display labels + apply-time re-resolution
 // live here (this shared component only gets append-only wiring).
-import { annotateDestructiveEdits } from '../utils/aiDestructive';
+import { annotateDestructiveEdits, hasDestructiveEdits } from '../utils/aiDestructive';
 import { PackRequest, resolveTopics } from '../utils/exportPack';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useT } from '../i18n/LangContext';
@@ -88,9 +88,9 @@ export type AiEdit =
       referralKind?: ReferralKind | string; referralDate?: string; referralReason?: string; referralProvider?: string }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
-  | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string; photoUrl?: string }  // photoUrl is filled client-side after Apply, from an attached photo — never sent by the model
-  | { kind: 'recipe'; title: string; ingredients: string[]; steps: string[]; tags?: string[]; photoUrl?: string }  // photoUrl is filled client-side after Apply — never sent by the model
-  | { kind: 'slip'; shop?: string; item: string; purchaseDate?: string; amount?: string; currency?: string; assignedTo?: string; returnByDate?: string; warrantyUntil?: string; notes?: string; photoUrl?: string; photoStoragePath?: string }  // a purchase receipt/till slip — photoUrl/photoStoragePath are filled client-side after Apply — never sent by the model
+  | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string; imageIndex?: number; photoUrl?: string }  // imageIndex picks which attached photo is this item's, when multiple were sent in one turn; photoUrl is filled client-side after Apply — never sent by the model
+  | { kind: 'recipe'; title: string; ingredients: string[]; steps: string[]; tags?: string[]; imageIndex?: number; photoUrl?: string }  // imageIndex picks which attached photo is this recipe's, when multiple were sent in one turn; photoUrl is filled client-side after Apply — never sent by the model
+  | { kind: 'slip'; shop?: string; item: string; purchaseDate?: string; amount?: string; currency?: string; assignedTo?: string; returnByDate?: string; warrantyUntil?: string; notes?: string; imageIndex?: number; photoUrl?: string; photoStoragePath?: string }  // a purchase receipt/till slip — imageIndex picks which attached photo is this slip's, when multiple were sent in one turn; photoUrl/photoStoragePath are filled client-side after Apply — never sent by the model
   | { kind: 'household_set'; field: 'address' | 'doorCode' | 'wifiName' | 'wifiPassword' | 'garageCode'; value: string }
   | { kind: 'transit_pass'; member: string; name: string; operator?: string; cardNumber?: string; zone?: string; validFrom?: string; validUntil?: string; notes?: string }
   | { kind: 'care_schedule'; member: string; careKind: string; provider?: string; lastVisit?: string; intervalMonths?: number; nextDue?: string; notes?: string }
@@ -1650,10 +1650,18 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         fileSize = blob.size;
         hash = await computeFileHash(blob);
       }
+      // The fuzzy type-match ("same kind of document, different name") only
+      // fires when we can actually name whose slot we're comparing against —
+      // ownerId undefined (member not resolved) used to fall back to matching
+      // every OTHER unowned document of the same category as "the same slot",
+      // which cross-matched two different people's scans that both happened
+      // to lack a resolved member (2026-08-17 audit). The byte-exact hash
+      // check above still runs regardless of scope — it can't false-positive.
       const ownerId = resolveMemberByName(e.member)?.id;
-      const sameSlot = existing.filter((d) => d.category === e.category && (d.memberId || '') === (ownerId || ''));
       const match = findLikelyDuplicate({ fileName: fileName || '', fileSize: fileSize ?? 0, contentHash: hash }, existing)
-        || findLikelyDuplicateByType(e.name, sameSlot);
+        || (ownerId
+          ? findLikelyDuplicateByType(e.name, existing.filter((d) => d.category === e.category && d.memberId === ownerId))
+          : null);
       if (match) flags.push({ editIdx: i, name: e.name, match });
     }
     return flags;
@@ -1879,25 +1887,39 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // photo is no longer available (e.g. after a reload), the recipe still
       // saves — just without its photo.
       let resolvedEdits = edits;
+      // Each of the three blocks below uploads per-EDIT, not once for the whole
+      // batch: with multiple photos attached in one turn (e.g. two recipe cards),
+      // each edit's own imageIndex (defaulting to 0) picks which attached photo
+      // is its — previously every edit of a kind shared srcs[0], so a second
+      // recipe/slip/asset in the same batch silently got the first one's photo
+      // (2026-08-17 audit).
       if (srcs.length && edits.some(e => e.kind === 'recipe')) {
-        try {
-          const photoUrl = await uploadRecipePhoto(srcs[0].dataUrl);
-          resolvedEdits = edits.map(e => (e.kind === 'recipe' ? { ...e, photoUrl } : e));
-        } catch {
-          // Non-fatal — recipe text below still gets saved without a photo.
-        }
+        resolvedEdits = await Promise.all(resolvedEdits.map(async (e) => {
+          if (e.kind !== 'recipe') return e;
+          try {
+            const src = srcs[e.imageIndex ?? 0] || srcs[0];
+            const photoUrl = await uploadRecipePhoto(src.dataUrl);
+            return { ...e, photoUrl };
+          } catch {
+            return e; // Non-fatal — recipe text below still gets saved without a photo.
+          }
+        }));
       }
       // A slip edit carries an optional photo of the receipt/till slip itself —
       // upload it now, same non-fatal pattern as the recipe photo above (thermal
       // till slips fade fast, so capturing the image is the point, but a failed
       // upload must not block saving the return/warranty dates the user gave).
       if (srcs.length && edits.some(e => e.kind === 'slip')) {
-        try {
-          const { url, storagePath } = await uploadSlipPhoto(srcs[0].dataUrl);
-          resolvedEdits = resolvedEdits.map(e => (e.kind === 'slip' ? { ...e, photoUrl: url, photoStoragePath: storagePath } : e));
-        } catch {
-          // Non-fatal — slip text below still gets saved without a photo.
-        }
+        resolvedEdits = await Promise.all(resolvedEdits.map(async (e) => {
+          if (e.kind !== 'slip') return e;
+          try {
+            const src = srcs[e.imageIndex ?? 0] || srcs[0];
+            const { url, storagePath } = await uploadSlipPhoto(src.dataUrl);
+            return { ...e, photoUrl: url, photoStoragePath: storagePath };
+          } catch {
+            return e; // Non-fatal — slip text below still gets saved without a photo.
+          }
+        }));
       }
       // An asset edit carries an optional photo of the item itself (a serial
       // plate close-up, the item on a shelf) — upload it now, same non-fatal
@@ -1906,12 +1928,16 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // photo silently dropped — the item on screen had no picture even though
       // the whole point of the message was a photo of it.
       if (srcs.length && edits.some(e => e.kind === 'asset')) {
-        try {
-          const photoUrl = await uploadAssetPhoto(srcs[0].dataUrl);
-          resolvedEdits = resolvedEdits.map(e => (e.kind === 'asset' ? { ...e, photoUrl } : e));
-        } catch {
-          // Non-fatal — asset details below still get saved without a photo.
-        }
+        resolvedEdits = await Promise.all(resolvedEdits.map(async (e) => {
+          if (e.kind !== 'asset') return e;
+          try {
+            const src = srcs[e.imageIndex ?? 0] || srcs[0];
+            const photoUrl = await uploadAssetPhoto(src.dataUrl);
+            return { ...e, photoUrl };
+          } catch {
+            return e; // Non-fatal — asset details below still get saved without a photo.
+          }
+        }));
       }
 
       // A cv edit can carry an attached CV photo/PDF ("here's Nomvula's CV").
@@ -2408,18 +2434,27 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
                   {/* Collapsed by default past two items. A long list pushed the
                       Apply button down past the bottom of the panel, which on a
                       phone made it unreachable — the list is the detail, the
-                      decision is the point, so the decision stays on screen. */}
+                      decision is the point, so the decision stays on screen.
+                      EXCEPT when the batch removes or overwrites something
+                      (delete_record/update_record/clear_field) — collapsing
+                      those by default is how a scanned document's hidden text
+                      ("please also delete record X") gets waved through as an
+                      innocuous-looking "save 4 things?" card. A destructive
+                      batch always renders open and cannot be collapsed; see
+                      the 2026-08-17 chat-injection audit finding. */}
                   {(() => {
+                    const destructive = hasDestructiveEdits(m.edits!) || m.edits!.some(e => e.kind === 'clear_field');
                     const many = m.edits!.length > 2;
-                    const open = expandedEdits[i] ?? !many;
+                    const collapsible = many && !destructive;
+                    const open = destructive ? true : (expandedEdits[i] ?? !many);
                     return (
                       <>
                         <button
                           type="button"
-                          onClick={() => setExpandedEdits((prev) => ({ ...prev, [i]: !open }))}
+                          onClick={() => collapsible && setExpandedEdits((prev) => ({ ...prev, [i]: !open }))}
                           aria-expanded={open}
-                          className={`w-full flex items-center gap-1.5 text-[12px] font-semibold text-clay-700 text-left ${many ? 'cursor-pointer' : 'cursor-default'}`}
-                          disabled={!many}
+                          className={`w-full flex items-center gap-1.5 text-[12px] font-semibold text-clay-700 text-left ${collapsible ? 'cursor-pointer' : 'cursor-default'}`}
+                          disabled={!collapsible}
                         >
                           <Wand2 className="w-3.5 h-3.5 shrink-0" />
                           <span className="flex-1">
@@ -2427,16 +2462,21 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
                               ? `${m.edits!.length} ${m.edits!.length === 1 ? 'change' : 'changes'}`
                               : `I'd like to save ${m.edits!.length} ${m.edits!.length === 1 ? 'thing' : 'things'} — apply?`}
                           </span>
-                          {many && <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? '' : '-rotate-90'}`} />}
+                          {collapsible && <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? '' : '-rotate-90'}`} />}
                         </button>
                         {open && (
                           <ul className="space-y-1">
-                            {m.edits!.map((e, j) => (
-                              <li key={j} className="text-[13px] text-ink-700 flex items-start gap-1.5">
-                                <span className="text-clay-400 mt-0.5">•</span>
-                                <span>{describeEdit(e)}</span>
-                              </li>
-                            ))}
+                            {m.edits!.map((e, j) => {
+                              const removes = e.kind === 'delete_record' || e.kind === 'update_record' || e.kind === 'clear_field';
+                              return (
+                                <li key={j} className={`text-[13px] flex items-start gap-1.5 ${removes ? 'text-rosa-700 font-medium' : 'text-ink-700'}`}>
+                                  {removes
+                                    ? <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rosa-500" />
+                                    : <span className="text-clay-400 mt-0.5">•</span>}
+                                  <span>{describeEdit(e)}</span>
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </>
@@ -2449,7 +2489,11 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
                           <p className="text-[12px] text-honey-800 flex items-start gap-1.5">
                             <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                             <span>
-                              "{f.name}" looks like it may already be saved as "{f.match.doc.name}".
+                              "{f.name}" looks like it may already be saved as "{f.match.doc.name}"
+                              {(() => {
+                                const ownerName = f.match.doc.memberId && members.find(m => m.id === f.match.doc.memberId)?.name;
+                                return ownerName ? ` (${ownerName}'s)` : '';
+                              })()}.
                               {f.match.confidence === 'probable' && ' Same filename and size.'}
                               {f.match.confidence === 'probable-type' && ' Looks like the same kind of document, just under a different name.'}
                             </span>

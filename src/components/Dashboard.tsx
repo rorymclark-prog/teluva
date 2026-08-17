@@ -1094,7 +1094,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       setContacts(updatedInfo.contacts || []);
     }
     if (hasCalendarEdits(edits)) {
-      const next = applyCalendarEdits(events, edits, members);
+      // membersRef.current, not `members` — a new_member edit earlier in this
+      // same batch already landed there (line 1078) but won't reach the
+      // `members` state variable until the next render, so a calendar_event
+      // for that brand-new person would fail to tag them (2026-08-17 audit).
+      const next = applyCalendarEdits(events, edits, membersRef.current);
       setEvents(next);
       const ok = await saveCalendarEvents(next);
       if (!ok) failures.push('calendar');
@@ -1427,7 +1431,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     if (estateIds.size) {
       const doc = (await loadWillsEstate()) || { records: [] };
       tally(new Set((doc.records || []).map(r => r.id)), estateIds);
-      await saveWillsEstate({ records: (doc.records || []).filter(r => !estateIds.has(r.id)) });
+      // Same three-siblings-one-document gotcha as the apply path above: saving
+      // `{ records }` alone reads to saveReferenceDoc's merge as "successor and
+      // instructions were deleted". Spread `doc` into the value and pass it as
+      // the explicit base so only `records` actually changes.
+      await saveWillsEstate({ ...doc, records: (doc.records || []).filter(r => !estateIds.has(r.id)) }, doc);
     }
     const slipIds = idsFor('slip');
     if (slipIds.size) {

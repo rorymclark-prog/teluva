@@ -421,7 +421,7 @@ export default function DocumentScannerModal({
         initial={{ opacity: 0, translateY: '100%' }}
         animate={{ opacity: 1, translateY: 0 }}
         exit={{ opacity: 0, translateY: '100%' }}
-        className="card rounded-3xl sm:rounded-2xl max-w-lg w-full sm:max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col anim-sheet"
+        className="card rounded-3xl sm:rounded-2xl max-w-lg w-full max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col anim-sheet"
       >
         {/* Mobile grabber bar */}
         <SheetGrabber onClose={handleClose} />
