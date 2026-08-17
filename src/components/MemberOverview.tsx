@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Eye, Lock, Stethoscope, Dices, RefreshCw,
+  AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Lock, Stethoscope, Dices, RefreshCw,
 } from 'lucide-react';
 import { useState, type ElementType, useMemo } from 'react';
 import { FamilyMember, FamilyDocument } from '../types';
@@ -9,6 +9,7 @@ import { computeBirthChart } from '../utils/birthChart';
 import { isHintSeen, markHintSeen } from '../utils/db';
 import { resolveNameDay, formatNameDay, daysUntilNameDay } from '../utils/nameDay';
 import MemberBelongings from './MemberBelongings';
+import ShowCardModal, { type ShowCardField } from './ShowCardModal';
 
 // Proof of address: an ID-category scan named like a Meldezettel / registration
 // certificate. Lets us show a "view" icon next to the address.
@@ -48,7 +49,6 @@ function nearestExpiry(member: FamilyMember): { label: string; date: string; sta
 
 export default function MemberOverview({
   member,
-  onViewDocument,
   canEdit = false,
   showAstrology = false,
   onShuffleAstrology,
@@ -57,7 +57,6 @@ export default function MemberOverview({
   onSetNameDay,
 }: {
   member: FamilyMember;
-  onViewDocument?: (src: string) => void;
   canEdit?: boolean;
   showAstrology?: boolean;
   /** Present only when the viewer is allowed to (re-)generate an AI blurb — omitted hides the shuffle button. */
@@ -71,6 +70,11 @@ export default function MemberOverview({
   // First-time discovery nudge for the dice icon — dismissed for good the
   // first time it's actually clicked, per device/space (isHintSeen/db.ts).
   const [diceHintSeen, setDiceHintSeen] = useState(() => isHintSeen('astrology_dice'));
+  // The one full-screen scan viewer used everywhere a saved document can be
+  // opened from this app (see MemberIDs.tsx) — a thumbnail here opens it
+  // rather than the older bare-image lightbox, for the same reason: one
+  // viewer, richer than a plain photo, not three different click targets.
+  const [showCard, setShowCard] = useState<{ title: string; subtitle?: string; fields: ShowCardField[]; scanSrc?: string } | null>(null);
   const zodiac = showAstrology ? sunSign(member.birthdate) : null;
   // The real positions, plus what is and isn't knowable from what's on file.
   const chart = useMemo(() => computeBirthChart({
@@ -173,13 +177,18 @@ export default function MemberOverview({
                   <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wide">{r.label}</p>
                   <p className="text-[14px] text-ink-800 break-words tabular-nums">{r.value}</p>
                 </div>
-                {r.viewSrc && onViewDocument && (
+                {r.viewSrc && (
                   <button
-                    onClick={() => onViewDocument(r.viewSrc!)}
-                    className="shrink-0 flex items-center gap-1 text-[12px] font-semibold text-clay-600 hover:text-clay-700 hover:bg-clay-50 rounded-lg px-2 py-1 transition-colors cursor-pointer"
+                    onClick={() => setShowCard({
+                      title: 'Proof of address',
+                      subtitle: member.name,
+                      fields: [{ label: r.label, value: r.value }],
+                      scanSrc: r.viewSrc,
+                    })}
+                    className="shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-cream-200 bg-cream-50"
                     title="View proof of address"
                   >
-                    <Eye className="w-3.5 h-3.5" /> Proof
+                    <img src={r.viewSrc} alt="" className="w-full h-full object-cover" />
                   </button>
                 )}
               </div>
@@ -323,6 +332,15 @@ export default function MemberOverview({
       <MemberBelongings memberName={member.name} canEdit={canEdit} />
 
       <p className="text-center text-[12px] text-ink-400">Tap a tab above to view or edit the full details.</p>
+
+      <ShowCardModal
+        open={!!showCard}
+        onClose={() => setShowCard(null)}
+        title={showCard?.title || ''}
+        subtitle={showCard?.subtitle}
+        fields={showCard?.fields}
+        scanSrc={showCard?.scanSrc}
+      />
     </div>
   );
 }

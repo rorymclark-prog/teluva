@@ -1,6 +1,6 @@
 {
-  "label": "v213",
+  "label": "v214",
   "changes": [
-    "ID & Passports now has one way to view a saved scan instead of three — tap the small thumbnail next to any passport or ID field to see the full document."
+    "The address proof-of-document link on a member's Overview tab is now a small thumbnail too, matching ID & Passports — tap it to see the full scan."
   ]
 }

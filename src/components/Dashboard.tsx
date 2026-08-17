@@ -2548,7 +2548,6 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               {activeTab === 'overview' && (
                                 <MemberOverview
                                   member={selectedMember}
-                                  onViewDocument={setLightboxImage}
                                   canEdit={!demo && canWrite}
                                   showAstrology={!!settings.astrology}
                                   onShuffleAstrology={isAdmin ? () => (canUseAI ? shuffleAstrology(selectedMember.id) : setConsentOpen(true)) : undefined}
