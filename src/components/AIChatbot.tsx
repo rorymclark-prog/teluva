@@ -694,6 +694,24 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
      bucket rather than this space's. The cached conversation is hydrated in the
      effect below, the moment the space is known. */
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // A scan/send/apply/undo can take a while, and closing the chat panel fully
+  // UNMOUNTS this component (see AssistantBubble.tsx's `{open && <AIChatbot/>}`)
+  // — the in-flight async work keeps running (nothing aborts a fetch on
+  // unmount), but every persistence call below used to be nested inside a
+  // setMessages(prev => {...}) updater, coupling "does this get saved" to
+  // whether React still processes a state update for an already-unmounted
+  // component — never a guarantee worth relying on for a network write. This
+  // ref mirrors `messages` on every render (kept in sync by the effect right
+  // after it's declared below `messages`) so the six persistence sites can
+  // compute off it directly and call saveChatHistory as a plain, unconditional
+  // statement — a Firestore write that runs to completion regardless of
+  // mount state, same as the fetch that produced it. The visible messages
+  // list still updates the normal way via setMessages; this only decouples
+  // *persistence* from *mount*.
+  const messagesRef = useRef<ChatMessage[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
   const [input, setInput] = useState('');
   // The document reader, opened from a chat answer. Holds the resolved vault
   // document (we need its downloadUrl, which never goes near the chat model)
@@ -1523,16 +1541,18 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         sourceImages: persistedAtts.length ? persistedAtts : undefined,
         warnings: warnings.length ? warnings : undefined,
       };
-      setMessages(prev => {
-        // Patch the earlier optimistic user message's images to the uploaded
-        // Storage URLs too, so both sides of this exchange survive a reload.
-        const withUploadedImages = persistedAtts.length
-          ? prev.map(m => (m === userMsg ? { ...m, images: persistedAtts.map(a => a.dataUrl) } : m))
-          : prev;
-        const updatedMessages = [...withUploadedImages, assistantMsg];
-        if (uid) saveChatHistory(uid, slimForCloud(updatedMessages));
-        return updatedMessages;
-      });
+      // Patch the earlier optimistic user message's images to the uploaded
+      // Storage URLs too, so both sides of this exchange survive a reload.
+      // Computed off messagesRef (not the setMessages updater's `prev`) and
+      // persisted unconditionally BEFORE touching React state, so closing the
+      // chat panel mid-request no longer loses the reply — see messagesRef's
+      // doc comment above.
+      const withUploadedImages = persistedAtts.length
+        ? messagesRef.current.map(m => (m === userMsg ? { ...m, images: persistedAtts.map(a => a.dataUrl) } : m))
+        : messagesRef.current;
+      const updatedMessages = [...withUploadedImages, assistantMsg];
+      if (uid) saveChatHistory(uid, slimForCloud(updatedMessages));
+      setMessages(updatedMessages);
       startStreaming(assistantMsg.text);
       refreshAiUsage(); // this call just counted against this month's quota — keep the indicator honest
 
@@ -1999,13 +2019,13 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         // user must re-attach the photo to store the document itself.
         setError('Your other changes were saved, but the photo itself is no longer in this chat (it was cleared when the app reloaded). Please re-attach the photo and send it again to file the document.');
       }
-      setMessages(prev => {
-        const updated = prev.map((m, i) => i === idx ? { ...m, applied: true, undo: undo.length ? undo : undefined } : m);
-        // Persist the applied flag to cloud so the card stays "Applied" after a
-        // reload or on another device — otherwise the Apply button reappears.
-        if (uid) saveChatHistory(uid, slimForCloud(updated));
-        return updated;
-      });
+      // Persist the applied flag to cloud so the card stays "Applied" after a
+      // reload or on another device — otherwise the Apply button reappears.
+      // Computed off messagesRef and saved unconditionally, same reasoning as
+      // send() above — a tap-then-close shouldn't lose the applied state.
+      const updated = messagesRef.current.map((m, i) => i === idx ? { ...m, applied: true, undo: undo.length ? undo : undefined } : m);
+      if (uid) saveChatHistory(uid, slimForCloud(updated));
+      setMessages(updated);
     } catch (e: any) {
       setError(e?.message || "Couldn't save those changes.");
       // A partial failure (Dashboard.handleApplyAiEdits — see its comment)
@@ -2016,11 +2036,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // Undo removes the partial saves first, then re-apply is clean (found
       // 2026-08-15, chat-function audit).
       if (e?.partialUndo?.length) {
-        setMessages(prev => {
-          const updated = prev.map((m, i) => i === idx ? { ...m, applied: true, undo: e.partialUndo } : m);
-          if (uid) saveChatHistory(uid, slimForCloud(updated));
-          return updated;
-        });
+        const updated = messagesRef.current.map((m, i) => i === idx ? { ...m, applied: true, undo: e.partialUndo } : m);
+        if (uid) saveChatHistory(uid, slimForCloud(updated));
+        setMessages(updated);
       }
     } finally {
       setApplyingIdx(null);
@@ -2046,11 +2064,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     // as if it were never dismissed — same "unpersisted" bug class as the
     // apply path, just on the cancel path (found 2026-08-15, chat-function
     // audit).
-    setMessages(prev => {
-      const updated = prev.map((m, i) => i === idx ? { ...m, edits: undefined } : m);
-      if (uid) saveChatHistory(uid, slimForCloud(updated));
-      return updated;
-    });
+    const updated = messagesRef.current.map((m, i) => i === idx ? { ...m, edits: undefined } : m);
+    if (uid) saveChatHistory(uid, slimForCloud(updated));
+    setMessages(updated);
     setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
   };
 
@@ -2082,11 +2098,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // the MIXED batch, still going through onUndoEdits below; this covers
       // the pure-destructive batch, which never reaches it).
       const irreversible = countIrreversibleEdits(msg?.edits || []);
-      setMessages(prev => {
-        const updated = prev.map((m, i) => i === idx ? { ...m, applied: false, undo: undefined } : m);
-        if (uid) saveChatHistory(uid, slimForCloud(updated));
-        return updated;
-      });
+      const updated = messagesRef.current.map((m, i) => i === idx ? { ...m, applied: false, undo: undefined } : m);
+      if (uid) saveChatHistory(uid, slimForCloud(updated));
+      setMessages(updated);
       setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
       setError(
         irreversible > 0
@@ -2098,11 +2112,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     setUndoingIdx(idx);
     try {
       const res = await onUndoEdits(records);
-      setMessages(prev => {
-        const updated = prev.map((m, i) => i === idx ? { ...m, applied: false, undo: undefined } : m);
-        if (uid) saveChatHistory(uid, slimForCloud(updated));
-        return updated;
-      });
+      const updated = messagesRef.current.map((m, i) => i === idx ? { ...m, applied: false, undo: undefined } : m);
+      if (uid) saveChatHistory(uid, slimForCloud(updated));
+      setMessages(updated);
       // Clear any duplicate flags so a re-Apply re-checks the vault from scratch.
       setDocDuplicates(prev => { const next = { ...prev }; delete next[idx]; return next; });
       // Field-set edits (a shoe size, an address), and — since 2026-08-15 —

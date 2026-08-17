@@ -1,7 +1,6 @@
 {
-  "label": "v208",
+  "label": "v209",
   "changes": [
-    "Document Scanner: fixed the capture-review and crop-adjust screens getting cut off with no way to scroll down to Save on short/phone screens.",
-    "Document Scanner: the camera no longer auto-captures a dark/black shot while it's still adjusting to light — it now waits and tells you to move to better light instead."
+    "AI Chat: your reply now saves even if you close the chat panel while it's still working — no more losing an answer or a scan result because you switched away too soon."
   ]
 }
