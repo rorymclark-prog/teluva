@@ -1,6 +1,6 @@
 {
-  "label": "v212",
+  "label": "v213",
   "changes": [
-    "Saved scans now show the whole document instead of a tight, zoomed-in crop — the scanner requires a much better-framed shot before it will accept a page as done."
+    "ID & Passports now has one way to view a saved scan instead of three — tap the small thumbnail next to any passport or ID field to see the full document."
   ]
 }
