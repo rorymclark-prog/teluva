@@ -1,16 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Sparkles, Camera, Upload, RefreshCcw, Save, Search } from 'lucide-react';
+import {
+  X, Sparkles, Camera, Upload, RefreshCcw, Save, Search, PartyPopper, Star, BellRing, BellOff, Trash2,
+} from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
-import { FamilyMember, MemberRole } from '../types';
+import { FamilyMember, MemberRole, NameCelebration } from '../types';
 import { listTimeZones } from '../utils/timeZone';
 import { auth } from '../lib/firebase';
+import { loadSpaceInfo } from '../utils/db';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { BUSINESS_ROLE_PRESETS } from '../utils/businessRoles';
 import SheetGrabber from './SheetGrabber';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
-import { suggestNameDay, isValidNameDay, formatNameDay } from '../utils/nameDay';
+import { isValidNameDay, formatNameDay } from '../utils/nameDay';
+import { resolveCelebrations, suggestLocal, LEGACY_NAME_DAY_ID } from '../utils/nameCelebrations';
+import NameCelebrationModal from './NameCelebrationModal';
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -45,6 +50,20 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [birthdate, setBirthdate] = useState('');
   const [nameDay, setNameDay] = useState('');       // 'MM-DD', free text while typing
   const [nameDayFeast, setNameDayFeast] = useState('');
+  // Name Days & Name Celebrations — the successor of the pair above. Both are
+  // edited in the same section: nameDay/nameDayFeast stay the legacy fact,
+  // this array is everything confirmed since. Only committed to the member on
+  // Save, same as every other field in this modal.
+  const [nameCelebrations, setNameCelebrations] = useState<NameCelebration[]>([]);
+  const [nameCelebrationDismissed, setNameCelebrationDismissed] = useState(false);
+  const [showCelebrationModal, setShowCelebrationModal] = useState(false);
+  // Space-level "don't suggest religious celebrations" — read-only here (the
+  // toggle itself lives in FamilySettings). Loaded once per open rather than
+  // per keystroke since it cannot change while this modal is up. null = not
+  // yet loaded, during which no suggestion is offered (fail closed): a false
+  // default would briefly offer a saint's day to a family that switched
+  // saint suggestions off.
+  const [suppressReligiousSuggestions, setSuppressReligiousSuggestions] = useState<boolean | null>(null);
   const [birthTime, setBirthTime] = useState('');
   const [placeOfBirth, setPlaceOfBirth] = useState('');
   const [nationality, setNationality] = useState('');
@@ -110,6 +129,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setBirthdate(member.birthdate || '');
       setNameDay(member.nameDay || '');
       setNameDayFeast(member.nameDayFeast || '');
+      setNameCelebrations(member.nameCelebrations || []);
+      setNameCelebrationDismissed(!!member.nameCelebrationDismissed);
       setBirthTime(member.birthTime || '');
       setPlaceOfBirth(member.placeOfBirth || '');
       setNationality(member.nationality || '');
@@ -144,6 +165,17 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       }
     }
   }, [member, isOpen, isBusinessSpace]);
+
+  // families/{id}/info/info.suppressReligiousSuggestions — read-only here,
+  // see loadSpaceInfo's own docstring for why this modal cannot write it.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    loadSpaceInfo().then((info) => {
+      if (!cancelled) setSuppressReligiousSuggestions(!!info?.suppressReligiousSuggestions);
+    });
+    return () => { cancelled = true; };
+  }, [isOpen]);
 
 
   // Resolve a town to coordinates and a time zone. The search runs on our own
@@ -276,6 +308,45 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
     onClose();
   };
 
+  // Name Days & Name Celebrations — everything below only touches local
+  // state; nothing reaches the member record until Save, same as nameDay
+  // above. The single-primary invariant is enforced HERE (demote every other
+  // confirmed entry when one is set primary) rather than inside
+  // NameCelebrationModal, so it holds no matter which of the modal's own
+  // paths (local match, research, custom date) produced the new entry.
+  // Everywhere a primary is demoted here its notify flag goes with it: only
+  // the primary notifies by default (spec: "do not generate multiple annual
+  // notifications by default"), and the modal's primary-choice screen
+  // promises exactly that for the one not chosen. Leaving notify true on the
+  // demoted entry produced two annual pushes the family never opted into.
+  const handleConfirmCelebration = (celebration: NameCelebration) => {
+    setNameCelebrations((prev) => {
+      const rest = celebration.primary
+        ? prev.map((c) => (c.primary ? { ...c, primary: false, notify: false } : c))
+        : prev;
+      return [...rest, celebration];
+    });
+    setNameCelebrationDismissed(false); // confirming an answer un-declines the question
+    setShowCelebrationModal(false);
+  };
+  const handleDismissCelebration = () => setNameCelebrationDismissed(true);
+  const handleMakePrimary = (id: string) =>
+    setNameCelebrations((prev) => prev.map((c) => (
+      c.id === id ? { ...c, primary: true, notify: true }
+        : c.primary ? { ...c, primary: false, notify: false }
+        : c
+    )));
+  // Demoting the current primary with nothing else promoted is deliberate:
+  // resolveCelebrations() re-derives the legacy nameDay pair as primary the
+  // moment no explicit entry claims it, so this is how a family switches back
+  // to the Namenstag without deleting anything.
+  const handleMakeAdditional = (id: string) =>
+    setNameCelebrations((prev) => prev.map((c) => (c.id === id ? { ...c, primary: false, notify: false } : c)));
+  const handleToggleNotify = (id: string) =>
+    setNameCelebrations((prev) => prev.map((c) => (c.id === id ? { ...c, notify: !c.notify } : c)));
+  const handleRemoveCelebration = (id: string) =>
+    setNameCelebrations((prev) => prev.filter((c) => c.id !== id));
+
   const handleSaveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !member) return;
@@ -299,6 +370,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       // second line than a saint's day attached to the wrong date.
       nameDay: nameDay || undefined,
       nameDayFeast: nameDay && nameDay === member.nameDay ? member.nameDayFeast : (nameDayFeast || undefined),
+      nameCelebrations: nameCelebrations.length ? nameCelebrations : undefined,
+      nameCelebrationDismissed: nameCelebrationDismissed || undefined,
       birthTime: birthTime || undefined,
       placeOfBirth: placeOfBirth.trim() || undefined,
       nationality: nationality.trim() || undefined,
@@ -451,8 +524,25 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                     />
                   </div>
                   {(() => {
-                    const suggestion = suggestNameDay(name, nickname);
-                    if (!suggestion || nameDay === suggestion.date) return <div />;
+                    // suggestLocal, not suggestNameDay: this button writes the
+                    // LEGACY pair, which has no field for WHICH name a day
+                    // belongs to, so only an exact first-name match may be
+                    // one-tapped here — a variant, second-name or nickname
+                    // match needs the explained, confirmed flow behind "Find a
+                    // name day or celebration" below. suggestLocal also
+                    // honours the family's religious-suggestion switch and a
+                    // recorded "no name celebration" answer, which the old
+                    // lookup knew nothing about. Until the switch has loaded,
+                    // offer nothing rather than something that may be
+                    // switched off. (suggestLocal returns null once nameDay
+                    // holds a valid date, so no self-suggestion check needed.)
+                    const suggestion = suppressReligiousSuggestions === null
+                      ? null
+                      : suggestLocal(
+                          { name, nickname, nameDay, nameDayFeast, nameCelebrations, nameCelebrationDismissed },
+                          { suppressReligiousSuggestions },
+                        );
+                    if (!suggestion || suggestion.matchType !== 'exact') return <div />;
                     return (
                       <button
                         type="button"
@@ -466,6 +556,90 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                   {nameDay && !isValidNameDay(nameDay) && (
                     <p className="text-[12px] text-rosa-600 -mt-2 col-span-2">Use MM-DD, e.g. 03-19 for 19 March.</p>
                   )}
+                </div>
+              )}
+
+              {/* Name Days & Name Celebrations — family-only, same reasoning as
+                  the Namenstag block above. suggestLocal/resolveCelebrations
+                  do the actual matching; this modal only opens the confirm
+                  flow and shows what has already been confirmed. */}
+              {!isBusinessSpace && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="field-label mb-0">Name celebrations</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowCelebrationModal(true)}
+                      className="text-[12.5px] font-semibold text-clay-600 hover:text-clay-700 cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <PartyPopper className="w-3.5 h-3.5" /> Find a name day or celebration
+                    </button>
+                  </div>
+
+                  {(() => {
+                    const resolved = resolveCelebrations({
+                      name, nickname, nameDay, nameDayFeast, nameCelebrations, nameCelebrationDismissed,
+                      // Server-resolved movable dates live on the member, not
+                      // in the edited array — pass them through so movable
+                      // rows show their resolved date here too.
+                      nameCelebrationResolvedDates: member?.nameCelebrationResolvedDates,
+                    });
+                    const rows = [resolved.primary, ...resolved.additional].filter((c): c is NameCelebration => !!c);
+                    if (rows.length === 0) return null;
+                    return (
+                      <div className="rounded-2xl border border-cream-200 divide-y divide-cream-100 overflow-hidden">
+                        {rows.map((c) => {
+                          const isLegacy = c.id === LEGACY_NAME_DAY_ID;
+                          return (
+                            <div key={c.id} className="flex items-center gap-2.5 p-3">
+                              <span className={`chip shrink-0 ${c.kind === 'name_day' ? 'bg-sage-100 text-sage-700' : 'bg-honey-100 text-honey-800'}`}>
+                                {c.kind === 'name_day' ? 'Name Day' : 'Name Celebration'}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[13px] font-semibold text-ink-800 truncate">{c.title}</p>
+                                <p className="text-[11.5px] text-ink-400 truncate">
+                                  {c.dateType === 'fixed' ? formatNameDay(c.date) : 'moves each year'}
+                                  {' · '}{c.primary ? 'Primary' : 'Additional'}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {!c.primary && !isLegacy && (
+                                  <button type="button" title="Make primary" onClick={() => handleMakePrimary(c.id)} className="p-1.5 rounded-lg text-ink-300 hover:text-clay-600 hover:bg-cream-100 cursor-pointer">
+                                    <Star className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                {c.primary && !isLegacy && (
+                                  <button type="button" title="Make additional instead" onClick={() => handleMakeAdditional(c.id)} className="p-1.5 rounded-lg text-clay-500 hover:bg-cream-100 cursor-pointer">
+                                    <Star className="w-3.5 h-3.5 fill-current" />
+                                  </button>
+                                )}
+                                {c.primary && isLegacy && (
+                                  <span className="p-1.5 text-clay-500" title="Primary — edit the Namenstag field above to change it">
+                                    <Star className="w-3.5 h-3.5 fill-current" />
+                                  </span>
+                                )}
+                                {!isLegacy && (
+                                  <button
+                                    type="button"
+                                    title={c.notify ? 'Notifies every year' : 'Not notified'}
+                                    onClick={() => handleToggleNotify(c.id)}
+                                    className={`p-1.5 rounded-lg cursor-pointer hover:bg-cream-100 ${c.notify ? 'text-sage-600' : 'text-ink-300'}`}
+                                  >
+                                    {c.notify ? <BellRing className="w-3.5 h-3.5" /> : <BellOff className="w-3.5 h-3.5" />}
+                                  </button>
+                                )}
+                                {!isLegacy && (
+                                  <button type="button" title="Remove" onClick={() => handleRemoveCelebration(c.id)} className="p-1.5 rounded-lg text-ink-300 hover:text-rosa-600 hover:bg-cream-100 cursor-pointer">
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -932,6 +1106,25 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
               </div>
             </form>
           </motion.div>
+
+          <NameCelebrationModal
+            open={showCelebrationModal}
+            displayName={name}
+            nickname={nickname}
+            existing={resolveCelebrations({
+              name, nickname, nameDay, nameDayFeast, nameCelebrations, nameCelebrationDismissed,
+              nameCelebrationResolvedDates: member?.nameCelebrationResolvedDates,
+            })}
+            dismissed={nameCelebrationDismissed}
+            // Fail closed while the family setting is still loading: treating
+            // "unknown" as suppressed only delays a saint's-day suggestion by
+            // a moment; treating it as allowed shows one to a family that
+            // switched them off.
+            suppressReligiousSuggestions={suppressReligiousSuggestions ?? true}
+            onConfirm={handleConfirmCelebration}
+            onDismiss={handleDismissCelebration}
+            onClose={() => setShowCelebrationModal(false)}
+          />
         </div>
       )}
     </AnimatePresence>

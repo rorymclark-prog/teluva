@@ -672,6 +672,7 @@ __CV_EDIT_LINE__
 Canonical member field keys (use ONLY these):
 basic: name, nickname, birthdate, name_day, place_of_birth, nationality, languages, gender
   name_day is the Namenstag (Austrian name day) — a recurring MONTH AND DAY with NO YEAR, written "MM-DD" (e.g. "03-19" for Josef on 19 March). It is NOT a birthday and must never be derived from one. Set it only when the user states which day they keep ("Maria's name day is the 12th of September", "we celebrate Opa's Namenstag on Josefi"). NEVER work one out from the person's name yourself: the app has its own name-day table and offers the date for the family to confirm, and a name day you invented is indistinguishable, on the day, from one they chose. If asked what someone's name day is and the field is empty, say it isn't set yet and that the app can suggest one from their name.
+  FAMILY DATA may also carry a member's resolved "nameCelebrations" — their Name Days & Name Celebrations beyond the Austrian name_day above (title, tradition, explanation, which date it falls on). This is READ-ONLY RECALL, the same as "expiries"/"gaps" further down: there is no field key for it and no edit kind writes it. Answer questions about it straight from the data ("when is X's name day", "why does that date matter for Ganga"); if asked to add, change or research one, say that happens from the person's profile under Name Days & Name Celebrations, not from chat.
 contact: address, phone, email
 sizes: shirt_size, pants_size, shoe_size, dress_size, jacket_size, hat_size, ring_size, height_cm, weight_kg, size_notes
 medical: blood_group, allergies, medications, conditions, surgeries, emergency_medication, organ_donor, family_medical_history, medical_notes
@@ -2688,6 +2689,322 @@ app.post('/api/suggest-business-info', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Name Days & Name Celebrations — AI research (name-celebrations-spec.md).
+// utils/nameCelebrations.ts's suggestLocal() answers matching-hierarchy steps
+// 1-3 entirely client-side against the Austrian Namenskalender; this endpoint
+// is what answers step 4 (a genuine cultural/historical/religious connection
+// for a name that table has never heard of), and keeps a CONFIRMED movable
+// rule's Gregorian date current year to year (mode "resolve_dates", also
+// used internally by runDailyCelebrations' lazy per-year refresh below).
+//
+// server.js ships standalone (see Dockerfile — no TypeScript build step), so
+// it cannot import nameCelebrations.ts's NameCelebration type or its rules.
+// Everything the spec calls a "restriction" is therefore enforced TWICE here:
+// once as an instruction in the prompt, once as code that drops a proposal
+// that doesn't obey it — the same belt-and-suspenders precedent as the
+// astrology blurb's banned-word/floaty filters above (v137 found the prompt's
+// own banned vocabulary in 4 of 7 live blurbs — an instruction is not a
+// constraint; only code that checks the output is).
+// ---------------------------------------------------------------------------
+
+// What mode "suggest" may propose. "custom" is deliberately excluded from
+// this set — a custom date is spec step 5, "a date personally selected by
+// the family", never something the model invents or claims to have researched.
+const NAME_CELEBRATION_MATCH_TYPES = new Set(['exact', 'variant', 'second_name', 'cultural']);
+const NAME_CELEBRATION_KINDS = new Set(['name_day', 'name_celebration']);
+// Traditions/titles that mark a proposal as religious regardless of what the
+// model set on its `religious` flag — a backstop for the suppress-religious
+// filter, which must fail closed. Deliberately broad (faith names, feast/
+// saint vocabulary across the traditions the research prompt names); a false
+// positive drops one secular proposal, a false negative defeats a setting the
+// family relied on.
+const RELIGIOUS_TRADITION_HINT = /\b(hindu|muslim|islam|jewish|judai|christ|catholic|orthodox|protestant|buddhis|sikh|vaishnav|shaiv|saint|st\.|feast|namenskalender|church|temple|mosque|synagogue|puja|eid|diwali|easter|hanukkah|ramadan|shivaratri|purnima|trayodashi)\b/i;
+
+function isValidCelebrationMonthDay(value) {
+  const m = /^(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!m) return false;
+  const month = Number(m[1]), day = Number(m[2]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const maxDay = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  return day <= maxDay;
+}
+// A real Gregorian date AND in the specific year asked for — a movable rule
+// resolved to the wrong year is worse than unresolved (see
+// celebrationDateInYear's identical wrong-year rule in nameCelebrations.ts).
+function isRealDateInYear(value, year) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!m || Number(m[1]) !== year) return false;
+  const month = Number(m[2]), day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const maxDay = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  return day <= maxDay;
+}
+
+const NAME_CELEBRATION_RESEARCH_SYSTEM = `You research NAME DAYS and NAME CELEBRATIONS for a family-records app ("Teluva"). A family gave you one person's name(s) and asked what genuine celebration — if any — exists for it, beyond the Austrian Namenskalender the app's own local table already checked (matching-hierarchy steps 1-3 below; you are only ever asked about steps 3-4, and only when that table found nothing for steps 1-2).
+
+THE TWO CATEGORIES — NEVER CONFUSE THEM:
+- "name_day" = an ESTABLISHED, CONVENTIONAL name day: a recognised calendar (a saint's calendar, a national/civic name-day almanac) assigns this specific day to this specific name, the way the Austrian Namenskalender does.
+- "name_celebration" = a genuine cultural, historical or religious day ASSOCIATED WITH the name or its meaning, where NO conventional name day exists. This is the far more common case outside Western Christian calendars.
+A cultural, historical or religious association is NEVER "kind":"name_day" — even when it is well-established and widely observed. Getting this wrong is the single mistake this feature exists to avoid.
+
+THE MATCHING HIERARCHY (you are only ever asked about steps 3-4; still respect it — never propose a weaker step-4 echo when a genuine step-3 match exists):
+1. An exact, established name day for the preferred first name.
+2. An established linguistic variant or genuine diminutive of that name.
+3. An exact name day for a second/middle name.
+4. A genuine cultural, historical or religious celebration associated with the name (its meaning, its origin story, a place it names, a deity or figure it comes from).
+If you find nothing genuine at any step you were asked about, "no celebration" is the correct, expected answer — return an empty proposals array. Do not stretch a faint echo to fill the gap when nothing real exists, and do not fabricate a source.
+
+ABSOLUTE RULES:
+- NEVER rename or Westernise the name to find a match. Do not turn Rory into Roderick, Rodrigo or Rodrigue; do not turn Ganga into Casimir; do not Westernise Shyam into anything. "celebrationOf" must always be the person's OWN name, exactly as given — never a substitute you invented.
+- NEVER assume someone's religion, faith practice or observance from their name alone. A name having a Hindu, Muslim, Jewish, Christian or other origin does not mean the person or family practices that faith — you are offering a CONNECTION for them to confirm ("does this connection match the story or origin of your name?"), not stating a fact about them.
+- Every proposal needs "explanation" (why this day belongs to this name — plain, warm, factual), "tradition" (which calendar/tradition it comes from), and "source" (what you are basing it on). A match you cannot explain and name a tradition for is not a match worth proposing.
+- Set "religious" accurately on every proposal (true when its tradition is a religious one — Hindu, Muslim, Jewish, Christian, Orthodox, Buddhist, Sikh, etc.) even when the family did not ask to suppress religious suggestions — the app filters on this flag, so a wrong value silently defeats that filter for someone who DID ask.
+- MOVABLE (non-Gregorian, lunar/lunisolar/variable-date) celebrations: "dateType":"movable", name the RULE in "movableRule" (e.g. "Kartik Purnima", "Nityananda Trayodashi") — NEVER invent one fixed Gregorian date for something that genuinely moves year to year. Then resolve it for the two specific years you are given, "currentYearDate" and "nextYearDate", both real Gregorian "YYYY-MM-DD" dates in those exact years. If you cannot resolve a year with confidence, OMIT that date field rather than guessing — a missing date is fixed by resolving it again later; a wrong one puts a false celebration on someone's calendar.
+- FIXED (same Gregorian month-day every year) celebrations: "dateType":"fixed", "date" is "MM-DD".
+- If told religious suggestions are disabled: only propose secular/civic/cultural connections with no religious tradition behind them. If the only genuine connection you know of is religious, return an empty proposals array for that name — do NOT launder it into secular wording and do NOT invent a substitute just to have something to offer.
+- If given titles the family already declined ("Show another connection"): never repeat one, and never reword a declined idea to sneak it back in under different wording. Propose a genuinely different connection, or return an empty array if there isn't one.
+- Up to 3 proposals. When more than one genuine connection exists for the same name (two calendar dates for the same figure, two distinct meanings of the name), you may offer more than one — mark exactly one "recommended":true and say in each explanation why it is, or is not, the stronger connection.
+
+WORKED EXAMPLES — this is the standard the app was built against: match this register, this honesty, this level of specificity. Do not copy these verbatim for a different name; they show the SHAPE of a good answer, not a template to reuse.
+
+Example 1 — "Shyam" (no cultural background given):
+{"kind":"name_celebration","title":"Nityananda Trayodashi — Shyam's Name Celebration","celebrationOf":"Shyam","matchType":"cultural","tradition":"Gaudiya Vaishnava / Hindu","explanation":"Shyam is traditionally used as a familiar name for Nityananda. Nityananda Trayodashi celebrates the appearance of Nityananda Prabhu in the Gaudiya Vaishnava tradition.","source":"Gaudiya Vaishnava calendar (ISKCON/Vaishnava almanac)","dateType":"movable","movableRule":"Nityananda Trayodashi","religious":true}
+Never "Shyam → Nathaniel" or any other Western lookalike — there is no such connection, and inventing one is exactly what this feature must never do.
+
+Example 2 — "Ganga" (no cultural background given), offered as TWO proposals, one recommended:
+{"kind":"name_celebration","title":"Dev Deepawali — Ganga's Festival of Light","celebrationOf":"Ganga","matchType":"cultural","tradition":"Hindu / Ganga-Varanasi","explanation":"Ganga is the ancient name of Varanasi and is associated with light and illumination. Dev Deepawali transforms Ganga into a city of lamps and is celebrated on Kartik Purnima.","source":"Varanasi/Ganga civic and religious calendar","dateType":"movable","movableRule":"Kartik Purnima","religious":true,"recommended":true}
+{"kind":"name_celebration","title":"Maha Shivaratri — Ganga's Name Celebration","celebrationOf":"Ganga","matchType":"cultural","tradition":"Hindu / Shaivism","explanation":"Ganga is closely connected to Shiva through Ganga Vishwanath, making Maha Shivaratri another meaningful celebration.","source":"Hindu lunar calendar (Shaivism)","dateType":"movable","movableRule":"Maha Shivaratri","religious":true,"recommended":false}
+Dev Deepawali is recommended because its connection to Ganga itself, and to light, is the more distinctive one — but both are genuine, so both are offered and the family chooses.
+
+Example 3 — "Rory Michael" (the app's own name-day table already checked "Rory" and found nothing; you are being asked about the SECOND name, "Michael"):
+{"kind":"name_day","title":"Michael — Rory's Second-Name Day","celebrationOf":"Michael","matchType":"second_name","tradition":"Austrian Namenskalender","explanation":"Rory does not have to be renamed — Rory itself has no established name day. His second name, Michael, is kept on 29 September, the feast of Michael and the Archangels.","source":"Austrian Namenskalender","dateType":"fixed","date":"09-29","religious":true}
+Rory is NEVER converted to Roderick or any other lookalike to force a match on the first name — the app already ruled that out, and so must you.
+
+INPUT you will receive: the person's display name, given-name tokens in order, an optional nickname, an optional family-stated cultural/national background (a hint only), whether religious suggestions are disabled, and any titles already rejected.
+
+OUTPUT: strict JSON only, no markdown, no commentary: {"proposals": [ {...}, ... ]} — the array may be EMPTY, and empty is a correct answer. Each proposal: {"kind":"name_day"|"name_celebration","title":<string>,"celebrationOf":<string, the person's own name>,"matchType":"exact"|"variant"|"second_name"|"cultural","tradition":<string>,"explanation":<string>,"source":<string>,"religious":<boolean>,"recommended":<boolean, optional>,"dateType":"fixed"|"movable","date":<"MM-DD", only when fixed>,"movableRule":<string, only when movable>,"currentYearDate":<"YYYY-MM-DD", only when movable>,"nextYearDate":<"YYYY-MM-DD", only when movable>}`;
+
+const NAME_CELEBRATION_RESOLVE_SYSTEM = `You resolve a named movable-calendar rule (a lunar, lunisolar or otherwise variable-date festival name — e.g. "Kartik Purnima", "Nityananda Trayodashi", "Maha Shivaratri", "Diwali", "Eid al-Fitr", "Rosh Hashanah", "Orthodox Easter") to its exact Gregorian date in each year you are given.
+
+Output ONLY valid JSON: {"dates": {"<year>": "YYYY-MM-DD", ...}} — one entry per year you are confident of. If you are not confident of the exact date for a given year, OMIT that year's key entirely rather than guessing: a missing year is the honest answer and will be tried again later; a wrong date puts a false celebration on someone's calendar. Never explain, never add extra keys, never wrap in markdown.`;
+
+// Validate + sanitise ONE proposal from the model. Returns null to DROP it —
+// one bad proposal must never fail the whole request, and a dropped proposal
+// reads to the family as the same honest "nothing found here" as an empty
+// array, never a fabricated fallback.
+function sanitizeCelebrationProposal(raw, { currentYear, nextYear, suppressReligious, rejectedTitles }) {
+  if (!raw || typeof raw !== 'object') return null;
+  const title = typeof raw.title === 'string' ? raw.title.trim().slice(0, 200) : '';
+  const celebrationOf = typeof raw.celebrationOf === 'string' ? raw.celebrationOf.trim().slice(0, 100) : '';
+  const explanation = typeof raw.explanation === 'string' ? raw.explanation.trim().slice(0, 1000) : '';
+  const tradition = typeof raw.tradition === 'string' ? raw.tradition.trim().slice(0, 200) : '';
+  const matchType = NAME_CELEBRATION_MATCH_TYPES.has(raw.matchType) ? raw.matchType : null;
+  const kind = NAME_CELEBRATION_KINDS.has(raw.kind) ? raw.kind : null;
+  // Every field the spec calls REQUIRED for a proposal. A "match" with no
+  // explanation or no named tradition is exactly the confirmed-by-nothing
+  // shortcut the spec exists to prevent.
+  if (!title || !celebrationOf || !explanation || !tradition || !matchType || !kind) return null;
+
+  // "Never describe a culturally associated holiday as an official name day" —
+  // enforced here, not just asked for in the prompt.
+  if (matchType === 'cultural' && kind === 'name_day') return null;
+
+  const religious = raw.religious === true;
+  if (suppressReligious) {
+    // Fail CLOSED: "users must be able to disable religious suggestions
+    // entirely" is only true if a proposal the model forgot to flag still
+    // gets dropped. Requiring an explicit false (not just the absence of
+    // true) plus a tradition/title keyword check means an over-drop of the
+    // odd secular proposal, never an under-drop of a religious one.
+    if (raw.religious !== false) return null;
+    if (RELIGIOUS_TRADITION_HINT.test(`${tradition} ${title}`)) return null;
+  }
+  if (rejectedTitles.includes(title.toLowerCase())) return null;
+
+  const dateType = raw.dateType === 'fixed' || raw.dateType === 'movable' ? raw.dateType : null;
+  if (!dateType) return null;
+
+  const source = typeof raw.source === 'string' ? raw.source.trim().slice(0, 300) : '';
+  const out = {
+    kind, title, celebrationOf, matchType, tradition, explanation, dateType,
+    religious, recommended: raw.recommended === true,
+  };
+  if (source) out.source = source;
+
+  if (dateType === 'fixed') {
+    if (!isValidCelebrationMonthDay(raw.date)) return null; // a fixed claim with no real date is worse than none
+    out.date = raw.date;
+  } else {
+    const rule = typeof raw.movableRule === 'string' ? raw.movableRule.trim().slice(0, 200) : '';
+    if (!rule) return null; // MUST name the rule — never a baked Gregorian date standing in for one
+    out.movableRule = rule;
+    const resolvedDates = {};
+    if (isRealDateInYear(raw.currentYearDate, currentYear)) resolvedDates[String(currentYear)] = raw.currentYearDate;
+    if (isRealDateInYear(raw.nextYearDate, nextYear)) resolvedDates[String(nextYear)] = raw.nextYearDate;
+    // Both years missing means the model named a genuine rule but could not
+    // resolve it — still kept as an honest proposal (the family can confirm
+    // the RULE; the date resolves later), just without resolvedDates yet.
+    if (Object.keys(resolvedDates).length) out.resolvedDates = resolvedDates;
+  }
+  return out;
+}
+
+// Resolve a stored movableRule to real dates for the given years. Shared by
+// mode "resolve_dates" below AND runDailyCelebrations' lazy per-year refresh
+// further down — one implementation, so the cron and the on-demand endpoint
+// can never disagree about what a rule resolves to. Returns null on a hard
+// failure (network/parse — safe to retry later), or an object carrying ONLY
+// the years it could resolve with confidence; a year missing from the result
+// is the honest "still unknown" answer, never a guess.
+async function resolveMovableRuleDates(rule, yearList) {
+  try {
+    // Hard per-call cap: the cron loops over this sequentially inside Cloud
+    // Run's 300s request window, so one hung model call must time out (and be
+    // retried another day) rather than stall every member behind it.
+    const gRes = await generateContent(MODEL_SMART, {
+      systemInstruction: { parts: [{ text: NAME_CELEBRATION_RESOLVE_SYSTEM }] },
+      contents: [{ role: 'user', parts: [{ text: `Rule: ${rule}\nYears to resolve: ${yearList.join(', ')}` }] }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+    }, AbortSignal.timeout(25000));
+    if (!gRes.ok) {
+      console.error('[name-celebration-research] resolve http', gRes.status);
+      return null;
+    }
+    const gData = await gRes.json();
+    const text = (gData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
+    if (!text) return null;
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { return null; }
+    const rawDates = parsed?.dates && typeof parsed.dates === 'object' ? parsed.dates : {};
+    const dates = {};
+    for (const yr of yearList) {
+      const value = rawDates[String(yr)];
+      if (isRealDateInYear(value, yr)) dates[String(yr)] = value;
+    }
+    return dates;
+  } catch (e) {
+    console.error('[name-celebration-research] resolve failed', e);
+    return null;
+  }
+}
+
+app.post('/api/name-celebration-research', async (req, res) => {
+  try {
+    if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
+
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
+    const gateErr = aiGateBlocked(caller);
+    if (gateErr) return res.status(403).json({ error: gateErr });
+    const usageBlock = await checkAiUsage(caller.familyId);
+    if (usageBlock) return res.status(usageBlock.status).json(usageBlock.body);
+
+    const { mode } = req.body || {};
+
+    if (mode === 'resolve_dates') {
+      const { movableRule } = req.body || {};
+      const rule = typeof movableRule === 'string' ? movableRule.trim().slice(0, 200) : '';
+      if (!rule) return res.status(400).json({ error: 'movableRule is required.' });
+      const yearList = Array.isArray(req.body?.years)
+        ? [...new Set(req.body.years.map(Number))].filter((y) => Number.isInteger(y) && y > 1900 && y < 2200).slice(0, 6)
+        : [];
+      if (!yearList.length) return res.status(400).json({ error: 'years must be a non-empty array of years.' });
+
+      console.log('[name-celebration-research] resolve_dates', rule, yearList, 'from', caller.email);
+      const dates = await resolveMovableRuleDates(rule, yearList);
+      if (dates === null) return res.status(502).json({ error: 'Could not resolve dates for that rule right now — please try again.' });
+      await recordAiUsage(caller.familyId);
+      return res.json({ dates }); // may be a subset of the requested years — never a guessed one
+    }
+
+    if (mode !== 'suggest') return res.status(400).json({ error: 'Unknown mode.' });
+
+    const { name, givenNames, nickname, culturalBackground, suppressReligious, rejectedTitles } = req.body || {};
+    const displayName = typeof name === 'string' ? name.trim().slice(0, 120) : '';
+    if (!displayName) return res.status(400).json({ error: 'A member name is required.' });
+    const given = Array.isArray(givenNames)
+      ? givenNames.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim().slice(0, 60)).slice(0, 6)
+      : [];
+    const nick = typeof nickname === 'string' ? nickname.trim().slice(0, 60) : '';
+    const background = typeof culturalBackground === 'string' ? culturalBackground.trim().slice(0, 200) : '';
+    // The family-level switch (set via /api/set-suggestion-prefs) is read
+    // here as well as taken from the request: "disable religious suggestions
+    // entirely" must hold even for a stale client that never loaded the flag.
+    let familySuppress = false;
+    try {
+      const infoSnap = await adminDb.doc(`families/${caller.familyId}/info/info`).get();
+      familySuppress = !!(infoSnap.exists && infoSnap.data().suppressReligiousSuggestions);
+    } catch (e) {
+      console.error('[name-celebration-research] info read failed', e);
+    }
+    const suppress = suppressReligious === true || familySuppress;
+    const rejected = (Array.isArray(rejectedTitles) ? rejectedTitles : [])
+      .filter((t) => typeof t === 'string' && t.trim())
+      .map((t) => t.trim().toLowerCase().slice(0, 200))
+      .slice(0, 20);
+
+    const currentYear = new Date().getFullYear();
+    const nextYear = currentYear + 1;
+
+    const detail = [
+      `Full/display name: ${displayName}`,
+      given.length ? `Given-name tokens, in order: ${given.join(', ')}` : null,
+      nick ? `Nickname: ${nick}` : null,
+      background
+        ? `Cultural/national background the family gave — a HINT only, never proof of religion or observance: ${background}`
+        : 'No cultural/national background given — do not guess one from the name.',
+      suppress
+        ? 'RELIGIOUS SUGGESTIONS ARE DISABLED for this family: only propose secular/civic/cultural connections with no religious tradition behind them. If the only genuine connection you know of is religious, return an empty proposals array — do NOT launder it into secular wording and do NOT invent a substitute.'
+        : null,
+      rejected.length
+        ? `The family already saw and declined these exact titles — never repeat one, and never reword a declined idea to sneak it back in. Propose a genuinely DIFFERENT connection, or return an empty array if there is not one: ${rejected.join(' | ')}`
+        : null,
+      `Current year: ${currentYear}. Next year: ${nextYear}. For any movable proposal, resolve BOTH currentYearDate (${currentYear}) and nextYearDate (${nextYear}).`,
+    ].filter(Boolean).join('\n');
+
+    console.log('[name-celebration-research] suggest for', displayName, 'from', caller.email);
+
+    const gRes = await generateContent(MODEL_SMART, {
+      systemInstruction: { parts: [{ text: NAME_CELEBRATION_RESEARCH_SYSTEM }] },
+      contents: [{ role: 'user', parts: [{ text: detail }] }],
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+    });
+    if (!gRes.ok) {
+      const errDetail = await gRes.text().catch(() => '');
+      console.error('[name-celebration-research] gemini error', gRes.status, errDetail.slice(0, 300));
+      return res.status(502).json({ error: 'Could not research a name celebration right now — please try again.' });
+    }
+    const gData = await gRes.json();
+    const text = (gData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
+    if (!text) {
+      console.error('[name-celebration-research] empty response:', JSON.stringify(gData).slice(0, 400));
+      return res.status(502).json({ error: 'Could not research a name celebration right now — please try again.' });
+    }
+
+    let parsed;
+    try { parsed = JSON.parse(text); } catch {
+      console.error('[name-celebration-research] unparseable JSON:', text.slice(0, 400));
+      return res.status(502).json({ error: 'Could not research a name celebration right now — please try again.' });
+    }
+    const rawProposals = Array.isArray(parsed?.proposals) ? parsed.proposals : [];
+    const proposals = rawProposals
+      .map((p) => sanitizeCelebrationProposal(p, { currentYear, nextYear, suppressReligious: suppress, rejectedTitles: rejected }))
+      .filter(Boolean)
+      .slice(0, 3);
+
+    // The Gemini call itself succeeded — count it even when it honestly found
+    // nothing (an empty array is a real, useful answer, not a failed one).
+    await recordAiUsage(caller.familyId);
+    res.json({ proposals });
+  } catch (e) {
+    console.error('[name-celebration-research] error', e);
+    res.status(502).json({ error: 'Something went wrong researching a name celebration — please try again.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Secrets-vault encryption (passwords / wifi / door codes). The key lives in
 // Secret Manager and only the server holds it, so the ciphertext stored in
 // Firestore is useless to anyone who reads the database.
@@ -3227,6 +3544,31 @@ app.post('/api/set-founding-date', async (req, res) => {
   } catch (err) {
     console.error('/api/set-founding-date error:', err);
     res.status(500).json({ error: 'Could not save the founding date. Please try again.' });
+  }
+});
+
+// --- Name-celebration suggestion preferences (info/info doc) ---
+// The spec's "users must be able to disable religious suggestions entirely"
+// switch. Admin-only, like every other write to this doc; the flag is read
+// by suggestLocal() client-side AND enforced again inside
+// /api/name-celebration-research's own sanitiser, so a stale client cannot
+// leak a religious proposal past a family that turned them off.
+app.post('/api/set-suggestion-prefs', async (req, res) => {
+  try {
+    const caller = await requireMember(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can change suggestion preferences.' });
+
+    const raw = (req.body || {}).suppressReligiousSuggestions;
+    if (typeof raw !== 'boolean') {
+      return res.status(400).json({ error: 'suppressReligiousSuggestions must be true or false.' });
+    }
+
+    await adminDb.doc(`families/${caller.familyId}/info/info`).set({ suppressReligiousSuggestions: raw }, { merge: true });
+    res.json({ ok: true, suppressReligiousSuggestions: raw });
+  } catch (err) {
+    console.error('/api/set-suggestion-prefs error:', err);
+    res.status(500).json({ error: 'Could not save the preference. Please try again.' });
   }
 });
 
@@ -4028,6 +4370,30 @@ function tomorrowsEvents(events, today) {
     .map((e) => ({ label: `Tomorrow: ${String(e.title || 'an event').trim()}`, days: 1 }));
 }
 
+/* First sentence of a celebration's stored explanation, for the on-the-day
+ * notification body ("Today is <title> — <first sentence of explanation>.").
+ * Falls back to the whole explanation when there's no sentence boundary,
+ * rather than truncating mid-word. A period ending a short capitalised
+ * abbreviation is NOT a boundary — the Namenskalender's own feast strings
+ * ("Hl. Michael", "St. Martin") appear inside these explanations, and
+ * cutting at "Hl." sent a notification ending mid-abbreviation. */
+function firstSentence(text) {
+  const s = String(text || '').trim();
+  if (!s) return '';
+  const re = /[.!?]/g;
+  let m;
+  while ((m = re.exec(s))) {
+    if (m[0] === '.' && /(^|[\s(])[A-ZÄÖÜ][a-zäöü]?$/.test(s.slice(0, m.index))) continue;
+    return s.slice(0, m.index + 1).trim();
+  }
+  return s;
+}
+function celebrationBody(nc) {
+  const title = String(nc.title || '').trim() || (nc.kind === 'name_day' ? 'a name day' : 'a name celebration');
+  const sentence = firstSentence(nc.explanation);
+  return sentence ? `Today is ${title} — ${sentence}` : `Today is ${title}.`;
+}
+
 async function runDailyCelebrations() {
   const { year, month, day } = viennaMonthDay();
   // 'MM-DD' — the exact shape a member's stored Namenstag uses (see
@@ -4035,6 +4401,17 @@ async function runDailyCelebrations() {
   // day is only ever celebrated once a family has put it on the member, so
   // there is one dataset, on the client, and nothing here to drift from it.
   const monthDay = `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  // Does a stored 'MM-DD' fall today? Same 29-February convention as
+  // matchesMonthDay above (collapse to 28 Feb in an ordinary year), for the
+  // month-day-only fields: legacy nameDay and fixed celebrations.
+  const monthDayIsToday = (md) =>
+    md === monthDay || (md === '02-29' && month === 2 && day === 28 && !isLeapYear(year));
+  // At most this many movable-rule model calls per run, shared across all
+  // families. Each call is individually capped at 25s (resolveMovableRuleDates)
+  // but Cloud Run gives the whole request only 300s — an unbounded backlog of
+  // unresolved rules must degrade to "the rest resolve tomorrow", never to
+  // the cron dying mid-run with birthdays unsent.
+  let resolveBudget = 12;
   // Midnight UTC of today's Vienna date — the fixed point every deadline is
   // measured from, so a run at 06:00 and a run at 23:00 agree.
   const nowVienna = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
@@ -4063,16 +4440,121 @@ async function runDailyCelebrations() {
           body: `Wish ${name} a happy birthday today.`,
         });
       }
+      // Name Days & Name Celebrations. mem.nameCelebrations (see types.ts) is
+      // the successor of the legacy nameDay/nameDayFeast pair below; both are
+      // read here, mirroring utils/nameCelebrations.ts's resolveCelebrations()
+      // merge so the cron and the client can never disagree about what's
+      // celebrated on a given day.
+      const memberCelebrations = Array.isArray(mem.nameCelebrations) ? mem.nameCelebrations : [];
+      // Same notify rule as resolveCelebrations(): the legacy Namenstag only
+      // notifies while it is the member's effective primary — an explicit
+      // confirmed primary demotes it (a family that chose a different primary
+      // did not also opt into a second annual push), and a confirmed
+      // same-date name_day that notifies replaces it outright (never
+      // congratulate a migrated member twice for the same day).
+      const legacyDemoted = memberCelebrations.some((c) => c && c.confirmed && c.primary);
+      const legacyReplaced = memberCelebrations.some(
+        (c) => c && c.confirmed && c.notify && c.kind === 'name_day' && c.dateType === 'fixed' && c.date === mem.nameDay,
+      );
       // Namenstag. Only ever the month-day the family stored on this member —
       // never derived here. See utils/nameDay.ts for why the suggestion and the
-      // stored fact are kept apart.
-      if (typeof mem.nameDay === 'string' && mem.nameDay === monthDay) {
+      // stored fact are kept apart. monthDayIsToday, not raw equality: a
+      // stored 02-29 must collapse to 28 February in an ordinary year, same
+      // convention matchesMonthDay applies to birthdays above.
+      if (typeof mem.nameDay === 'string' && monthDayIsToday(mem.nameDay) && !legacyDemoted && !legacyReplaced) {
         const feast = String(mem.nameDayFeast || '').trim();
         celebrations.push({
           key: `nameday-${mDoc.id}`,
           title: `💐 ${name}'s name day`,
           body: feast ? `Today is ${feast} — ${name}'s Namenstag.` : `Today is ${name}'s Namenstag.`,
         });
+      }
+
+      // Confirmed + notify entries only — nothing is celebrated until the
+      // family confirmed the connection (spec: a name alone must never
+      // activate a religious or cultural association; "confirmed" is that
+      // gate, same as resolveCelebrations()'s primary/additional split).
+      //
+      // Resolved movable dates are cached in the SIBLING field
+      // nameCelebrationResolvedDates, never written into nameCelebrations
+      // itself: the array is a family-edited value, and a cron write into it
+      // turns mergeShared's keep-on-conflict policy against the family — a
+      // member's own later delete of a cron-touched celebration would look
+      // stale and be silently restored. The sibling field is server-only, so
+      // its writes can't collide with anyone's edit; resolveCelebrations()
+      // folds it back in on read.
+      const cronResolved = {};
+      const storedResolved = mem.nameCelebrationResolvedDates && typeof mem.nameCelebrationResolvedDates === 'object'
+        ? mem.nameCelebrationResolvedDates : {};
+      for (const [id, byYear] of Object.entries(storedResolved)) {
+        if (byYear && typeof byYear === 'object') cronResolved[id] = { ...byYear };
+      }
+      let resolvedChanged = false;
+      const resolvedFor = (nc, yr) =>
+        (nc.resolvedDates && nc.resolvedDates[String(yr)]) || (cronResolved[nc.id] && cronResolved[nc.id][String(yr)]) || null;
+      const tryResolve = async (nc, yr) => {
+        if (resolveBudget <= 0) return null;
+        resolveBudget -= 1;
+        try {
+          const dates = await resolveMovableRuleDates(nc.movableRule, [yr]);
+          const date = dates ? dates[String(yr)] : null;
+          if (date) {
+            cronResolved[nc.id] = { ...(cronResolved[nc.id] || {}), [String(yr)]: date };
+            resolvedChanged = true;
+          }
+          return date || null;
+        } catch (e) {
+          console.error(`[cron] movable-date resolution failed for ${mDoc.id}/${nc.id}`, e);
+          return null;
+        }
+      };
+      for (const nc of memberCelebrations) {
+        if (!nc || !nc.confirmed || !nc.notify) continue;
+        const emoji = nc.kind === 'name_day' ? '💐' : '✨';
+        const label = nc.kind === 'name_day' ? 'name day' : 'name celebration';
+
+        if (nc.dateType === 'fixed') {
+          // monthDayIsToday, not raw equality — a fixed 02-29 celebration
+          // collapses to 28 February in ordinary years, like birthdays.
+          if (typeof nc.date === 'string' && monthDayIsToday(nc.date)) {
+            celebrations.push({
+              key: `namecel-${mDoc.id}-${nc.id}`,
+              title: `${emoji} ${name}'s ${label}`,
+              body: celebrationBody(nc),
+            });
+          }
+          continue;
+        }
+        if (nc.dateType !== 'movable' || !nc.movableRule) continue;
+
+        // Lazy per-year resolution, budget-capped and wrapped so a Gemini
+        // outage or a hung call can never take the whole cron down — a
+        // celebration that fails to resolve today is simply skipped and tried
+        // again on the next run, same "unknown until resolved, never guessed"
+        // principle as celebrationDateInYear in nameCelebrations.ts.
+        let resolved = resolvedFor(nc, year);
+        if (!resolved) resolved = await tryResolve(nc, year);
+        // Once this year's occurrence is past, pre-resolve next year's while
+        // the cron is already here — otherwise every client countdown for
+        // this celebration goes dark until January, waiting for a date only
+        // the server may resolve.
+        if (resolved && resolved < `${year}-${monthDay}` && !resolvedFor(nc, year + 1)) {
+          await tryResolve(nc, year + 1);
+        }
+        if (resolved === `${year}-${monthDay}`) {
+          celebrations.push({
+            key: `namecel-${mDoc.id}-${nc.id}`,
+            title: `${emoji} ${name}'s ${label}`,
+            body: celebrationBody(nc),
+          });
+        }
+      }
+      if (resolvedChanged) {
+        try {
+          await mDoc.ref.update({ nameCelebrationResolvedDates: cronResolved });
+        } catch (e) {
+          console.error(`[cron] failed to persist resolved movable date for ${mDoc.id}`, e);
+        }
       }
     }
 

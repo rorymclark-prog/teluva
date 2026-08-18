@@ -1338,6 +1338,27 @@ export async function saveFoundingDate(foundingDate: string): Promise<void> {
 }
 
 /**
+ * Set the family-level "don't suggest religious celebrations" switch
+ * (families/{id}/info/info.suppressReligiousSuggestions). Admin-only,
+ * re-verified server-side — mirrors saveFoundingDate exactly. Suggestion
+ * surfaces (suggestLocal, the research endpoint) read this; celebrations the
+ * family already confirmed are their own facts and are never touched by it.
+ */
+export async function saveSuppressReligiousSuggestions(suppress: boolean): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in to change suggestion preferences');
+
+  const token = await user.getIdToken();
+  const res = await fetch('/api/set-suggestion-prefs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ suppressReligiousSuggestions: suppress }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save the preference. Please try again.');
+}
+
+/**
  * PERMANENTLY delete the caller's ACTIVE space and everything in it — every
  * member, document/photo file, calendar event, and record. Server-side
  * (/api/delete-family) re-verifies admin status against the authoritative

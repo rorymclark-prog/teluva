@@ -199,6 +199,16 @@ const COVERAGE_MAP: Record<string, Coverage> = {
     "One photo per year, captured live through the timelapse camera flow — a " +
     "deliberate one-at-a-time ritual, not something a document scan produces."
   ),
+  nameCelebrations: manual(
+    "Every celebration must be human-confirmed in NameCelebrationModal.tsx before " +
+    "anything is celebrated — the spec's core safety rules (never assume religion " +
+    "from a name, never silently rename someone, cultural matches need the 'does " +
+    "this match your name's story?' question answered by a person) are enforced by " +
+    "the confirmed flag that only that UI sets. An AI write path would let a chat " +
+    "message create an unconfirmed religious association, which is exactly what the " +
+    "spec forbids. The assistant CAN read resolved celebrations — server.js exposes " +
+    "them as read-only recall alongside expiries/gaps — only writing is excluded."
+  ),
 
   // Was the third instance of the AI-invisible-section bug, and the first one
   // this test caught rather than a user. Wired up the same day it was found.

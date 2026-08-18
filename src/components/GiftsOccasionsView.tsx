@@ -60,7 +60,7 @@ export default function GiftsOccasionsView({ members, onSelectMember }: Props) {
           <div>
             <h2 className="font-display text-xl font-semibold text-ink-900">Gifts &amp; Occasions</h2>
             <p className="text-[13px] text-ink-400 font-medium">
-              Birthdays, name days and Christmas — everyone's wishlist, sorted by what's coming up first.
+              Birthdays, name days &amp; celebrations, and Christmas — everyone's wishlist, sorted by what's coming up first.
             </p>
           </div>
         </div>
@@ -127,7 +127,18 @@ const MemberOccasionCard: React.FC<{
               <span className="ml-1.5 text-[12px] font-normal text-ink-500">({occasion.feast})</span>
             )}
           </p>
-          <p className="text-[12.5px] text-ink-500 tabular-nums">{occasion.dateLabel}</p>
+          <p className="text-[12.5px] text-ink-500 tabular-nums">
+            {occasion.dateLabel}
+            {/* The nameDay bucket carries both kinds; say which this one is —
+                a cultural celebration must never read as an official name
+                day, and vice versa (Name Day / Name Celebration is the same
+                split every other surface labels). */}
+            {occasion.kind === 'nameDay' && occasion.celebrationKind && (
+              <span className="ml-1.5 text-ink-400">
+                · {occasion.celebrationKind === 'name_day' ? 'Name day' : 'Name celebration'}
+              </span>
+            )}
+          </p>
         </div>
         <span className={`chip shrink-0 ${meta.dot}`}>
           <Icon className="w-3.5 h-3.5" />

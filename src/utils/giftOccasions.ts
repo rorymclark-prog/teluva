@@ -15,8 +15,9 @@
 // noise heading into the busiest gift-buying weeks of the year. Instead each
 // member is bucketed under whichever of their three candidate occasions is
 // closest, and only that one is shown. See buildGiftOccasions below.
-import { FamilyMember, FavoriteItem } from '../types';
-import { resolveNameDay, daysUntilNameDay, formatNameDay } from './nameDay';
+import { FamilyMember, FavoriteItem, NameCelebration } from '../types';
+import { daysUntilNameDay, formatNameDay } from './nameDay';
+import { resolveCelebrations, daysUntilCelebration } from './nameCelebrations';
 import { parseDateOnly } from './age';
 
 export type OccasionKind = 'birthday' | 'nameDay' | 'christmas';
@@ -37,8 +38,15 @@ export interface MemberOccasion {
   date: string;
   /** 'D Month', via formatNameDay — e.g. '19 March'. */
   dateLabel: string;
-  /** Only set when kind === 'nameDay'. */
+  /** Only set when kind === 'nameDay' — the celebration's title (a legacy
+   *  name day's stored feast, e.g. 'Hl. Josef', or a confirmed
+   *  NameCelebration's own title, e.g. 'Dev Deepawali — Ganga's Festival of Light'). */
   feast?: string;
+  /** Only set when kind === 'nameDay' — whether the underlying celebration is
+   *  an established name day or a cultural/religious name celebration. The
+   *  view needs this to keep the two apart: presenting a cultural association
+   *  as an official name day is exactly what the spec forbids. */
+  celebrationKind?: NameCelebration['kind'];
   /** member.favorites filtered to isWishlist === true, original array order. */
   wishlistItems: FavoriteItem[];
 }
@@ -62,9 +70,13 @@ export interface GiftOccasionsResult {
   isEmpty: boolean;
 }
 
+// The nameDay bucket holds BOTH kinds of celebration (each carries its
+// celebrationKind), so its heading must cover both — a Hindu festival listed
+// under a plain "Name days" heading would present a cultural association as
+// an official name day.
 const GROUP_META: Record<OccasionKind, string> = {
   birthday: 'Birthdays coming up',
-  nameDay: 'Name days coming up',
+  nameDay: 'Name days & celebrations coming up',
   christmas: 'Christmas',
 };
 
@@ -91,7 +103,10 @@ export function buildGiftOccasions({
   const buckets: Record<OccasionKind, MemberOccasion[]> = { birthday: [], nameDay: [], christmas: [] };
 
   for (const member of members) {
-    type Candidate = { kind: OccasionKind; monthDay: string; daysUntil: number; feast?: string };
+    type Candidate = {
+      kind: OccasionKind; monthDay: string; daysUntil: number;
+      feast?: string; celebrationKind?: NameCelebration['kind'];
+    };
     const candidates: Candidate[] = [];
 
     // --- birthday ---
@@ -101,11 +116,36 @@ export function buildGiftOccasions({
       if (d != null) candidates.push({ kind: 'birthday', monthDay: birthdayMonthDay, daysUntil: d });
     }
 
-    // --- name day: STORED branch only, never 'suggested' ---
-    const resolved = resolveNameDay(member);
-    if (resolved && resolved.source === 'stored') {
-      const d = daysUntilNameDay(resolved.date, now);
-      if (d != null) candidates.push({ kind: 'nameDay', monthDay: resolved.date, daysUntil: d, feast: resolved.feast });
+    // --- name day / name celebration: CONFIRMED only, never a suggestion ---
+    // resolveCelebrations merges the legacy nameDay/nameDayFeast pair in as
+    // an implicit confirmed name_day, so a legacy-only member produces
+    // exactly the same single candidate this block used to build directly —
+    // plus, now, any explicit confirmed nameCelebrations entry, fixed or
+    // movable. The soonest of the member's confirmed celebrations (primary
+    // or an opted-in additional one) is the single candidate carried
+    // forward — same "pick the soonest" rule this file applies again below
+    // across birthday/nameDay/christmas.
+    const { primary, additional } = resolveCelebrations(member);
+    let soonestCelebration: { celebration: NameCelebration; daysUntil: number } | null = null;
+    for (const c of [primary, ...additional].filter((x): x is NameCelebration => x != null)) {
+      const { days } = daysUntilCelebration(c, now);
+      // A movable celebration with no occurrence cached at all has no date to
+      // offer — never guessed, per nameCelebrations.ts. (needsResolution
+      // alone no longer excludes it: a cached next-year date is a real
+      // occurrence and counts, even while the current year is unresolved.)
+      if (days == null) continue;
+      if (!soonestCelebration || days < soonestCelebration.daysUntil) soonestCelebration = { celebration: c, daysUntil: days };
+    }
+    if (soonestCelebration) {
+      const occurrence = new Date(t0.getTime() + soonestCelebration.daysUntil * 86400000);
+      const monthDay = `${pad2(occurrence.getMonth() + 1)}-${pad2(occurrence.getDate())}`;
+      candidates.push({
+        kind: 'nameDay',
+        monthDay,
+        daysUntil: soonestCelebration.daysUntil,
+        feast: soonestCelebration.celebration.title,
+        celebrationKind: soonestCelebration.celebration.kind,
+      });
     }
 
     // --- Christmas: always applies, always valid ---
@@ -133,6 +173,7 @@ export function buildGiftOccasions({
       date: dateIso,
       dateLabel: formatNameDay(soonest.monthDay),
       feast: soonest.kind === 'nameDay' ? soonest.feast : undefined,
+      celebrationKind: soonest.kind === 'nameDay' ? soonest.celebrationKind : undefined,
       wishlistItems: (member.favorites || []).filter((f) => f.isWishlist === true),
     });
   }

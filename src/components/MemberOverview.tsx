@@ -1,13 +1,14 @@
 import {
   AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Lock, Stethoscope, Dices, RefreshCw,
 } from 'lucide-react';
-import { useState, type ElementType, useMemo } from 'react';
+import { useState, useEffect, type ElementType, useMemo } from 'react';
 import { FamilyMember, FamilyDocument } from '../types';
 import { soonestCare, careDueLabel } from '../utils/care';
 import { sunSign, elementTint } from '../utils/astrology';
 import { computeBirthChart } from '../utils/birthChart';
-import { isHintSeen, markHintSeen } from '../utils/db';
-import { resolveNameDay, formatNameDay, daysUntilNameDay } from '../utils/nameDay';
+import { isHintSeen, markHintSeen, loadSpaceInfo } from '../utils/db';
+import { formatNameDay } from '../utils/nameDay';
+import { resolveCelebrations, suggestLocal, daysUntilCelebration } from '../utils/nameCelebrations';
 import MemberBelongings from './MemberBelongings';
 import ShowCardModal, { type ShowCardField } from './ShowCardModal';
 
@@ -75,6 +76,18 @@ export default function MemberOverview({
   // rather than the older bare-image lightbox, for the same reason: one
   // viewer, richer than a plain photo, not three different click targets.
   const [showCard, setShowCard] = useState<{ title: string; subtitle?: string; fields: ShowCardField[]; scanSrc?: string } | null>(null);
+  // families/{id}/info/info.suppressReligiousSuggestions — a family that
+  // turned this off must not see the Austrian Namenskalender nudge here
+  // either, not only in the editor. Loaded once per member shown, not on
+  // every render. null = not yet known, and no suggestion is drawn until it
+  // is: a false default would flash a tappable saint's-day offer at a family
+  // that switched saint suggestions off, for as long as the read takes.
+  const [suppressReligious, setSuppressReligious] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadSpaceInfo().then((info) => { if (!cancelled) setSuppressReligious(!!info?.suppressReligiousSuggestions); });
+    return () => { cancelled = true; };
+  }, [member.id]);
   const zodiac = showAstrology ? sunSign(member.birthdate) : null;
   // The real positions, plus what is and isn't knowable from what's on file.
   const chart = useMemo(() => computeBirthChart({
@@ -93,11 +106,16 @@ export default function MemberOverview({
   const care = soonestCare(member.careSchedule);
   const showCare = care && (care.due.status === 'overdue' || care.due.status === 'due-soon');
 
-  // Namenstag. resolveNameDay returns either the day the family STORED or a
-  // suggestion from the name table — never conflates the two, so the card can
-  // celebrate one and merely offer the other. null for the many names that
-  // have no name day at all, which draws nothing.
-  const nameDay = resolveNameDay(member);
+  // Name Days & Name Celebrations. resolveCelebrations merges the legacy
+  // Namenstag pair with anything confirmed since, so a family that confirmed
+  // a Name Celebration (Shyam, Ganga — outside the Austrian calendar) sees it
+  // here too, not only in the calendar and the daily cron. suggestLocal is
+  // the offer, never conflated with the confirmed primary, and already
+  // returns null once anything is confirmed — see utils/nameCelebrations.ts.
+  const celebrations = resolveCelebrations(member);
+  const suggestion = suppressReligious === null
+    ? null
+    : suggestLocal(member, { suppressReligiousSuggestions: suppressReligious });
 
   const tiles: { label: string; value: string }[] = [];
   if (age) tiles.push({ label: 'Age', value: age });
@@ -203,57 +221,90 @@ export default function MemberOverview({
         </p>
       )}
 
-      {/* Namenstag. Two states, deliberately drawn differently: a day the
-          family CHOSE reads as a fact, a day the calendar merely suggests reads
-          as an offer with the saint named so it can be checked. A member whose
-          name has no name day gets nothing here at all — see utils/nameDay.ts. */}
-      {nameDay?.source === 'stored' && (
+      {/* Name Days & Name Celebrations. A confirmed primary (legacy Namenstag
+          OR anything confirmed via the newer flow — Shyam's Nityananda
+          Trayodashi is exactly as real here as Josef's 19 March) reads as a
+          fact; an unconfirmed local match reads as an offer with the source
+          named so it can be checked. A member with neither draws nothing here
+          — see utils/nameCelebrations.ts. Full editing (additional
+          celebrations, notify, remove) lives in Edit, not this glance card. */}
+      {celebrations.primary && (
         <div className="card p-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-sage-50 flex items-center justify-center text-xl shrink-0" aria-hidden="true">💐</div>
+          <div className="w-10 h-10 rounded-2xl bg-sage-50 flex items-center justify-center text-xl shrink-0" aria-hidden="true">
+            {celebrations.primary.kind === 'name_day' ? '💐' : '🎊'}
+          </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">Name day</p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">
+                {celebrations.primary.kind === 'name_day' ? 'Name day' : 'Name celebration'}
+              </p>
+              {celebrations.additional.length > 0 && (
+                <span className="text-[10.5px] font-semibold text-ink-300">+{celebrations.additional.length} more</span>
+              )}
+            </div>
             <p className="text-[14px] font-semibold text-ink-800">
-              {formatNameDay(nameDay.date)}
-              {nameDay.feast && <span className="text-ink-400 font-normal"> · {nameDay.feast}</span>}
+              {celebrations.primary.title}
+              {celebrations.primary.dateType === 'fixed' && (
+                <span className="text-ink-400 font-normal"> · {formatNameDay(celebrations.primary.date)}</span>
+              )}
             </p>
             {(() => {
-              const d = daysUntilNameDay(nameDay.date);
-              if (d === null) return null;
-              return <p className="text-[12.5px] text-ink-500">{d === 0 ? 'Today 🎉' : d === 1 ? 'Tomorrow' : `In ${d} days`}</p>;
+              const { days } = daysUntilCelebration(celebrations.primary!);
+              if (days === null) return null;
+              return <p className="text-[12.5px] text-ink-500">{days === 0 ? 'Today 🎉' : days === 1 ? 'Tomorrow' : `In ${days} days`}</p>;
             })()}
           </div>
         </div>
       )}
-      {nameDay?.source === 'suggested' && onSetNameDay && (
+      {!celebrations.primary && suggestion && suggestion.matchType !== 'second_name' && onSetNameDay && (
         <div className="card p-4 flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-cream-100 flex items-center justify-center text-xl shrink-0" aria-hidden="true">💐</div>
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">Name day</p>
-            <p className="text-[13px] text-ink-600 leading-snug">
-              In the Austrian calendar, <b className="text-ink-800">{nameDay.suggestion.matched}</b> falls on{' '}
-              <b className="text-ink-800">{formatNameDay(nameDay.suggestion.date)}</b> ({nameDay.suggestion.feast}).
-            </p>
+            {/* The suggestion's own explanation, not a generic "<name> falls
+                on <date>" line: for a variant match (an alias or nickname
+                hit) the generic line hid WHICH token matched and that the
+                connection is approximate — and an approximate match must be
+                explained before it is confirmed, per the spec. */}
+            <p className="text-[13px] text-ink-600 leading-snug">{suggestion.explanation}</p>
             <div className="flex flex-wrap gap-2 mt-2">
               <button
                 type="button"
-                onClick={() => onSetNameDay(nameDay.suggestion.date, nameDay.suggestion.feast)}
+                onClick={() => onSetNameDay(suggestion.date, suggestion.feast)}
                 className="px-3 py-1.5 rounded-xl bg-clay-500 text-white text-[12.5px] font-semibold cursor-pointer hover:bg-clay-600"
               >
-                Keep {formatNameDay(nameDay.suggestion.date)}
+                Keep {formatNameDay(suggestion.date)}
               </button>
               {/* Several names genuinely have two days and which one a family
                   keeps is theirs to say, so the alternative is offered as an
                   equal choice rather than hidden behind an edit screen. */}
-              {nameDay.suggestion.alsoOn && (
+              {suggestion.alsoOn && (
                 <button
                   type="button"
-                  onClick={() => onSetNameDay(nameDay.suggestion.alsoOn!.date, nameDay.suggestion.alsoOn!.feast)}
+                  onClick={() => onSetNameDay(suggestion.alsoOn!.date, suggestion.alsoOn!.feast)}
                   className="px-3 py-1.5 rounded-xl bg-cream-200 text-ink-700 text-[12.5px] font-semibold cursor-pointer hover:bg-cream-300"
                 >
-                  Or {formatNameDay(nameDay.suggestion.alsoOn.date)} ({nameDay.suggestion.alsoOn.feast})
+                  Or {formatNameDay(suggestion.alsoOn.date)} ({suggestion.alsoOn.feast})
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* A second-name match (e.g. Rory -> his second name Michael, 29 Sept)
+          is never offered as a one-tap "Keep" here: this card can only write
+          the legacy nameDay/nameDayFeast pair, which has no field for WHICH
+          name a day belongs to — a one-tap keep would silently present
+          Michael's day as Rory's own, exactly what this feature exists to
+          prevent. Confirming it correctly (attributed to the second name)
+          happens in Edit, where the full NameCelebration record is built. */}
+      {!celebrations.primary && suggestion && suggestion.matchType === 'second_name' && (
+        <div className="card p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-cream-100 flex items-center justify-center text-xl shrink-0" aria-hidden="true">💐</div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">Name day</p>
+            <p className="text-[13px] text-ink-600 leading-snug">{suggestion.explanation}</p>
+            <p className="text-[12px] text-ink-400 mt-1">Open Edit to confirm {suggestion.token}&rsquo;s day.</p>
           </div>
         </div>
       )}

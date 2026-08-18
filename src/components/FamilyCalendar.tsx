@@ -5,7 +5,7 @@ import {
   Calendar, Clock, Plus, Trash2, Edit2,
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X,
   Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine, Link2,
-  ChevronDown, IdCard, ShieldCheck
+  ChevronDown, IdCard, ShieldCheck, Cake, PartyPopper, Info, Stethoscope
 } from 'lucide-react';
 import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken, connectGoogleAccess } from '../utils/firebase';
 import { auth } from '../lib/firebase';
@@ -28,6 +28,12 @@ import {
   buildCalendarDocumentExpiries,
   documentExpiryStatusLabel,
 } from '../utils/calendarDocumentExpiries';
+import {
+  buildCalendarBirthdays,
+  buildCalendarNameCelebrations,
+  buildCalendarMedicalChecks,
+  OCCASION_WATCH_DAYS,
+} from '../utils/familyDates';
 import { PASSPORT_WARN_MONTHS } from '../utils/readiness';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import { parseIcs, buildIcs } from '../utils/ics';
@@ -37,6 +43,31 @@ import {
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
+
+// Shared by the birthdays / name-days / medical-checks divisions below —
+// the travel-document watch has its own copy of this same photo-or-initial
+// pattern inline (three more identical copies would just be noise).
+function DivisionAvatar({ name, avatarUrl, avatarColor }: { name: string; avatarUrl?: string; avatarColor?: string }) {
+  return avatarUrl ? (
+    <img src={avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
+  ) : (
+    <span className={`w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-bold text-white uppercase shrink-0 ${warmAvatarColor(avatarColor)}`}>
+      {name.charAt(0)}
+    </span>
+  );
+}
+
+// 'YYYY-MM-DD' -> 'D Month', local-safe (never `new Date(iso)` directly —
+// that parses as UTC and can shift the day in western timezones).
+function formatIsoDateLong(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+}
+
+// 0 = today, 1 = tomorrow, else 'in N days' — the same phrasing already used
+// for the travel-document watch's sibling chips, just parameterised.
+function daysUntilLabel(days: number): string {
+  return days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `In ${days} days`;
+}
 
 /** One published outbound feed, as /api/calendar-publish/list returns it. */
 interface PublishedLink {
@@ -792,6 +823,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [reminderNote, setReminderNote] = useState<string | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [showAllDocumentDates, setShowAllDocumentDates] = useState(false);
+  const [showAllBirthdays, setShowAllBirthdays] = useState(false);
+  const [showAllNameCelebrations, setShowAllNameCelebrations] = useState(false);
+  const [showAllMedicalChecks, setShowAllMedicalChecks] = useState(false);
 
   // Month properties
   const monthNames = [
@@ -1002,6 +1036,29 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     ? documentExpiries
     : watchedDocumentExpiries.length > 0 ? watchedDocumentExpiries : documentExpiries.slice(0, 1);
 
+  // Three sibling divisions — same "read the member record directly" rule as
+  // documentExpiries above, so none of these can go stale relative to a
+  // profile edit. See utils/familyDates.ts for the merge/derivation logic.
+  const birthdays = useMemo(() => buildCalendarBirthdays(members), [members]);
+  const watchedBirthdays = birthdays.filter((b) => b.daysUntil <= OCCASION_WATCH_DAYS);
+  const shownBirthdays = showAllBirthdays
+    ? birthdays
+    : watchedBirthdays.length > 0 ? watchedBirthdays : birthdays.slice(0, 1);
+
+  const nameCelebrations = useMemo(() => buildCalendarNameCelebrations(members), [members]);
+  const watchedNameCelebrations = nameCelebrations.filter(
+    (c) => c.needsResolution || (c.daysUntil != null && c.daysUntil <= OCCASION_WATCH_DAYS),
+  );
+  const shownNameCelebrations = showAllNameCelebrations
+    ? nameCelebrations
+    : watchedNameCelebrations.length > 0 ? watchedNameCelebrations : nameCelebrations.slice(0, 1);
+
+  const medicalChecks = useMemo(() => buildCalendarMedicalChecks(members), [members]);
+  const watchedMedicalChecks = medicalChecks.filter((c) => c.status === 'overdue' || c.status === 'due-soon');
+  const shownMedicalChecks = showAllMedicalChecks
+    ? medicalChecks
+    : watchedMedicalChecks.length > 0 ? watchedMedicalChecks : medicalChecks.slice(0, 1);
+
   // Real today string for highlighting the calendar cell
   const realTodayStr = todayLocal();
 
@@ -1178,6 +1235,230 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   </div>
                   <span className={`chip shrink-0 ${urgent ? 'bg-rosa-100 text-rosa-700' : soon ? 'bg-honey-100 text-honey-700' : 'bg-sage-100 text-sage-700'}`}>
                     {documentExpiryStatusLabel(item)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Birthdays — every family member's next occurrence, read straight
+          off member.birthdate. Same bones as the travel-document watch
+          above: count chip, a "coming up" default view, a toggle to see
+          everyone. */}
+      <section className="rounded-3xl border border-sage-200 bg-sage-50 overflow-hidden">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-sage-200/60">
+          <div className="p-2.5 rounded-2xl bg-sage-100 text-sage-700 shrink-0 self-start sm:self-auto">
+            <Cake className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-display text-[16px] font-semibold text-ink-900">Birthdays</h4>
+              {watchedBirthdays.length > 0 ? (
+                <span className="chip bg-sage-100 text-sage-700">
+                  {watchedBirthdays.length} in the next {OCCASION_WATCH_DAYS} days
+                </span>
+              ) : birthdays.length > 0 ? (
+                <span className="chip bg-cream-200 text-ink-500">None in the next {OCCASION_WATCH_DAYS} days</span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">No birthdates on file</span>
+              )}
+            </div>
+            <p className="text-[12.5px] text-ink-500 mt-0.5">
+              Each family member’s next birthday, and the age they’ll turn.
+            </p>
+          </div>
+          {birthdays.length > shownBirthdays.length && (
+            <button type="button" onClick={() => setShowAllBirthdays(true)} className="btn-quiet text-xs shrink-0">
+              Show all {birthdays.length}
+            </button>
+          )}
+          {showAllBirthdays && birthdays.length > 1 && (
+            <button type="button" onClick={() => setShowAllBirthdays(false)} className="btn-quiet text-xs shrink-0">
+              Show upcoming
+            </button>
+          )}
+        </div>
+
+        {shownBirthdays.length === 0 ? (
+          <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
+            <Cake className="w-4 h-4 text-sage-600 shrink-0" />
+            Add a birthdate on a family member’s profile and it will appear here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-sage-200/60">
+            {shownBirthdays.map((b) => (
+              <div key={b.id} className="bg-white p-4 flex items-center gap-3 min-w-0">
+                <DivisionAvatar name={b.memberName} avatarUrl={b.avatarUrl} avatarColor={b.avatarColor} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13.5px] font-semibold text-ink-900 truncate">{b.memberName} turns {b.turningAge}</p>
+                  <p className="text-[11.5px] text-ink-400 tabular-nums mt-0.5">{formatIsoDateLong(b.date)}</p>
+                </div>
+                <span className="chip shrink-0 bg-sage-100 text-sage-700">{daysUntilLabel(b.daysUntil)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Name days & celebrations — CONFIRMED only (utils/nameCelebrations.ts:
+          resolveCelebrations). A movable celebration with no resolution
+          cached for this occurrence shows its rule instead of a guessed
+          date — never invented, same rule nameDay.ts has always followed.
+          PROMINENCE: name days are mainstream in parts of Europe but not the
+          UK/US/SA/AU market this app targets first — the whole division
+          stays out of sight for a family that has never confirmed one,
+          rather than showing an empty panel prompting them to start. Once
+          any member has a confirmed entry (including the legacy Namenstag
+          pair, which resolveCelebrations folds in as an implicit confirmed
+          entry) the division appears normally. */}
+      {nameCelebrations.length > 0 && (
+      <section className="rounded-3xl border border-dusk-200 bg-dusk-50 overflow-hidden">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-dusk-200/60">
+          <div className="p-2.5 rounded-2xl bg-dusk-100 text-dusk-700 shrink-0 self-start sm:self-auto">
+            <PartyPopper className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-display text-[16px] font-semibold text-ink-900">Name days &amp; celebrations</h4>
+              {/* Same inline <details> disclosure pattern used for "Where do
+                  I find that link?" below — an explainer for families new to
+                  the tradition, not a modal that interrupts the calendar. */}
+              <details className="relative">
+                <summary
+                  className="list-none cursor-pointer p-1 -m-1 rounded-full text-dusk-500 hover:bg-dusk-100 hover:text-dusk-700 transition-colors"
+                  title="What is a name day?"
+                >
+                  <Info className="w-3.5 h-3.5" />
+                </summary>
+                <div className="absolute z-20 top-full left-0 mt-1.5 w-72 rounded-xl border border-cream-300 bg-white p-3.5 shadow-lift text-[12px] text-ink-600 leading-relaxed">
+                  <p>
+                    In much of Europe, every first name has a traditional day of the year attached to it — a
+                    small yearly celebration alongside the birthday. Plenty of families never keep one, and
+                    that’s completely fine; it’s just another way to mark the calendar for those who’d like to.
+                  </p>
+                  <p className="mt-2">
+                    For names outside those European calendars, Teluva also supports <b>Name Celebrations</b> —
+                    a culturally, historically or religiously meaningful day connected to a name’s own story,
+                    always explained and always confirmed by the family before it appears here.
+                  </p>
+                </div>
+              </details>
+              {watchedNameCelebrations.length > 0 ? (
+                <span className="chip bg-dusk-100 text-dusk-700">{watchedNameCelebrations.length} coming up</span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">None coming up</span>
+              )}
+            </div>
+            <p className="text-[12.5px] text-ink-500 mt-0.5">
+              Confirmed name days and name celebrations, from each member’s profile.
+            </p>
+          </div>
+          {nameCelebrations.length > shownNameCelebrations.length && (
+            <button type="button" onClick={() => setShowAllNameCelebrations(true)} className="btn-quiet text-xs shrink-0">
+              Show all {nameCelebrations.length}
+            </button>
+          )}
+          {showAllNameCelebrations && nameCelebrations.length > 1 && (
+            <button type="button" onClick={() => setShowAllNameCelebrations(false)} className="btn-quiet text-xs shrink-0">
+              Show upcoming
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-dusk-200/60">
+          {shownNameCelebrations.map((c) => (
+            <div key={c.id} className="bg-white p-4 flex items-start gap-3 min-w-0">
+              <DivisionAvatar name={c.memberName} avatarUrl={c.avatarUrl} avatarColor={c.avatarColor} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="text-[13.5px] font-semibold text-ink-900">{c.memberName}</p>
+                  <span className={`chip shrink-0 ${c.celebration.kind === 'name_day' ? 'bg-dusk-100 text-dusk-700' : 'bg-clay-100 text-clay-700'}`}>
+                    {c.celebration.kind === 'name_day' ? 'Name Day' : 'Name Celebration'}
+                  </span>
+                  {!c.isPrimary && <span className="chip bg-cream-200 text-ink-500 shrink-0">Additional</span>}
+                </div>
+                <p className="text-[12.5px] text-ink-700 truncate mt-0.5">{c.celebration.title}</p>
+                <p className="text-[11.5px] text-ink-400 mt-0.5">
+                  {/* A cached date (possibly next year's) still shows while
+                      this year's occurrence awaits resolution — the hint
+                      says the nearer date is being confirmed rather than
+                      hiding a real, known occurrence behind it. */}
+                  {c.date
+                    ? `${formatIsoDateLong(c.date)}${c.needsResolution ? ' — this year’s date still being confirmed' : ''}`
+                    : (c.celebration.movableRule ? `${c.celebration.movableRule} — date not yet set for this year` : 'Date not yet set for this year')}
+                </p>
+              </div>
+              {c.daysUntil != null && (
+                <span className="chip shrink-0 bg-dusk-100 text-dusk-700">{daysUntilLabel(c.daysUntil)}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+      )}
+
+      {/* Medical checks — recurring careSchedule items via the SAME
+          careNextDue derivation the Medical tab's own "next due" chip uses
+          (utils/care.ts), plus any referral that has become a booked
+          appointment. What this deliberately does NOT source from: a bare
+          vaccination record — see the header comment in
+          utils/familyDates.ts for that gap. */}
+      <section className="rounded-3xl border border-clay-200 bg-clay-50 overflow-hidden">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-clay-200/60">
+          <div className="p-2.5 rounded-2xl bg-clay-100 text-clay-700 shrink-0 self-start sm:self-auto">
+            <Stethoscope className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-display text-[16px] font-semibold text-ink-900">Medical checks</h4>
+              {watchedMedicalChecks.length > 0 ? (
+                <span className="chip bg-rosa-100 text-rosa-700">{watchedMedicalChecks.length} overdue or due soon</span>
+              ) : medicalChecks.length > 0 ? (
+                <span className="chip bg-sage-100 text-sage-700">Nothing due soon</span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">No care schedule on file</span>
+              )}
+            </div>
+            <p className="text-[12.5px] text-ink-500 mt-0.5">
+              Dental, medical, eye and specialist check-ups from each member’s Care schedule, plus booked referral appointments.
+            </p>
+          </div>
+          {medicalChecks.length > shownMedicalChecks.length && (
+            <button type="button" onClick={() => setShowAllMedicalChecks(true)} className="btn-quiet text-xs shrink-0">
+              Show all {medicalChecks.length}
+            </button>
+          )}
+          {showAllMedicalChecks && medicalChecks.length > 1 && (
+            <button type="button" onClick={() => setShowAllMedicalChecks(false)} className="btn-quiet text-xs shrink-0">
+              Show priority dates
+            </button>
+          )}
+        </div>
+
+        {shownMedicalChecks.length === 0 ? (
+          <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
+            <ShieldCheck className="w-4 h-4 text-sage-600 shrink-0" />
+            Add a recurring check-up in a family member’s Care schedule, or book a referral appointment, and it will stay visible here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-clay-200/60">
+            {shownMedicalChecks.map((c) => {
+              const urgent = c.status === 'overdue';
+              const soon = c.status === 'due-soon';
+              const noDate = c.status === 'unknown';
+              return (
+                <div key={c.id} className="bg-white p-4 flex items-center gap-3 min-w-0">
+                  <DivisionAvatar name={c.memberName} avatarUrl={c.avatarUrl} avatarColor={c.avatarColor} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-semibold text-ink-900 truncate">{c.memberName} · {c.label}</p>
+                    <p className="text-[11.5px] text-ink-400 mt-0.5">
+                      {c.date ? formatIsoDateLong(c.date) : 'No date on file'}{c.provider ? ` · ${c.provider}` : ''}
+                    </p>
+                  </div>
+                  <span className={`chip shrink-0 ${urgent ? 'bg-rosa-100 text-rosa-700' : soon ? 'bg-honey-100 text-honey-700' : noDate ? 'bg-cream-200 text-ink-500' : 'bg-sage-100 text-sage-700'}`}>
+                    {c.statusLabel}
                   </span>
                 </div>
               );

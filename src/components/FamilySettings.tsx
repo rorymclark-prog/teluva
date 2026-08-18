@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp, UserMinus, AlertTriangle } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, loadBusinessMilestones, saveBusinessMilestones, deleteFamily, loadAiUsage } from '../utils/db';
+import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, saveSuppressReligiousSuggestions, loadBusinessMilestones, saveBusinessMilestones, deleteFamily, loadAiUsage } from '../utils/db';
 import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog, AiUsage } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
@@ -67,6 +67,33 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
       await saveSettings({ ...current, country: value });
     } finally {
       setCountrySaving(false);
+    }
+  };
+
+  // --- Name-celebration suggestion preferences — family-only (name days are
+  // not a business-space concept, see EditMemberModal's gate). The spec's
+  // "users must be able to disable religious suggestions entirely" switch:
+  // suppresses PROPOSALS only (the local Namenskalender nudge and AI research
+  // both honour it); celebrations the family already confirmed stay untouched.
+  const [suppressReligious, setSuppressReligious] = useState(false);
+  const [suppressSaving, setSuppressSaving] = useState(false);
+  const [suppressError, setSuppressError] = useState<string | null>(null);
+  useEffect(() => {
+    if (isBusinessSpace) return;
+    loadSpaceInfo().then((info) => setSuppressReligious(!!info?.suppressReligiousSuggestions));
+  }, [familyId, isBusinessSpace]);
+  const handleToggleSuppressReligious = async () => {
+    const next = !suppressReligious;
+    setSuppressReligious(next); // optimistic — reverted below on failure
+    setSuppressError(null);
+    setSuppressSaving(true);
+    try {
+      await saveSuppressReligiousSuggestions(next);
+    } catch (err: any) {
+      setSuppressReligious(!next);
+      setSuppressError(err?.message ?? 'Could not save the preference');
+    } finally {
+      setSuppressSaving(false);
     }
   };
 
@@ -385,6 +412,44 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
               ))}
             </select>
           </div>
+
+          {/* Section 0a: Name Days & Name Celebrations — family-only. One
+              switch, spec-required: religious suggestions can be turned off
+              entirely. Suggestions only — confirmed celebrations are the
+              family's own facts and stay exactly as confirmed. */}
+          {!isBusinessSpace && (
+            <div className="card p-5 space-y-2">
+              <h3 className="section-label flex items-center gap-2">
+                <PartyPopper size={14} />
+                Name Days &amp; Name Celebrations
+              </h3>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-medium text-ink-800">Don&rsquo;t suggest religious celebrations</div>
+                  <p className="text-[11px] text-ink-400 leading-relaxed mt-0.5">
+                    Stops Teluva proposing religiously derived days for anyone&rsquo;s name — saint calendars included.
+                    Celebrations your family already confirmed, and dates you chose yourselves, are not affected.
+                  </p>
+                  {suppressError && (
+                    <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2 mt-2">{suppressError}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={suppressReligious}
+                  aria-label="Don't suggest religious celebrations"
+                  disabled={suppressSaving}
+                  onClick={handleToggleSuppressReligious}
+                  className={`relative shrink-0 w-11 h-6 rounded-full transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${suppressReligious ? 'bg-sage-500' : 'bg-cream-300'}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-cream-50 shadow-sm transition-transform duration-200 ${suppressReligious ? 'translate-x-5' : 'translate-x-0'}`}
+                  />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Section 0b: Founding date (Business Milestones) — business-only */}
           {isBusinessSpace && (

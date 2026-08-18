@@ -1,8 +1,8 @@
 import type { ElementType } from 'react';
 import { Calendar, Sparkles, Cake, Ruler, GraduationCap, PartyPopper, Plane, BookOpen, Quote } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { FamilyMember, CalendarEvent, ContactEntry } from '../types';
-import { daysUntilNameDay } from '../utils/nameDay';
+import { FamilyMember, CalendarEvent, ContactEntry, NameCelebration } from '../types';
+import { resolveCelebrations, daysUntilCelebration } from '../utils/nameCelebrations';
 
 // "On this day" — the emotional daily hook on the home screen. Pure/presentational:
 // everything here is derived from members + events + the current date, no network,
@@ -105,32 +105,59 @@ function birthdayInsight(m: { id: string; name: string; birthdate?: string }, to
   };
 }
 
-/* Namenstag today, or within the next few days.
+/* Namenstag / name celebration today, or within the next few days.
  *
- * Reads ONLY the stored `nameDay` — never the name→day table. A day the family
- * has not confirmed must not appear on the home screen as something to
- * celebrate; the offer to set one lives on the person's own profile, where it
- * can be checked against the saint it belongs to. The window is shorter than
- * the birthday's ten days because a name day is a smaller occasion: nobody
- * needs a week's notice to say "alles Gute zum Namenstag".
+ * Reads ONLY resolveCelebrations' CONFIRMED view (primary + additional) —
+ * never a suggestion. A day the family has not confirmed must not appear on
+ * the home screen as something to celebrate; the offer to confirm one lives
+ * on the person's own profile. resolveCelebrations folds the legacy stored
+ * nameDay/nameDayFeast pair in as an implicit confirmed entry, so this one
+ * check covers both the old Austrian-only data and any newer confirmed
+ * NameCelebration — fixed or movable. A movable celebration with no
+ * resolution cached for today's year is simply not a candidate here: never
+ * guessed, per nameCelebrations.ts. The window is shorter than the
+ * birthday's ten days because a name day is a smaller occasion: nobody needs
+ * a week's notice to say "alles Gute zum Namenstag".
+ *
+ * On the day itself, the celebration's own `explanation` becomes the "why
+ * today matters" line the product spec asks for — the same text shown when
+ * the family first confirmed it, so the home screen never asserts a
+ * different reason than the one they agreed to.
  *
  * Scored just under the same day's birthday so that when both land together —
  * which is common, since plenty of people are named for the saint whose day
  * they were born on — the birthday leads. */
 function nameDayInsight(m: FamilyMember, today: Date): Insight | null {
-  const days = m.nameDay ? daysUntilNameDay(m.nameDay, today) : null;
-  if (days === null || days > 3) return null;
+  const { primary, additional } = resolveCelebrations(m);
+  let best: { celebration: NameCelebration; days: number } | null = null;
+  for (const c of [primary, ...additional].filter((x): x is NameCelebration => x != null)) {
+    // days == null is the only exclusion: needsResolution can now ride along
+    // with a real countdown (a cached next-year date while the current year
+    // is unresolved), and a known date within the window still deserves its
+    // card. Never guessed still holds — a null days is a celebration with no
+    // known occurrence at all.
+    const { days } = daysUntilCelebration(c, today);
+    if (days == null || days > 3) continue;
+    if (!best || days < best.days) best = { celebration: c, days };
+  }
+  if (!best) return null;
 
+  const { celebration, days } = best;
   const first = firstName(m.name);
   const when = days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
-  const feast = (m.nameDayFeast || '').trim();
+  const occasion = celebration.kind === 'name_day' ? 'name day' : 'name celebration';
+  // Card real estate is small (sayingInsight applies the same cap to a
+  // quote) — the full explanation is always visible on the member's profile.
+  const explanation = celebration.explanation.length > 100
+    ? celebration.explanation.slice(0, 98).trimEnd() + '…'
+    : celebration.explanation;
 
   return {
-    key: `nameday-${m.id}`,
+    key: `nameday-${m.id}-${celebration.id}`,
     icon: PartyPopper,
     text: days === 0
-      ? `💐 It's ${first}'s name day${feast ? ` — ${feast}` : ''}`
-      : `💐 ${first}'s name day is ${when}${feast ? ` (${feast})` : ''}`,
+      ? `💐 It's ${first}'s ${occasion} — ${celebration.title}. ${explanation}`
+      : `💐 ${first}'s ${occasion} is ${when} — ${celebration.title}`,
     tone: 'sage',
     score: 995 - days * 10,
   };

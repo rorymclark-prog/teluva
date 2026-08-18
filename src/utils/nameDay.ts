@@ -444,14 +444,41 @@ function normalizeForms(raw: string): string[] {
   return Array.from(new Set([transliterated, stripped].filter(Boolean)));
 }
 
-function lookupOne(token: string): { key: string; entry: Entry } | null {
+/** One token's lookup, with HOW it matched kept in the result.
+ *
+ * `viaAlias` exists for nameCelebrations.ts: its matching hierarchy must label
+ * a match that went through the alias table as a 'variant' — something to be
+ * explained and confirmed, never presented as the name's own entry. Exporting
+ * that one bit here beats giving another module its own copy of the tables. */
+export interface TokenLookup {
+  date: string;
+  feast: string;
+  /** The catalogued name that matched — 'Maria' when the token was 'Mia'. */
+  matched: string;
+  alsoOn?: { date: string; feast: string };
+  /** True when the token only reached the catalogue through ALIASES. */
+  viaAlias: boolean;
+}
+
+export function lookupTokenDetailed(token: string): TokenLookup | null {
   for (const form of normalizeForms(token)) {
     const direct = CALENDAR[form];
-    if (direct) return { key: form, entry: direct };
+    if (direct) {
+      return { date: direct.date, feast: direct.feast, matched: direct.display, alsoOn: direct.alsoOn, viaAlias: false };
+    }
     const via = ALIASES[form];
-    if (via && CALENDAR[via]) return { key: via, entry: CALENDAR[via] };
+    if (via && CALENDAR[via]) {
+      const entry = CALENDAR[via];
+      return { date: entry.date, feast: entry.feast, matched: entry.display, alsoOn: entry.alsoOn, viaAlias: true };
+    }
   }
   return null;
+}
+
+/** The token split suggestNameDay uses, exported so nameCelebrations.ts walks
+ * the SAME tokens when labelling which one matched — two splits would drift. */
+export function splitNameTokens(value?: string): string[] {
+  return String(value || '').split(/[\s\-–]+/).filter(Boolean);
 }
 
 /**
@@ -465,18 +492,12 @@ function lookupOne(token: string): { key: string; entry: Entry } | null {
  * nickname should still find Maria.
  */
 export function suggestNameDay(fullName?: string, nickname?: string): NameDaySuggestion | null {
-  const tokens = String(fullName || '').split(/[\s\-–]+/).filter(Boolean);
-  const candidates = [...tokens, ...String(nickname || '').split(/[\s\-–]+/).filter(Boolean)];
+  const candidates = [...splitNameTokens(fullName), ...splitNameTokens(nickname)];
 
   for (const token of candidates) {
-    const hit = lookupOne(token);
+    const hit = lookupTokenDetailed(token);
     if (hit) {
-      return {
-        date: hit.entry.date,
-        feast: hit.entry.feast,
-        matched: hit.entry.display,
-        alsoOn: hit.entry.alsoOn,
-      };
+      return { date: hit.date, feast: hit.feast, matched: hit.matched, alsoOn: hit.alsoOn };
     }
   }
   return null;

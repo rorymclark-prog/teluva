@@ -1,6 +1,7 @@
 {
-  "label": "v218",
+  "label": "v219",
   "changes": [
-    "Moved the vault to a new, properly provisioned database. The old one had a hard daily usage cap that caused yesterday's \"couldn't load your account\" outage — the new one has no such cap, so that outage can't happen again. All your data came across unchanged."
+    "Reopening the guided setup part-way through no longer drops you straight into a bare numbered question — a short welcome-back card now shows what step you left off on, with the choice to continue there or start over.",
+    "Added name days and other name-based celebrations. Confirm one from a family member's profile — a name day, a saint's day, a family name connection, or any other tradition tied to someone's name — and it shows up alongside birthdays on the Family Calendar."
   ]
 }

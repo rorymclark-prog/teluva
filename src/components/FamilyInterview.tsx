@@ -118,6 +118,14 @@ export default function FamilyInterview({
   // boolean the guard checks.
   useBodyScrollLock(status === 'active');
   const [token, setToken] = useState('welcome');
+  // A resumed interview must reintroduce itself before asking anything.
+  // Restoring straight to the saved step dropped a returning family onto
+  // "Step 7 of 30 — blood group" with no framing of what the flow even is —
+  // days later, or on a screen someone else in the family started. While this
+  // is true the card shows a welcome-back explainer instead of the question;
+  // the token already points at the saved step, so progress reads correctly
+  // and Continue simply reveals it.
+  const [resuming, setResuming] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const checkedOnce = useRef(false);
@@ -136,6 +144,7 @@ export default function FamilyInterview({
 
     if (forced) {
       setToken('welcome');
+      setResuming(false);
       setStatus('active');
       return;
     }
@@ -154,6 +163,7 @@ export default function FamilyInterview({
       const startedBefore = !!s.step && s.step !== 'welcome';
       if (!startedBefore && membersRef.current.length > 0) { settle(); return; }
       setToken(s.step || 'welcome');
+      setResuming(startedBefore);
       setStatus('active');
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -251,7 +261,11 @@ export default function FamilyInterview({
         <div className="flex items-center justify-between gap-3 mb-4">
           {parsed.kind !== 'welcome' && parsed.kind !== 'closing' ? (
             <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400 tabular-nums">
-              Step {idx + 1} of {seq.length}
+              {/* Named, not just numbered: any single question screen has to
+                  identify the flow it belongs to — a bare "Step 7 of 30" over
+                  a blood-group field reads as an interrogation to anyone who
+                  didn't see the welcome. */}
+              Guided setup · Step {idx + 1} of {seq.length}
             </p>
           ) : <span />}
           <button
@@ -265,6 +279,7 @@ export default function FamilyInterview({
           </button>
         </div>
 
+        {resuming ? <ResumeStep /> : <>
         {parsed.kind === 'welcome' && <WelcomeStep />}
         {parsed.kind === 'members' && (
           <MembersStep members={membersRef.current} onAddMember={onAddMember} />
@@ -290,9 +305,27 @@ export default function FamilyInterview({
         {parsed.kind === 'doctor' && <DoctorStep demo={demo} registerCommit={registerCommit} />}
         {parsed.kind === 'household' && <HouseholdStep demo={demo} registerCommit={registerCommit} />}
         {parsed.kind === 'closing' && <ClosingStep />}
+        </>}
 
         {/* Footer */}
-        {parsed.kind === 'welcome' ? (
+        {resuming ? (
+          <div className="flex flex-col items-center gap-2 mt-5 pt-4 border-t border-cream-200">
+            <button type="button" onClick={() => setResuming(false)} className="btn-primary px-5 py-2.5 w-full justify-center">
+              <span>Continue where you left off</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => { setResuming(false); goto('welcome'); }}
+              className="text-[12px] text-ink-500 hover:text-ink-700 underline underline-offset-2 cursor-pointer"
+            >
+              Start from the beginning
+            </button>
+            <button type="button" onClick={skipTheRest} className="text-[12px] text-ink-400 hover:text-ink-600 underline underline-offset-2 cursor-pointer">
+              Skip the rest — I'll set this up myself
+            </button>
+          </div>
+        ) : parsed.kind === 'welcome' ? (
           <div className="flex flex-col items-center gap-2 mt-5 pt-4 border-t border-cream-200">
             <button type="button" onClick={() => advance(1)} disabled={busy} className="btn-primary px-5 py-2.5 w-full justify-center">
               <span>Let's go</span>
@@ -390,6 +423,23 @@ function WelcomeStep() {
       eyebrow="GETTING STARTED"
       title="Let's fill up your vault"
       body="A blank vault doesn't help anyone. A few honest questions — the kind that actually matter in a real emergency — and yours won't be blank anymore. Answer what you know, skip what you don't, stop whenever you like: everything you enter along the way is saved and useful on its own."
+    />
+  );
+}
+
+// Shown INSTEAD of the saved question when a paused interview reopens. The
+// welcome screen only ever ran once, possibly days ago and possibly for a
+// different person on a shared screen — so a resume must restate what this
+// flow is and that the earlier answers are already safe, before asking
+// anything else.
+function ResumeStep() {
+  return (
+    <StepHeader
+      icon={Sparkles}
+      tone="clay"
+      eyebrow="GUIDED SETUP"
+      title="Welcome back — you're partway through"
+      body="This is the guided setup: short questions that fill your family vault with the facts that matter most in an emergency — medical basics, documents, who to call. Everything you answered before is already saved. Answer what you know, skip what you don't, and stop whenever you like."
     />
   );
 }

@@ -125,6 +125,48 @@ export interface FavoriteItem {
   bought?: boolean;     // Gift secured/purchased status
 }
 
+// One name day or name celebration for a member — the generalisation of the
+// nameDay/nameDayFeast pair below to names the Austrian Namenskalender has
+// never heard of. A "Name Day" is an established, conventional name day; a
+// "Name Celebration" is a genuine cultural/historical/religious day associated
+// with the name that is NOT a conventional name day. The two must never be
+// conflated: presenting a cultural association as an "official name day" is
+// exactly the mistake this feature exists to avoid.
+export interface NameCelebration {
+  id: string;
+  kind: 'name_day' | 'name_celebration';
+  title: string;            // e.g. "Dev Deepawali — Ganga's Festival of Light"
+  // The name being honoured — 'Michael', 'Ganga'. Always the person's real
+  // name (or one of their real names), never a Westernised substitute.
+  celebrationOf: string;
+  // HOW the name was connected to the day. 'second_name' and 'cultural' exist
+  // so a match through a middle name or through a tradition is always labelled
+  // as such and never presented as the first name's own day.
+  matchType: 'exact' | 'variant' | 'second_name' | 'cultural' | 'custom';
+  tradition?: string;       // 'Austrian Namenskalender' | 'Gaudiya Vaishnava / Hindu' | …
+  // WHY this day belongs to this name — required, because every suggestion must
+  // be explainable both at suggest time and again on the day itself.
+  explanation: string;
+  source?: string;
+  // 'fixed' recurs on the same month-day every year; 'movable' follows a
+  // non-Gregorian calendar rule (lunar calendars in particular) and MUST NOT be
+  // baked into one Gregorian date — the rule is stored by name and resolved
+  // per year.
+  dateType: 'fixed' | 'movable';
+  date?: string;            // 'MM-DD' when fixed — a recurring slot with no year, same convention as nameDay
+  movableRule?: string;     // the rule by name: 'Kartik Purnima', 'Nityananda Trayodashi'
+  // Per-year Gregorian resolutions of movableRule, e.g. { '2026': '2026-11-24' }.
+  // A cache, not a fact: refreshed server-side. A missing year means "unknown
+  // until resolved", never "guess" and never "skip silently".
+  resolvedDates?: Record<string, string>;
+  // Nothing is celebrated, notified or put on the calendar until the family
+  // confirmed the connection — a name alone must never activate a religious or
+  // cultural association.
+  confirmed: boolean;
+  primary: boolean;         // one primary per member; the rest are additional
+  notify: boolean;          // default true for the primary, false for additional
+}
+
 export interface FamilyMember {
   id: string;
   name: string;
@@ -155,6 +197,23 @@ export interface FamilyMember {
   // why the server needs no copy of the table.
   nameDay?: string;
   nameDayFeast?: string;     // e.g. 'Hl. Josef' — shown so the date is checkable, never guessed
+  // Name Days & Name Celebrations — the successor of the nameDay pair above.
+  // Both stay valid: utils/nameCelebrations.ts merges the legacy pair in as an
+  // implicit confirmed name day, so existing Austrian data works unmigrated.
+  nameCelebrations?: NameCelebration[];
+  // The family answered "No name celebration" for this member — a deliberate
+  // decision, so stop suggesting. Absence just means they haven't been asked.
+  nameCelebrationDismissed?: boolean;
+  // Movable-rule dates the SERVER cron has resolved, keyed by celebration id
+  // then year: { 'celeb-abc': { '2027': '2027-11-13' } }. Kept OUTSIDE
+  // nameCelebrations deliberately: the cron writing into that array made it a
+  // second author of a family-edited value, and mergeShared's keep-on-conflict
+  // policy then treated a member's own later delete of a cron-touched
+  // celebration as made on stale information and silently restored it. This
+  // field is never hand-edited, so a server write here can't collide with
+  // anyone's edit. resolveCelebrations() folds it back into each entry's
+  // resolvedDates, so consumers of the resolved view see one complete cache.
+  nameCelebrationResolvedDates?: Record<string, Record<string, string>>;
   taxNumber?: string;        // personal tax / social-security number — useful for a family member too, not business-only
   startDate?: string;        // YYYY-MM-DD — unused for a family member; an employee's start-of-employment date in a business space
   nationality?: string;     // comma-separated is fine, free text
@@ -1021,6 +1080,12 @@ export interface FamilyInfoDoc {
   // field — see the /info/{doc} match there — so it can ONLY be set
   // server-side. See server.js's PLAN_LIMITS for what each plan gets.
   plan?: Plan;
+  // Space-level switch: when true the app must not PROPOSE religiously derived
+  // celebration days — saint calendars included, so the local Namenskalender
+  // suggestions stop too, not only AI research. It suppresses SUGGESTIONS
+  // only: celebrations the family already confirmed, and custom dates they
+  // chose, are their own facts and stay untouched.
+  suppressReligiousSuggestions?: boolean;
 }
 
 export interface FamilyMemberRole {
