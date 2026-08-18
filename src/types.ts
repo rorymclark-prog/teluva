@@ -238,6 +238,7 @@ export interface FamilyMember {
   passport?: PassportInfo;
   passports?: PassportRecord[];     // multiple passports (UK / SA / AT …)
   documents: FamilyDocument[];
+  nonResidentGuardians?: NonResidentGuardian[]; // a parent/guardian who doesn't live with this member — contact details + custody/guardianship papers, kept on the CHILD's own profile since that's whose record it's about
   growthHistory?: GrowthLog[];
   digitalAccounts?: DigitalAccount[];
   financialAccounts?: FinancialAccount[];
@@ -409,6 +410,36 @@ export interface IdentityRecord {
   driversLicenseNumber?: string;
   driversLicenseExpiry?: string;
   notes?: string;
+}
+
+// A parent/guardian who does NOT live with this member — a separated or
+// non-custodial parent, a legal guardian, or another relative with a formal
+// custody role. Lives on the CHILD's profile (not its own member record)
+// because that is whose record this actually is: contact details for someone
+// to reach, plus the paperwork that says why they're allowed to. Per-member,
+// like passports/documents above.
+export type GuardianRelationship = 'Parent' | 'Guardian' | 'Grandparent' | 'Other';
+
+export interface NonResidentGuardian {
+  id: string;
+  name: string;
+  relationship: GuardianRelationship;
+  relationshipOther?: string;   // free text when relationship === 'Other'
+  phone?: string;
+  email?: string;
+  address?: string;
+  notes?: string;               // custody schedule, contact arrangements, court order references, etc.
+  // ID copies, custody/guardianship legal papers — reuses FamilyDocument's own
+  // shape/limits (inline base64, 700KB cap) rather than a new Storage-backed
+  // pattern, since this is exactly the same kind of file MemberDocuments.tsx
+  // already handles. Deliberately MANUAL-UPLOAD-ONLY — no AiEdit kind touches
+  // this field (see the 'guardian' kind in AIChatbot.tsx and its
+  // aiEditCoverage.test.ts COVERAGE_MAP entry for the full reasoning): a
+  // custody order or guardianship paper shouldn't get auto-filed onto a
+  // specific child's record from a scanned photo without a person explicitly
+  // choosing which guardian it belongs to, the same boundary avatarUrl draws.
+  documents: FamilyDocument[];
+  createdAt: string;            // ISO date
 }
 
 // --- Travel ---

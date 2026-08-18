@@ -24,7 +24,7 @@ import type { AiEdit } from '../components/AIChatbot';
 
 // Which store a created record lives in — drives how handleUndoAiEdits reverses it.
 export type UndoDomain =
-  | 'member' | 'memberNested' | 'transitPass' | 'vaccination' | 'visa' | 'serviceRecord'
+  | 'member' | 'memberNested' | 'transitPass' | 'vaccination' | 'visa' | 'guardian' | 'serviceRecord'
   | 'contact' | 'number' | 'provider'
   | 'calendar' | 'vehicle' | 'pet' | 'utility'
   | 'bank' | 'insurance' | 'benefit'
@@ -105,6 +105,12 @@ export function diffMemberUndo(before: FamilyMember[], after: FamilyMember[]): U
     }
     for (const rec of diffNewIds(prev.travel?.visas, m.travel?.visas)) {
       out.push({ domain: 'visa', id: rec.id, memberId: m.id, label: `${who}: ${(rec as any).country ? `${(rec as any).country} visa` : 'visa'}` });
+    }
+    // Same reasoning as vaccinations/visas above — added at the same time as
+    // the 'guardian' AiEdit kind itself, so this collection never has the
+    // "filable but not undoable" gap those two shipped with.
+    for (const rec of diffNewIds(prev.nonResidentGuardians, m.nonResidentGuardians)) {
+      out.push({ domain: 'guardian', id: rec.id, memberId: m.id, label: `${who}: guardian ${(rec as any).name || ''}`.trim() });
     }
   }
   return out;
@@ -204,6 +210,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
     case 'care_schedule': return `${who(e.member)}'s profile · Care schedule`;
     case 'saying': return `${who(e.member)}'s profile · Sayings`;
     case 'favorite_quote': return `${who(e.member)}'s profile · Favourite quotes`;
+    case 'guardian': return `${who(e.member)}'s profile · Guardians`;
     case 'family_word': return 'Family dictionary';
     case 'cv': return `${who(e.member)}'s profile · CV`;
     case 'estate_record': return 'Wills & estate';

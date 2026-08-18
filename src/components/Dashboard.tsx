@@ -78,6 +78,7 @@ import BirthdayTimelapse from './BirthdayTimelapse';
 import SecureSecrets from './SecureSecrets';
 import MemberFavorites from './MemberFavorites';
 import MemberMedical from './MemberMedical';
+import MemberGuardians from './MemberGuardians';
 import MemberOverview from './MemberOverview';
 import NeedsAttention from './NeedsAttention';
 import ReadinessCard from './ReadinessCard';
@@ -114,7 +115,7 @@ import {
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
-  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift} from 'lucide-react';
+  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck} from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
 // Lazy-loaded main-view screens — audit finding, 2026-07-30. Exactly one of
@@ -200,7 +201,7 @@ function isJoinLinkVisit(): boolean {
   return /^\/join\/.+/.test(window.location.pathname);
 }
 
-type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv';
+type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians';
 type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -208,6 +209,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'medical', label: 'Medical', icon: HeartPulse },
   { id: 'care', label: 'Check-ups', icon: CalendarClock },
   { id: 'ids', label: 'ID & Passports', icon: IdCard },
+  { id: 'guardians', label: 'Guardians', icon: UserRoundCheck },
   { id: 'sizes', label: 'Sizes', icon: Scissors },
   { id: 'favorites', label: 'Wishlist', icon: Heart },
   { id: 'growth', label: 'Growth', icon: TrendingUp },
@@ -221,7 +223,9 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 ];
 
 // Kid/family-specific tabs that make no sense for an employee in a business space.
-const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse'];
+// 'guardians' joins this list for the same reason: a non-resident PARENT is a
+// family-custody concept with no equivalent for an employee's HR record.
+const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse', 'guardians'];
 // Mirror image: tabs that only make sense for an employee in a business space
 // (a CV/résumé — career history, qualifications) have no family equivalent.
 const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
@@ -1305,7 +1309,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     const idsFor = (...ds: UndoDomain[]) => new Set(records.filter(r => ds.includes(r.domain)).map(r => r.id));
 
     // --- Members: whole new profiles + nested records + transit passes ---
-    if (records.some(r => r.domain === 'member' || r.domain === 'memberNested' || r.domain === 'transitPass' || r.domain === 'vaccination' || r.domain === 'visa')) {
+    if (records.some(r => r.domain === 'member' || r.domain === 'memberNested' || r.domain === 'transitPass' || r.domain === 'vaccination' || r.domain === 'visa' || r.domain === 'guardian')) {
       const removeMemberIds = idsFor('member');
       const beforeIds = new Set(membersRef.current.map(m => m.id));
       for (const id of removeMemberIds) { if (beforeIds.has(id)) undone++; else missing++; }
@@ -1329,6 +1333,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           } else if (r.domain === 'visa') {
             const arr = mm.travel?.visas;
             if (arr?.some(x => x.id === r.id)) { mm = { ...mm, travel: { ...mm.travel, visas: arr.filter(x => x.id !== r.id) } }; undone++; }
+            else missing++;
+          } else if (r.domain === 'guardian') {
+            const arr = mm.nonResidentGuardians;
+            if (arr?.some(x => x.id === r.id)) { mm = { ...mm, nonResidentGuardians: arr.filter(x => x.id !== r.id) }; undone++; }
             else missing++;
           }
         }
@@ -2597,6 +2605,9 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                               )}
                               {activeTab === 'ids' && (
                                 <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} onAddDocument={handleAddDocument} country={settings.country || 'AT'} onOpenPrivacy={() => setLegalTab('privacy')} />
+                              )}
+                              {activeTab === 'guardians' && (
+                                <MemberGuardians member={selectedMember} onUpdate={handlePatchSelectedMember} />
                               )}
                               {activeTab === 'sizes' && (
                                 <MemberSizing member={selectedMember} onUpdateSizes={handleUpdateSizes} />

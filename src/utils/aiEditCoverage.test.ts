@@ -183,6 +183,19 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // 'document' AiEdit variant in AIChatbot.tsx). Checked below via the
   // referralKind marker in addition to the normal kind-exists check.
   referrals: covered('document', 'rides on document\'s referral* fields, not its own kind'),
+  // nonResidentGuardians: CONTACT FIELDS ONLY are covered by the 'guardian'
+  // kind (name/relationship/phone/email/address/notes) — the AI can propose
+  // filing a non-resident parent/guardian's contact details from a chat
+  // message or a scanned custody letter. The nested `documents` array on each
+  // guardian record (ID copies, custody/guardianship papers) is deliberately
+  // NOT reachable by any AiEdit kind: it is manual-upload-only through
+  // MemberGuardians.tsx's own upload button, the same boundary avatarUrl
+  // draws — a legal document shouldn't get auto-filed onto a specific
+  // guardian record from a photo without a person explicitly choosing which
+  // record it belongs to. This scanner only discovers top-level FamilyMember
+  // array fields (see step 1 above), so it never looks inside
+  // NonResidentGuardian itself — nothing here to add for `documents`.
+  nonResidentGuardians: covered('guardian'),
 
   // --- Deliberately manual-only ------------------------------------------
   digitalAccounts: manual(

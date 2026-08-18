@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
@@ -7,6 +7,7 @@ import { isValidNameDay } from './nameDay';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 const VALID_FAMILY_ROLES: MemberRole[] = ['Parent', 'Child', 'Grandparent', 'Other'];
+const VALID_GUARDIAN_RELATIONSHIPS: GuardianRelationship[] = ['Parent', 'Guardian', 'Grandparent', 'Other'];
 
 function createMember(name: string, role: string | undefined, nickname: string | undefined, birthdate: string | undefined, idx: number, isBusinessSpace?: boolean): FamilyMember {
   // A business space has no fixed role vocabulary — any AI-proposed title the
@@ -247,6 +248,42 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
       next = next.map(m => (m.id === target.id
         ? { ...m, travel: { ...(m.travel || {}), visas: [...(m.travel?.visas || []), rec] } }
         : m));
+    } else if (e.kind === 'guardian') {
+      const target = resolve(e.member, 'guardian');
+      if (!target || !e.name || !e.name.trim()) continue;
+      const rawRel = (e.relationship || '').trim();
+      // A free-text relationship that isn't one of the 4 presets (e.g.
+      // "Uncle", "Stepfather") becomes 'Other' with the model's own wording
+      // kept in relationshipOther, rather than silently dropped.
+      const relationship: GuardianRelationship = VALID_GUARDIAN_RELATIONSHIPS.includes(rawRel as GuardianRelationship)
+        ? (rawRel as GuardianRelationship)
+        : 'Other';
+      const relationshipOther = relationship === 'Other' ? (e.relationshipOther?.trim() || rawRel || undefined) : undefined;
+      // Same person re-stated (a custody letter read twice, or asked again in
+      // one conversation) is matched on name + relationship — not
+      // resolveMember's fuzzy substring match, too permissive for deciding
+      // whether to CREATE a new record — same dedupe spirit as new_member above.
+      const already = (target.nonResidentGuardians || []).some(
+        g => g.name.trim().toLowerCase() === e.name.trim().toLowerCase() && g.relationship === relationship,
+      );
+      if (already) continue;
+      const rec: NonResidentGuardian = {
+        id: newId(),
+        name: e.name.trim(),
+        relationship,
+        relationshipOther,
+        phone: e.phone?.trim() || undefined,
+        email: e.email?.trim() || undefined,
+        address: e.address?.trim() || undefined,
+        notes: e.notes?.trim() || undefined,
+        // Manual-upload-only — see the comment on NonResidentGuardian.documents
+        // in types.ts. The AI never populates this array.
+        documents: [],
+        createdAt: new Date().toISOString(),
+      };
+      next = next.map(m => (m.id === target.id
+        ? { ...m, nonResidentGuardians: [...(m.nonResidentGuardians || []), rec] }
+        : m));
     } else if (e.kind === 'vaccination') {
       const target = resolve(e.member, 'vaccination');
       if (!target || !e.name || !e.name.trim()) continue;
@@ -391,7 +428,7 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   return { numbers, contacts, providers };
 }
 
-export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote' || e.kind === 'cv' || e.kind === 'vaccination' || e.kind === 'visa' || e.kind === 'clear_field');
+export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote' || e.kind === 'cv' || e.kind === 'vaccination' || e.kind === 'visa' || e.kind === 'guardian' || e.kind === 'clear_field');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number' || e.kind === 'provider');
 
 const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;

@@ -70,6 +70,15 @@ export type AiEdit =
   | { kind: 'passport'; member: string; country: string; number: string; expiry?: string }
   | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string; birthdate?: string }
   | { kind: 'provider'; name: string; type?: string; specialty?: string; practiceName?: string; phone?: string; afterHoursPhone?: string; email?: string; address?: string; forMember?: string }
+  /* A non-resident parent/guardian, attached to an EXISTING member's own
+   * profile (see NonResidentGuardian in types.ts). CONTACT INFO ONLY — same
+   * trust level as 'contact'/'provider' above. Deliberately does NOT carry any
+   * document/photo field: a custody letter or ID copy is manual-upload-only,
+   * through MemberGuardians.tsx's own upload button, so a person explicitly
+   * chooses which guardian record a legal document attaches to rather than it
+   * being auto-filed from a scan — the same boundary avatarUrl draws. See
+   * aiEditCoverage.test.ts's COVERAGE_MAP entry for nonResidentGuardians. */
+  | { kind: 'guardian'; member: string; name: string; relationship?: string; relationshipOther?: string; phone?: string; email?: string; address?: string; notes?: string }
   | { kind: 'number'; label: string; value: string }
   // fileUrl/fileStoragePath/fileName/fileMimeType/fileSize/contentHash are stamped
   // client-side the moment the attachment finishes uploading (see send()) — the
@@ -563,7 +572,7 @@ interface Props {
 
 function slimMembers(members: FamilyMember[]) {
   return members.map(m => {
-    const { avatarUrl, documents, digitalAccounts, favorites, growthHistory, referrals, ...rest } = m as any;
+    const { avatarUrl, documents, digitalAccounts, favorites, growthHistory, referrals, nonResidentGuardians, ...rest } = m as any;
     return {
       // Government identity numbers (identifiers) and bank/routing numbers
       // (financialAccounts) were riding along inside ...rest — see aiRedact.ts
@@ -594,6 +603,20 @@ function slimMembers(members: FamilyMember[]) {
        * Same shape and same reasoning as the documents line above. */
       referrals: (referrals || []).map((r: any) => ({
         id: r.id, kind: r.kind, date: r.date, reason: r.reason, status: r.status, providerName: r.providerName,
+      })),
+      /* Non-resident guardians: contact fields only, never the attached
+       * documents' bytes. These were about to ride along untouched inside
+       * ...rest the same way referrals once did (see the comment above) —
+       * each guardian's `documents` array holds inline base64 FamilyDocument
+       * data (custody papers, ID copies), and sending that on every chat turn
+       * would repeat exactly the mistake the referrals fix above corrected.
+       * Contact fields stay so the assistant can dedupe ("Mia already has a
+       * guardian named Alex on file") and answer read-only questions; only
+       * document METADATA is kept, matching the `documents` line above. */
+      nonResidentGuardians: (nonResidentGuardians || []).map((g: any) => ({
+        id: g.id, name: g.name, relationship: g.relationship, relationshipOther: g.relationshipOther,
+        phone: g.phone, email: g.email, address: g.address, notes: g.notes,
+        documents: (g.documents || []).map((d: any) => ({ id: d.id, name: d.name, category: d.category, uploadedAt: d.uploadedAt })),
       })),
     };
   });
@@ -2845,6 +2868,7 @@ function describeEdit(e: AiEdit): string {
   // files into Referrals & Results should say so before they tap Apply.
   if (e.kind === 'visa') return `Record ${e.permitType || 'visa'} for ${e.country}${e.expiryDate ? `, expires ${e.expiryDate}` : ''} on ${e.member}’s profile`;
   if (e.kind === 'vaccination') return `Record ${e.name}${e.date ? ` (${e.date})` : ''} in ${e.member}’s vaccinations`;
+  if (e.kind === 'guardian') return `${e.member}: add non-resident ${(e.relationship === 'Other' ? e.relationshipOther : e.relationship) || 'guardian'} — ${e.name}${e.phone ? ` · ${e.phone}` : ''}`;
   if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}${e.referralKind ? ` + Referrals & Results (${String(e.referralKind).toLowerCase()}${e.referralDate ? `, ${e.referralDate}` : ''})` : ''}`;
   if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;
   if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
