@@ -160,8 +160,16 @@ export function applyMemberEdits(members: FamilyMember[], edits: AiEdit[], isBus
     return target;
   };
   // Pass 1: create any new members first, so later field edits can target them.
+  // Deduped on exact name/nickname (not resolveMember's fuzzy substring match
+  // — too permissive for deciding whether to CREATE someone, where a false
+  // "already exists" silently drops a genuinely new person) — the AI asked
+  // twice in one conversation, or misread an existing name as new, otherwise
+  // ends up with two profiles for the same person (pre-publish audit).
   for (const e of edits) {
     if (e.kind === 'new_member' && e.name) {
+      const n = e.name.trim().toLowerCase();
+      const already = next.some(m => m.name.toLowerCase() === n || (m.nickname || '').toLowerCase() === n);
+      if (already) continue;
       next = [...next, createMember(e.name, e.role, e.nickname, e.birthdate, next.length, isBusinessSpace)];
     }
   }
@@ -403,8 +411,12 @@ export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], mem
     const cat: CalendarCat = (VALID_CALENDAR_CATS as readonly string[]).includes(e.category || '')
       ? (e.category as CalendarCat)
       : 'Other';
+    // resolveMember (same helper applyMemberEdits above uses) also matches on
+    // nickname and an unambiguous substring — a bare exact-name match here
+    // dropped a tag whenever the AI used the nickname it was actually given
+    // (pre-publish audit).
     const memberIds = (e.memberNames || [])
-      .map(n => members.find(m => m.name.toLowerCase() === n.toLowerCase())?.id)
+      .map(n => resolveMember(members, n)?.id)
       .filter((id): id is string => Boolean(id));
     candidates.push({
       id: newId(),

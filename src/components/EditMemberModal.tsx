@@ -985,7 +985,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                       </div>
                       <div>
                         <p className="text-[13px] font-semibold text-ink-800">Has Custom Photo</p>
-                        <p className="text-[13px] font-semibold text-ink-500">Stored locally in secure index sandbox.</p>
+                        <p className="text-[13px] font-semibold text-ink-500">Saved to this profile.</p>
                       </div>
                     </div>
                     <ConfirmDeleteButton

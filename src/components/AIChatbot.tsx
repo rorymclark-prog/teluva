@@ -1601,6 +1601,13 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     Identity: 'ID', Medical: 'Health', Education: 'Education', Travel: 'Travel',
     Financial: 'Other', Legal: 'Other', Other: 'Other',
   };
+  // The prompt constrains "category" to this list, but nothing enforces it at
+  // the Gemini API level (no responseSchema) — an off-list string would sit in
+  // VaultDocument.category forever, unrecognized by MEMBER_DOC_CAT above and
+  // any UI that switches on it. Mirrors the same clamp Dashboard.tsx already
+  // does for asset edits' category (pre-publish audit).
+  const VALID_VAULT_CATS: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
+  const clampVaultCategory = (c: VaultCategory): VaultCategory => (VALID_VAULT_CATS.includes(c) ? c : 'Other');
 
   const resolveMemberByName = (name?: string): FamilyMember | undefined => {
     const q = (name || '').trim().toLowerCase();
@@ -1777,9 +1784,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // skipped — even though the name "Rory Michael Clark Austrian e-card" names
       // him unambiguously.
       const owner = inferDocOwner(e, docEdits);
+      const category = clampVaultCategory(e.category);
 
       added.push({
-        id, name: e.name, category: e.category,
+        id, name: e.name, category,
         fileName, fileType, fileSize,
         // Attribute the vault copy to its owner. Without this, EVERY chat-filed
         // vault document had memberId undefined — so the Document Vault couldn't
@@ -1797,7 +1805,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         await onAddMemberDoc(owner.id, {
           id: 'doc-' + id,
           name: e.name,
-          category: MEMBER_DOC_CAT[e.category] || 'Other',
+          category: MEMBER_DOC_CAT[category] || 'Other',
           fileType,
           fileName,
           fileSize,

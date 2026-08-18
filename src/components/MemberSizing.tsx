@@ -84,6 +84,15 @@ const initSizes = (member: FamilyMember, heightUnit: HeightUnit, weightUnit: Wei
   outerwear: member.clothingSizes.outerwear || '',
   underwear: member.clothingSizes.underwear || '',
   hatValue: member.clothingSizes.hatValue || '',
+  // dressSize/jacketSize/ringSize are AI-writable (see aiApply.ts's
+  // dress_size/jacket_size/ring_size handlers) but weren't carried through
+  // here — any Save from this screen wholesale-replaced clothingSizes with
+  // this object, silently wiping whatever the assistant had filed (found in
+  // the pre-publish audit). Round-tripping them here is what stops that,
+  // even though they're plain text like the fields above.
+  dressSize: member.clothingSizes.dressSize || '',
+  jacketSize: member.clothingSizes.jacketSize || '',
+  ringSize: member.clothingSizes.ringSize || '',
   heightCm: member.clothingSizes.heightCm ? String(fromCanonicalHeightCm(Number(member.clothingSizes.heightCm), heightUnit)) : '',
   weightKg: member.clothingSizes.weightKg ? String(fromCanonicalWeightKg(Number(member.clothingSizes.weightKg), weightUnit)) : '',
   notes: member.clothingSizes.notes || '',
@@ -173,6 +182,9 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
       sizes.outerwear ? `• Outerwear: ${sizes.outerwear}` : null,
       sizes.underwear ? `• Underwear: ${sizes.underwear}` : null,
       sizes.hatValue ? `• Hat: ${sizes.hatValue}` : null,
+      sizes.dressSize ? `• Dress: ${sizes.dressSize}` : null,
+      sizes.jacketSize ? `• Jacket: ${sizes.jacketSize}` : null,
+      sizes.ringSize ? `• Ring: ${sizes.ringSize}` : null,
       sizes.heightCm ? `• Height: ${sizes.heightCm} ${heightUnit}` : null,
       sizes.weightKg ? `• Weight: ${sizes.weightKg} ${weightUnit}` : null,
       sizes.notes ? `• Notes: ${sizes.notes}` : null,
@@ -561,6 +573,45 @@ export default function MemberSizing({ member, onUpdateSizes }: MemberSizingProp
               placeholder="e.g. 54 cm, 58 cm"
               value={sizes.hatValue}
               onChange={(e) => handleFieldChange('hatValue', e.target.value)}
+              onBlur={commitIfDirty}
+              className="field"
+            />
+          </div>
+        </div>
+
+        {/* Dress / jacket / ring — AI-writable (a scanned tag or a stated
+            size), so they need a screen too even though most members will
+            leave them blank. */}
+        <div className="space-y-4">
+          <div>
+            <label className="field-label">Dress size (EU)</label>
+            <input
+              type="text"
+              placeholder="e.g. EU 38"
+              value={sizes.dressSize}
+              onChange={(e) => handleFieldChange('dressSize', e.target.value)}
+              onBlur={commitIfDirty}
+              className="field"
+            />
+          </div>
+          <div>
+            <label className="field-label">Jacket size (EU)</label>
+            <input
+              type="text"
+              placeholder="e.g. EU 50"
+              value={sizes.jacketSize}
+              onChange={(e) => handleFieldChange('jacketSize', e.target.value)}
+              onBlur={commitIfDirty}
+              className="field"
+            />
+          </div>
+          <div>
+            <label className="field-label">Ring size</label>
+            <input
+              type="text"
+              placeholder="e.g. EU 54, UK L"
+              value={sizes.ringSize}
+              onChange={(e) => handleFieldChange('ringSize', e.target.value)}
               onBlur={commitIfDirty}
               className="field"
             />

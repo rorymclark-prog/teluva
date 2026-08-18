@@ -1097,7 +1097,16 @@ export async function loadUserProfile(uid: string): Promise<UserProfile | null> 
   }
 }
 
-export async function saveUserProfile(uid: string, data: Partial<UserProfile>): Promise<void> {
+// Narrowed to exactly the keys firestore.rules' self-update branch allows
+// (users/{uid}'s hasOnly([...]) list) — familyId/role are NOT in it and can
+// only ever be written server-side (Admin SDK). A caller passing them here
+// would have the write silently denied by rules; narrowing the type instead
+// of Partial<UserProfile> catches that at compile time (persistence audit,
+// 2026-07 — dead code today, but the signature invited the mistake).
+export async function saveUserProfile(
+  uid: string,
+  data: Partial<Pick<UserProfile, 'displayName' | 'email' | 'chatHistory' | 'aiConsent' | 'tourSeenAt' | 'interviewSeenAt' | 'interviewStep'>>,
+): Promise<void> {
   await setDoc(doc(db, 'users', uid), data, { merge: true });
 }
 

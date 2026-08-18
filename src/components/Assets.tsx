@@ -133,7 +133,13 @@ export default function Assets() {
           serialNumber: scanned.serialNumber || base.serialNumber || '',
           identifierType: base.identifierType || suggestIdentifier(category),
           category,
-          notes: scanned.notes || base.notes || '',
+          // AssetItem has no dedicated size/color fields — /api/scan-asset reads
+          // them off the label but they were dropped on the floor here, never
+          // making it into the saved item at all (pre-publish audit). Fold them
+          // into notes, the same free-text field everything else without its own
+          // column already lands in.
+          notes: [scanned.notes, scanned.size ? `Size: ${scanned.size}` : '', scanned.color ? `Color: ${scanned.color}` : '']
+            .filter(Boolean).join(' · ') || base.notes || '',
           photoDataUrl: compressed,
         };
       });
