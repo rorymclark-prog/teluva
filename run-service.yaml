@@ -17,7 +17,7 @@ spec:
     spec:
       containerConcurrency: 80
       containers:
-      - image: europe-west2-docker.pkg.dev/gen-lang-client-0384516171/cloud-run-source-deploy/teluva:v217
+      - image: europe-west2-docker.pkg.dev/gen-lang-client-0384516171/cloud-run-source-deploy/teluva:v218
         name: app-container
         ports:
         - containerPort: 8080
@@ -37,6 +37,12 @@ spec:
               key: latest
         - name: FIREBASE_PROJECT_ID
           value: gen-lang-client-0384516171
+        # Explicit, not the server.js hardcoded fallback — that fallback pointed at
+        # a free-tier-limited AI-Studio dev database by accident (2026-08-17 outage,
+        # see .claude-context). teluva-prod is a deliberately provisioned, non-free
+        # database with no daily read-quota cap.
+        - name: FIRESTORE_DB_ID
+          value: teluva-prod
         - name: ALLOWED_EMAILS
           value: rorymclark@gmail.com,partner@example.com,child@example.com
         # Web Push (birthday/anniversary phone notifications). Public key is not

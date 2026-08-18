@@ -219,7 +219,13 @@ const AI_READY = USE_VERTEX || !!GEMINI_KEY;
 const FIREBASE_AUTH_HOST = `${PROJECT_ID}.firebaseapp.com`;
 // The app's Firestore is a NAMED database — admin.firestore() would silently
 // target the nonexistent (default) DB (which is why server-side joins failed).
-const DB_ID = process.env.FIRESTORE_DB_ID || 'ai-studio-393d7146-0d1a-431e-bd58-b2a1478b5ff5';
+// This fallback used to point at an AI-Studio-auto-provisioned free/dev database
+// that ended up backing production by accident and hit its permanent daily
+// read-quota cap (2026-08-17 outage, see .claude-context). teluva-prod is a
+// deliberately provisioned, non-free database — run-service.yaml sets
+// FIRESTORE_DB_ID explicitly in production; this fallback only matters for
+// local dev now, and should default to the good database too.
+const DB_ID = process.env.FIRESTORE_DB_ID || 'teluva-prod';
 
 admin.initializeApp({ projectId: PROJECT_ID });
 const adminDb = getFirestore(admin.app(), DB_ID);

@@ -1,7 +1,7 @@
 {
   "firestore": [
     {
-      "database": "ai-studio-393d7146-0d1a-431e-bd58-b2a1478b5ff5",
+      "database": "teluva-prod",
       "rules": "firestore.rules"
     }
   ],

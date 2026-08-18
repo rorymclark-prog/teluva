@@ -1,6 +1,6 @@
 {
-  "label": "v217",
+  "label": "v218",
   "changes": [
-    "Fixed a bug where a brief connection hiccup while signing in could send an existing account to a \"set up your family vault\" screen instead of their real vault. It now shows a plain \"couldn't load your account, try again\" message instead — never a screen that looks like you need to start from scratch."
+    "Moved the vault to a new, properly provisioned database. The old one had a hard daily usage cap that caused yesterday's \"couldn't load your account\" outage — the new one has no such cap, so that outage can't happen again. All your data came across unchanged."
   ]
 }

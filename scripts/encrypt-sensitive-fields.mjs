@@ -52,7 +52,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 
 const PROJECT_ID = process.env.FIREBASE_PROJECT_ID || 'gen-lang-client-0384516171';
-const DB_ID = process.env.FIRESTORE_DB_ID || 'ai-studio-393d7146-0d1a-431e-bd58-b2a1478b5ff5';
+const DB_ID = process.env.FIRESTORE_DB_ID || 'teluva-prod';
 const APPLY = process.argv.includes('--apply');
 
 const REDACTED_IDENTITY_KEYS = [

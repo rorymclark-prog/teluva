@@ -18,7 +18,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 const APPLY = process.argv.includes('--apply');
 admin.initializeApp({ projectId: 'gen-lang-client-0384516171' });
-const db = getFirestore(admin.app(), 'ai-studio-393d7146-0d1a-431e-bd58-b2a1478b5ff5');
+const db = getFirestore(admin.app(), process.env.FIRESTORE_DB_ID || 'teluva-prod');
 const FAMILY = process.env.FAMILY_ID || 'household';
 
 // Only things a doctor hands you. Deliberately narrow — a false positive here
