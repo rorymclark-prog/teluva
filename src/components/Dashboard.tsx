@@ -2122,6 +2122,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             members={members}
             events={events}
             onSaveEvents={handleSaveEvents}
+            // Per-division show/hide for the six "at a glance" panels
+            // (HubSettings.calendarDivisions) — same shared settings doc as
+            // every toggle on this screen; FamilySettings writes it, this
+            // is just the read side.
+            settings={settings}
             // Opt-in outbound Google Calendar sync — persisted on the shared
             // HubSettings doc (same store as astrology/celebrations toggles)
             // so it's remembered across devices/reloads, not a per-tab

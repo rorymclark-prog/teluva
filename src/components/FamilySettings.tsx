@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp, UserMinus, AlertTriangle } from 'lucide-react';
+import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp, UserMinus, AlertTriangle, CalendarDays } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, saveSuppressReligiousSuggestions, loadBusinessMilestones, saveBusinessMilestones, deleteFamily, loadAiUsage } from '../utils/db';
-import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog, AiUsage } from '../types';
+import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog, AiUsage, HubSettings } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
 import SheetGrabber from './SheetGrabber';
@@ -94,6 +94,65 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
       setSuppressError(err?.message ?? 'Could not save the preference');
     } finally {
       setSuppressSaving(false);
+    }
+  };
+
+  // --- Calendar panels — per-division show/hide for the Family Calendar's
+  // six "at a glance" panels (HubSettings.calendarDivisions). Applies to
+  // both space types (the Calendar tab itself isn't business-hidden, unlike
+  // the standalone Anniversaries view). This component doesn't receive
+  // settings/onSaveSettings as a prop the way FamilyCalendar/Dashboard do,
+  // so — same as Country above — it loads/saves the shared HubSettings doc
+  // directly.
+  type CalendarDivisionKey = keyof NonNullable<HubSettings['calendarDivisions']>;
+  const CALENDAR_DIVISIONS: { key: CalendarDivisionKey; label: string; sublabel?: string }[] = [
+    { key: 'travelDocuments', label: 'Travel document watch' },
+    { key: 'birthdays', label: 'Birthdays' },
+    {
+      key: 'nameCelebrations',
+      label: 'Name days & celebrations',
+      sublabel: 'Shows automatically once your family confirms a name day — turn on to always show it, even before you have.',
+    },
+    { key: 'medicalChecks', label: 'Medical checks' },
+    { key: 'anniversaries', label: 'Anniversaries & special days' },
+    { key: 'schoolDates', label: 'School dates' },
+  ];
+  const [calendarDivisions, setCalendarDivisions] = useState<NonNullable<HubSettings['calendarDivisions']>>({});
+  const [calendarDivisionsSavingKey, setCalendarDivisionsSavingKey] = useState<CalendarDivisionKey | null>(null);
+  const [calendarDivisionsError, setCalendarDivisionsError] = useState<string | null>(null);
+  useEffect(() => {
+    loadSettings().then((s) => setCalendarDivisions(s?.calendarDivisions || {}));
+  }, [familyId]);
+  const handleToggleCalendarDivision = async (key: CalendarDivisionKey) => {
+    const prev = calendarDivisions;
+    const next: NonNullable<HubSettings['calendarDivisions']> = { ...prev };
+    if (key === 'nameCelebrations') {
+      // Three-state in the data (undefined = auto-show-once-confirmed, true =
+      // always show, false = always hide — see HubSettings.calendarDivisions'
+      // own comment), but this single switch only ever moves between "forced
+      // on" (true) and "not forced" (undefined/auto): turning it off hands
+      // the division back to its existing prominence rule rather than
+      // force-hiding a division the family may since have earned by
+      // confirming a celebration. There's no path from this switch to the
+      // third (force-hide) state — nothing asked for one, and collapsing
+      // "off" to "auto" is the safer default for a switch labelled as an
+      // opt-in discovery aid rather than a kill switch.
+      if (prev.nameCelebrations === true) delete next.nameCelebrations;
+      else next.nameCelebrations = true;
+    } else {
+      next[key] = prev[key] === false ? true : false;
+    }
+    setCalendarDivisions(next); // optimistic — reverted below on failure
+    setCalendarDivisionsError(null);
+    setCalendarDivisionsSavingKey(key);
+    try {
+      const current = (await loadSettings()) || {};
+      await saveSettings({ ...current, calendarDivisions: next });
+    } catch (err: any) {
+      setCalendarDivisions(prev);
+      setCalendarDivisionsError(err?.message ?? 'Could not save the preference');
+    } finally {
+      setCalendarDivisionsSavingKey(null);
     }
   };
 
@@ -450,6 +509,53 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
               </div>
             </div>
           )}
+
+          {/* Section 0a-ii: Calendar panels — per-division show/hide for the
+              Family Calendar's six "at a glance" panels. Not business-gated:
+              the Calendar tab itself renders in both space types. Off just
+              stops a panel rendering — it never touches the underlying data. */}
+          <div className="card p-5 space-y-3">
+            <h3 className="section-label flex items-center gap-2">
+              <CalendarDays size={14} />
+              Calendar panels
+            </h3>
+            <p className="text-[11px] text-ink-400 leading-relaxed -mt-1">
+              Choose which “at a glance” panels show at the top of the Family Calendar. Turning one off doesn’t delete anything — it just stops that panel from rendering.
+            </p>
+            {calendarDivisionsError && (
+              <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{calendarDivisionsError}</p>
+            )}
+            <div className="space-y-3 pt-1">
+              {CALENDAR_DIVISIONS.map((row) => {
+                const checked = row.key === 'nameCelebrations'
+                  ? calendarDivisions.nameCelebrations === true
+                  : calendarDivisions[row.key] !== false;
+                return (
+                  <div key={row.key} className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-ink-800">{row.label}</div>
+                      {row.sublabel && (
+                        <p className="text-[11px] text-ink-400 leading-relaxed mt-0.5">{row.sublabel}</p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={checked}
+                      aria-label={row.label}
+                      disabled={calendarDivisionsSavingKey === row.key}
+                      onClick={() => handleToggleCalendarDivision(row.key)}
+                      className={`relative shrink-0 w-11 h-6 rounded-full transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${checked ? 'bg-sage-500' : 'bg-cream-300'}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-cream-50 shadow-sm transition-transform duration-200 ${checked ? 'translate-x-5' : 'translate-x-0'}`}
+                      />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Section 0b: Founding date (Business Milestones) — business-only */}
           {isBusinessSpace && (

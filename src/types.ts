@@ -721,6 +721,28 @@ export interface HubSettings {
   // out personally uses FamilyMember.noCelebrations instead.
   celebrationsEnabled?: boolean;
 
+  // Per-division visibility on the Family Calendar's "at a glance" panels
+  // (Travel document watch / Birthdays / Name days & celebrations / Medical
+  // checks / Anniversaries & special days / School dates). undefined/true =
+  // shown (the default — adding this setting must not change anyone's
+  // existing view). false = hidden regardless of data.
+  //
+  // nameCelebrations is special: undefined follows the EXISTING prominence
+  // rule (division only appears once the family has ≥1 confirmed name
+  // celebration — see FamilyCalendar.tsx's own comment on that division).
+  // true FORCES it to always show even with zero confirmed celebrations —
+  // this is what lets a family discover/opt into the feature deliberately
+  // rather than only stumbling onto it after already confirming one. false
+  // always hides it, same as every other division.
+  calendarDivisions?: {
+    travelDocuments?: boolean;
+    birthdays?: boolean;
+    nameCelebrations?: boolean;
+    medicalChecks?: boolean;
+    anniversaries?: boolean;
+    schoolDates?: boolean;
+  };
+
   /**
    * The family's current status — the fridge whiteboard. One line, replaced
    * rather than accumulated, so it never becomes a feed nobody reads.

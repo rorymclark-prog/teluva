@@ -1,11 +1,15 @@
-// Three more Family Calendar divisions, alongside calendarDocumentExpiries.ts's
-// travel-document watch: birthdays, name days & celebrations, and medical
-// checks. Same discipline as that file — every date here is read straight off
-// the member record (birthdate, resolveCelebrations' merged view, careSchedule,
-// referrals), never from a generated calendar_event, so editing a birthdate,
-// confirming a celebration, or updating a care schedule item updates the
-// calendar immediately with no second write path to keep in sync.
-import type { FamilyMember, NameCelebration } from '../types';
+// Five more Family Calendar divisions, alongside calendarDocumentExpiries.ts's
+// travel-document watch: birthdays, name days & celebrations, medical
+// checks, anniversaries & special days, and school dates. Same discipline as
+// that file — birthdays/name-celebrations/medical checks read straight off
+// the member record (birthdate, resolveCelebrations' merged view,
+// careSchedule, referrals); anniversaries read the family's own
+// AnniversariesDoc; school dates read the shared CalendarEvent list. None of
+// them go through a second, generated copy of the date — editing a
+// birthdate, confirming a celebration, updating a care schedule item, adding
+// an anniversary, or tagging an event School updates the calendar
+// immediately with no second write path to keep in sync.
+import type { AnniversaryKind, AnniversaryRecord, CalendarEvent, FamilyMember, NameCelebration } from '../types';
 import { daysUntilNameDay, formatNameDay } from './nameDay';
 import { resolveCelebrations, daysUntilCelebration } from './nameCelebrations';
 import { careNextDue, careDueLabel, CareStatus } from './care';
@@ -269,4 +273,120 @@ export function buildCalendarMedicalChecks(
     if (b.date) return 1;
     return firstName(a.memberName).localeCompare(firstName(b.memberName));
   });
+}
+
+// ---------------------------------------------------------------------------
+// Anniversaries & special days
+// ---------------------------------------------------------------------------
+
+export interface CalendarAnniversary {
+  id: string;
+  title: string;
+  kind: AnniversaryKind;
+  memberIds?: string[];
+  /** 'MM-DD' */
+  monthDay: string;
+  /** Next occurrence, YYYY-MM-DD — same today+daysUntil derivation as
+   *  CalendarBirthday.date, for the same reason: it can never then disagree
+   *  with daysUntil. */
+  date: string;
+  daysUntil: number;
+  /** Years since AnniversaryRecord.originalYear, on THIS occurrence — mirrors
+   *  CalendarBirthday.turningAge. Null when the record has no originalYear
+   *  (e.g. Valentine's Day isn't counting up from an origin year). */
+  years: number | null;
+}
+
+/**
+ * Every recurring anniversary/special day on the family's own AnniversariesDoc
+ * (utils/db.ts: loadAnniversaries), with its next occurrence resolved from the
+ * stored 'MM-DD'. Reuses nameDay.ts's next-occurrence math — the exact same
+ * function buildCalendarBirthdays uses — rather than a second copy of that
+ * Feb-29/year-wrap arithmetic.
+ */
+export function buildCalendarAnniversaries(
+  anniversaries: readonly AnniversaryRecord[],
+  now: Date = new Date(),
+): CalendarAnniversary[] {
+  const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const out: CalendarAnniversary[] = [];
+
+  for (const a of anniversaries) {
+    const daysUntil = daysUntilNameDay(a.date, now);
+    if (daysUntil == null) continue;
+
+    const occurrence = new Date(t0.getTime() + daysUntil * DAY_MS);
+
+    out.push({
+      id: a.id,
+      title: a.title,
+      kind: a.kind,
+      memberIds: a.memberIds,
+      monthDay: a.date,
+      date: isoFromDate(occurrence),
+      daysUntil,
+      years: a.originalYear != null ? occurrence.getFullYear() - a.originalYear : null,
+    });
+  }
+
+  return out.sort((a, b) => a.daysUntil - b.daysUntil || a.title.localeCompare(b.title));
+}
+
+// ---------------------------------------------------------------------------
+// School dates
+// ---------------------------------------------------------------------------
+
+// Same six-month planning horizon FamilyCalendar's own "upcoming" agenda list
+// uses for `upcomingReminders` (see the render function, near the top) — kept
+// as an independent constant rather than an import for the same reason
+// OCCASION_WATCH_DAYS above is: NeedsAttention-style modules don't export
+// their internal constants, and this way the calendar's six-month view and
+// this division can never quietly drift apart on what "upcoming" means.
+export const SCHOOL_DATES_WINDOW_DAYS = 180;
+
+export interface CalendarSchoolDate {
+  id: string;
+  title: string;
+  /** YYYY-MM-DD, straight off the source CalendarEvent — never recomputed. */
+  date: string;
+  time?: string;
+  daysUntil: number;
+  memberIds?: string[];
+  description?: string;
+}
+
+/**
+ * Upcoming School-category events, straight off the shared calendar events
+ * list — no new data source, just the same category === 'School' tag a
+ * scanned notice or the AI chat already applies (see the "Scan notice" flow
+ * in this file and AIChatbot.tsx). Bounded to the same SCHOOL_DATES_WINDOW_DAYS
+ * horizon as the calendar's own six-month agenda, so this division can never
+ * show something the rest of the screen calls "too far out to plan around".
+ */
+export function buildCalendarSchoolDates(
+  events: readonly CalendarEvent[],
+  now: Date = new Date(),
+): CalendarSchoolDate[] {
+  const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const out: CalendarSchoolDate[] = [];
+
+  for (const e of events) {
+    if (e.category !== 'School') continue;
+    const evDate = parseDateOnly(e.date);
+    if (!evDate) continue;
+    const daysUntil = Math.round((evDate.getTime() - t0) / DAY_MS);
+    if (daysUntil < 0 || daysUntil > SCHOOL_DATES_WINDOW_DAYS) continue;
+
+    out.push({
+      id: e.id,
+      title: e.title,
+      date: e.date,
+      time: e.time,
+      daysUntil,
+      memberIds: e.memberIds,
+      description: e.description,
+    });
+  }
+
+  return out.sort((a, b) => a.daysUntil - b.daysUntil || a.title.localeCompare(b.title));
 }

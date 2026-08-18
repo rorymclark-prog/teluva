@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { CalendarEvent, FamilyMember } from '../types';
+import { AnniversaryRecord, CalendarEvent, FamilyMember, HubSettings } from '../types';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   Calendar, Clock, Plus, Trash2, Edit2,
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X,
   Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine, Link2,
-  ChevronDown, IdCard, ShieldCheck, Cake, PartyPopper, Info, Stethoscope
+  ChevronDown, IdCard, ShieldCheck, Cake, PartyPopper, Info, Stethoscope,
+  Heart, GraduationCap
 } from 'lucide-react';
 import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken, connectGoogleAccess } from '../utils/firebase';
 import { auth } from '../lib/firebase';
@@ -32,6 +33,8 @@ import {
   buildCalendarBirthdays,
   buildCalendarNameCelebrations,
   buildCalendarMedicalChecks,
+  buildCalendarAnniversaries,
+  buildCalendarSchoolDates,
   OCCASION_WATCH_DAYS,
 } from '../utils/familyDates';
 import { PASSPORT_WARN_MONTHS } from '../utils/readiness';
@@ -40,6 +43,7 @@ import { parseIcs, buildIcs } from '../utils/ics';
 import {
   CalendarFeed, mergeFeedEvents, removeFeedEvents, feedIdForUrl, describeSync, suggestFeedLabel,
 } from '../utils/calendarFeeds';
+import { loadAnniversaries } from '../utils/db';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -53,6 +57,21 @@ function DivisionAvatar({ name, avatarUrl, avatarColor }: { name: string; avatar
   ) : (
     <span className={`w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-bold text-white uppercase shrink-0 ${warmAvatarColor(avatarColor)}`}>
       {name.charAt(0)}
+    </span>
+  );
+}
+
+// Anniversaries and school dates aren't always about one specific person the
+// way a birthday or a medical check is — an anniversary can tag nobody (e.g.
+// Valentine's Day) or several people (both spouses), and a school event may
+// carry no memberIds at all. Same w-9 h-9 sizing as DivisionAvatar so a row
+// lines up whichever kind of avatar it ends up rendering, but a plain icon
+// badge instead of an initial when there's no single person to show.
+function DivisionIconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'rosa' | 'ink' }) {
+  const cls = tone === 'rosa' ? 'bg-rosa-100 text-rosa-700' : 'bg-ink-100 text-ink-700';
+  return (
+    <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${cls}`}>
+      <Icon className="w-4 h-4" />
     </span>
   );
 }
@@ -94,9 +113,11 @@ interface FamilyCalendarProps {
   /** Subscribed external calendars (HubSettings.calendarFeeds), owned by Dashboard. */
   calendarFeeds: CalendarFeed[];
   onSaveCalendarFeeds: (feeds: CalendarFeed[]) => void;
+  /** Per-division show/hide for the six "at a glance" panels below (HubSettings.calendarDivisions), owned by Dashboard. */
+  settings: HubSettings;
 }
 
-export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds }: FamilyCalendarProps) {
+export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings }: FamilyCalendarProps) {
   const { isAdmin, canWrite, aiEligible, aiConsent } = useFamilyCtx();
   const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
   // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
@@ -826,6 +847,19 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [showAllBirthdays, setShowAllBirthdays] = useState(false);
   const [showAllNameCelebrations, setShowAllNameCelebrations] = useState(false);
   const [showAllMedicalChecks, setShowAllMedicalChecks] = useState(false);
+  const [showAllAnniversaries, setShowAllAnniversaries] = useState(false);
+  const [showAllSchoolDates, setShowAllSchoolDates] = useState(false);
+
+  // Anniversaries & special days — unlike members/events, this isn't handed
+  // down as a prop (Dashboard doesn't load AnniversariesDoc for anything
+  // else it renders), so this division loads it for itself the same way
+  // AnniversariesView's own tab does: loadAnniversaries() once on mount.
+  const [anniversaryRecords, setAnniversaryRecords] = useState<AnniversaryRecord[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadAnniversaries().then((list) => { if (!cancelled) setAnniversaryRecords(list); });
+    return () => { cancelled = true; };
+  }, []);
 
   // Month properties
   const monthNames = [
@@ -1059,6 +1093,26 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     ? medicalChecks
     : watchedMedicalChecks.length > 0 ? watchedMedicalChecks : medicalChecks.slice(0, 1);
 
+  // Anniversaries & special days — reads the family's own AnniversariesDoc
+  // (loaded above), not a member record, but same "watched vs. everything"
+  // bones as birthdays.
+  const anniversaries = useMemo(() => buildCalendarAnniversaries(anniversaryRecords), [anniversaryRecords]);
+  const watchedAnniversaries = anniversaries.filter((a) => a.daysUntil <= OCCASION_WATCH_DAYS);
+  const shownAnniversaries = showAllAnniversaries
+    ? anniversaries
+    : watchedAnniversaries.length > 0 ? watchedAnniversaries : anniversaries.slice(0, 1);
+
+  // School dates — filtered straight off the shared `events` prop rather than
+  // a member record; buildCalendarSchoolDates already bounds the result to
+  // the same six-month horizon as upcomingReminders above, so "all" here
+  // means "all in the next six months", not literally every School event
+  // ever logged.
+  const schoolDates = useMemo(() => buildCalendarSchoolDates(events), [events]);
+  const watchedSchoolDates = schoolDates.filter((s) => s.daysUntil <= OCCASION_WATCH_DAYS);
+  const shownSchoolDates = showAllSchoolDates
+    ? schoolDates
+    : watchedSchoolDates.length > 0 ? watchedSchoolDates : schoolDates.slice(0, 1);
+
   // Real today string for highlighting the calendar cell
   const realTodayStr = todayLocal();
 
@@ -1170,7 +1224,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
 
       {/* Persistent travel-document watch. Document numbers are intentionally
           absent: the date and owner are enough to keep a renewal in mind, and
-          the IDs screen remains the place for the sensitive identifier. */}
+          the IDs screen remains the place for the sensitive identifier.
+          Settings-gated like every division below — HubSettings.calendarDivisions.travelDocuments,
+          undefined/true = shown (the default). */}
+      {settings.calendarDivisions?.travelDocuments !== false && (
       <section className="rounded-3xl border border-honey-200 bg-honey-50 overflow-hidden">
         <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-honey-200/60">
           <div className="p-2.5 rounded-2xl bg-honey-100 text-honey-700 shrink-0 self-start sm:self-auto">
@@ -1242,11 +1299,13 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           </div>
         )}
       </section>
+      )}
 
       {/* Birthdays — every family member's next occurrence, read straight
           off member.birthdate. Same bones as the travel-document watch
           above: count chip, a "coming up" default view, a toggle to see
-          everyone. */}
+          everyone. Settings-gated — HubSettings.calendarDivisions.birthdays. */}
+      {settings.calendarDivisions?.birthdays !== false && (
       <section className="rounded-3xl border border-sage-200 bg-sage-50 overflow-hidden">
         <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-sage-200/60">
           <div className="p-2.5 rounded-2xl bg-sage-100 text-sage-700 shrink-0 self-start sm:self-auto">
@@ -1301,6 +1360,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           </div>
         )}
       </section>
+      )}
 
       {/* Name days & celebrations — CONFIRMED only (utils/nameCelebrations.ts:
           resolveCelebrations). A movable celebration with no resolution
@@ -1312,8 +1372,12 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           rather than showing an empty panel prompting them to start. Once
           any member has a confirmed entry (including the legacy Namenstag
           pair, which resolveCelebrations folds in as an implicit confirmed
-          entry) the division appears normally. */}
-      {nameCelebrations.length > 0 && (
+          entry) the division appears normally.
+          Settings-gated, but specially: HubSettings.calendarDivisions.nameCelebrations
+          undefined follows the prominence rule above; true FORCES it to show
+          even with zero confirmed celebrations (lets a family discover/opt
+          into the feature deliberately); false always hides it. */}
+      {(settings.calendarDivisions?.nameCelebrations === true || (settings.calendarDivisions?.nameCelebrations !== false && nameCelebrations.length > 0)) && (
       <section className="rounded-3xl border border-dusk-200 bg-dusk-50 overflow-hidden">
         <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-dusk-200/60">
           <div className="p-2.5 rounded-2xl bg-dusk-100 text-dusk-700 shrink-0 self-start sm:self-auto">
@@ -1347,8 +1411,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               </details>
               {watchedNameCelebrations.length > 0 ? (
                 <span className="chip bg-dusk-100 text-dusk-700">{watchedNameCelebrations.length} coming up</span>
-              ) : (
+              ) : nameCelebrations.length > 0 ? (
                 <span className="chip bg-cream-200 text-ink-500">None coming up</span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">No name days or celebrations confirmed yet</span>
               )}
             </div>
             <p className="text-[12.5px] text-ink-500 mt-0.5">
@@ -1367,6 +1433,16 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           )}
         </div>
 
+        {shownNameCelebrations.length === 0 ? (
+          // Only reachable once calendarDivisions.nameCelebrations is forced
+          // to `true` on a family with zero confirmed entries — the
+          // vanish-when-empty gate above means this branch never shows for
+          // the default/undefined setting.
+          <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
+            <PartyPopper className="w-4 h-4 text-dusk-600 shrink-0" />
+            Confirm a name day or name celebration on a family member’s profile and it will appear here.
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-dusk-200/60">
           {shownNameCelebrations.map((c) => (
             <div key={c.id} className="bg-white p-4 flex items-start gap-3 min-w-0">
@@ -1396,6 +1472,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             </div>
           ))}
         </div>
+        )}
       </section>
       )}
 
@@ -1404,7 +1481,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           (utils/care.ts), plus any referral that has become a booked
           appointment. What this deliberately does NOT source from: a bare
           vaccination record — see the header comment in
-          utils/familyDates.ts for that gap. */}
+          utils/familyDates.ts for that gap.
+          Settings-gated — HubSettings.calendarDivisions.medicalChecks. */}
+      {settings.calendarDivisions?.medicalChecks !== false && (
       <section className="rounded-3xl border border-clay-200 bg-clay-50 overflow-hidden">
         <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-clay-200/60">
           <div className="p-2.5 rounded-2xl bg-clay-100 text-clay-700 shrink-0 self-start sm:self-auto">
@@ -1466,6 +1545,152 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           </div>
         )}
       </section>
+      )}
+
+      {/* Anniversaries & special days — the family's own AnniversariesDoc
+          (utils/db.ts: loadAnniversaries), read into local state above since
+          Dashboard doesn't otherwise load it. Same bones as Travel document
+          watch/Birthdays/Medical checks — unlike Name days & celebrations,
+          this division does NOT vanish when empty: there's no "prominence"
+          reason to hide it, since wedding anniversaries and days like
+          Valentine's are not the market-specific cultural feature name days
+          are. Settings-gated — HubSettings.calendarDivisions.anniversaries. */}
+      {settings.calendarDivisions?.anniversaries !== false && (
+      <section className="rounded-3xl border border-rosa-200 bg-rosa-50 overflow-hidden">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-rosa-200/60">
+          <div className="p-2.5 rounded-2xl bg-rosa-100 text-rosa-700 shrink-0 self-start sm:self-auto">
+            <Heart className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-display text-[16px] font-semibold text-ink-900">Anniversaries &amp; special days</h4>
+              {watchedAnniversaries.length > 0 ? (
+                <span className="chip bg-rosa-100 text-rosa-700">
+                  {watchedAnniversaries.length} in the next {OCCASION_WATCH_DAYS} days
+                </span>
+              ) : anniversaries.length > 0 ? (
+                <span className="chip bg-cream-200 text-ink-500">None in the next {OCCASION_WATCH_DAYS} days</span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">No anniversaries on file</span>
+              )}
+            </div>
+            <p className="text-[12.5px] text-ink-500 mt-0.5">
+              Wedding anniversaries, Valentine’s Day, and any other yearly date your family keeps.
+            </p>
+          </div>
+          {anniversaries.length > shownAnniversaries.length && (
+            <button type="button" onClick={() => setShowAllAnniversaries(true)} className="btn-quiet text-xs shrink-0">
+              Show all {anniversaries.length}
+            </button>
+          )}
+          {showAllAnniversaries && anniversaries.length > 1 && (
+            <button type="button" onClick={() => setShowAllAnniversaries(false)} className="btn-quiet text-xs shrink-0">
+              Show upcoming
+            </button>
+          )}
+        </div>
+
+        {shownAnniversaries.length === 0 ? (
+          <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
+            <Heart className="w-4 h-4 text-rosa-600 shrink-0" />
+            Add a wedding anniversary, Valentine’s Day, or any other yearly date you want tracked, and it will appear here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-rosa-200/60">
+            {shownAnniversaries.map((a) => {
+              const taggedMember = a.memberIds?.map((id) => members.find((m) => m.id === id)).find((m): m is FamilyMember => !!m);
+              return (
+                <div key={a.id} className="bg-white p-4 flex items-center gap-3 min-w-0">
+                  {taggedMember ? (
+                    <DivisionAvatar name={taggedMember.name} avatarUrl={taggedMember.avatarUrl} avatarColor={taggedMember.avatarColor} />
+                  ) : (
+                    <DivisionIconBadge icon={Heart} tone="rosa" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-semibold text-ink-900 truncate">{a.title}</p>
+                    <p className="text-[11.5px] text-ink-400 tabular-nums mt-0.5">
+                      {formatIsoDateLong(a.date)}{a.years != null ? ` · ${a.years} years` : ''}
+                    </p>
+                  </div>
+                  <span className="chip shrink-0 bg-rosa-100 text-rosa-700">{daysUntilLabel(a.daysUntil)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      )}
+
+      {/* School dates — filtered straight off the shared `events` prop (no
+          new data source), the same category === 'School' tag the "Scan
+          notice" AI flow and the manual event form both already apply. Same
+          non-vanishing bones as Anniversaries above. Settings-gated —
+          HubSettings.calendarDivisions.schoolDates. */}
+      {settings.calendarDivisions?.schoolDates !== false && (
+      <section className="rounded-3xl border border-ink-200 bg-ink-50 overflow-hidden">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-ink-200/60">
+          <div className="p-2.5 rounded-2xl bg-ink-100 text-ink-700 shrink-0 self-start sm:self-auto">
+            <GraduationCap className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-display text-[16px] font-semibold text-ink-900">School dates</h4>
+              {watchedSchoolDates.length > 0 ? (
+                <span className="chip bg-ink-100 text-ink-700">
+                  {watchedSchoolDates.length} in the next {OCCASION_WATCH_DAYS} days
+                </span>
+              ) : schoolDates.length > 0 ? (
+                <span className="chip bg-cream-200 text-ink-500">None in the next {OCCASION_WATCH_DAYS} days</span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">No school dates on file</span>
+              )}
+            </div>
+            <p className="text-[12.5px] text-ink-500 mt-0.5">
+              Events tagged School — school plays, notices, term dates — over the next six months.
+            </p>
+          </div>
+          {schoolDates.length > shownSchoolDates.length && (
+            <button type="button" onClick={() => setShowAllSchoolDates(true)} className="btn-quiet text-xs shrink-0">
+              Show all {schoolDates.length}
+            </button>
+          )}
+          {showAllSchoolDates && schoolDates.length > 1 && (
+            <button type="button" onClick={() => setShowAllSchoolDates(false)} className="btn-quiet text-xs shrink-0">
+              Show upcoming
+            </button>
+          )}
+        </div>
+
+        {shownSchoolDates.length === 0 ? (
+          <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
+            <GraduationCap className="w-4 h-4 text-ink-600 shrink-0" />
+            School notices you scan, or events you tag with the School category, will appear here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-ink-200/60">
+            {shownSchoolDates.map((s) => {
+              const taggedMember = s.memberIds?.map((id) => members.find((m) => m.id === id)).find((m): m is FamilyMember => !!m);
+              return (
+                <div key={s.id} className="bg-white p-4 flex items-center gap-3 min-w-0">
+                  {taggedMember ? (
+                    <DivisionAvatar name={taggedMember.name} avatarUrl={taggedMember.avatarUrl} avatarColor={taggedMember.avatarColor} />
+                  ) : (
+                    <DivisionIconBadge icon={GraduationCap} tone="ink" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-semibold text-ink-900 truncate">{s.title}</p>
+                    <p className="text-[11.5px] text-ink-400 tabular-nums mt-0.5">
+                      {formatIsoDateLong(s.date)}{s.time ? ` · ${s.time}` : ''}
+                    </p>
+                  </div>
+                  <span className="chip shrink-0 bg-ink-100 text-ink-700">{daysUntilLabel(s.daysUntil)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      )}
 
       {/* Connections are important tools, but not the calendar's primary
           reading task. One always-reachable disclosure keeps every import,
