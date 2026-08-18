@@ -119,7 +119,7 @@ const MANUALLY_INCLUDED_FIELDS = ['cv'];
 // context even though write support already existed). RecipeBookDoc's
 // interface body had to move off a single line for extractInterfaceBody's
 // regex to find it — see types.ts.
-const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc'];
+const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc'];
 
 function extractRecordFields(body: string): string[] {
   const out: string[] = [];
@@ -257,6 +257,11 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // travel.visas was.
   'FamilyWordsDoc.words': covered('family_word'),
   'RecipeBookDoc.recipes': covered('recipe'),
+
+  // AnniversariesDoc added 2026-08-18 alongside the 'anniversary' AiEdit kind
+  // from day one — unlike FamilyWordsDoc/RecipeBookDoc above, there was never
+  // a gap here to close, this is just the normal step-2b entry.
+  'AnniversariesDoc.anniversaries': covered('anniversary'),
 
   // calendarFeeds is intentionally read-only to the AI, not covered by a
   // write kind. Subscribing to a feed means pasting in another calendar's

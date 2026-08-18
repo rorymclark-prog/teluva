@@ -1248,6 +1248,33 @@ export interface RecipeBookDoc {
   recipes: Recipe[];
 }
 
+// --- Anniversaries & Special Days (family-wide): the yearly recurring dates a
+// family wants surfaced at a glance without hunting through the calendar grid
+// for them — wedding anniversaries, Valentine's Day, and the like. Deliberately
+// its own family-level shared doc, NOT a field on CalendarEvent — CalendarEvent
+// has no recurrence concept, and every consumer downstream of it (Google
+// Calendar sync, ICS export, the month grid) assumes one dated, non-repeating
+// event, so bolting recurrence on there would ripple through all three. Same
+// shape and convention as RecipeBookDoc/FamilyWordsDoc above: one shared doc,
+// CRUD'd like a list. A later pass wires this into a FamilyCalendar.tsx
+// dashboard division — this doc + its CRUD screen stand alone until then.
+export type AnniversaryKind = 'Wedding' | 'Engagement' | 'Adoption' | 'Anniversary' | 'Other';
+
+export interface AnniversaryRecord {
+  id: string;
+  title: string;             // the family's own words, e.g. "Rory & Maria's wedding anniversary" or "Valentine's Day"
+  kind: AnniversaryKind;
+  date: string;               // 'MM-DD' — recurring, no year, same convention as FamilyMember.nameDay and NameCelebration's fixed dateType slot
+  originalYear?: number;      // optional — powers an "N years" count next to the date, the same idea as a birthday's turningAge (see utils/familyDates.ts). Omit for a date like Valentine's Day that isn't counting up from an origin year.
+  memberIds?: string[];       // who it's connected to (e.g. both spouses) — optional, a date like Valentine's Day may tag nobody
+  notes?: string;
+  createdAt: string;          // ISO date this record was added
+}
+
+export interface AnniversariesDoc {
+  anniversaries: AnniversaryRecord[];
+}
+
 // --- CV / résumé (business spaces only): the structured half of a team
 // member's employment record. The FILE (the actual CV PDF/photo someone sent)
 // reuses the existing per-member `documents` array — `fileDocumentId` below

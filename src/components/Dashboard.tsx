@@ -18,6 +18,7 @@ import {
   loadFamilyWords, saveFamilyWords,
   loadWillsEstate, saveWillsEstate,
   loadSlips, saveSlips,
+  loadAnniversaries, saveAnniversaries,
   loadInMemory,
   leaveFamily,
   deleteDocumentEverywhere,
@@ -30,6 +31,7 @@ import {
   hasShoppingEdits, applyShoppingEdits, hasAssetEdits,
   hasFamilyWordsEdits, applyFamilyWordsEdits,
   hasRecipeEdits, applyRecipeEdits,
+  hasAnniversaryEdits, applyAnniversaryEdits,
   hasEstateEdits, applyEstateEdits,
   hasSuccessorEdits, applySuccessorEdit, hasInstructionsEdits, applyInstructionsEdit,
   hasStatusEdits, applyStatusEdit,
@@ -115,7 +117,7 @@ import {
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
-  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck} from 'lucide-react';
+  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck, HeartHandshake} from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
 // Lazy-loaded main-view screens — audit finding, 2026-07-30. Exactly one of
@@ -154,6 +156,7 @@ const RecipeBook = React.lazy(() => import('./RecipeBook'));
 const InMemoryView = React.lazy(() => import('./InMemoryView'));
 const WillsEstateView = React.lazy(() => import('./WillsEstateView'));
 const SlipsView = React.lazy(() => import('./SlipsView'));
+const AnniversariesView = React.lazy(() => import('./AnniversariesView'));
 const FamilyPasswords = React.lazy(() => import('./FamilyPasswords'));
 const GiftsOccasionsView = React.lazy(() => import('./GiftsOccasionsView'));
 const ExportPackModal = React.lazy(() => import('./ExportPackModal'));
@@ -202,7 +205,7 @@ function isJoinLinkVisit(): boolean {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -238,7 +241,7 @@ const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
 // 'emergency' is a medical/allergy/blood-type card — no business equivalent
 // exists yet (a real workplace-incident log would be a distinct feature, not
 // a relabel of this one) so it's hidden rather than mislabeled.
-const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate', 'gifts'];
+const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate', 'gifts', 'anniversaries'];
 
 // A persisted astrology blurb older than this is treated as stale and quietly
 // regenerated next time that member's Overview is viewed — keeps the card
@@ -259,6 +262,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'vault', icon: FolderArchive },
   { id: 'assets', icon: Package },
   { id: 'recipes', icon: ChefHat },
+  { id: 'anniversaries', icon: HeartHandshake },
   { id: 'willsEstate', icon: ScrollText },
   { id: 'slips', icon: Receipt },
   { id: 'shopping', icon: ShoppingCart },
@@ -287,6 +291,7 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     inMemory: 'In Memory',
     willsEstate: 'Wills & Estate',
     gifts: 'Gifts & Occasions',
+    anniversaries: 'Anniversaries & Special Days',
   };
   return map[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
 }
@@ -1197,6 +1202,13 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       if (!ok) failures.push('recipes');
       else undo.push(...mapNewIds(current, after, 'recipe', (r: any) => r.title || 'recipe'));
     }
+    if (hasAnniversaryEdits(edits)) {
+      const current = await loadAnniversaries();
+      const after = applyAnniversaryEdits(current, edits, membersRef.current);
+      const ok = await saveAnniversaries(after);
+      if (!ok) failures.push('anniversaries');
+      else undo.push(...mapNewIds(current, after, 'anniversary', (a: any) => a.title || 'anniversary'));
+    }
     // All three parts of the wills & estate doc are loaded, applied and saved in
     // ONE write. They are siblings on the same Firestore document, and
     // saveReferenceDoc diffs `value` against `base` to work out the writer's
@@ -1259,7 +1271,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     if (
       hasInfoEdits(edits) || hasHouseholdEdits(edits) || hasFinancesEdits(edits) ||
       hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
-      hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasEstateEdits(edits) || hasSlipEdits(edits) ||
+      hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasAnniversaryEdits(edits) || hasEstateEdits(edits) || hasSlipEdits(edits) ||
       hasSuccessorEdits(edits) || hasInstructionsEdits(edits) ||
       hasServiceRecordEdits(edits) || hasDestructiveEdits(edits)
     ) {
@@ -1442,6 +1454,12 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const current = await loadRecipes();
       tally(new Set(current.map(r => r.id)), recipeIds);
       await saveRecipes(current.filter(r => !recipeIds.has(r.id)));
+    }
+    const anniversaryIds = idsFor('anniversary');
+    if (anniversaryIds.size) {
+      const current = await loadAnniversaries();
+      tally(new Set(current.map(a => a.id)), anniversaryIds);
+      await saveAnniversaries(current.filter(a => !anniversaryIds.has(a.id)));
     }
     const estateIds = idsFor('estate');
     if (estateIds.size) {
@@ -2196,6 +2214,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
         {mainView === 'recipes' && (
           demo ? <DemoUnavailable label="The recipe book" /> : <RecipeBook key={aiDataVersion} />
+        )}
+
+        {mainView === 'anniversaries' && (
+          demo ? <DemoUnavailable label="Anniversaries & special days" /> : <AnniversariesView key={aiDataVersion} members={members} />
         )}
 
         {mainView === 'inMemory' && (

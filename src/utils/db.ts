@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -667,6 +667,7 @@ export const SHARED_DOCS = {
   shopping:       { key: 'shopping',       localKey: 'family_shopping' },
   recipes:        { key: 'recipes',        localKey: 'family_recipes' },
   slips:          { key: 'slips',          localKey: 'family_slips' },
+  anniversaries:  { key: 'anniversaries',  localKey: 'family_anniversaries' },
 } as const satisfies Record<string, SharedDocMeta>;
 
 export type SharedDocName = keyof typeof SHARED_DOCS;
@@ -1044,6 +1045,16 @@ export async function uploadRecipePhoto(dataUrl: string): Promise<string> {
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
   return await getDownloadURL(r);
+}
+
+// --- Anniversaries & Special Days: one shared doc for the whole household,
+// same shape as recipes/documents/shopping above. No photo upload (unlike
+// recipes) — these are dates + who they're about, not a scanned card. ---
+export const saveAnniversaries = (anniversaries: AnniversaryRecord[], base?: AnniversaryRecord[]) =>
+  saveReferenceDoc('anniversaries', { anniversaries }, 'family_anniversaries', base ? { anniversaries: base } : undefined);
+export async function loadAnniversaries(): Promise<AnniversaryRecord[]> {
+  const data = await loadReferenceDoc<AnniversariesDoc>('anniversaries', 'family_anniversaries');
+  return data?.anniversaries || [];
 }
 
 // --- Slips ("Keep the slip"): one shared doc for the whole household, same

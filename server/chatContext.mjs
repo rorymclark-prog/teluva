@@ -68,7 +68,13 @@ export const CTX_LIMIT = 600_000;
 // household bug (see the comment above CTX_DROP_ORDER's history) for the
 // highest-stakes section in the vault, so it is the LAST thing dropped,
 // after household.
-export const CTX_DROP_ORDER = ['shopping', 'familyWords', 'recipes', 'timeline', 'calendar', 'finances', 'slips', 'documents', 'household', 'willsEstate'];
+//
+// 'anniversaries' (2026-08-18, added alongside the AnniversariesDoc shared
+// doc joining buildContext()) sits right next to familyWords/recipes for the
+// same reason: sentimental, non-critical, and each record is small (a title,
+// a kind, an 'MM-DD' date) so it was never the size problem — it's grouped by
+// stakes, not bytes.
+export const CTX_DROP_ORDER = ['shopping', 'familyWords', 'recipes', 'anniversaries', 'timeline', 'calendar', 'finances', 'slips', 'documents', 'household', 'willsEstate'];
 
 /**
  * Fit `context` under `limit`, dropping whole keys from `dropOrder` (in

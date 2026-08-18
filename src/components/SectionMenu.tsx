@@ -46,7 +46,7 @@ const GROUPS: { title: string; ids: string[] }[] = [
   { title: 'Documents & IDs', ids: ['vault', 'info', 'passwords', 'drive'] },
   { title: 'Money & cover', ids: ['finances', 'insurance', 'slips', 'willsEstate'] },
   { title: 'Home & things', ids: ['household', 'vehicles', 'assets'] },
-  { title: 'Memories', ids: ['timeline', 'travelTimeline', 'familyWords', 'inMemory'] },
+  { title: 'Memories', ids: ['timeline', 'travelTimeline', 'familyWords', 'anniversaries', 'inMemory'] },
 ];
 
 /** One destination. Module-level so React sees a stable component type. */

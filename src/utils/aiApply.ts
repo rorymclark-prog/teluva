@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
@@ -583,6 +583,43 @@ export function applyRecipeEdits(recipes: Recipe[], edits: AiEdit[]): Recipe[] {
       createdAt: today,
     }));
   return [...recipes, ...added];
+}
+
+// Add anniversaries/special days from AI edits. `anniversaryKind` degrades to
+// 'Other' for anything the model invents that isn't one of the five valid
+// values — same defensive pattern applyMemberEdits below uses for
+// asset/timeline categories the AI might get wrong. memberNames resolves to
+// memberIds the same way applyCalendarEdits above does. `date` must already
+// be 'MM-DD' — an edit whose date isn't that shape is dropped rather than
+// filed as a broken recurring record (it would either never fire or fire on
+// the wrong day forever, unlike a one-off calendar_event a user can just
+// re-edit).
+export const hasAnniversaryEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'anniversary');
+
+const VALID_ANNIVERSARY_KINDS: AnniversaryKind[] = ['Wedding', 'Engagement', 'Adoption', 'Anniversary', 'Other'];
+
+export function applyAnniversaryEdits(anniversaries: AnniversaryRecord[], edits: AiEdit[], members: FamilyMember[]): AnniversaryRecord[] {
+  const today = new Date().toISOString().slice(0, 10);
+  const added: AnniversaryRecord[] = [];
+  for (const e of edits) {
+    if (e.kind !== 'anniversary') continue;
+    const title = (e.title || '').trim();
+    if (!title || !/^\d{2}-\d{2}$/.test(e.date || '')) continue;
+    const memberIds = (e.memberNames || [])
+      .map(n => resolveMember(members, n)?.id)
+      .filter((id): id is string => Boolean(id));
+    added.push({
+      id: newId(),
+      title,
+      kind: VALID_ANNIVERSARY_KINDS.includes(e.anniversaryKind as AnniversaryKind) ? (e.anniversaryKind as AnniversaryKind) : 'Other',
+      date: e.date,
+      originalYear: (typeof e.originalYear === 'number' && Number.isInteger(e.originalYear)) ? e.originalYear : undefined,
+      memberIds: memberIds.length ? memberIds : undefined,
+      notes: e.notes?.trim() || undefined,
+      createdAt: today,
+    });
+  }
+  return [...anniversaries, ...added];
 }
 
 // Add slips ("Keep the slip") from AI edits. photoUrl/photoStoragePath (when

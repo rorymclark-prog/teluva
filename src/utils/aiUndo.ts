@@ -29,6 +29,7 @@ export type UndoDomain =
   | 'calendar' | 'vehicle' | 'pet' | 'utility'
   | 'bank' | 'insurance' | 'benefit'
   | 'timeline' | 'familyWord' | 'shopping' | 'asset' | 'recipe' | 'slip' | 'estate'
+  | 'anniversary'
   | 'document';
 
 // Nested arrays hanging off a FamilyMember that Apply can append to.
@@ -212,6 +213,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
     case 'favorite_quote': return `${who(e.member)}'s profile · Favourite quotes`;
     case 'guardian': return `${who(e.member)}'s profile · Guardians`;
     case 'family_word': return 'Family dictionary';
+    case 'anniversary': return 'Anniversaries & special days';
     case 'cv': return `${who(e.member)}'s profile · CV`;
     case 'estate_record': return 'Wills & estate';
     case 'service_record': return 'Household · vehicle service history';

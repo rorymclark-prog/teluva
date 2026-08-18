@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
-import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord, DocReadResult, DocPassage, InsurancePolicy } from '../types';
+import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord, DocReadResult, DocPassage, InsurancePolicy, AnniversaryKind } from '../types';
 import { readDocument, EXPECTED_READER_VERSION } from '../utils/docReader';
 import { auth } from '../lib/firebase';
 import {
@@ -7,7 +7,7 @@ import {
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
   loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto, loadSpaceInfo, uploadSlipPhoto,
   uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen, loadAiUsage, loadSettings,
-  loadAssets, uploadAssetPhoto, loadRecipes, loadFamilyWords, loadWillsEstate, loadShopping,
+  loadAssets, uploadAssetPhoto, loadRecipes, loadFamilyWords, loadWillsEstate, loadShopping, loadAnniversaries,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
 import { boundCalendar } from '../utils/calendarWindow';
@@ -117,6 +117,14 @@ export type AiEdit =
   | { kind: 'visa'; member: string; country: string; number?: string; expiryDate?: string; permitType?: string; issuingAuthority?: string; sponsor?: string; conditions?: string; notes?: string }
   | { kind: 'favorite_quote'; member: string; text: string; source?: string; note?: string }
   | { kind: 'family_word'; word: string; meaning: string; coinedBy?: string; approxDate?: string }
+  // A yearly recurring date the family wants to remember — a wedding
+  // anniversary, Valentine's Day, and the like. `date` is 'MM-DD', recurring
+  // with no year, same convention as a member's name_day. `anniversaryKind`
+  // is named to avoid colliding with this edit's own `kind` discriminant (the
+  // same reason `estate_record` calls its type field `docKind`, not `kind`).
+  // memberNames resolves to memberIds client-side, the same as calendar_event
+  // above — optional, since a date like Valentine's Day may tag nobody.
+  | { kind: 'anniversary'; title: string; anniversaryKind?: AnniversaryKind; date: string; originalYear?: number; memberNames?: string[]; notes?: string }
   | {
       kind: 'cv'; member: string; summary?: string;
       roles?: { title: string; employer?: string; startDate?: string; endDate?: string; current?: boolean; notes?: string }[];
@@ -1111,9 +1119,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   };
 
   const buildContext = async () => {
-    const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings, assets, recipes, familyWords, willsEstate, shopping] = await Promise.all([
+    const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings, assets, recipes, familyWords, willsEstate, shopping, anniversaries] = await Promise.all([
       loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(), loadSettings(), loadAssets(),
-      loadRecipes(), loadFamilyWords(), loadWillsEstate(), loadShopping(),
+      loadRecipes(), loadFamilyWords(), loadWillsEstate(), loadShopping(), loadAnniversaries(),
     ]);
     // Say plainly, for each vault document, whether it is actually on a person's
     // profile Documents tab or only in the shared vault — because that is the
@@ -1226,12 +1234,19 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     // the assistant answer "is milk on the list?" and avoid adding a duplicate
     // "Milk" entry when asked to add one that's already there.
     const shoppingCtx = shopping || [];
+    // Anniversaries & Special Days: small, content-only records (no binary
+    // fields), so — like familyWordsCtx and shoppingCtx — passed through in
+    // full rather than slimmed. id carries through for the same
+    // delete_record/update_record targeting reason as assets/slips/documents,
+    // even though that targeting isn't wired up yet (see aiDestructive.ts) —
+    // cheap to include now, and free of a second pass if it ever is.
+    const anniversariesCtx = anniversaries || [];
     // info.numbers is the one free-text bucket in the vault — nothing forces
     // what goes in the "value" of an "Important Numbers" entry, so unlike
     // every other field here it cannot be redacted by naming a key. Strip the
     // value unconditionally rather than send it to Gemini on every turn.
     const infoCtx = info ? { ...info, numbers: redactInfoNumbers(info.numbers) } : info;
-    return { members: slimMembers(members), info: infoCtx, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx, recipes: recipesCtx, familyWords: familyWordsCtx, willsEstate: willsEstateCtx, shopping: shoppingCtx };
+    return { members: slimMembers(members), info: infoCtx, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx, recipes: recipesCtx, familyWords: familyWordsCtx, willsEstate: willsEstateCtx, shopping: shoppingCtx, anniversaries: anniversariesCtx };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {
@@ -2881,6 +2896,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'saying') return `${e.member}: save a saying — “${e.text}”${e.said ? ` (${e.said})` : ''}`;
   if (e.kind === 'favorite_quote') return `${e.member}: save a favorite quote — “${e.text}”${e.source ? ` — ${e.source}` : ''}`;
   if (e.kind === 'family_word') return `Add family word: “${e.word}” — ${e.meaning}${e.coinedBy ? ` (${e.coinedBy})` : ''}`;
+  if (e.kind === 'anniversary') return `Save “${e.title}” (${e.date})${e.originalYear ? ` since ${e.originalYear}` : ''}${e.memberNames?.length ? ` — ${e.memberNames.join(' & ')}` : ''}`;
   if (e.kind === 'cv') {
     const parts = [
       e.roles?.length ? `${e.roles.length} role${e.roles.length === 1 ? '' : 's'}` : '',
