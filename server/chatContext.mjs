@@ -52,7 +52,23 @@ export const CTX_LIMIT = 600_000;
 // Least useful to the assistant first. `expiries`, `gaps` and `members` are
 // never dropped — losing them was the original bug (a blind character cut
 // that happened to cut those off because they serialised last).
-export const CTX_DROP_ORDER = ['timeline', 'calendar', 'finances', 'slips', 'documents', 'household'];
+//
+// 'shopping', 'familyWords', 'recipes' and 'willsEstate' (2026-08-18, added
+// alongside those four sections joining buildContext() in AIChatbot.tsx —
+// they previously weren't sent to the model at all, so there was nothing here
+// to drop) are placed by the same "how bad is silently losing this" reasoning
+// as everything else in this list, not just appended at the end. shopping is
+// the most disposable thing in the whole vault — a stale grocery list is a
+// shrug, not a miss — so it goes first. familyWords and recipes are
+// sentimental/content-heavy but non-critical (recipes especially can grow
+// large — a whole ingredients+steps array per entry, unlike the slim,
+// id-only assets summary), so they sit with the other everyday sections.
+// willsEstate is the opposite case: small in practice, but exactly the "if
+// something happens to you" data — losing it silently would repeat the
+// household bug (see the comment above CTX_DROP_ORDER's history) for the
+// highest-stakes section in the vault, so it is the LAST thing dropped,
+// after household.
+export const CTX_DROP_ORDER = ['shopping', 'familyWords', 'recipes', 'timeline', 'calendar', 'finances', 'slips', 'documents', 'household', 'willsEstate'];
 
 /**
  * Fit `context` under `limit`, dropping whole keys from `dropOrder` (in

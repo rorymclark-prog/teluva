@@ -7,7 +7,7 @@ import {
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
   loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto, loadSpaceInfo, uploadSlipPhoto,
   uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen, loadAiUsage, loadSettings,
-  loadAssets, uploadAssetPhoto,
+  loadAssets, uploadAssetPhoto, loadRecipes, loadFamilyWords, loadWillsEstate, loadShopping,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
 import { boundCalendar } from '../utils/calendarWindow';
@@ -1088,8 +1088,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   };
 
   const buildContext = async () => {
-    const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings, assets] = await Promise.all([
+    const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings, assets, recipes, familyWords, willsEstate, shopping] = await Promise.all([
       loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(), loadSettings(), loadAssets(),
+      loadRecipes(), loadFamilyWords(), loadWillsEstate(), loadShopping(),
     ]);
     // Say plainly, for each vault document, whether it is actually on a person's
     // profile Documents tab or only in the shared vault — because that is the
@@ -1165,12 +1166,49 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       id: a.id, name: a.name, category: a.category, make: a.make, model: a.model,
       serialNumber: a.serialNumber, assignedMember: a.assignedMember,
     }));
+    // Recipe Book: unlike assetsCtx above, the ingredients/steps ARE the thing
+    // a family would actually ask the assistant for — "what's in Mama's
+    // lasagne" needs the recipe's substance, not just its title — so this rides
+    // through closer to full, the way `timeline` does below, rather than being
+    // slimmed to identifiers only. id still carries through for the same
+    // delete_record/update_record targeting reason as assets/slips/documents.
+    // photoUrl (the Storage URL of the original card/page photo) is the one
+    // field dropped: no value to a text model, and it would just burn tokens on
+    // every turn.
+    const recipesCtx = (recipes || []).map(r => ({
+      id: r.id, title: r.title, ingredients: r.ingredients, steps: r.steps, tags: r.tags,
+    }));
+    // Family Dictionary (invented/mangled words the family adopted). Small,
+    // content-only records with nothing bulky or binary on them, so — unlike
+    // assetsCtx — passed through in full rather than slimmed. The point of
+    // surfacing these at all is to let the assistant answer "what does
+    // 'boo-blerries' mean?" and recognise a word it's already been told about,
+    // instead of filing a near-duplicate the next time it hears the same story.
+    const familyWordsCtx = familyWords?.words || [];
+    // Wills & Estate: store-and-recall only (see WillsEstateDoc in types.ts) —
+    // "where's the will" and "who's the executor" are exactly the questions
+    // this feature exists to answer, so nothing here gets redacted the way
+    // household/finances secrets do (see redactHousehold/redactFinances below).
+    // records carry ids for the same delete_record/update_record targeting
+    // reason as assets/slips/documents above. successor and instructions are
+    // single objects rather than arrays, so — like familyWordsCtx — they ride
+    // through unslimmed; there's nothing bulky/binary on either to strip.
+    const willsEstateCtx = {
+      records: willsEstate?.records || [],
+      successor: willsEstate?.successor,
+      instructions: willsEstate?.instructions,
+    };
+    // Shopping list: tiny, content-only records (name/checked/addedAt, no
+    // binary fields), so — like familyWordsCtx — passed through in full. Lets
+    // the assistant answer "is milk on the list?" and avoid adding a duplicate
+    // "Milk" entry when asked to add one that's already there.
+    const shoppingCtx = shopping || [];
     // info.numbers is the one free-text bucket in the vault — nothing forces
     // what goes in the "value" of an "Important Numbers" entry, so unlike
     // every other field here it cannot be redacted by naming a key. Strip the
     // value unconditionally rather than send it to Gemini on every turn.
     const infoCtx = info ? { ...info, numbers: redactInfoNumbers(info.numbers) } : info;
-    return { members: slimMembers(members), info: infoCtx, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx };
+    return { members: slimMembers(members), info: infoCtx, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx, recipes: recipesCtx, familyWords: familyWordsCtx, willsEstate: willsEstateCtx, shopping: shoppingCtx };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {

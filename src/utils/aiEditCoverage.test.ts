@@ -109,7 +109,17 @@ const MANUALLY_INCLUDED_FIELDS = ['cv'];
 // scan never looked at HubSettings at all — so nothing caught it. Scanning
 // HubSettings now closes that blind spot for every future field on it, not
 // just this one.
-const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings'];
+//
+// 'FamilyWordsDoc' and 'RecipeBookDoc' added 2026-08-18: both already have a
+// dedicated AiEdit kind ('family_word', 'recipe') and have had one since they
+// shipped, but neither doc was ever added to this list — so this guard was
+// blind to both the whole time, a gap of exactly the kind this test exists to
+// close. Found while wiring recipes/family words/wills & estate/shopping into
+// AIChatbot.tsx's buildContext() (they were missing from the AI's read
+// context even though write support already existed). RecipeBookDoc's
+// interface body had to move off a single line for extractInterfaceBody's
+// regex to find it — see types.ts.
+const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc'];
 
 function extractRecordFields(body: string): string[] {
   const out: string[] = [];
@@ -226,6 +236,14 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // The sixth instance of this bug class (see SHARED_DOC_INTERFACES comment
   // above) — wired up the same day the audit found it.
   'HubSettings.status': covered('hub_status'),
+
+  // FamilyWordsDoc and RecipeBookDoc (see SHARED_DOC_INTERFACES comment
+  // above): both already had a dedicated AiEdit kind, so nothing needed wiring
+  // here — this just closes the blind spot in the GUARD itself, so a future
+  // field added to either doc without an edit kind gets caught the same way
+  // travel.visas was.
+  'FamilyWordsDoc.words': covered('family_word'),
+  'RecipeBookDoc.recipes': covered('recipe'),
 
   // calendarFeeds is intentionally read-only to the AI, not covered by a
   // write kind. Subscribing to a feed means pasting in another calendar's

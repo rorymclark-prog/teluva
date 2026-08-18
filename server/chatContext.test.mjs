@@ -22,15 +22,19 @@ test('sections are dropped in the declared order, cheapest-to-lose first', () =>
   const big = (label) => label.repeat(200);
   const context = {
     members: 'M', expiries: 'E', gaps: 'G',
+    // shopping/familyWords/recipes/willsEstate joined buildContext() (and
+    // CTX_DROP_ORDER) 2026-08-18 — included here too so this fixture still
+    // covers every droppable key, the same as it did before they existed.
+    shopping: big('sh'), familyWords: big('fw'), recipes: big('r'),
     timeline: big('t'), calendar: big('c'), finances: big('f'),
-    slips: big('s'), documents: big('d'), household: big('h'),
+    slips: big('s'), documents: big('d'), household: big('h'), willsEstate: big('we'),
   };
   // Small enough that several sections must go, big enough that not ALL of
   // them need to — proves order, not just "everything gets dropped". (Chosen
   // with headroom above the post-drop size WITH the _omitted marker added —
   // otherwise the marker itself could push back over budget and trigger the
   // last-resort truncation tested separately below.)
-  const { ctxJson, dropped } = trimContext(context, 950);
+  const { ctxJson, dropped } = trimContext(context, 1650);
   const survived = JSON.parse(ctxJson);
 
   assert.deepEqual(dropped.slice(0, dropped.length), CTX_DROP_ORDER.slice(0, dropped.length));

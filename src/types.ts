@@ -1213,7 +1213,9 @@ export interface InMemoryDoc {
   people: DepartedRelative[];
 }
 
-export interface RecipeBookDoc { recipes: Recipe[]; }
+export interface RecipeBookDoc {
+  recipes: Recipe[];
+}
 
 // --- CV / résumé (business spaces only): the structured half of a team
 // member's employment record. The FILE (the actual CV PDF/photo someone sent)
