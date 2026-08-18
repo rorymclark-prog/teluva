@@ -1,7 +1,9 @@
 {
-  "label": "v219",
+  "label": "v220",
   "changes": [
-    "Reopening the guided setup part-way through no longer drops you straight into a bare numbered question — a short welcome-back card now shows what step you left off on, with the choice to continue there or start over.",
-    "Added name days and other name-based celebrations. Confirm one from a family member's profile — a name day, a saint's day, a family name connection, or any other tradition tied to someone's name — and it shows up alongside birthdays on the Family Calendar."
+    "Added a place for guardians and other people who don't live with the family but should be on file — name, relationship, phone, email, address, and any documents they should have. Find it as its own tab on a family member's profile.",
+    "Added Anniversaries & special days — record wedding anniversaries, engagements, and other dates worth remembering, with one-click shortcuts to add Valentine's Day, Mother's Day, Father's Day, or New Year's Eve.",
+    "Added a School dates panel to the Family Calendar, so upcoming school events show up at a glance instead of needing a search through the calendar.",
+    "The Family Calendar's at-a-glance panels — Travel documents, Birthdays, Name days & celebrations, Medical checks, Anniversaries, and School dates — can each be turned on or off from Settings > Calendar panels."
   ]
 }
