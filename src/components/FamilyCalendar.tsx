@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { AnniversaryRecord, CalendarEvent, FamilyMember, HubSettings } from '../types';
+import { AnniversaryRecord, CalendarEvent, ExtendedBirthday, FamilyMember, HubSettings } from '../types';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   Calendar, Clock, Plus, Trash2, Edit2,
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X,
   Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine, Link2,
   ChevronDown, IdCard, ShieldCheck, Cake, PartyPopper, Info, Stethoscope,
-  Heart, GraduationCap
+  Heart, GraduationCap, Plane
 } from 'lucide-react';
 import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken, connectGoogleAccess } from '../utils/firebase';
 import { auth } from '../lib/firebase';
@@ -31,10 +31,12 @@ import {
 } from '../utils/calendarDocumentExpiries';
 import {
   buildCalendarBirthdays,
+  buildCalendarExtendedBirthdays,
   buildCalendarNameCelebrations,
   buildCalendarMedicalChecks,
   buildCalendarAnniversaries,
   buildCalendarSchoolDates,
+  buildCalendarVacations,
   OCCASION_WATCH_DAYS,
 } from '../utils/familyDates';
 import { PASSPORT_WARN_MONTHS } from '../utils/readiness';
@@ -43,7 +45,7 @@ import { parseIcs, buildIcs } from '../utils/ics';
 import {
   CalendarFeed, mergeFeedEvents, removeFeedEvents, feedIdForUrl, describeSync, suggestFeedLabel,
 } from '../utils/calendarFeeds';
-import { loadAnniversaries } from '../utils/db';
+import { loadAnniversaries, loadExtendedBirthdays } from '../utils/db';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -67,8 +69,13 @@ function DivisionAvatar({ name, avatarUrl, avatarColor }: { name: string; avatar
 // carry no memberIds at all. Same w-9 h-9 sizing as DivisionAvatar so a row
 // lines up whichever kind of avatar it ends up rendering, but a plain icon
 // badge instead of an initial when there's no single person to show.
-function DivisionIconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'rosa' | 'ink' | 'clay' }) {
-  const cls = tone === 'rosa' ? 'bg-rosa-100 text-rosa-700' : tone === 'clay' ? 'bg-clay-100 text-clay-700' : 'bg-ink-100 text-ink-700';
+function DivisionIconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'rosa' | 'ink' | 'clay' | 'dusk' | 'honey' }) {
+  const cls =
+    tone === 'rosa' ? 'bg-rosa-100 text-rosa-700'
+    : tone === 'clay' ? 'bg-clay-100 text-clay-700'
+    : tone === 'dusk' ? 'bg-dusk-100 text-dusk-700'
+    : tone === 'honey' ? 'bg-honey-100 text-honey-700'
+    : 'bg-ink-100 text-ink-700';
   return (
     <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${cls}`}>
       <Icon className="w-4 h-4" />
@@ -849,6 +856,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [showAllMedicalChecks, setShowAllMedicalChecks] = useState(false);
   const [showAllAnniversaries, setShowAllAnniversaries] = useState(false);
   const [showAllSchoolDates, setShowAllSchoolDates] = useState(false);
+  const [showAllExtendedBirthdays, setShowAllExtendedBirthdays] = useState(false);
+  const [showAllVacations, setShowAllVacations] = useState(false);
 
   // Anniversaries & special days — unlike members/events, this isn't handed
   // down as a prop (Dashboard doesn't load AnniversariesDoc for anything
@@ -858,6 +867,15 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   useEffect(() => {
     let cancelled = false;
     loadAnniversaries().then((list) => { if (!cancelled) setAnniversaryRecords(list); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Extended family & friends' birthdays — same reasoning as anniversaries
+  // above: loads its own doc since nothing else on this dashboard needs it.
+  const [extendedBirthdayRecords, setExtendedBirthdayRecords] = useState<ExtendedBirthday[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadExtendedBirthdays().then((list) => { if (!cancelled) setExtendedBirthdayRecords(list); });
     return () => { cancelled = true; };
   }, []);
 
@@ -1113,6 +1131,27 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     ? schoolDates
     : watchedSchoolDates.length > 0 ? watchedSchoolDates : schoolDates.slice(0, 1);
 
+  // Extended family & friends' birthdays — reads its own doc (loaded above),
+  // same "watched vs. everything" bones as Birthdays. Rory (2026-08-19):
+  // "lets add a section underneath [Birthdays for] extended family and
+  // friends birthdays" — rendered directly below the Birthdays section.
+  const extendedBirthdays = useMemo(
+    () => buildCalendarExtendedBirthdays(extendedBirthdayRecords),
+    [extendedBirthdayRecords],
+  );
+  const watchedExtendedBirthdays = extendedBirthdays.filter((b) => b.daysUntil <= OCCASION_WATCH_DAYS);
+  const shownExtendedBirthdays = showAllExtendedBirthdays
+    ? extendedBirthdays
+    : watchedExtendedBirthdays.length > 0 ? watchedExtendedBirthdays : extendedBirthdays.slice(0, 1);
+
+  // Vacation countdown — Travel-category events off the shared `events` prop,
+  // no upper horizon (see buildCalendarVacations for why).
+  const vacations = useMemo(() => buildCalendarVacations(events), [events]);
+  const watchedVacations = vacations.filter((v) => v.daysUntil <= OCCASION_WATCH_DAYS);
+  const shownVacations = showAllVacations
+    ? vacations
+    : watchedVacations.length > 0 ? watchedVacations : vacations.slice(0, 1);
+
   // Real today string for highlighting the calendar cell
   const realTodayStr = todayLocal();
 
@@ -1355,6 +1394,76 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   <p className="text-[11.5px] text-ink-400 tabular-nums mt-0.5">{formatIsoDateLong(b.date)}</p>
                 </div>
                 <span className="chip shrink-0 bg-sage-100 text-sage-700">{daysUntilLabel(b.daysUntil)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      )}
+
+      {/* Extended family & friends' birthdays — a second, smaller list
+          alongside Birthdays above for people worth remembering a birthday
+          for who aren't a FamilyMember (grandparents, aunts/uncles, close
+          friends). Rory (2026-08-19, live screenshot of the Birthdays
+          panel): "lets add a section underneath extended family and friends
+          birthdays". Read-only summary here, same as every division on this
+          screen — added/edited from the Extended Birthdays tab (see
+          ExtendedBirthdaysView.tsx). Settings-gated —
+          HubSettings.calendarDivisions.extendedBirthdays. */}
+      {settings.calendarDivisions?.extendedBirthdays !== false && (
+      <section className="rounded-3xl border border-dusk-200 bg-dusk-50 overflow-hidden">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-dusk-200/60">
+          <div className="p-2.5 rounded-2xl bg-dusk-100 text-dusk-700 shrink-0 self-start sm:self-auto">
+            <Cake className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-display text-[16px] font-semibold text-ink-900">Extended family &amp; friends' birthdays</h4>
+              {watchedExtendedBirthdays.length > 0 ? (
+                <span className="chip bg-dusk-100 text-dusk-700">
+                  {watchedExtendedBirthdays.length} in the next {OCCASION_WATCH_DAYS} days
+                </span>
+              ) : extendedBirthdays.length > 0 ? (
+                <span className="chip bg-cream-200 text-ink-500">None in the next {OCCASION_WATCH_DAYS} days</span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">Nobody added yet</span>
+              )}
+            </div>
+            <p className="text-[12.5px] text-ink-500 mt-0.5">
+              Grandparents, aunts and uncles, godparents, close friends — anyone whose birthday matters but who isn't a family member here.
+            </p>
+          </div>
+          {extendedBirthdays.length > shownExtendedBirthdays.length && (
+            <button type="button" onClick={() => setShowAllExtendedBirthdays(true)} className="btn-quiet text-xs shrink-0">
+              Show all {extendedBirthdays.length}
+            </button>
+          )}
+          {showAllExtendedBirthdays && extendedBirthdays.length > 1 && (
+            <button type="button" onClick={() => setShowAllExtendedBirthdays(false)} className="btn-quiet text-xs shrink-0">
+              Show upcoming
+            </button>
+          )}
+        </div>
+
+        {shownExtendedBirthdays.length === 0 ? (
+          <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
+            <Cake className="w-4 h-4 text-dusk-600 shrink-0" />
+            Add someone from the Extended Birthdays tab and it will appear here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-dusk-200/60">
+            {shownExtendedBirthdays.map((b) => (
+              <div key={b.id} className="bg-white p-4 flex items-center gap-3 min-w-0">
+                <DivisionIconBadge icon={Cake} tone="dusk" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13.5px] font-semibold text-ink-900 truncate">
+                    {b.name}{b.turningAge != null ? ` turns ${b.turningAge}` : ''}
+                  </p>
+                  <p className="text-[11.5px] text-ink-400 tabular-nums mt-0.5">
+                    {formatIsoDateLong(b.date)}{b.relationship ? ` · ${b.relationship}` : ''}
+                  </p>
+                </div>
+                <span className="chip shrink-0 bg-dusk-100 text-dusk-700">{daysUntilLabel(b.daysUntil)}</span>
               </div>
             ))}
           </div>
@@ -1689,6 +1798,75 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                     </p>
                   </div>
                   <span className="chip shrink-0 bg-ink-100 text-ink-700">{daysUntilLabel(s.daysUntil)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      )}
+
+      {/* Vacation countdown — Travel-category events off the shared `events`
+          prop, same pattern as School dates above (no new data source).
+          Rory (2026-08-19): "count down for vacation". No upper horizon —
+          see buildCalendarVacations. Settings-gated —
+          HubSettings.calendarDivisions.vacations. */}
+      {settings.calendarDivisions?.vacations !== false && (
+      <section className="rounded-3xl border border-honey-200 bg-honey-50 overflow-hidden">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-honey-200/60">
+          <div className="p-2.5 rounded-2xl bg-honey-100 text-honey-700 shrink-0 self-start sm:self-auto">
+            <Plane className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-display text-[16px] font-semibold text-ink-900">Vacation countdown</h4>
+              {vacations.length > 0 ? (
+                <span className="chip bg-honey-100 text-honey-700">
+                  {vacations.length} upcoming
+                </span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">No trips on file</span>
+              )}
+            </div>
+            <p className="text-[12.5px] text-ink-500 mt-0.5">
+              Events tagged Travel — how many days until you go.
+            </p>
+          </div>
+          {vacations.length > shownVacations.length && (
+            <button type="button" onClick={() => setShowAllVacations(true)} className="btn-quiet text-xs shrink-0">
+              Show all {vacations.length}
+            </button>
+          )}
+          {showAllVacations && vacations.length > 1 && (
+            <button type="button" onClick={() => setShowAllVacations(false)} className="btn-quiet text-xs shrink-0">
+              Show fewer
+            </button>
+          )}
+        </div>
+
+        {shownVacations.length === 0 ? (
+          <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
+            <Plane className="w-4 h-4 text-honey-700 shrink-0" />
+            Add an event and tag it Travel — the countdown to it will appear here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-honey-200/60">
+            {shownVacations.map((v) => {
+              const taggedMember = v.memberIds?.map((id) => members.find((m) => m.id === id)).find((m): m is FamilyMember => !!m);
+              return (
+                <div key={v.id} className="bg-white p-4 flex items-center gap-3 min-w-0">
+                  {taggedMember ? (
+                    <DivisionAvatar name={taggedMember.name} avatarUrl={taggedMember.avatarUrl} avatarColor={taggedMember.avatarColor} />
+                  ) : (
+                    <DivisionIconBadge icon={Plane} tone="honey" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-semibold text-ink-900 truncate">{v.title}</p>
+                    <p className="text-[11.5px] text-ink-400 tabular-nums mt-0.5">
+                      {formatIsoDateLong(v.date)}{v.time ? ` · ${v.time}` : ''}
+                    </p>
+                  </div>
+                  <span className="chip shrink-0 bg-honey-100 text-honey-700">{daysUntilLabel(v.daysUntil)}</span>
                 </div>
               );
             })}

@@ -379,12 +379,14 @@ export default function FamilyInterview({
 // tells you what kind of thing you're about to be asked, before you've
 // read a word of the title.
 type Tone = 'clay' | 'sage' | 'dusk' | 'rosa' | 'honey';
-const TONE_CLASSES: Record<Tone, { badge: string; chip: string }> = {
-  clay: { badge: 'bg-clay-50 text-clay-600', chip: 'bg-clay-100 text-clay-700' },
-  sage: { badge: 'bg-sage-50 text-sage-600', chip: 'bg-sage-100 text-sage-700' },
-  dusk: { badge: 'bg-dusk-50 text-dusk-600', chip: 'bg-dusk-100 text-dusk-700' },
-  rosa: { badge: 'bg-rosa-50 text-rosa-600', chip: 'bg-rosa-100 text-rosa-700' },
-  honey: { badge: 'bg-honey-50 text-honey-700', chip: 'bg-honey-100 text-honey-800' },
+// 'chip' used to also carry a tone-tinted background for the eyebrow label
+// below — dropped in favour of a plain bold black one (see StepHeader).
+const TONE_CLASSES: Record<Tone, { badge: string }> = {
+  clay: { badge: 'bg-clay-50 text-clay-600' },
+  sage: { badge: 'bg-sage-50 text-sage-600' },
+  dusk: { badge: 'bg-dusk-50 text-dusk-600' },
+  rosa: { badge: 'bg-rosa-50 text-rosa-600' },
+  honey: { badge: 'bg-honey-50 text-honey-700' },
 };
 
 function StepHeader({ icon: Icon, tone, eyebrow, title, body }: {
@@ -402,8 +404,12 @@ function StepHeader({ icon: Icon, tone, eyebrow, title, body }: {
           <Icon className="w-5 h-5" />
         </div>
         <div className="min-w-0 pt-0.5">
-          <div className="mb-1.5">
-            <span className={`chip ${t.chip}`}>{eyebrow}</span>
+          {/* Was a small 11px pastel chip — Rory (2026-08-19, live screenshot
+              of this exact resume screen): too quiet to register as the
+              header it's meant to be. Bold black caps instead of a tinted
+              pill reads as a proper eyebrow, not a small tag. */}
+          <div className="mb-2">
+            <span className="block text-sm font-extrabold uppercase tracking-wide text-ink-900">{eyebrow}</span>
           </div>
           <h3 id="interview-step-title" className="font-display text-lg font-semibold text-ink-900 leading-snug">
             {title}

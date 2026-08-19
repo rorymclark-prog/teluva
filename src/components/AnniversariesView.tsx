@@ -20,19 +20,39 @@ const KINDS: AnniversaryKind[] = ['Wedding', 'Engagement', 'Adoption', 'Annivers
 // --- Quick-add ("one-click") chips ------------------------------------------
 // Pre-fills the form's title/date/kind for a handful of well-known recurring
 // days — the user still confirms and taps Save, nothing is created on click.
-// Valentine's Day and New Year's Eve are genuinely fixed 'MM-DD' dates.
-// Mother's/Father's Day are NOT — they move by country and year (UK Mothering
-// Sunday differs from the US convention below entirely) — so rather than
-// build the same movable-date machinery Name Celebrations has (out of scope
-// here), this computes the UK/US convention (2nd Sunday of May / 3rd Sunday of
-// June) fresh, for the CURRENT year only, at the moment the chip is clicked.
+// Valentine's Day, New Year's Eve and the two Women's Days are genuinely
+// fixed 'MM-DD' dates. Mother's/Father's Day are NOT — they move by year
+// (Nth Sunday of a month) — so rather than build the same movable-date
+// machinery Name Celebrations has (out of scope here), this computes the
+// date fresh for the CURRENT year only, at the moment the chip is clicked.
 // The form shows an honest caveat so the family can adjust it.
-type QuickAddKey = 'valentines' | 'mothers' | 'fathers' | 'nye';
+//
+// Rory (2026-08-19): "we need to have mothers day, name days, fathersday
+// womans day etc etc". Father's Day genuinely differs by country — Austria
+// keeps the 2nd Sunday of June, South Africa the 3rd — and this family spans
+// both, so rather than pick one and be wrong for half the household, both
+// are separate chips. Same reasoning for the two Women's Days: International
+// Women's Day (8 March, UN-designated) and South Africa's National Women's
+// Day (9 August, a public holiday commemorating the 1956 women's march) are
+// different days entirely, not two names for the same one. All four dates
+// verified via live search on 2026-08-19, not recalled — see nameDay.ts for
+// why this file never guesses a moving/regional date from memory.
+type QuickAddKey =
+  | 'valentines'
+  | 'mothers'
+  | 'fathers-at'
+  | 'fathers-za'
+  | 'womens-intl'
+  | 'womens-za'
+  | 'nye';
 
 const QUICK_ADDS: { key: QuickAddKey; label: string; title: string }[] = [
   { key: 'valentines', label: "Valentine's Day", title: "Valentine's Day" },
   { key: 'mothers', label: "Mother's Day", title: "Mother's Day" },
-  { key: 'fathers', label: "Father's Day", title: "Father's Day" },
+  { key: 'fathers-at', label: "Father's Day (Austria)", title: "Father's Day" },
+  { key: 'fathers-za', label: "Father's Day (South Africa)", title: "Father's Day" },
+  { key: 'womens-intl', label: "International Women's Day", title: "International Women's Day" },
+  { key: 'womens-za', label: "National Women's Day (SA)", title: "National Women's Day" },
   { key: 'nye', label: "New Year's Eve", title: "New Year's Eve" },
 ];
 
@@ -49,8 +69,11 @@ function quickAddDate(key: QuickAddKey): string {
   switch (key) {
     case 'valentines': return '02-14';
     case 'nye': return '12-31';
-    case 'mothers': return nthSundayOfMonth(year, 5, 2);  // 2nd Sunday of May
-    case 'fathers': return nthSundayOfMonth(year, 6, 3);  // 3rd Sunday of June
+    case 'mothers': return nthSundayOfMonth(year, 5, 2);     // 2nd Sunday of May — same in Austria and South Africa
+    case 'fathers-at': return nthSundayOfMonth(year, 6, 2);  // 2nd Sunday of June — Austria's Vatertag
+    case 'fathers-za': return nthSundayOfMonth(year, 6, 3);  // 3rd Sunday of June — South Africa
+    case 'womens-intl': return '03-08';                      // International Women's Day — fixed
+    case 'womens-za': return '08-09';                        // National Women's Day — fixed SA public holiday
   }
 }
 
@@ -421,6 +444,7 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                 </div>
                 <p className="text-[11px] text-ink-400 mt-1.5">
                   Mother's & Father's Day move each year — the date filled in is for this year, adjust if needed.
+                  Father's Day and Women's Day have separate chips per country since the dates genuinely differ.
                 </p>
               </div>
 

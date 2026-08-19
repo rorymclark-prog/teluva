@@ -1,6 +1,10 @@
 {
-  "label": "v222",
+  "label": "v223",
   "changes": [
-    "Medical checks and Anniversaries & special days on the Family Calendar now also pick up plain calendar entries that read as one — even briefly or obscurely worded (a bare \"Sensor\", a diabetes device brand name, \"Zahnarzt\") — not just entries with a structured record behind them. No need to file anything separately; it's read straight off what you already typed."
+    "Fixed: Medical checks was showing every past medical-sounding calendar entry as \"Overdue\" forever — a plain calendar event has no way to know if the appointment happened, unlike a real referral, so past ones now drop off instead of piling up.",
+    "New: an \"Extended family & friends' birthdays\" section under Birthdays on the Family Calendar, plus its own tab to add people (grandparents, aunts/uncles, godparents, friends) who aren't family members here.",
+    "New: a Vacation countdown section — tag a calendar event Travel and see the days-until count on the Family Calendar.",
+    "Anniversaries & special days: Mother's Day, Father's Day and Women's Day now have accurate quick-add chips per country — Father's Day is the 2nd Sunday of June in Austria but the 3rd in South Africa, and Women's Day means two different dates (8 March international, 9 August South Africa's public holiday).",
+    "The guided setup's \"Welcome back\" header now reads clearly in bold black rather than a small pastel tag."
   ]
 }

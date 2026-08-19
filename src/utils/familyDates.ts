@@ -9,7 +9,7 @@
 // birthdate, confirming a celebration, updating a care schedule item, adding
 // an anniversary, or tagging an event School updates the calendar
 // immediately with no second write path to keep in sync.
-import type { AnniversaryKind, AnniversaryRecord, CalendarEvent, FamilyMember, NameCelebration } from '../types';
+import type { AnniversaryKind, AnniversaryRecord, CalendarEvent, ExtendedBirthday, FamilyMember, NameCelebration } from '../types';
 import { daysUntilNameDay, formatNameDay } from './nameDay';
 import { resolveCelebrations, daysUntilCelebration } from './nameCelebrations';
 import { careNextDue, careDueLabel, CareStatus } from './care';
@@ -92,6 +92,55 @@ export function buildCalendarBirthdays(
   }
 
   return out.sort((a, b) => a.daysUntil - b.daysUntil || firstName(a.memberName).localeCompare(firstName(b.memberName)));
+}
+
+// ---------------------------------------------------------------------------
+// Extended family & friends' birthdays
+// ---------------------------------------------------------------------------
+// A second, much smaller list alongside the one above — people worth
+// remembering a birthday for who aren't a FamilyMember (see ExtendedBirthday
+// in types.ts for why). Same next-occurrence math as buildCalendarBirthdays,
+// just reading ExtendedBirthdaysDoc instead of member records, and an
+// optional origin year instead of a required birthdate.
+
+export interface CalendarExtendedBirthday {
+  id: string;
+  name: string;
+  relationship?: string;
+  /** 'MM-DD' */
+  monthDay: string;
+  /** Next occurrence, YYYY-MM-DD — same today+daysUntil derivation as CalendarBirthday.date. */
+  date: string;
+  daysUntil: number;
+  /** The age they turn ON that occurrence — null when originalYear isn't known. */
+  turningAge: number | null;
+}
+
+export function buildCalendarExtendedBirthdays(
+  extendedBirthdays: readonly ExtendedBirthday[],
+  now: Date = new Date(),
+): CalendarExtendedBirthday[] {
+  const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const out: CalendarExtendedBirthday[] = [];
+
+  for (const eb of extendedBirthdays) {
+    const daysUntil = daysUntilNameDay(eb.date, now);
+    if (daysUntil == null) continue;
+
+    const occurrence = new Date(t0.getTime() + daysUntil * DAY_MS);
+
+    out.push({
+      id: eb.id,
+      name: eb.name,
+      relationship: eb.relationship,
+      monthDay: eb.date,
+      date: isoFromDate(occurrence),
+      daysUntil,
+      turningAge: eb.originalYear != null ? occurrence.getFullYear() - eb.originalYear : null,
+    });
+  }
+
+  return out.sort((a, b) => a.daysUntil - b.daysUntil || a.name.localeCompare(b.name));
 }
 
 // ---------------------------------------------------------------------------
@@ -284,11 +333,18 @@ export function buildCalendarMedicalChecks(
     const evDate = parseDateOnly(ev.date);
     if (!evDate) continue;
     const daysUntil = Math.round((evDate.getTime() - t0.getTime()) / DAY_MS);
+    // Unlike a referral, a plain calendar event carries no "still
+    // outstanding" state — once its date is past we have no way to know
+    // whether the appointment happened, so there's no real "overdue"
+    // signal to give. Rory (2026-08-19, live screenshot): this was
+    // flooding the panel with every past medical-sounding calendar entry,
+    // forever. Drop past ones, same as buildCalendarAnniversaries already
+    // does below.
+    if (daysUntil < 0) continue;
     const status: MedicalCheckStatus =
-      daysUntil < 0 ? 'overdue' : daysUntil <= REFERRAL_DUE_SOON_DAYS ? 'due-soon' : 'ok';
+      daysUntil <= REFERRAL_DUE_SOON_DAYS ? 'due-soon' : 'ok';
     const statusLabel =
-      status === 'overdue' ? 'Overdue'
-      : daysUntil === 0 ? 'Today'
+      daysUntil === 0 ? 'Today'
       : daysUntil === 1 ? 'Tomorrow'
       : `In ${daysUntil} days`;
 
@@ -447,6 +503,58 @@ export function buildCalendarSchoolDates(
     if (!evDate) continue;
     const daysUntil = Math.round((evDate.getTime() - t0) / DAY_MS);
     if (daysUntil < 0 || daysUntil > SCHOOL_DATES_WINDOW_DAYS) continue;
+
+    out.push({
+      id: e.id,
+      title: e.title,
+      date: e.date,
+      time: e.time,
+      daysUntil,
+      memberIds: e.memberIds,
+      description: e.description,
+    });
+  }
+
+  return out.sort((a, b) => a.daysUntil - b.daysUntil || a.title.localeCompare(b.title));
+}
+
+// ---------------------------------------------------------------------------
+// Vacation countdown
+// ---------------------------------------------------------------------------
+
+export interface CalendarVacation {
+  id: string;
+  title: string;
+  /** YYYY-MM-DD, straight off the source CalendarEvent — never recomputed. */
+  date: string;
+  time?: string;
+  daysUntil: number;
+  memberIds?: string[];
+  description?: string;
+}
+
+/**
+ * Upcoming Travel-category events, straight off the shared calendar events
+ * list — same pattern as buildCalendarSchoolDates above, just a different
+ * category tag, and no need for CalendarEvent.date to grow an end-date field:
+ * this is a countdown to departure, not a span. A family that wants to see
+ * "how many days are we away for" can still say so in the event's own title.
+ * Unlike School dates this has no upper horizon — a flight booked ten months
+ * out is exactly the kind of thing worth counting down from day one.
+ */
+export function buildCalendarVacations(
+  events: readonly CalendarEvent[],
+  now: Date = new Date(),
+): CalendarVacation[] {
+  const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const out: CalendarVacation[] = [];
+
+  for (const e of events) {
+    if (e.category !== 'Travel') continue;
+    const evDate = parseDateOnly(e.date);
+    if (!evDate) continue;
+    const daysUntil = Math.round((evDate.getTime() - t0) / DAY_MS);
+    if (daysUntil < 0) continue;
 
     out.push({
       id: e.id,

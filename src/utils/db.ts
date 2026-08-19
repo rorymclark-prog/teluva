@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -668,6 +668,7 @@ export const SHARED_DOCS = {
   recipes:        { key: 'recipes',        localKey: 'family_recipes' },
   slips:          { key: 'slips',          localKey: 'family_slips' },
   anniversaries:  { key: 'anniversaries',  localKey: 'family_anniversaries' },
+  extendedBirthdays: { key: 'extendedBirthdays', localKey: 'family_extended_birthdays' },
 } as const satisfies Record<string, SharedDocMeta>;
 
 export type SharedDocName = keyof typeof SHARED_DOCS;
@@ -1055,6 +1056,15 @@ export const saveAnniversaries = (anniversaries: AnniversaryRecord[], base?: Ann
 export async function loadAnniversaries(): Promise<AnniversaryRecord[]> {
   const data = await loadReferenceDoc<AnniversariesDoc>('anniversaries', 'family_anniversaries');
   return data?.anniversaries || [];
+}
+
+// --- Extended Family & Friends' Birthdays: same shape/convention as
+// Anniversaries above — one shared doc for the whole household. ---
+export const saveExtendedBirthdays = (extendedBirthdays: ExtendedBirthday[], base?: ExtendedBirthday[]) =>
+  saveReferenceDoc('extendedBirthdays', { extendedBirthdays }, 'family_extended_birthdays', base ? { extendedBirthdays: base } : undefined);
+export async function loadExtendedBirthdays(): Promise<ExtendedBirthday[]> {
+  const data = await loadReferenceDoc<ExtendedBirthdaysDoc>('extendedBirthdays', 'family_extended_birthdays');
+  return data?.extendedBirthdays || [];
 }
 
 // --- Slips ("Keep the slip"): one shared doc for the whole household, same

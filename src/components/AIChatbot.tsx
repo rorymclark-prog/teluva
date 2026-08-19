@@ -7,7 +7,7 @@ import {
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
   loadChatHistory, saveChatHistory, uploadChatAttachment, uploadRecipePhoto, loadSpaceInfo, uploadSlipPhoto,
   uploadChatAttachmentWithPath, loadSlips, isHintSeen, markHintSeen, loadAiUsage, loadSettings,
-  loadAssets, uploadAssetPhoto, loadRecipes, loadFamilyWords, loadWillsEstate, loadShopping, loadAnniversaries,
+  loadAssets, uploadAssetPhoto, loadRecipes, loadFamilyWords, loadWillsEstate, loadShopping, loadAnniversaries, loadExtendedBirthdays,
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
 import { boundCalendar } from '../utils/calendarWindow';
@@ -1119,9 +1119,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   };
 
   const buildContext = async () => {
-    const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings, assets, recipes, familyWords, willsEstate, shopping, anniversaries] = await Promise.all([
+    const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings, assets, recipes, familyWords, willsEstate, shopping, anniversaries, extendedBirthdays] = await Promise.all([
       loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(), loadSettings(), loadAssets(),
-      loadRecipes(), loadFamilyWords(), loadWillsEstate(), loadShopping(), loadAnniversaries(),
+      loadRecipes(), loadFamilyWords(), loadWillsEstate(), loadShopping(), loadAnniversaries(), loadExtendedBirthdays(),
     ]);
     // Say plainly, for each vault document, whether it is actually on a person's
     // profile Documents tab or only in the shared vault — because that is the
@@ -1241,12 +1241,19 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     // even though that targeting isn't wired up yet (see aiDestructive.ts) —
     // cheap to include now, and free of a second pass if it ever is.
     const anniversariesCtx = anniversaries || [];
+    // Extended Family & Friends' Birthdays: READ-ONLY context for now — the
+    // assistant can answer "when is grandma's birthday" but there's no
+    // create/update/delete op wired for this doc yet (see ExtendedBirthday
+    // in types.ts; deliberately scoped out of the 2026-08-19 pass alongside
+    // the CRUD view itself, same "ship the core value first" call as the
+    // rest of this feature).
+    const extendedBirthdaysCtx = extendedBirthdays || [];
     // info.numbers is the one free-text bucket in the vault — nothing forces
     // what goes in the "value" of an "Important Numbers" entry, so unlike
     // every other field here it cannot be redacted by naming a key. Strip the
     // value unconditionally rather than send it to Gemini on every turn.
     const infoCtx = info ? { ...info, numbers: redactInfoNumbers(info.numbers) } : info;
-    return { members: slimMembers(members), info: infoCtx, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx, recipes: recipesCtx, familyWords: familyWordsCtx, willsEstate: willsEstateCtx, shopping: shoppingCtx, anniversaries: anniversariesCtx };
+    return { members: slimMembers(members), info: infoCtx, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx, recipes: recipesCtx, familyWords: familyWordsCtx, willsEstate: willsEstateCtx, shopping: shoppingCtx, anniversaries: anniversariesCtx, extendedBirthdays: extendedBirthdaysCtx };
   };
 
   const onPasteImage = async (e: React.ClipboardEvent) => {

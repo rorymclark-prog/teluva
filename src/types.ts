@@ -740,10 +740,12 @@ export interface HubSettings {
   calendarDivisions?: {
     travelDocuments?: boolean;
     birthdays?: boolean;
+    extendedBirthdays?: boolean;
     nameCelebrations?: boolean;
     medicalChecks?: boolean;
     anniversaries?: boolean;
     schoolDates?: boolean;
+    vacations?: boolean;
   };
 
   /**
@@ -1298,6 +1300,29 @@ export interface AnniversaryRecord {
 
 export interface AnniversariesDoc {
   anniversaries: AnniversaryRecord[];
+}
+
+// Extended Family & Friends' Birthdays — Rory (2026-08-19, live screenshot of
+// the Birthdays panel): a grandparent, aunt/uncle or close family friend who
+// isn't a FamilyMember (no profile, no documents, no medical record — just a
+// birthday worth remembering) had nowhere to go. Deliberately NOT a
+// FamilyMember: making one for every relative/friend whose birthday you want
+// to remember would drag in a full profile (medical, education, documents)
+// for someone who isn't part of this household. Same shape and convention as
+// AnniversaryRecord above — one shared doc, CRUD'd like a list, 'MM-DD'
+// recurring with an optional origin year for an age count.
+export interface ExtendedBirthday {
+  id: string;
+  name: string;                // e.g. "Grandma Sue" or "Auntie Jo" — the family's own words
+  relationship?: string;       // free text, e.g. "Grandmother", "Godfather", "Family friend"
+  date: string;                // 'MM-DD' — recurring, no year required
+  originalYear?: number;       // optional birth year — powers an age count, same idea as FamilyMember.birthdate/AnniversaryRecord.originalYear. Omit if not known.
+  notes?: string;
+  createdAt: string;           // ISO date this record was added
+}
+
+export interface ExtendedBirthdaysDoc {
+  extendedBirthdays: ExtendedBirthday[];
 }
 
 // --- CV / résumé (business spaces only): the structured half of a team
