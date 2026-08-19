@@ -680,7 +680,8 @@ sizes: shirt_size, pants_size, shoe_size, dress_size, jacket_size, hat_size, rin
 medical: blood_group, allergies, medications, conditions, surgeries, emergency_medication, organ_donor, family_medical_history, medical_notes
 identity: sv_number, ecard_number, tax_number, student_number, school_reg_number, residence_permit_number, residence_permit_expiry, national_id_number, id_document_type, birth_cert_number, medical_aid_number, citizenship_cert_number, drivers_license_number, drivers_license_expiry
 education: school_name, class_grade, teacher_name, teacher_contact
-travel: frequent_flyer, travel_insurance_number, etias_status, travel_preferences, emergency_travel_contact
+travel: frequent_flyer, travel_insurance_number, travel_insurance_provider, travel_insurance_emergency_number, etias_status, travel_preferences, emergency_travel_contact
+  travel_insurance_emergency_number is the INSURER'S 24/7 assistance/claims line (e.g. from the policy document) — distinct from emergency_travel_contact, which is a person to call (a family member or friend), not the insurance company
 emergency: emergency_contact_name, emergency_contact_phone
 preferences: favorite_meals, disliked_foods, dietary_restrictions, favorite_movies, favorite_books, favorite_games, favorite_music, sports, hobbies, clothing_brands, color_preferences
 

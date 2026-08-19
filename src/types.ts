@@ -460,6 +460,9 @@ export interface TransitPass {
 export interface TravelInfo {
   frequentFlyer?: string;
   travelInsuranceNumber?: string;
+  travelInsuranceProvider?: string;        // the insurer's name, e.g. "Europäische Reiseversicherung"
+  travelInsuranceEmergencyNumber?: string; // the insurer's 24/7 assistance/claims line — distinct from
+                                            // emergencyTravelContact below, which is a PERSON to call
   etiasStatus?: string;         // ESTA / ETIAS status
   visas?: VisaRecord[];
   transitPasses?: TransitPass[];  // Jahreskarte, Klimaticket, rail passes …

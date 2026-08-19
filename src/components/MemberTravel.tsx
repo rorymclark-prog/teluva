@@ -17,6 +17,8 @@ interface MemberTravelProps {
 const initTravel = (member: FamilyMember): TravelInfo => ({
   frequentFlyer: member.travel?.frequentFlyer || '',
   travelInsuranceNumber: member.travel?.travelInsuranceNumber || '',
+  travelInsuranceProvider: member.travel?.travelInsuranceProvider || '',
+  travelInsuranceEmergencyNumber: member.travel?.travelInsuranceEmergencyNumber || '',
   etiasStatus: member.travel?.etiasStatus || '',
   emergencyTravelContact: member.travel?.emergencyTravelContact || '',
   preferences: member.travel?.preferences || '',
@@ -370,7 +372,19 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
         </div>
 
         <div>
-          <label className="field-label">Travel insurance number</label>
+          <label className="field-label">Travel insurance provider</label>
+          <input
+            type="text"
+            className="field"
+            placeholder="e.g. Europäische Reiseversicherung"
+            value={travel.travelInsuranceProvider || ''}
+            onChange={e => setField('travelInsuranceProvider', e.target.value)}
+            onBlur={e => blurField('travelInsuranceProvider', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="field-label">Travel insurance policy number</label>
           <input
             type="text"
             className="field font-mono tabular-nums"
@@ -378,6 +392,18 @@ export default function MemberTravel({ member, onUpdate }: MemberTravelProps) {
             value={travel.travelInsuranceNumber || ''}
             onChange={e => setField('travelInsuranceNumber', e.target.value)}
             onBlur={e => blurField('travelInsuranceNumber', e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="field-label">Travel insurance emergency / claims number</label>
+          <input
+            type="tel"
+            className="field font-mono tabular-nums"
+            placeholder="e.g. +43 1 525 03 5555 (24/7 assistance line)"
+            value={travel.travelInsuranceEmergencyNumber || ''}
+            onChange={e => setField('travelInsuranceEmergencyNumber', e.target.value)}
+            onBlur={e => blurField('travelInsuranceEmergencyNumber', e.target.value)}
           />
         </div>
 

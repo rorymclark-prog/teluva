@@ -108,6 +108,8 @@ const MEMBER_FIELD_MAP: Record<string, (m: FamilyMember, v: string) => FamilyMem
 
   frequent_flyer: (m, v) => setTravel(m, 'frequentFlyer', v),
   travel_insurance_number: (m, v) => setTravel(m, 'travelInsuranceNumber', v),
+  travel_insurance_provider: (m, v) => setTravel(m, 'travelInsuranceProvider', v),
+  travel_insurance_emergency_number: (m, v) => setTravel(m, 'travelInsuranceEmergencyNumber', v),
   etias_status: (m, v) => setTravel(m, 'etiasStatus', v),
   travel_preferences: (m, v) => setTravel(m, 'preferences', v),
   emergency_travel_contact: (m, v) => setTravel(m, 'emergencyTravelContact', v),
