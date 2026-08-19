@@ -1,6 +1,6 @@
 {
-  "label": "v221",
+  "label": "v222",
   "changes": [
-    "Travel info now has a place for the travel insurance provider's name and their 24/7 emergency/claims number, alongside the policy number — separate from the personal emergency travel contact. Find it on a family member's profile under Travel info."
+    "Medical checks and Anniversaries & special days on the Family Calendar now also pick up plain calendar entries that read as one — even briefly or obscurely worded (a bare \"Sensor\", a diabetes device brand name, \"Zahnarzt\") — not just entries with a structured record behind them. No need to file anything separately; it's read straight off what you already typed."
   ]
 }
