@@ -1,9 +1,6 @@
 {
-  "label": "v220",
+  "label": "v221",
   "changes": [
-    "Added a place for guardians and other people who don't live with the family but should be on file — name, relationship, phone, email, address, and any documents they should have. Find it as its own tab on a family member's profile.",
-    "Added Anniversaries & special days — record wedding anniversaries, engagements, and other dates worth remembering, with one-click shortcuts to add Valentine's Day, Mother's Day, Father's Day, or New Year's Eve.",
-    "Added a School dates panel to the Family Calendar, so upcoming school events show up at a glance instead of needing a search through the calendar.",
-    "The Family Calendar's at-a-glance panels — Travel documents, Birthdays, Name days & celebrations, Medical checks, Anniversaries, and School dates — can each be turned on or off from Settings > Calendar panels."
+    "Travel info now has a place for the travel insurance provider's name and their 24/7 emergency/claims number, alongside the policy number — separate from the personal emergency travel contact. Find it on a family member's profile under Travel info."
   ]
 }
