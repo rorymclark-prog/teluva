@@ -14,6 +14,7 @@ import { daysUntilNameDay, formatNameDay } from './nameDay';
 import { resolveCelebrations, daysUntilCelebration } from './nameCelebrations';
 import { careNextDue, careDueLabel, CareStatus } from './care';
 import { parseDateOnly } from './age';
+import { isMedicalFlaggedEvent, isAnniversaryFlaggedEvent } from './eventKeywordFlags';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -192,11 +193,14 @@ export type MedicalCheckStatus = CareStatus;
 
 export interface CalendarMedicalCheck {
   id: string;
+  /** '' when the source calendar event tagged nobody or more than one person — see memberName. */
   memberId: string;
+  /** 'Family' when there's no single tagged member to show a name for. */
   memberName: string;
   avatarUrl?: string;
-  avatarColor: string;
-  source: 'care' | 'referral';
+  /** Absent for a 'calendar' item with no single tagged member — the row falls back to an icon badge. */
+  avatarColor?: string;
+  source: 'care' | 'referral' | 'calendar';
   label: string;
   provider?: string;
   /** YYYY-MM-DD, or null when a care item has neither nextDue nor lastVisit+interval to derive one from. */
@@ -207,11 +211,13 @@ export interface CalendarMedicalCheck {
 
 // Matches careNextDue's own "due-soon" window (1.5 months, see care.ts) so a
 // booked referral appointment and a recurring check-up are flagged "coming
-// up soon" on the same footing rather than two different thresholds.
+// up soon" on the same footing rather than two different thresholds. Reused
+// below for keyword-flagged calendar events too, for the same reason.
 const REFERRAL_DUE_SOON_DAYS = 45;
 
 export function buildCalendarMedicalChecks(
   members: readonly FamilyMember[],
+  events: readonly CalendarEvent[] = [],
   now: Date = new Date(),
 ): CalendarMedicalCheck[] {
   const nowMs = now.getTime();
@@ -265,6 +271,45 @@ export function buildCalendarMedicalChecks(
     }
   }
 
+  // Free-text calendar events that read as medical — a hand-typed reminder
+  // (e.g. a diabetes sensor change) has no careSchedule/referral record
+  // behind it at all, so it would otherwise never appear here no matter how
+  // obviously medical the wording. See eventKeywordFlags.ts for why this is
+  // a recall-first keyword net, not a precision-first one, and why it can't
+  // be deduped against the care/referral items above — there's no link
+  // between a plain calendar event and a structured record for the same
+  // real-world appointment.
+  for (const ev of events) {
+    if (!isMedicalFlaggedEvent(ev)) continue;
+    const evDate = parseDateOnly(ev.date);
+    if (!evDate) continue;
+    const daysUntil = Math.round((evDate.getTime() - t0.getTime()) / DAY_MS);
+    const status: MedicalCheckStatus =
+      daysUntil < 0 ? 'overdue' : daysUntil <= REFERRAL_DUE_SOON_DAYS ? 'due-soon' : 'ok';
+    const statusLabel =
+      status === 'overdue' ? 'Overdue'
+      : daysUntil === 0 ? 'Today'
+      : daysUntil === 1 ? 'Tomorrow'
+      : `In ${daysUntil} days`;
+
+    const taggedMember = (ev.memberIds || [])
+      .map((id) => members.find((m) => m.id === id))
+      .find((m): m is FamilyMember => !!m);
+
+    out.push({
+      id: `calendar-${ev.id}`,
+      memberId: taggedMember?.id || '',
+      memberName: taggedMember?.name || 'Family',
+      avatarUrl: taggedMember?.avatarUrl,
+      avatarColor: taggedMember?.avatarColor,
+      source: 'calendar',
+      label: ev.title,
+      date: ev.date,
+      status,
+      statusLabel,
+    });
+  }
+
   // Dated items first — soonest/most-overdue first, since an old overdue
   // date sorts before a near-future one — undated ('unknown') items last.
   return out.sort((a, b) => {
@@ -306,6 +351,7 @@ export interface CalendarAnniversary {
  */
 export function buildCalendarAnniversaries(
   anniversaries: readonly AnniversaryRecord[],
+  events: readonly CalendarEvent[] = [],
   now: Date = new Date(),
 ): CalendarAnniversary[] {
   const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -326,6 +372,31 @@ export function buildCalendarAnniversaries(
       date: isoFromDate(occurrence),
       daysUntil,
       years: a.originalYear != null ? occurrence.getFullYear() - a.originalYear : null,
+    });
+  }
+
+  // Free-text calendar events that read as an anniversary/special day but
+  // were never filed as an AnniversaryRecord (see eventKeywordFlags.ts).
+  // Shown on their literal date only — unlike a confirmed AnniversaryRecord,
+  // a plain calendar event carries no confirmed recurrence, so this doesn't
+  // assume it comes back next year the way the loop above does. Dropped once
+  // the date has passed rather than kept forever.
+  for (const ev of events) {
+    if (!isAnniversaryFlaggedEvent(ev)) continue;
+    const evDate = parseDateOnly(ev.date);
+    if (!evDate) continue;
+    const daysUntil = Math.round((evDate.getTime() - t0.getTime()) / DAY_MS);
+    if (daysUntil < 0) continue;
+
+    out.push({
+      id: `calendar-${ev.id}`,
+      title: ev.title,
+      kind: 'Other',
+      memberIds: ev.memberIds,
+      monthDay: ev.date.slice(5),
+      date: ev.date,
+      daysUntil,
+      years: null,
     });
   }
 

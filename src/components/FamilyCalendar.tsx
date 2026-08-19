@@ -67,8 +67,8 @@ function DivisionAvatar({ name, avatarUrl, avatarColor }: { name: string; avatar
 // carry no memberIds at all. Same w-9 h-9 sizing as DivisionAvatar so a row
 // lines up whichever kind of avatar it ends up rendering, but a plain icon
 // badge instead of an initial when there's no single person to show.
-function DivisionIconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'rosa' | 'ink' }) {
-  const cls = tone === 'rosa' ? 'bg-rosa-100 text-rosa-700' : 'bg-ink-100 text-ink-700';
+function DivisionIconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'rosa' | 'ink' | 'clay' }) {
+  const cls = tone === 'rosa' ? 'bg-rosa-100 text-rosa-700' : tone === 'clay' ? 'bg-clay-100 text-clay-700' : 'bg-ink-100 text-ink-700';
   return (
     <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${cls}`}>
       <Icon className="w-4 h-4" />
@@ -1087,7 +1087,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     ? nameCelebrations
     : watchedNameCelebrations.length > 0 ? watchedNameCelebrations : nameCelebrations.slice(0, 1);
 
-  const medicalChecks = useMemo(() => buildCalendarMedicalChecks(members), [members]);
+  const medicalChecks = useMemo(() => buildCalendarMedicalChecks(members, events), [members, events]);
   const watchedMedicalChecks = medicalChecks.filter((c) => c.status === 'overdue' || c.status === 'due-soon');
   const shownMedicalChecks = showAllMedicalChecks
     ? medicalChecks
@@ -1096,7 +1096,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // Anniversaries & special days — reads the family's own AnniversariesDoc
   // (loaded above), not a member record, but same "watched vs. everything"
   // bones as birthdays.
-  const anniversaries = useMemo(() => buildCalendarAnniversaries(anniversaryRecords), [anniversaryRecords]);
+  const anniversaries = useMemo(() => buildCalendarAnniversaries(anniversaryRecords, events), [anniversaryRecords, events]);
   const watchedAnniversaries = anniversaries.filter((a) => a.daysUntil <= OCCASION_WATCH_DAYS);
   const shownAnniversaries = showAllAnniversaries
     ? anniversaries
@@ -1501,7 +1501,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               )}
             </div>
             <p className="text-[12.5px] text-ink-500 mt-0.5">
-              Dental, medical, eye and specialist check-ups from each member’s Care schedule, plus booked referral appointments.
+              Dental, medical, eye and specialist check-ups from each member’s Care schedule, booked referral appointments, and anything on the calendar itself that reads as medical.
             </p>
           </div>
           {medicalChecks.length > shownMedicalChecks.length && (
@@ -1529,11 +1529,16 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               const noDate = c.status === 'unknown';
               return (
                 <div key={c.id} className="bg-white p-4 flex items-center gap-3 min-w-0">
-                  <DivisionAvatar name={c.memberName} avatarUrl={c.avatarUrl} avatarColor={c.avatarColor} />
+                  {c.memberId ? (
+                    <DivisionAvatar name={c.memberName} avatarUrl={c.avatarUrl} avatarColor={c.avatarColor} />
+                  ) : (
+                    <DivisionIconBadge icon={Stethoscope} tone="clay" />
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="text-[13.5px] font-semibold text-ink-900 truncate">{c.memberName} · {c.label}</p>
                     <p className="text-[11.5px] text-ink-400 mt-0.5">
-                      {c.date ? formatIsoDateLong(c.date) : 'No date on file'}{c.provider ? ` · ${c.provider}` : ''}
+                      {c.date ? formatIsoDateLong(c.date) : 'No date on file'}
+                      {c.provider ? ` · ${c.provider}` : c.source === 'calendar' ? ' · From your calendar' : ''}
                     </p>
                   </div>
                   <span className={`chip shrink-0 ${urgent ? 'bg-rosa-100 text-rosa-700' : soon ? 'bg-honey-100 text-honey-700' : noDate ? 'bg-cream-200 text-ink-500' : 'bg-sage-100 text-sage-700'}`}>
@@ -1575,7 +1580,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               )}
             </div>
             <p className="text-[12.5px] text-ink-500 mt-0.5">
-              Wedding anniversaries, Valentine’s Day, and any other yearly date your family keeps.
+              Wedding anniversaries, Valentine’s Day, and any other yearly date your family keeps — plus anything on the calendar itself that reads as one.
             </p>
           </div>
           {anniversaries.length > shownAnniversaries.length && (
