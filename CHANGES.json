@@ -1,10 +1,6 @@
 {
-  "label": "v223",
+  "label": "v224",
   "changes": [
-    "Fixed: Medical checks was showing every past medical-sounding calendar entry as \"Overdue\" forever — a plain calendar event has no way to know if the appointment happened, unlike a real referral, so past ones now drop off instead of piling up.",
-    "New: an \"Extended family & friends' birthdays\" section under Birthdays on the Family Calendar, plus its own tab to add people (grandparents, aunts/uncles, godparents, friends) who aren't family members here.",
-    "New: a Vacation countdown section — tag a calendar event Travel and see the days-until count on the Family Calendar.",
-    "Anniversaries & special days: Mother's Day, Father's Day and Women's Day now have accurate quick-add chips per country — Father's Day is the 2nd Sunday of June in Austria but the 3rd in South Africa, and Women's Day means two different dates (8 March international, 9 August South Africa's public holiday).",
-    "The guided setup's \"Welcome back\" header now reads clearly in bold black rather than a small pastel tag."
+    "The guided setup's step headers now use the same black-card treatment as the Family Calendar hero — a bold white title and coloured eyebrow on black — instead of bold black text on white, matching the look across the whole 30-step wizard."
   ]
 }

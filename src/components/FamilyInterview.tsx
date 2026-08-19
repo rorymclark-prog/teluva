@@ -379,14 +379,19 @@ export default function FamilyInterview({
 // tells you what kind of thing you're about to be asked, before you've
 // read a word of the title.
 type Tone = 'clay' | 'sage' | 'dusk' | 'rosa' | 'honey';
-// 'chip' used to also carry a tone-tinted background for the eyebrow label
-// below — dropped in favour of a plain bold black one (see StepHeader).
-const TONE_CLASSES: Record<Tone, { badge: string }> = {
-  clay: { badge: 'bg-clay-50 text-clay-600' },
-  sage: { badge: 'bg-sage-50 text-sage-600' },
-  dusk: { badge: 'bg-dusk-50 text-dusk-600' },
-  rosa: { badge: 'bg-rosa-50 text-rosa-600' },
-  honey: { badge: 'bg-honey-50 text-honey-700' },
+// Rory (2026-08-19, live screenshot comparing this against the Family
+// Calendar hero — "SHARED PLANNING" eyebrow over "Family calendar" on a
+// black card): wanted that same black-card treatment here, not bold black
+// text on the white step card (the first pass, 2026-08-19 earlier the same
+// day). Same per-step tone colour-coding as before, just recoloured for a
+// dark background — badge/eyebrow/accent per tone, mirroring how the hero
+// itself uses a tinted accent circle (bg-clay-500/20) on bg-ink-900.
+const TONE_CLASSES: Record<Tone, { badge: string; eyebrow: string; accent: string }> = {
+  clay:  { badge: 'bg-clay-500/20 text-clay-300',   eyebrow: 'text-clay-300',   accent: 'bg-clay-500/20' },
+  sage:  { badge: 'bg-sage-500/20 text-sage-300',   eyebrow: 'text-sage-300',   accent: 'bg-sage-500/20' },
+  dusk:  { badge: 'bg-dusk-500/20 text-dusk-300',   eyebrow: 'text-dusk-300',   accent: 'bg-dusk-500/20' },
+  rosa:  { badge: 'bg-rosa-500/20 text-rosa-300',   eyebrow: 'text-rosa-300',   accent: 'bg-rosa-500/20' },
+  honey: { badge: 'bg-honey-500/20 text-honey-300', eyebrow: 'text-honey-300', accent: 'bg-honey-500/20' },
 };
 
 function StepHeader({ icon: Icon, tone, eyebrow, title, body }: {
@@ -398,26 +403,21 @@ function StepHeader({ icon: Icon, tone, eyebrow, title, body }: {
 }) {
   const t = TONE_CLASSES[tone];
   return (
-    <>
-      <div className="flex items-start gap-3">
+    <div className="rounded-2xl bg-ink-900 text-white p-4 sm:p-5 mb-4 overflow-hidden relative">
+      <div className={`absolute -right-5 -top-7 w-20 h-20 rounded-full ${t.accent}`} aria-hidden="true" />
+      <div className="relative flex items-start gap-3">
         <div className={`w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center ${t.badge}`}>
           <Icon className="w-5 h-5" />
         </div>
         <div className="min-w-0 pt-0.5">
-          {/* Was a small 11px pastel chip — Rory (2026-08-19, live screenshot
-              of this exact resume screen): too quiet to register as the
-              header it's meant to be. Bold black caps instead of a tinted
-              pill reads as a proper eyebrow, not a small tag. */}
-          <div className="mb-2">
-            <span className="block text-sm font-extrabold uppercase tracking-wide text-ink-900">{eyebrow}</span>
-          </div>
-          <h3 id="interview-step-title" className="font-display text-lg font-semibold text-ink-900 leading-snug">
+          <span className={`block text-[11px] font-bold uppercase tracking-wide ${t.eyebrow}`}>{eyebrow}</span>
+          <h3 id="interview-step-title" className="font-display text-lg font-semibold text-white leading-snug mt-1">
             {title}
           </h3>
         </div>
       </div>
-      <p className="text-[13.5px] text-ink-600 leading-relaxed mt-2.5 mb-4">{body}</p>
-    </>
+      <p className="relative text-[13.5px] text-white/70 leading-relaxed mt-2.5">{body}</p>
+    </div>
   );
 }
 
