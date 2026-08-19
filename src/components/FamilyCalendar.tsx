@@ -39,6 +39,8 @@ import {
   buildCalendarVacations,
   OCCASION_WATCH_DAYS,
 } from '../utils/familyDates';
+import { buildVirtualEvents, groupVirtualEventsByDate } from '../utils/virtualEvents';
+import type { VirtualCalendarEvent } from '../utils/virtualEvents';
 import { PASSPORT_WARN_MONTHS } from '../utils/readiness';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import { parseIcs, buildIcs } from '../utils/ics';
@@ -69,6 +71,36 @@ function DivisionAvatar({ name, avatarUrl, avatarColor }: { name: string; avatar
 // carry no memberIds at all. Same w-9 h-9 sizing as DivisionAvatar so a row
 // lines up whichever kind of avatar it ends up rendering, but a plain icon
 // badge instead of an initial when there's no single person to show.
+/**
+ * One marker dot in a month-grid cell.
+ *
+ * Stored events keep the filled category pastels they have always had. Virtual
+ * entries — birthdays, name days, anniversaries: things the calendar DERIVED
+ * from a record rather than something the family filed as an event — render as
+ * a slightly larger hollow ring. The category palette already spends all five
+ * tones, so shape rather than colour is what separates "I put this in the
+ * calendar" from "the calendar worked this out", and it stays legible at 4-6px
+ * where a sixth and seventh hue would not.
+ */
+function dayDotClass(item: CalendarEvent | VirtualCalendarEvent, isSelected: boolean): string {
+  if ('kind' in item) {
+    const ring = isSelected
+      ? 'border-white/80'
+      : item.kind === 'birthday' ? 'border-sage-500'
+        : item.kind === 'anniversary' ? 'border-rosa-500'
+          : 'border-dusk-500'; // extended birthdays and name days both sit in the dusk-toned sections
+    return `w-1.5 h-1.5 rounded-full border ${ring}`;
+  }
+  const fill = isSelected
+    ? 'bg-white/80'
+    : item.category === 'School' ? 'bg-dusk-500'
+      : item.category === 'Travel' ? 'bg-honey-500'
+        : item.category === 'Appointment' ? 'bg-rosa-500'
+          : item.category === 'Milestone' ? 'bg-sage-500'
+            : 'bg-ink-400';
+  return `w-1 h-1 rounded-full ${fill}`;
+}
+
 function DivisionIconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'rosa' | 'ink' | 'clay' | 'dusk' | 'honey' }) {
   const cls =
     tone === 'rosa' ? 'bg-rosa-100 text-rosa-700'
@@ -1151,6 +1183,44 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const shownVacations = showAllVacations
     ? vacations
     : watchedVacations.length > 0 ? watchedVacations : vacations.slice(0, 1);
+
+  // --- Virtual grid entries --------------------------------------------------
+  // Until now the month grid rendered stored CalendarEvents ONLY, so none of
+  // the divisions above ever appeared on the calendar itself — not a family
+  // member's own birthday, not a name day, not a wedding anniversary. Rory
+  // reported it against extended birthdays (2026-08-19); it was never specific
+  // to them. buildVirtualEvents projects the recurring ones onto whichever
+  // month is on screen, read-only, never written back — see
+  // utils/virtualEvents.ts for why materialising them as real events would
+  // reintroduce exactly the staleness the derived path exists to prevent.
+  //
+  // School dates and vacations are deliberately absent: both are DERIVED from
+  // stored events (category School / Travel), so they are already in the grid
+  // as themselves. Each source is gated by the same calendarDivisions toggle as
+  // its own summary card, so hiding a division hides it everywhere rather than
+  // leaving orphan dots behind with no card to explain them.
+  const virtualEvents = useMemo(() => {
+    const p2 = (n: number) => String(n).padStart(2, '0');
+    const monthStart = `${currentYear}-${p2(currentMonth + 1)}-01`;
+    const monthEnd = `${currentYear}-${p2(currentMonth + 1)}-${p2(daysInMonth)}`;
+    return buildVirtualEvents(
+      {
+        birthdays: settings.calendarDivisions?.birthdays !== false ? birthdays : [],
+        extendedBirthdays: settings.calendarDivisions?.extendedBirthdays !== false ? extendedBirthdays : [],
+        nameCelebrations: settings.calendarDivisions?.nameCelebrations !== false ? nameCelebrations : [],
+        anniversaries: settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
+      },
+      monthStart,
+      monthEnd,
+    );
+  }, [
+    currentYear, currentMonth, daysInMonth,
+    birthdays, extendedBirthdays, nameCelebrations, anniversaries,
+    settings.calendarDivisions,
+  ]);
+
+  const virtualByDate = useMemo(() => groupVirtualEventsByDate(virtualEvents), [virtualEvents]);
+  const selectedDayVirtual = virtualByDate.get(selectedDateStr) ?? [];
 
   // Real today string for highlighting the calendar cell
   const realTodayStr = todayLocal();
@@ -2368,7 +2438,13 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               const isCurrentDay = realTodayStr === dateStr;
 
               const dayEvents = events.filter(e => e.date === dateStr);
-              const hasEvents = dayEvents.length > 0;
+              // Virtual entries take at most two of the three dot slots. A
+              // recurring family occasion is high-signal and there are rarely
+              // several on one day, but a real appointment must never be
+              // crowded off the cell entirely by them.
+              const dayVirtual = virtualByDate.get(dateStr) ?? [];
+              const dayDots: (CalendarEvent | VirtualCalendarEvent)[] = [...dayVirtual.slice(0, 2), ...dayEvents];
+              const hasEvents = dayDots.length > 0;
 
               return (
                 <button
@@ -2394,19 +2470,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   {/* Event Marker Dots — category pastels */}
                   {hasEvents && (
                     <div className="absolute bottom-1.5 flex space-x-0.5 justify-center">
-                      {dayEvents.slice(0, 3).map((e) => (
-                        <span
-                          key={e.id}
-                          className={`w-1 h-1 rounded-full ${
-                            isSelected
-                              ? 'bg-white/80'
-                              : e.category === 'School' ? 'bg-dusk-500' :
-                                e.category === 'Travel' ? 'bg-honey-500' :
-                                e.category === 'Appointment' ? 'bg-rosa-500' :
-                                e.category === 'Milestone' ? 'bg-sage-500' :
-                                'bg-ink-400'
-                          }`}
-                        />
+                      {dayDots.slice(0, 3).map((e) => (
+                        <span key={e.id} className={dayDotClass(e, isSelected)} />
                       ))}
                     </div>
                   )}
@@ -2437,6 +2502,21 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               <span className="w-2 h-2 rounded-full bg-ink-400 inline-block"></span>
               <span>Other</span>
             </div>
+            {/* Hollow = derived from a record (a birthday, a name day, an
+                anniversary) rather than filed as an event. Same shape language
+                as the grid dots themselves — see dayDotClass. */}
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full border border-sage-500 inline-block"></span>
+              <span>Birthday</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full border border-dusk-500 inline-block"></span>
+              <span>Name day</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full border border-rosa-500 inline-block"></span>
+              <span>Anniversary</span>
+            </div>
           </div>
         </div>
 
@@ -2452,11 +2532,36 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                 Agenda: <span className="font-mono tabular-nums">{selectedDateStr}</span>
               </h4>
               <span className="section-label">
-                {selectedDayEvents.length} items
+                {selectedDayEvents.length + selectedDayVirtual.length}
+                {selectedDayEvents.length + selectedDayVirtual.length === 1 ? ' item' : ' items'}
               </span>
             </div>
 
+            {/* Recurring family occasions that fall on this day. Rendered as
+                their own read-only block rather than merged into the list
+                below: a VirtualCalendarEvent has no row in the events
+                collection, so it must never reach the edit/delete/Google-sync
+                controls each real event row carries. Tapping one belongs on
+                the source record instead — a later pass can deep-link it. */}
+            {selectedDayVirtual.length > 0 && (
+              <ul className="space-y-1.5">
+                {selectedDayVirtual.map((v) => (
+                  <li
+                    key={v.id}
+                    className="flex items-center gap-2.5 rounded-2xl border border-cream-200 bg-cream-50 px-3 py-2"
+                  >
+                    <span className={`shrink-0 ${dayDotClass(v, false)}`} aria-hidden="true" />
+                    <span className="min-w-0 flex-1 text-[13px] text-ink-800 truncate">{v.title}</span>
+                    {v.detail && (
+                      <span className="shrink-0 text-[12px] text-ink-500 tabular-nums">{v.detail}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
             {selectedDayEvents.length === 0 ? (
+              selectedDayVirtual.length === 0 && (
               <div className="text-center py-8 flex flex-col items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center">
                   <Calendar className="w-5 h-5" />
@@ -2465,6 +2570,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   No events scheduled. Choose a date and click "Schedule new event" to start.
                 </p>
               </div>
+              )
             ) : (
               <div className="space-y-3">
                 {selectedDayEvents.map(ev => {

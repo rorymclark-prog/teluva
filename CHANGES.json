@@ -1,6 +1,9 @@
 {
-  "label": "v224",
+  "label": "v225",
   "changes": [
-    "The guided setup's step headers now use the same black-card treatment as the Family Calendar hero — a bold white title and coloured eyebrow on black — instead of bold black text on white, matching the look across the whole 30-step wizard."
+    "Birthdays now actually appear on the calendar. Until now the month grid only showed events you had filed yourself — so nobody's birthday, name day or anniversary was ever on it. They now show as a small ring on the day, and tapping the day lists them with the age or the number of years.",
+    "Extended family & friends' birthdays appear there too — the gap Rory reported.",
+    "New legend entries for Birthday, Name day and Anniversary, so the new markers are explained. Hollow ring means the calendar worked it out from a record; a solid dot is still an event you filed.",
+    "A day with one thing on it now reads \"1 item\" instead of \"1 items\"."
   ]
 }

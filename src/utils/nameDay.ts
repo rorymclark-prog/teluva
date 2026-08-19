@@ -525,21 +525,32 @@ export function formatNameDay(value?: string): string {
   return `${d} ${MONTHS[m - 1]}`;
 }
 
+/**
+ * The Gregorian date this 'MM-DD' slot lands on in a GIVEN year, or null when
+ * the value is malformed.
+ *
+ * Feb-29 collapses to the 28th in ordinary years rather than letting Date roll
+ * it forward into March — the same convention OnThisDay's own occurrenceInYear
+ * uses. Exported so that daysUntilNameDay below and anything projecting a
+ * recurring slot onto a specific year (utils/virtualEvents.ts, which has to
+ * place a birthday on whatever month the calendar grid is currently showing —
+ * not just its next occurrence) share ONE copy of that rule instead of each
+ * re-deriving it and drifting apart on the leap-year edge.
+ */
+export function nameDayOccurrenceInYear(value: string, year: number): Date | null {
+  if (!isValidNameDay(value)) return null;
+  const [m, d] = value.split('-').map(Number);
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  return m === 2 && d === 29 && !leap ? new Date(year, 1, 28) : new Date(year, m - 1, d);
+}
+
 /** Whole days from `today` to the next occurrence of this month-day (0 = today). */
 export function daysUntilNameDay(value: string, today: Date = new Date()): number | null {
   if (!isValidNameDay(value)) return null;
-  const [m, d] = value.split('-').map(Number);
   const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
-  // Same Feb-29 convention as OnThisDay's occurrenceInYear: collapse to the
-  // 28th in ordinary years instead of letting Date roll it into March.
-  const occurrence = (year: number): Date => {
-    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-    return m === 2 && d === 29 && !leap ? new Date(year, 1, 28) : new Date(year, m - 1, d);
-  };
-
-  let next = occurrence(t0.getFullYear());
-  if (next.getTime() < t0.getTime()) next = occurrence(t0.getFullYear() + 1);
+  let next = nameDayOccurrenceInYear(value, t0.getFullYear())!;
+  if (next.getTime() < t0.getTime()) next = nameDayOccurrenceInYear(value, t0.getFullYear() + 1)!;
   return Math.round((next.getTime() - t0.getTime()) / 86400000);
 }
 
