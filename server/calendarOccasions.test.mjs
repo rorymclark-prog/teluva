@@ -116,6 +116,96 @@ test('nothing at all is safe', () => {
 });
 
 // --------------------------------------------------------------------------
+// Name days & name celebrations — the division the feed used to be missing
+// --------------------------------------------------------------------------
+
+const Shyam = {
+  id: 'm-Shyam',
+  name: 'Shyam',
+  nameCelebrations: [{
+    id: 'celeb-nit', kind: 'name_celebration', title: 'Nityananda Trayodashi',
+    celebrationOf: 'Shyam', matchType: 'exact', tradition: 'Gaudiya Vaishnava',
+    explanation: 'Confirmed by the family.', dateType: 'movable',
+    movableRule: 'Magha Shukla Trayodashi', confirmed: true, primary: true,
+  }],
+  nameCelebrationResolvedDates: { 'celeb-nit': { 2026: '2026-02-09', 2027: '2027-01-30' } },
+};
+
+test('a legacy Namenstag reaches the feed as a yearly rule', () => {
+  const out = buildFeedOccasions({
+    nameCelebrationMembers: [{ id: 'm1', name: 'Josef Huber', nameDay: '03-19', nameDayFeast: 'Hl. Josef' }],
+  }, NOW);
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0], {
+    id: 'virtual-nameDay-m1-legacy-name-day',
+    title: 'Hl. Josef',
+    date: '2026-03-19',
+    repeat: 'yearly',
+    description: 'Josef Huber · From Teluva',
+    category: 'Name day',
+  });
+});
+
+test('an UNCONFIRMED proposal never leaves the app', () => {
+  // It is a question Teluva is still asking the family. Publishing it to
+  // somebody else's phone would answer it for them.
+  const out = buildFeedOccasions({
+    nameCelebrationMembers: [{
+      id: 'm1', name: 'Ganga',
+      nameCelebrations: [{ id: 'celeb-p', kind: 'name_day', title: 'Proposed', dateType: 'fixed', date: '05-01', confirmed: false, primary: true }],
+    }],
+  }, NOW);
+  assert.deepEqual(out, []);
+});
+
+test('a movable celebration is published as the resolved dates only, with NO rule', () => {
+  // FREQ=YEARLY on a lunar date would have the subscribing calendar inventing
+  // every future occurrence on the wrong day.
+  const out = buildFeedOccasions({ nameCelebrationMembers: [Shyam] }, NOW);
+  assert.deepEqual(out.map((o) => [o.id, o.date, o.repeat]), [
+    ['virtual-nameDay-m-Shyam-celeb-nit-2027-01-30', '2027-01-30', 'once'],
+    ['virtual-nameDay-m-Shyam-celeb-nit-2026-02-09', '2026-02-09', 'once'],
+  ]);
+  assert.ok(out.every((o) => o.repeat === 'once'), 'a movable date must never carry a yearly rule');
+});
+
+test('a movable celebration with nothing resolved yet publishes nothing rather than a guess', () => {
+  const unresolved = { ...Shyam, nameCelebrationResolvedDates: {} };
+  assert.deepEqual(buildFeedOccasions({ nameCelebrationMembers: [unresolved] }, NOW), []);
+});
+
+test('primary and confirmed extras both go, in that order', () => {
+  const out = buildFeedOccasions({
+    nameCelebrationMembers: [{
+      id: 'm1', name: 'Anna',
+      nameCelebrations: [
+        { id: 'celeb-a', kind: 'name_day', title: 'Hl. Anna', dateType: 'fixed', date: '07-26', confirmed: true, primary: true },
+        { id: 'celeb-b', kind: 'name_celebration', title: 'Extra', dateType: 'fixed', date: '01-05', confirmed: true, primary: false },
+      ],
+    }],
+  }, NOW);
+  assert.deepEqual(out.map((o) => o.title), ['Extra', 'Hl. Anna'], 'sorted by day of year like everything else');
+});
+
+test('the UID matches the one the .ics DOWNLOAD writes for the same celebration', () => {
+  // buildOccasionSeries in src/utils/virtualEvents.ts builds
+  // `virtual-nameDay-${memberId}-${celebrationId}`. A family that saved the
+  // file AND subscribed to the feed must end up with one entry, not two.
+  const out = buildFeedOccasions({
+    nameCelebrationMembers: [{ id: 'm1', name: 'Josef', nameDay: '03-19', nameDayFeast: 'Hl. Josef' }],
+  }, NOW);
+  const ics = buildPublishedIcs([], { now: NOW, occasions: out });
+  assert.match(ics, /UID:virtual-nameDay-m1-legacy-name-day@teluva\.app/);
+  assert.match(ics, /RRULE:FREQ=YEARLY/);
+  assert.match(ics, /CATEGORIES:Name day/);
+});
+
+test('a member with no celebrations at all contributes nothing', () => {
+  assert.deepEqual(buildFeedOccasions({ nameCelebrationMembers: [{ id: 'm1', name: 'Nomvula' }] }, NOW), []);
+  assert.deepEqual(buildFeedOccasions({ nameCelebrationMembers: [null, {}, 'junk'] }, NOW), []);
+});
+
+// --------------------------------------------------------------------------
 // Division settings — the feed must not show what the app hides
 // --------------------------------------------------------------------------
 
@@ -133,6 +223,25 @@ test('a division switched off in the app is switched off in the feed', () => {
   // No settings document at all must not silently hide everything.
   const none = applyDivisionSettings(sources, null);
   assert.equal(none.members.length, 1);
+});
+
+test('birthdays and name celebrations are separate toggles over the same members', () => {
+  // They read the same documents, so one source key for both would make
+  // hiding birthdays silently take the Namenstag with it.
+  const sources = { members: [{ id: 'm1', name: 'Josef', birthdate: '1980-03-03', nameDay: '03-19' }] };
+
+  const noBirthdays = applyDivisionSettings(sources, { birthdays: false });
+  assert.deepEqual(noBirthdays.members, []);
+  assert.equal(noBirthdays.nameCelebrationMembers.length, 1, 'the name day stays');
+  assert.deepEqual(buildFeedOccasions(noBirthdays, NOW).map((o) => o.category), ['Name day']);
+
+  const noNameDays = applyDivisionSettings(sources, { nameCelebrations: false });
+  assert.equal(noNameDays.members.length, 1);
+  assert.deepEqual(noNameDays.nameCelebrationMembers, []);
+  assert.deepEqual(buildFeedOccasions(noNameDays, NOW).map((o) => o.category), ['Birthday']);
+
+  const both = applyDivisionSettings(sources, null);
+  assert.deepEqual(buildFeedOccasions(both, NOW).map((o) => o.category), ['Birthday', 'Name day']);
 });
 
 // --------------------------------------------------------------------------

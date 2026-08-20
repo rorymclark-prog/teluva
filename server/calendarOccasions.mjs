@@ -22,18 +22,19 @@
 //     outside the family without saying why a slot is taken; a feed full of
 //     "Lena's birthday" would defeat it in one line.
 //
-// WHAT IS NOT HERE: name days. Resolving those correctly needs the whole
+// NAME DAYS (added later, and the reason server/nameCelebrations.mjs exists).
+// They were left out at first because resolving them needs the whole
 // name-celebration model — the legacy nameDay/nameDayFeast migration, the
-// primary/opted-in flags, and the cron's per-year cache for movable rules
-// (src/utils/nameCelebrations.ts's resolveCelebrations). The daily-celebrations
-// cron in server.js already carries a partial second copy of that logic; a
-// third one here is how three surfaces end up disagreeing about which day a
-// family keeps. Name days DO reach the .ics download, which runs on the client
-// and uses the real model. Until resolveCelebrations is shared rather than
-// re-derived, the feed is honestly one division short.
+// confirmed/primary flags, and the cron's per-year cache for movable rules —
+// and re-deriving that here would have been a third surface free to disagree
+// with the other two about which day a family keeps. So the model was ported
+// into its own module and pinned to the client's by a parity test, and this
+// file reads it rather than reimplementing it. The feed now carries the same
+// four divisions the app's own calendar and the .ics download do.
 //
 // Pure functions only — no firebase-admin import — so this is `node --test`able
 // without credentials or network, same as calendarPublish.mjs.
+import { resolveCelebrations } from './nameCelebrations.mjs';
 
 /** Gregorian leap year. Mirrors src/utils/nameDay.ts's isLeapYear. */
 export function isLeapYear(year) {
@@ -133,6 +134,52 @@ export function buildFeedOccasions(sources = {}, now = new Date()) {
     });
   }
 
+  // Name days & name celebrations. Read from the MEMBER records, but through
+  // their own source key: the family's calendar has separate toggles for
+  // birthdays and name celebrations, and one member list feeding both would
+  // make switching birthdays off silently take the Namenstag with it.
+  //
+  // Only primary + additional — i.e. confirmed. An unconfirmed proposal is a
+  // question the app is still asking the family; publishing it to somebody
+  // else's phone would answer it for them.
+  for (const member of Array.isArray(sources.nameCelebrationMembers) ? sources.nameCelebrationMembers : []) {
+    if (!member || typeof member !== 'object' || !member.id) continue;
+    const memberName = String(member.name || '').trim();
+    const { primary, additional } = resolveCelebrations(member);
+    for (const celebration of primary ? [primary, ...additional] : additional) {
+      const base = `virtual-nameDay-${member.id}-${celebration.id}`;
+      if (celebration.dateType === 'fixed') {
+        const date = anchorIso(celebration.date, thisYear);
+        if (!date) continue;
+        out.push({
+          id: base,
+          title: String(celebration.title || 'Name day'),
+          date,
+          repeat: 'yearly',
+          description: describe(memberName, 'From Teluva'),
+          category: 'Name day',
+        });
+        continue;
+      }
+      // Movable: one dated entry per year the server has actually resolved,
+      // and NO recurrence rule. FREQ=YEARLY on an Easter- or lunar-derived
+      // date would have the subscribing calendar inventing every future
+      // occurrence on the wrong day — the exact guess resolvedDates exists to
+      // refuse. Same treatment as buildOccasionSeries in virtualEvents.ts.
+      for (const iso of Object.values(celebration.resolvedDates || {})) {
+        if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+        out.push({
+          id: `${base}-${iso}`,
+          title: String(celebration.title || 'Name day'),
+          date: iso,
+          repeat: 'once',
+          description: describe(memberName, 'From Teluva'),
+          category: 'Name day',
+        });
+      }
+    }
+  }
+
   for (const a of Array.isArray(sources.anniversaries) ? sources.anniversaries : []) {
     if (!a || typeof a !== 'object') continue;
     const year = originYear(a.originalYear);
@@ -166,6 +213,10 @@ export function applyDivisionSettings(sources, divisions) {
   const on = (key) => !divisions || divisions[key] !== false;
   return {
     members: on('birthdays') ? sources.members : [],
+    // The same member documents under a second key, because birthdays and name
+    // celebrations are two separate divisions in the app and a family that
+    // hides one expects the other to stay.
+    nameCelebrationMembers: on('nameCelebrations') ? sources.members : [],
     extendedBirthdays: on('extendedBirthdays') ? sources.extendedBirthdays : [],
     anniversaries: on('anniversaries') ? sources.anniversaries : [],
   };

@@ -343,6 +343,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // On by default here — a family calendar without birthdays is the bug this
   // fixes — but it can never apply to a link that already exists, and never to
   // a busy-only link. See the server's includeOccasions handling.
+  // Covers name days too, as of v234: they are the same class of derived yearly
+  // occasion, they obey the same calendarDivisions switch as in the app, and a
+  // separate opt-in would have left every link created before today with no
+  // name days for ever — which is the bug, not the fix. The copy below says so
+  // rather than the feed quietly serving a category the label never named.
   const [publishOccasions, setPublishOccasions] = useState(true);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
@@ -383,7 +388,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       try { await navigator.clipboard.writeText(url); setCopiedToken(data.token); } catch { /* clipboard blocked */ }
       setIcsNote(
         `Calendar link created and copied. Paste it into Apple Calendar, Outlook or Google as a subscribed calendar.`
-        + (data.includeOccasions ? ' Birthdays and anniversaries are included and repeat every year.' : ''),
+        + (data.includeOccasions ? ' Birthdays, name days and anniversaries are included and repeat every year.' : ''),
       );
     } catch (e: any) {
       setIcsNote(e?.message || 'Could not create the link.');
@@ -2333,9 +2338,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                       onChange={(e) => setPublishOccasions(e.target.checked)}
                     />
                     <span>
-                      Include birthdays and anniversaries — they repeat every year, so you only
-                      subscribe once. Leave this off if the link is going to someone who shouldn’t
-                      know when your family were born.
+                      Include birthdays, name days and anniversaries — they repeat every year, so
+                      you only subscribe once. Leave this off if the link is going to someone who
+                      shouldn’t know when your family were born.
                     </span>
                   </label>
                 )}
@@ -2359,7 +2364,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                         <p className="text-[12.5px] font-semibold text-ink-800">
                           {l.mode === 'busy' ? 'Busy only — no titles shared' : 'Full details'}
                           {l.includeOccasions && (
-                            <span className="ml-1.5 font-normal text-ink-500">+ birthdays</span>
+                            <span className="ml-1.5 font-normal text-ink-500">+ birthdays &amp; name days</span>
                           )}
                         </p>
                         <p className="text-[11px] text-ink-400">
