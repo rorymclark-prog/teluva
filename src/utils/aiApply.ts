@@ -502,7 +502,13 @@ export function duplicateCalendarEdits(events: CalendarEvent[], edits: AiEdit[])
 // untyped Firestore field with no UI ever reading it back. Every other AI-write
 // path in this codebase (aiDestructive.ts's UPDATE_FIELDS) already whitelists
 // like this; household_set was the one that didn't.
-const HOUSEHOLD_SET_FIELDS = new Set(['address', 'doorCode', 'wifiName', 'wifiPassword', 'garageCode']);
+const HOUSEHOLD_SET_FIELDS = new Set([
+  'address', 'doorCode', 'wifiName', 'wifiPassword', 'garageCode',
+  // Locks & keys (see HouseholdInfo in types.ts). The three secret ones are
+  // writable but never readable by the model — same split doorCode has had
+  // since it shipped.
+  'lockBrand', 'keyCardNumber', 'spareKeyWith', 'safeBrand', 'safeSerial', 'alarmProvider', 'alarmCode',
+]);
 
 // Apply household edits: set scalar fields (address, wifi, door code) or append to lists.
 export function applyHouseholdEdits(h: HouseholdInfo, edits: AiEdit[]): HouseholdInfo {

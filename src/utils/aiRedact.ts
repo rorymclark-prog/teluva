@@ -100,7 +100,13 @@
 // ---------------------------------------------------------------------------
 
 /** Household credential keys that must never leave the browser in AI context. */
-export const REDACTED_HOUSEHOLD_KEYS = ['doorCode', 'garageCode', 'wifiPassword'] as const;
+export const REDACTED_HOUSEHOLD_KEYS = [
+  'doorCode', 'garageCode', 'wifiPassword',
+  // The locksmith fields that are actually credentials. lockBrand, safeBrand,
+  // alarmProvider and spareKeyWith stay visible — knowing the lock is an EVVA
+  // helps the assistant answer, and none of them opens anything on its own.
+  'keyCardNumber', 'safeSerial', 'alarmCode',
+] as const;
 
 /** Bank-record keys that must never leave the browser in AI context. */
 export const REDACTED_BANK_KEYS = ['iban', 'bic'] as const;

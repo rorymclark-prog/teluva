@@ -561,6 +561,35 @@ export interface HouseholdInfo {
   garageCode?: string;
   wifiName?: string;
   wifiPassword?: string;
+
+  // --- Locks, keys and the numbers a locksmith actually asks for ---
+  //
+  // Rory, 2026-08-20: "should we add key numbers or access numbers in case the
+  // locksmith needs info or something?" This lives HERE, next to doorCode and
+  // garageCode, and deliberately NOT on EmergencyInstructions.keysAndSafes —
+  // that field is inside Wills & Estate, which v230 locked to admins plus
+  // named readers. Being locked out at your own front door at 11pm is exactly
+  // when any adult in the house needs this, not only an admin.
+  //
+  // Flat scalars rather than a nested object so they ride the existing
+  // protectHousehold/revealHousehold encryption and the household_set AiEdit
+  // kind unchanged — a nested block would need new plumbing in both.
+  //
+  // keyCardNumber, safeSerial and alarmCode are in REDACTED_HOUSEHOLD_KEYS:
+  // encrypted at rest and never sent to the model, same as doorCode. The
+  // assistant can still WRITE them when dictated; it just never reads one back.
+  //
+  // There is deliberately no locksmith name/number field. A locksmith is a
+  // vendor, and vendors already have a home (Important info → providers /
+  // vendors). Adding a second one is how v228's birthday split-brain started.
+  lockBrand?: string;        // e.g. EVVA, ABUS, Kaba — the first thing you're asked
+  keyCardNumber?: string;    // SECRET. Sicherheitskarte / key-card code. Without it no copy gets cut.
+  spareKeyWith?: string;     // often the real answer — "Maria's mother has one"
+  safeBrand?: string;
+  safeSerial?: string;       // SECRET. Make + serial is what opens a safe you've lost the key to.
+  alarmProvider?: string;
+  alarmCode?: string;        // SECRET. Same class as doorCode.
+
   utilities?: UtilityProvider[];
   vehicles?: Vehicle[];
   pets?: Pet[];

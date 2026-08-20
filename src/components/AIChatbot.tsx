@@ -101,7 +101,17 @@ export type AiEdit =
   | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string; imageIndex?: number; photoUrl?: string }  // imageIndex picks which attached photo is this item's, when multiple were sent in one turn; photoUrl is filled client-side after Apply — never sent by the model
   | { kind: 'recipe'; title: string; ingredients: string[]; steps: string[]; tags?: string[]; imageIndex?: number; photoUrl?: string }  // imageIndex picks which attached photo is this recipe's, when multiple were sent in one turn; photoUrl is filled client-side after Apply — never sent by the model
   | { kind: 'slip'; shop?: string; item: string; purchaseDate?: string; amount?: string; currency?: string; assignedTo?: string; returnByDate?: string; warrantyUntil?: string; notes?: string; imageIndex?: number; photoUrl?: string; photoStoragePath?: string }  // a purchase receipt/till slip — imageIndex picks which attached photo is this slip's, when multiple were sent in one turn; photoUrl/photoStoragePath are filled client-side after Apply — never sent by the model
-  | { kind: 'household_set'; field: 'address' | 'doorCode' | 'wifiName' | 'wifiPassword' | 'garageCode'; value: string }
+  /* The `field` union must stay in step with HOUSEHOLD_SET_FIELDS in
+   * utils/aiApply.ts — that Set is the runtime gate, this is the compile-time
+   * one, and a name in only one of them is either a silently-dropped edit or a
+   * type that lies. The lock/key fields are the locksmith case (see
+   * HouseholdInfo in types.ts). */
+  | {
+      kind: 'household_set';
+      field: 'address' | 'doorCode' | 'wifiName' | 'wifiPassword' | 'garageCode'
+        | 'lockBrand' | 'keyCardNumber' | 'spareKeyWith' | 'safeBrand' | 'safeSerial' | 'alarmProvider' | 'alarmCode';
+      value: string;
+    }
   | { kind: 'transit_pass'; member: string; name: string; operator?: string; cardNumber?: string; zone?: string; validFrom?: string; validUntil?: string; notes?: string }
   | { kind: 'care_schedule'; member: string; careKind: string; provider?: string; lastVisit?: string; intervalMonths?: number; nextDue?: string; notes?: string }
   | { kind: 'saying'; member: string; text: string; said?: string; context?: string }

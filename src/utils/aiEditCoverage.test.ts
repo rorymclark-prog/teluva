@@ -376,6 +376,43 @@ for (const [field, entry] of Object.entries(COVERAGE_MAP)) {
     `COVERAGE_MAP entry for "${field}" (${entry.status}) needs a real explanation, not a stub.`);
 }
 
+// --- household_set: the field union and the runtime Set must agree ---------
+//
+// Same bug class as everything above, one level down. `household_set` doesn't
+// name a collection — it names a FIELD, and that name is written twice: as a
+// string-literal union in AIChatbot.tsx (compile time) and as
+// HOUSEHOLD_SET_FIELDS in aiApply.ts (runtime). A name in only the union is a
+// type that lies; a name in only the Set is an edit the model can emit,
+// applyHouseholdEdits will happily write, and TypeScript believes impossible.
+// Neither shows up as a failure anywhere — the edit just quietly doesn't land,
+// or the type quietly stops describing reality.
+{
+  const applySrc = fs.readFileSync(path.join(repoRoot, 'src/utils/aiApply.ts'), 'utf8');
+
+  const unionBlock = /kind: 'household_set';\s*\n?\s*field:([\s\S]*?);/.exec(chatbotSrc);
+  assert.ok(unionBlock, "couldn't find the household_set field union in AIChatbot.tsx");
+  const unionFields = [...unionBlock[1].matchAll(/'([a-zA-Z]+)'/g)].map(m => m[1]).sort();
+
+  const setBlock = /const HOUSEHOLD_SET_FIELDS = new Set\(\[([\s\S]*?)\]\)/.exec(applySrc);
+  assert.ok(setBlock, "couldn't find HOUSEHOLD_SET_FIELDS in aiApply.ts");
+  const setFields = [...setBlock[1].matchAll(/'([a-zA-Z]+)'/g)].map(m => m[1]).sort();
+
+  assert.ok(unionFields.length > 0 && setFields.length > 0, 'both lists must be non-empty');
+  assert.deepStrictEqual(
+    unionFields, setFields,
+    'the household_set field union (AIChatbot.tsx) and HOUSEHOLD_SET_FIELDS (aiApply.ts) have drifted apart',
+  );
+
+  // And every one of them must be a real field on HouseholdInfo — a typo in
+  // either list writes a key nothing ever reads.
+  const householdBody = extractInterfaceBody(typesSrc, 'HouseholdInfo');
+  const householdKeys = new Set([...householdBody.matchAll(/^\s*([a-zA-Z]+)\??:/gm)].map(m => m[1]));
+  for (const f of setFields) {
+    assert.ok(householdKeys.has(f), `household_set field '${f}' does not exist on HouseholdInfo`);
+  }
+  console.log(`  household_set fields (${setFields.length}): ${setFields.join(', ')}`);
+}
+
 // --- Report -----------------------------------------------------------------
 
 const coveredFields = Object.entries(COVERAGE_MAP).filter(([, e]) => e.status === 'covered').map(([f]) => f).sort();

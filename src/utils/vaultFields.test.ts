@@ -56,6 +56,41 @@ const fakeReveal: VaultTransform = async (values) => values.map(v =>
   assert.strictEqual(r.wifiPassword, 'correct-horse');
 }
 
+// Locks & keys — the locksmith fields, added alongside doorCode. The split is
+// the point: three of the seven open something and are encrypted at rest; the
+// other four are just descriptions and stay readable.
+{
+  const locks = {
+    lockBrand: 'EVVA', keyCardNumber: 'SK-88213-A', spareKeyWith: 'Oma',
+    safeBrand: 'Burg-Wächter', safeSerial: 'BW-77401',
+    alarmProvider: 'Securitas', alarmCode: '5150',
+  };
+  const p = await protectHousehold(locks, fakeProtect) as any;
+  assert.notStrictEqual(p.keyCardNumber, locks.keyCardNumber, 'the security-card number must be encrypted at rest');
+  assert.notStrictEqual(p.safeSerial, locks.safeSerial, 'the safe serial must be encrypted at rest');
+  assert.notStrictEqual(p.alarmCode, locks.alarmCode, 'the alarm code must be encrypted at rest');
+  assert.strictEqual(p.lockBrand, 'EVVA', 'the lock MAKE is not a secret');
+  assert.strictEqual(p.spareKeyWith, 'Oma');
+  assert.strictEqual(p.safeBrand, 'Burg-Wächter', 'the safe MAKE alone opens nothing');
+  assert.strictEqual(p.alarmProvider, 'Securitas');
+
+  const r = await revealHousehold(p, fakeReveal) as any;
+  assert.deepStrictEqual(r, locks, 'a full round-trip must return exactly what went in');
+}
+
+// A household saved BEFORE these fields existed has none of them. protect and
+// reveal must both pass it through untouched rather than writing empty keys —
+// db.ts's mergeShared diffs on plaintext, and a key that appears out of
+// nowhere reads to the merge as a fresh edit on every device.
+{
+  const old = { address: 'Hauptstrasse 1, 1010 Wien', doorCode: '4821#' };
+  const p = await protectHousehold(old, fakeProtect) as any;
+  assert.ok(!('keyCardNumber' in p), 'a field that was never set must not be invented on save');
+  const r = await revealHousehold(p, fakeReveal) as any;
+  assert.ok(!('alarmCode' in r), 'nor on load');
+  assert.deepStrictEqual(Object.keys(r).sort(), ['address', 'doorCode']);
+}
+
 // ── finances (per-bank-record fields inside an array) ─────────────────────
 
 {

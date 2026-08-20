@@ -14,6 +14,13 @@ const household = {
   garageCode: '9090',
   wifiName: 'Clark-Home-5G',
   wifiPassword: 'correct-horse-battery',
+  lockBrand: 'EVVA',
+  keyCardNumber: 'SK-88213-A',
+  spareKeyWith: 'Oma, and the neighbour at no. 4',
+  safeBrand: 'Burg-Wächter',
+  safeSerial: 'BW-77401',
+  alarmProvider: 'Securitas',
+  alarmCode: '5150',
   vehicles: [{ id: 'v1', name: 'Golf' }],
   pets: [{ id: 'p1', name: 'Mishka' }],
 };
@@ -26,6 +33,18 @@ assert.ok(!('wifiPassword' in rh), 'wifiPassword must not be sent to the AI');
 // Everything the assistant legitimately answers from survives.
 assert.strictEqual(rh.address, 'Hauptstrasse 1, 1010 Wien');
 assert.strictEqual(rh.wifiName, 'Clark-Home-5G', 'the network NAME is not a secret and stays');
+
+// Locks & keys: the three that actually open something are withheld...
+assert.ok(!('keyCardNumber' in rh), 'the security-card number authorises cutting a key — never send it');
+assert.ok(!('safeSerial' in rh), 'make + serial is what opens a safe you have lost the key to');
+assert.ok(!('alarmCode' in rh), 'the alarm disarm code is the same class as doorCode');
+// ...and the four that only help someone ANSWER a question survive, so the
+// assistant can still say "your locks are EVVA" and "Oma has a spare".
+assert.strictEqual(rh.lockBrand, 'EVVA');
+assert.strictEqual(rh.spareKeyWith, 'Oma, and the neighbour at no. 4');
+assert.strictEqual(rh.safeBrand, 'Burg-Wächter');
+assert.strictEqual(rh.alarmProvider, 'Securitas');
+
 assert.deepStrictEqual(rh.vehicles, [{ id: 'v1', name: 'Golf' }]);
 assert.deepStrictEqual(rh.pets, [{ id: 'p1', name: 'Mishka' }]);
 

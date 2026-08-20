@@ -5,7 +5,7 @@ import { useSharedDoc } from '../hooks/useSharedDoc';
 import EmptyState from './EmptyState';
 import {
   Home, Plug, PawPrint, Plus, Trash2, Pencil, Check, X,
-  Cloud, CloudOff, MapPin, Building2,
+  Cloud, CloudOff, MapPin, Building2, KeyRound, Info,
 } from 'lucide-react';
 
 const EMPTY: HouseholdInfo = {
@@ -14,6 +14,13 @@ const EMPTY: HouseholdInfo = {
   garageCode: '',
   wifiName: '',
   wifiPassword: '',
+  lockBrand: '',
+  keyCardNumber: '',
+  spareKeyWith: '',
+  safeBrand: '',
+  safeSerial: '',
+  alarmProvider: '',
+  alarmCode: '',
   utilities: [],
   vehicles: [],
   pets: [],
@@ -149,6 +156,121 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
           </div>
         </div>
       </section>
+
+      {/* Keys, locks & the safe — the "we're locked out and the locksmith is
+          asking questions" section. Everything here is deliberately in
+          Household rather than on Wills & Estate (which v230 locked to admins
+          plus named readers): being at your own front door at 11pm is when
+          any adult in the house needs it. */}
+      {!isBusinessSpace && (
+        <section className="card p-5 sm:p-6">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="p-2 rounded-xl bg-ink-100 text-ink-700 shrink-0">
+              <KeyRound className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-display text-xl font-semibold text-ink-900">Keys, locks &amp; the safe</h2>
+              <p className="text-[13px] text-ink-400 font-medium">What a locksmith asks for when you&rsquo;re locked out.</p>
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-cream-50 border border-cream-200 p-3 flex items-start gap-2.5 my-4">
+            <Info className="w-4 h-4 text-ink-400 mt-0.5 shrink-0" />
+            <p className="text-[12px] text-ink-500 leading-relaxed">
+              A locksmith won&rsquo;t cut a copy of a security key without the card number, and can&rsquo;t open a safe
+              without its make and serial. Both live on a card in a drawer that nobody can find at 11pm &mdash; so put
+              them here. Your locksmith&rsquo;s own number goes with the plumber and electrician, under
+              <span className="font-semibold text-ink-600"> Important info</span>.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="field-label">Lock make</label>
+                <input
+                  className="field"
+                  type="text"
+                  placeholder="e.g. EVVA, ABUS, Kaba"
+                  value={info.lockBrand ?? ''}
+                  onChange={(e) => setInfo({ ...info, lockBrand: e.target.value })}
+                  onBlur={() => persist(info)}
+                />
+              </div>
+              <div>
+                <label className="field-label">Security card number</label>
+                <input
+                  className="field font-mono"
+                  type="text"
+                  placeholder="From the Sicherheitskarte"
+                  value={info.keyCardNumber ?? ''}
+                  onChange={(e) => setInfo({ ...info, keyCardNumber: e.target.value })}
+                  onBlur={() => persist(info)}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="field-label">Who has a spare key</label>
+              <input
+                className="field"
+                type="text"
+                placeholder="e.g. Oma, and the neighbour at no. 4"
+                value={info.spareKeyWith ?? ''}
+                onChange={(e) => setInfo({ ...info, spareKeyWith: e.target.value })}
+                onBlur={() => persist(info)}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="field-label">Safe make</label>
+                <input
+                  className="field"
+                  type="text"
+                  placeholder="e.g. Burg-Wächter"
+                  value={info.safeBrand ?? ''}
+                  onChange={(e) => setInfo({ ...info, safeBrand: e.target.value })}
+                  onBlur={() => persist(info)}
+                />
+              </div>
+              <div>
+                <label className="field-label">Safe serial number</label>
+                <input
+                  className="field font-mono"
+                  type="text"
+                  placeholder="Off the plate or the door edge"
+                  value={info.safeSerial ?? ''}
+                  onChange={(e) => setInfo({ ...info, safeSerial: e.target.value })}
+                  onBlur={() => persist(info)}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="field-label">Alarm company</label>
+                <input
+                  className="field"
+                  type="text"
+                  placeholder="Who monitors it"
+                  value={info.alarmProvider ?? ''}
+                  onChange={(e) => setInfo({ ...info, alarmProvider: e.target.value })}
+                  onBlur={() => persist(info)}
+                />
+              </div>
+              <div>
+                <label className="field-label">Alarm code</label>
+                <input
+                  className="field font-mono"
+                  type="text"
+                  placeholder="To disarm it"
+                  value={info.alarmCode ?? ''}
+                  onChange={(e) => setInfo({ ...info, alarmCode: e.target.value })}
+                  onBlur={() => persist(info)}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Additional locations (business only — a multi-site business tracks
           more than one address; a family only ever needs the one above) */}
