@@ -1,9 +1,9 @@
 {
-  "label": "v225",
+  "label": "v226",
   "changes": [
-    "Birthdays now actually appear on the calendar. Until now the month grid only showed events you had filed yourself — so nobody's birthday, name day or anniversary was ever on it. They now show as a small ring on the day, and tapping the day lists them with the age or the number of years.",
-    "Extended family & friends' birthdays appear there too — the gap Rory reported.",
-    "New legend entries for Birthday, Name day and Anniversary, so the new markers are explained. Hollow ring means the calendar worked it out from a record; a solid dot is still an event you filed.",
-    "A day with one thing on it now reads \"1 item\" instead of \"1 items\"."
+    "Birthdays now come with you. Save your calendar as a file, or subscribe your phone to a Teluva link, and birthdays, name days and anniversaries come too — as yearly repeats, so you set it up once and they keep arriving every year after that.",
+    "When you create a sharing link you now choose whether it carries birthdays. Links you made before this stay exactly as they were — a link already sitting in somebody else's calendar app never quietly starts showing more than it did.",
+    "A \"Busy only\" link never carries birthdays, whatever else is set. That link exists so someone outside the family can see when you're busy without seeing why.",
+    "Importing your own exported file back no longer makes a second, frozen copy of every birthday. Teluva works those out from the family records, so it now recognises its own and leaves them out — and tells you it did."
   ]
 }

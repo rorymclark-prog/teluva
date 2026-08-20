@@ -540,8 +540,12 @@ export function formatNameDay(value?: string): string {
 export function nameDayOccurrenceInYear(value: string, year: number): Date | null {
   if (!isValidNameDay(value)) return null;
   const [m, d] = value.split('-').map(Number);
-  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-  return m === 2 && d === 29 && !leap ? new Date(year, 1, 28) : new Date(year, m - 1, d);
+  return m === 2 && d === 29 && !isLeapYear(year) ? new Date(year, 1, 28) : new Date(year, m - 1, d);
+}
+
+/** Gregorian leap year. Lives beside the rule above so there is one copy of it. */
+export function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
 }
 
 /** Whole days from `today` to the next occurrence of this month-day (0 = today). */

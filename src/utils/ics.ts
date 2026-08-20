@@ -20,6 +20,7 @@
 
 import { CalendarEvent, FamilyMember } from '../types';
 import { resolveEventMembers } from './eventMemberMatch';
+import type { RecurringOccasion } from './virtualEvents';
 // Shared with the birth chart — see utils/timeZone.ts for why this is one
 // implementation rather than two.
 import { wallTimeToInstant } from './timeZone';
@@ -336,6 +337,23 @@ export function expandRecurrence(startDate: string, rule: Rrule | null, today = 
 // Import
 // ---------------------------------------------------------------------------
 
+/**
+ * A VEVENT this app wrote for a DERIVED occasion — a birthday, a name day, an
+ * anniversary — rather than for something the family actually filed.
+ *
+ * These are skipped on import, and the reason is the round trip: export your own
+ * calendar, import it back, and every birthday in it would land in the events
+ * collection as an ordinary stored appointment. Teluva already derives those
+ * from the member records on the fly (see utils/virtualEvents.ts), so the copy
+ * would be a second, frozen version of the same date — correcting a birthdate
+ * afterwards would move one of them and not the other. The whole reason
+ * birthdays are derived rather than stored is to make that impossible.
+ *
+ * Both spellings are matched: the download writes '@teluva.app' and so does the
+ * published feed, but an .ics saved before those agreed carries '@teluva'.
+ */
+const TELUVA_OCCASION_UID = /^virtual-[A-Za-z0-9._-]+@teluva(?:\.app)?$/;
+
 /** A stable id, so importing the same file twice doesn't duplicate anything. */
 function icsEventId(uid: string, date: string, index: number): string {
   const clean = uid.replace(/[^A-Za-z0-9._@-]/g, '').slice(0, 80) || `noUid${index}`;
@@ -364,6 +382,7 @@ export function parseIcs(
   let partialRules = 0;
   let noStart = 0;
   let cancelled = 0;
+  let derived = 0;
 
   for (const line of lines) {
     const upper = line.toUpperCase();
@@ -379,6 +398,8 @@ export function parseIcs(
         // importing it would put an appointment back that someone called off.
         if ((cur.status || '').toUpperCase() === 'CANCELLED') {
           cancelled++;
+        } else if (cur.uid && TELUVA_OCCASION_UID.test(cur.uid)) {
+          derived++;
         } else if (!cur.start) {
           noStart++;
         } else {
@@ -457,6 +478,7 @@ export function parseIcs(
 
   if (noStart) warnings.push(`${noStart} ${noStart === 1 ? 'entry had' : 'entries had'} no start date and could not be imported.`);
   if (cancelled) warnings.push(`${cancelled} cancelled ${cancelled === 1 ? 'event was' : 'events were'} left out.`);
+  if (derived) warnings.push(`${derived} ${derived === 1 ? 'birthday or anniversary was' : 'birthdays and anniversaries were'} left out — Teluva works those out from your family records, so importing them would make a second copy that stops updating.`);
   if (unknownZone) warnings.push(`${unknownZone} ${unknownZone === 1 ? 'event uses' : 'events use'} a time zone this device doesn’t recognise — the times were kept exactly as written.`);
   if (partialRules) warnings.push(`${partialRules} repeating ${partialRules === 1 ? 'event has' : 'events have'} a repeat pattern too complex to read fully — check those dates.`);
 
@@ -509,8 +531,19 @@ const stamp = (d: Date) =>
  * actually are here: the app stores "15:00 on this date" with no zone attached,
  * and stamping a zone onto it would be inventing information. A floating time
  * shows as 15:00 in whatever calendar reads it, which is what the user typed.
+ *
+ * `occasions` are the derived family dates — birthdays, name days,
+ * anniversaries — which are NOT stored events and so are not in `events` at all.
+ * They are written as all-day repeating series rather than as a list of dates,
+ * so importing the file once keeps them coming back every year. See
+ * utils/virtualEvents.ts's buildOccasionSeries.
  */
-export function buildIcs(events: readonly CalendarEvent[], calendarName = 'Teluva', now = new Date()): string {
+export function buildIcs(
+  events: readonly CalendarEvent[],
+  calendarName = 'Teluva',
+  now = new Date(),
+  occasions: readonly RecurringOccasion[] = [],
+): string {
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -546,8 +579,52 @@ export function buildIcs(events: readonly CalendarEvent[], calendarName = 'Teluv
     lines.push('END:VEVENT');
   }
 
+  for (const oc of occasions) {
+    if (!oc?.date || !/^\d{4}-\d{2}-\d{2}$/.test(oc.date)) continue;
+    const ymd = oc.date.replace(/-/g, '');
+    lines.push('BEGIN:VEVENT');
+    // '@teluva.app', matching server/calendarPublish.mjs's occasion UIDs
+    // exactly — a family that both imports this file AND subscribes to the
+    // published feed then gets ONE birthday per person, because the two paths
+    // agree on the identity of the event. (The stored events above keep their
+    // long-standing '@teluva' suffix: changing it would orphan every event
+    // already imported from an earlier export.)
+    lines.push(`UID:${oc.id.replace(/[^A-Za-z0-9._-]/g, '')}@teluva.app`);
+    lines.push(`DTSTAMP:${stamp(now)}`);
+    lines.push(`DTSTART;VALUE=DATE:${ymd}`);
+    lines.push(`DTEND;VALUE=DATE:${nextDay(oc.date)}`);
+    if (oc.repeat === 'yearly') lines.push(yearlyRrule(oc.date));
+    lines.push(foldLine(`SUMMARY:${escapeIcsText(oc.title || 'Occasion')}`));
+    if (oc.description) lines.push(foldLine(`DESCRIPTION:${escapeIcsText(oc.description)}`));
+    lines.push(foldLine(`CATEGORIES:${escapeIcsText(oc.category || 'Other')}`));
+    // A birthday does not make anyone busy. Without this, importing a family's
+    // occasions marks every one of those days as unavailable in free/busy —
+    // which is how a colleague's scheduling tool would then read them.
+    lines.push('TRANSP:TRANSPARENT');
+    lines.push('END:VEVENT');
+  }
+
   lines.push('END:VCALENDAR');
   return lines.join('\r\n') + '\r\n';
+}
+
+/**
+ * "Every year on this day."
+ *
+ * The plain form is FREQ=YEARLY, which repeats DTSTART's month and day. The
+ * exception is 29 February: taken literally that rule fires only in leap years,
+ * so a birthday would vanish for three years out of every four. Teluva's own
+ * convention (nameDayOccurrenceInYear) is that a 29 February slot falls back to
+ * the 28th in ordinary years, and this expresses exactly that — the candidate
+ * set for the year is {28, 29} in a leap year and {28} otherwise, and BYSETPOS
+ * takes the last of it. A client that ignored BYSETPOS would show both days in
+ * leap years, which is visible and self-explaining; the alternative silently
+ * loses the date entirely.
+ */
+function yearlyRrule(date: string): string {
+  return date.slice(5) === '02-29'
+    ? 'RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=28,29;BYSETPOS=-1'
+    : 'RRULE:FREQ=YEARLY';
 }
 
 function nextDay(date: string): string {

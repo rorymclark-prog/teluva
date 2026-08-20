@@ -47,7 +47,7 @@ import type {
   CalendarExtendedBirthday,
   CalendarNameCelebration,
 } from './familyDates';
-import { nameDayOccurrenceInYear } from './nameDay';
+import { isLeapYear, nameDayOccurrenceInYear } from './nameDay';
 
 export type VirtualEventKind = 'birthday' | 'extendedBirthday' | 'nameDay' | 'anniversary';
 
@@ -224,6 +224,160 @@ export function buildVirtualEvents(
 
   return out.sort(
     (x, y) => x.date.localeCompare(y.date) || x.kind.localeCompare(y.kind) || x.title.localeCompare(y.title),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The same occasions, as SERIES rather than occurrences
+// ---------------------------------------------------------------------------
+//
+// buildVirtualEvents above answers "what falls in this month" — the right shape
+// for a grid that redraws every time you page. An exported .ics file wants the
+// opposite: not a list of dates but the RULE behind them, so that a calendar
+// which imports the file once keeps showing the birthday every year afterwards
+// without Teluva ever being asked again. Materialising N years of occurrences
+// into the file instead would put a silent expiry date on the export — the year
+// the list runs out, birthdays would simply stop, with nothing to explain why.
+//
+// So this returns one entry per OCCASION, anchored on its origin, and leaves the
+// repetition to RRULE (see utils/ics.ts). The exclusions are identical to
+// buildVirtualEvents' — see the header — because they are about provenance, not
+// about how the dates are rendered.
+
+export interface RecurringOccasion {
+  /** Stable for the life of the occasion — it becomes the .ics UID, and a UID
+   *  that moves makes a calendar delete-and-recreate rather than update. */
+  id: string;
+  kind: VirtualEventKind;
+  title: string;
+  /** DTSTART, YYYY-MM-DD: the origin year when known (so the series reads as
+   *  "since 1987"), otherwise the current year. */
+  date: string;
+  /** 'yearly' repeats forever. 'once' is a single dated entry — used for
+   *  movable celebrations, whose dates are resolved per year and must never be
+   *  extrapolated by a rule. */
+  repeat: 'yearly' | 'once';
+  description?: string;
+  /** Free text for the .ics CATEGORIES property — NOT a CalendarEvent category. */
+  category: string;
+}
+
+/**
+ * The DTSTART for a recurring 'MM-DD' slot.
+ *
+ * A 29 February slot must anchor on a year that HAS a 29 February, or the
+ * exported rule would describe a different day from the one the record means.
+ * Stepping back to the nearest leap year keeps the anchor truthful; how the
+ * ordinary years are handled is the recurrence rule's job, not the anchor's.
+ */
+function anchorIso(monthDay: string, preferredYear: number): string | null {
+  let year = preferredYear;
+  if (monthDay === '02-29') while (!isLeapYear(year)) year -= 1;
+  const occurrence = nameDayOccurrenceInYear(monthDay, year);
+  return occurrence ? isoFromDate(occurrence) : null;
+}
+
+function describe(...parts: (string | null | undefined)[]): string | undefined {
+  const kept = parts.filter((p): p is string => Boolean(p && p.trim()));
+  return kept.length ? kept.join(' · ') : undefined;
+}
+
+/**
+ * Every recurring family occasion as a series, for export.
+ *
+ * `today` only decides the anchor year for occasions with no origin year of
+ * their own (an extended birthday recorded without a birth year, a fixed name
+ * day, Valentine's Day) — it never limits which occasions are returned.
+ */
+export function buildOccasionSeries(
+  sources: VirtualEventSources,
+  today: Date = new Date(),
+): RecurringOccasion[] {
+  const out: RecurringOccasion[] = [];
+  const thisYear = today.getFullYear();
+
+  for (const b of sources.birthdays ?? []) {
+    const born = originYear(b.date, b.turningAge);
+    const date = anchorIso(b.monthDay, born ?? thisYear);
+    if (!date) continue;
+    out.push({
+      id: `virtual-birthday-${b.memberId}`,
+      kind: 'birthday',
+      title: `${b.memberName}'s birthday`,
+      date,
+      repeat: 'yearly',
+      description: describe(born == null ? null : `Born ${born}`, 'From Teluva'),
+      category: 'Birthday',
+    });
+  }
+
+  for (const eb of sources.extendedBirthdays ?? []) {
+    const born = originYear(eb.date, eb.turningAge);
+    const date = anchorIso(eb.monthDay, born ?? thisYear);
+    if (!date) continue;
+    out.push({
+      id: `virtual-extendedBirthday-${eb.id}`,
+      kind: 'extendedBirthday',
+      title: `${eb.name}'s birthday`,
+      date,
+      repeat: 'yearly',
+      description: describe(eb.relationship, born == null ? null : `Born ${born}`, 'From Teluva'),
+      category: 'Birthday',
+    });
+  }
+
+  for (const nc of sources.nameCelebrations ?? []) {
+    const { celebration } = nc;
+    if (celebration.dateType === 'fixed') {
+      const date = celebration.date ? anchorIso(celebration.date, thisYear) : null;
+      if (!date) continue;
+      out.push({
+        id: `virtual-nameDay-${nc.id}`,
+        kind: 'nameDay',
+        title: celebration.title,
+        date,
+        repeat: 'yearly',
+        description: describe(nc.memberName, 'From Teluva'),
+        category: 'Name day',
+      });
+      continue;
+    }
+    // Movable: one dated entry per year the server has actually resolved, and
+    // no rule at all. FREQ=YEARLY on an Easter-derived date would have the
+    // importing calendar inventing every future occurrence on the wrong day —
+    // the exact guess resolvedDates exists to refuse.
+    for (const iso of Object.values(celebration.resolvedDates ?? {})) {
+      if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+      out.push({
+        id: `virtual-nameDay-${nc.id}-${iso}`,
+        kind: 'nameDay',
+        title: celebration.title,
+        date: iso,
+        repeat: 'once',
+        description: describe(nc.memberName, 'From Teluva'),
+        category: 'Name day',
+      });
+    }
+  }
+
+  for (const a of sources.anniversaries ?? []) {
+    if (a.id.startsWith('calendar-')) continue;   // already a stored event
+    const origin = originYear(a.date, a.years);
+    const date = anchorIso(a.monthDay, origin ?? thisYear);
+    if (!date) continue;
+    out.push({
+      id: `virtual-anniversary-${a.id}`,
+      kind: 'anniversary',
+      title: a.title,
+      date,
+      repeat: 'yearly',
+      description: describe(origin == null ? null : `Since ${origin}`, 'From Teluva'),
+      category: 'Anniversary',
+    });
+  }
+
+  return out.sort(
+    (x, y) => x.date.slice(5).localeCompare(y.date.slice(5)) || x.title.localeCompare(y.title),
   );
 }
 

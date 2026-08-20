@@ -39,7 +39,7 @@ import {
   buildCalendarVacations,
   OCCASION_WATCH_DAYS,
 } from '../utils/familyDates';
-import { buildVirtualEvents, groupVirtualEventsByDate } from '../utils/virtualEvents';
+import { buildVirtualEvents, buildOccasionSeries, groupVirtualEventsByDate } from '../utils/virtualEvents';
 import type { VirtualCalendarEvent } from '../utils/virtualEvents';
 import { PASSPORT_WARN_MONTHS } from '../utils/readiness';
 import { warmAvatarColor } from '../utils/avatarPalette';
@@ -133,6 +133,7 @@ interface PublishedLink {
   path: string;
   mode: 'details' | 'busy';
   label: string;
+  includeOccasions: boolean;
   createdAt: string;
   createdByName: string;
   lastFetchedAt: string | null;
@@ -338,6 +339,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [publishedLinks, setPublishedLinks] = useState<PublishedLink[] | null>(null);
   const [publishBusy, setPublishBusy] = useState<string | null>(null);
   const [publishMode, setPublishMode] = useState<'details' | 'busy'>('details');
+  // Birthdays in the feed are a per-link choice, made where the link is made.
+  // On by default here — a family calendar without birthdays is the bug this
+  // fixes — but it can never apply to a link that already exists, and never to
+  // a busy-only link. See the server's includeOccasions handling.
+  const [publishOccasions, setPublishOccasions] = useState(true);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   const publishApi = async (path: string, init?: RequestInit) => {
@@ -368,14 +374,17 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     try {
       const data = await publishApi('/api/calendar-publish/create', {
         method: 'POST',
-        body: JSON.stringify({ mode: publishMode }),
+        body: JSON.stringify({ mode: publishMode, includeOccasions: publishMode !== 'busy' && publishOccasions }),
       });
       await loadPublishedLinks();
       const url = `${window.location.origin}${data.path}`;
       // Copying immediately is the whole point — the link is unreadable and
       // nobody is going to retype 43 characters of base64.
       try { await navigator.clipboard.writeText(url); setCopiedToken(data.token); } catch { /* clipboard blocked */ }
-      setIcsNote(`Calendar link created and copied. Paste it into Apple Calendar, Outlook or Google as a subscribed calendar.`);
+      setIcsNote(
+        `Calendar link created and copied. Paste it into Apple Calendar, Outlook or Google as a subscribed calendar.`
+        + (data.includeOccasions ? ' Birthdays and anniversaries are included and repeat every year.' : ''),
+      );
     } catch (e: any) {
       setIcsNote(e?.message || 'Could not create the link.');
     } finally {
@@ -497,7 +506,17 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
 
   const handleDownloadIcs = () => {
     try {
-      const ics = buildIcs(events, 'Teluva');
+      // Derived occasions are exported alongside the stored events, and as
+      // repeating series rather than dates — importing this file once puts
+      // every birthday on the other calendar for good. Same division toggles
+      // as the grid, so a division switched off here is off everywhere.
+      const occasions = buildOccasionSeries({
+        birthdays: settings.calendarDivisions?.birthdays !== false ? birthdays : [],
+        extendedBirthdays: settings.calendarDivisions?.extendedBirthdays !== false ? extendedBirthdays : [],
+        nameCelebrations: settings.calendarDivisions?.nameCelebrations !== false ? nameCelebrations : [],
+        anniversaries: settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
+      });
+      const ics = buildIcs(events, 'Teluva', new Date(), occasions);
       const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
       const a = document.createElement('a');
       a.href = url;
@@ -508,7 +527,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       // Revoked on a tick, not immediately — Safari cancels an in-flight
       // download if the object URL disappears the moment the click returns.
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      setIcsNote(`Saved ${events.length} ${events.length === 1 ? 'event' : 'events'} as teluva-calendar.ics — open it in Apple Calendar, Outlook or anything else.`);
+      const eventBit = `${events.length} ${events.length === 1 ? 'event' : 'events'}`;
+      const occasionBit = occasions.length
+        ? ` and ${occasions.length} ${occasions.length === 1 ? 'birthday or anniversary' : 'birthdays and anniversaries'} that repeat every year`
+        : '';
+      setIcsNote(`Saved ${eventBit}${occasionBit} as teluva-calendar.ics — open it in Apple Calendar, Outlook or anything else.`);
     } catch (err) {
       console.error('[ics] export failed', err);
       setIcsNote('Could not build the calendar file.');
@@ -2301,6 +2324,21 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                     <span>Create link</span>
                   </button>
                 </div>
+                {publishMode === 'details' && (
+                  <label className="flex items-start gap-1.5 text-[12px] text-ink-600 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={publishOccasions}
+                      onChange={(e) => setPublishOccasions(e.target.checked)}
+                    />
+                    <span>
+                      Include birthdays and anniversaries — they repeat every year, so you only
+                      subscribe once. Leave this off if the link is going to someone who shouldn’t
+                      know when your family were born.
+                    </span>
+                  </label>
+                )}
                 <p className="text-[11.5px] text-ink-500 leading-snug bg-cream-100 border border-cream-300 rounded-xl px-3 py-2">
                   <b>Read this before you share it.</b> A calendar app can’t sign in, so the link itself is
                   the password — anyone who has it can see these events without an account. It only ever
@@ -2320,6 +2358,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                       <div className="min-w-0 flex-1">
                         <p className="text-[12.5px] font-semibold text-ink-800">
                           {l.mode === 'busy' ? 'Busy only — no titles shared' : 'Full details'}
+                          {l.includeOccasions && (
+                            <span className="ml-1.5 font-normal text-ink-500">+ birthdays</span>
+                          )}
                         </p>
                         <p className="text-[11px] text-ink-400">
                           {l.lastFetchedAt

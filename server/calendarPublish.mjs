@@ -171,6 +171,24 @@ export function eventUid(ev) {
 }
 
 /**
+ * "Every year on this day", for a derived occasion.
+ *
+ * The plain form is FREQ=YEARLY, which repeats DTSTART's month and day. The
+ * exception is 29 February: read literally that fires only in leap years, so a
+ * birthday would disappear for three years out of every four. Teluva's own
+ * convention (src/utils/nameDay.ts) is that a 29 February slot falls back to
+ * the 28th, and this says exactly that — the candidate set for a year is
+ * {28, 29} in a leap year and {28} otherwise, and BYSETPOS takes the last of
+ * it. Identical to yearlyRrule in src/utils/ics.ts, so the same birthday folds
+ * into one entry whether it arrived by file or by subscription.
+ */
+export function yearlyRrule(date) {
+  return String(date).slice(5) === '02-29'
+    ? 'RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=28,29;BYSETPOS=-1'
+    : 'RRULE:FREQ=YEARLY';
+}
+
+/**
  * Serialize a published feed.
  *
  * Times are FLOATING (no zone, no trailing Z) because that is honestly what
@@ -185,6 +203,10 @@ export function buildPublishedIcs(events, options = {}) {
     mode = 'details',
     now = new Date(),
     refreshMinutes = 60,
+    // Derived family occasions (see calendarOccasions.mjs). The caller decides
+    // whether this link may carry them; by the time they arrive here the
+    // opt-in and the busy-mode exclusion have already been applied.
+    occasions = [],
   } = options;
 
   const lines = [
@@ -229,6 +251,29 @@ export function buildPublishedIcs(events, options = {}) {
     // Busy-mode events must still occupy time in the subscriber's free/busy
     // view — that is the entire point of the mode.
     lines.push('TRANSP:OPAQUE');
+    lines.push('END:VEVENT');
+  }
+
+  // Occasions are written as RULES, not as a list of dates: a subscriber that
+  // stops being refreshed still keeps generating them, and a materialised list
+  // would put a silent expiry on every birthday in the feed. Busy mode never
+  // gets here — the caller drops occasions entirely for those links.
+  for (const oc of mode === 'busy' ? [] : occasions) {
+    if (!oc || typeof oc.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(oc.date)) continue;
+    const ymd = oc.date.replace(/-/g, '');
+    lines.push('BEGIN:VEVENT');
+    lines.push(foldLine(`UID:${String(oc.id || '').replace(/[^A-Za-z0-9._-]/g, '-')}@teluva.app`));
+    lines.push(`DTSTAMP:${stamp}`);
+    lines.push(`DTSTART;VALUE=DATE:${ymd}`);
+    lines.push(`DTEND;VALUE=DATE:${nextDayCompact(oc.date)}`);
+    if (oc.repeat !== 'once') lines.push(yearlyRrule(oc.date));
+    lines.push(foldLine(`SUMMARY:${escapeIcsText(oc.title || 'Occasion')}`));
+    if (oc.description) lines.push(foldLine(`DESCRIPTION:${escapeIcsText(oc.description)}`));
+    if (oc.category) lines.push(foldLine(`CATEGORIES:${escapeIcsText(oc.category)}`));
+    // Unlike an appointment, a birthday must NOT occupy time — otherwise every
+    // family birthday reads as "unavailable" to anyone scheduling around this
+    // calendar.
+    lines.push('TRANSP:TRANSPARENT');
     lines.push('END:VEVENT');
   }
 

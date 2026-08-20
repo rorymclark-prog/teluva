@@ -332,4 +332,69 @@ const OUT: CalendarEvent[] = [
   assert.doesNotThrow(() => buildIcs([{ id: 'x', title: '', date: '', category: 'Other', remindMe: false } as CalendarEvent]));
 }
 
+// ---------------------------------------------------------------------------
+// Derived occasions — birthdays and anniversaries, written as RULES
+// ---------------------------------------------------------------------------
+//
+// These are not stored events, so they are not in `events` at all. The point of
+// exporting them as a recurring series rather than a list of dates is that the
+// importing calendar keeps generating them forever; a materialised list would
+// put a silent expiry on the file — the year it ran out, birthdays would stop.
+{
+  const NOW = new Date(Date.UTC(2026, 6, 29, 12, 0, 0));
+  const ics = buildIcs([], 'Teluva', NOW, [
+    { id: 'virtual-birthday-m1', kind: 'birthday', title: "Lena's birthday", date: '2019-03-03', repeat: 'yearly', description: 'Born 2019 · From Teluva', category: 'Birthday' },
+    { id: 'virtual-nameDay-m6-c2-2026-11-24', kind: 'nameDay', title: 'Kartik Purnima', date: '2026-11-24', repeat: 'once', category: 'Name day' },
+  ]);
+
+  assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 2);
+  // Identical to what server/calendarPublish.mjs writes for the same occasion,
+  // so a family that imports this file AND subscribes to the feed gets one
+  // birthday per person rather than two.
+  assert.match(ics, /UID:virtual-birthday-m1@teluva\.app\r\n/, 'the UID must be stable and must match the feed — a moving UID makes a calendar delete and recreate');
+  assert.match(ics, /DTSTART;VALUE=DATE:20190303/, 'the series anchors on the birth year');
+  assert.match(ics, /DTEND;VALUE=DATE:20190304/);
+  assert.match(ics, /RRULE:FREQ=YEARLY/);
+  assert.match(ics, /SUMMARY:Lena's birthday/);
+  assert.match(ics, /CATEGORIES:Birthday/);
+  assert.match(ics, /TRANSP:TRANSPARENT/, 'a birthday must not mark the day busy in anyone’s free/busy view');
+
+  // The movable one gets no rule at all.
+  const movableBlock = ics.slice(ics.indexOf('UID:virtual-nameDay'));
+  assert.ok(!movableBlock.includes('RRULE'), 'a resolved movable date must never be given a yearly rule');
+}
+
+{
+  // 29 February taken literally fires only in leap years, which would hide the
+  // birthday three years out of four. Teluva's own rule falls back to the 28th.
+  const leap = buildIcs([], 'Teluva', new Date(Date.UTC(2026, 6, 29)), [
+    { id: 'virtual-birthday-m3', kind: 'birthday', title: "Ada's birthday", date: '2020-02-29', repeat: 'yearly', category: 'Birthday' },
+  ]);
+  assert.match(leap, /RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=28,29;BYSETPOS=-1/);
+  assert.ok(!/RRULE:FREQ=YEARLY\r\n/.test(leap), 'the plain yearly rule would skip three years in four');
+}
+
+{
+  // The round trip. Re-importing your own export must NOT turn derived
+  // occasions into stored events — that second copy would stop following the
+  // member record the moment a birthdate was corrected.
+  const ics = buildIcs(OUT, 'Teluva', new Date(Date.UTC(2026, 6, 29, 12, 0, 0)), [
+    { id: 'virtual-birthday-m1', kind: 'birthday', title: "Lena's birthday", date: '2019-03-03', repeat: 'yearly', category: 'Birthday' },
+    { id: 'virtual-anniversary-a1', kind: 'anniversary', title: 'Rory & Maria', date: '2012-07-12', repeat: 'yearly', category: 'Anniversary' },
+  ]);
+  const back = parseIcs(ics, MEMBERS, new Date(2026, 6, 29));
+  assert.equal(back.sourceCount, 4, 'all four VEVENTs are seen');
+  assert.equal(back.events.length, 2, 'only the two real events are imported');
+  assert.ok(!back.events.some((e) => e.title.includes('birthday')), 'a derived birthday must never become a stored event');
+  assert.match(back.warnings.join(' '), /birthdays and anniversaries were left out/i, 'and the skip is reported, never silent');
+
+  // Somebody ELSE's calendar file is a different case — a VEVENT that merely
+  // says "birthday" in its title is theirs to import as an ordinary event.
+  const foreign = parseIcs(
+    'BEGIN:VEVENT\r\nUID:abc123@example.com\r\nSUMMARY:Nana’s birthday\r\nDTSTART;VALUE=DATE:20260303\r\nRRULE:FREQ=YEARLY\r\nEND:VEVENT',
+    MEMBERS, new Date(2026, 6, 29),
+  );
+  assert.ok(foreign.events.length > 0, 'only Teluva’s OWN derived UIDs are skipped, not every birthday on earth');
+}
+
 console.log('ics.test.ts: all assertions passed');

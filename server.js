@@ -23,6 +23,7 @@ import {
   publicationState,
   PUBLISH_MODES,
 } from './server/calendarPublish.mjs';
+import { buildFeedOccasions, applyDivisionSettings } from './server/calendarOccasions.mjs';
 import { trimContext } from './server/chatContext.mjs';
 import {
   DOC_PASSAGE_TOPICS,
@@ -2291,6 +2292,33 @@ async function readFamilyEvents(familyId) {
   return docs.filter((d) => d.exists).map((d) => d.data());
 }
 
+/**
+ * The birthdays and anniversaries behind a family's calendar — the half that is
+ * DERIVED rather than filed, and so is invisible to readFamilyEvents above.
+ *
+ * Only called for links whose owner opted in, and never in busy mode: this is
+ * the one place the feed reaches past calendar_events into member records. See
+ * the header of server/calendarOccasions.mjs for why that is fenced this way.
+ * Reads family_members (living people); the deceased live in the separate
+ * inMemory reference doc and are never touched here, the same guarantee the
+ * celebrations cron makes.
+ */
+async function readFamilyOccasionSources(familyId) {
+  const [membersSnap, ebSnap, annSnap, settingsSnap] = await Promise.all([
+    adminDb.collection(`families/${familyId}/family_members`).get(),
+    adminDb.doc(`families/${familyId}/reference/extendedBirthdays`).get(),
+    adminDb.doc(`families/${familyId}/reference/anniversaries`).get(),
+    adminDb.doc(`families/${familyId}/reference/settings`).get(),
+  ]);
+  const members = membersSnap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
+  const extendedBirthdays = (ebSnap.exists ? ebSnap.data()?.extendedBirthdays : null) || [];
+  const anniversaries = (annSnap.exists ? annSnap.data()?.anniversaries : null) || [];
+  // HubSettings is stored flat in reference/settings (saveSettings passes the
+  // object itself, not a { settings } wrapper like the list docs above).
+  const divisions = (settingsSnap.exists ? settingsSnap.data()?.calendarDivisions : null) || null;
+  return applyDivisionSettings({ members, extendedBirthdays, anniversaries }, divisions);
+}
+
 app.post('/api/calendar-publish/create', async (req, res) => {
   try {
     const caller = await requireMember(req);
@@ -2301,6 +2329,11 @@ app.post('/api/calendar-publish/create', async (req, res) => {
     const body = req.body || {};
     const mode = PUBLISH_MODES.includes(body.mode) ? body.mode : 'details';
     const label = typeof body.label === 'string' ? body.label.trim().slice(0, 80) : '';
+    // Birthdays and anniversaries reach past calendar_events into the member
+    // records, so the person creating the link chooses, at the moment they
+    // create it. Meaningless in busy mode — a feed with every title stripped
+    // has nothing to say about whose birthday it is.
+    const includeOccasions = mode !== 'busy' && body.includeOccasions === true;
 
     // 32 bytes — the URL is the only thing standing between this feed and
     // anybody who tries one. 24 would already be far beyond guessing; the
@@ -2315,11 +2348,12 @@ app.post('/api/calendar-publish/create', async (req, res) => {
       createdAt: now.toISOString(),
       mode,
       label,
+      includeOccasions,
       revoked: false,
       fetchCount: 0,
     });
-    console.log(`[calendar-publish] created (${mode}) for family ${caller.familyId} by ${caller.email}`);
-    res.json({ ok: true, token, path: `/cal/${token}.ics`, mode });
+    console.log(`[calendar-publish] created (${mode}${includeOccasions ? ' +occasions' : ''}) for family ${caller.familyId} by ${caller.email}`);
+    res.json({ ok: true, token, path: `/cal/${token}.ics`, mode, includeOccasions });
   } catch (err) {
     console.error('/api/calendar-publish/create error:', err);
     res.status(500).json({ error: 'Could not create the calendar link. Please try again.' });
@@ -2341,6 +2375,7 @@ app.get('/api/calendar-publish/list', async (req, res) => {
         path: `/cal/${d.id}.ics`,
         mode: v.mode || 'details',
         label: v.label || '',
+        includeOccasions: v.includeOccasions === true,
         createdAt: v.createdAt || '',
         createdByName: v.createdByName || '',
         // Surfaced so the family can SEE whether a link is being used — the
@@ -4095,9 +4130,22 @@ app.get('/cal/:token', async (req, res) => {
       return res.status(404).type('text/plain').send('This calendar link is no longer available.');
     }
 
-    const [events, infoSnap] = await Promise.all([
+    // Birthdays are opt-in per link and never in busy mode. `=== true` is the
+    // point: a link created before this existed has no such field, and must
+    // keep serving exactly what its owner agreed to share when they handed the
+    // URL out — a live credential is not the place for a silent widening.
+    const wantsOccasions = record.includeOccasions === true && record.mode !== 'busy';
+
+    const [events, infoSnap, occasionSources] = await Promise.all([
       readFamilyEvents(record.familyId),
       adminDb.doc(`families/${record.familyId}/info/info`).get().catch(() => null),
+      wantsOccasions ? readFamilyOccasionSources(record.familyId).catch((e) => {
+        // A birthday that fails to load must never take the appointments down
+        // with it — the feed is a wholesale replacement for the subscriber, so
+        // a thrown error here would blank their calendar.
+        console.warn('[cal] could not read occasions:', e?.message || e);
+        return null;
+      }) : null,
     ]);
     const familyName = (infoSnap && infoSnap.exists ? infoSnap.data()?.name : '') || 'Teluva';
     const calendarName = record.label
@@ -4107,6 +4155,7 @@ app.get('/cal/:token', async (req, res) => {
       calendarName,
       mode: record.mode === 'busy' ? 'busy' : 'details',
       refreshMinutes: PUBLISH_REFRESH_MINUTES,
+      occasions: occasionSources ? buildFeedOccasions(occasionSources) : [],
     });
 
     // Record the fetch so the family can see the link is live — throttled,

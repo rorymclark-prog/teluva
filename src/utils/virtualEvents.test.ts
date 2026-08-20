@@ -17,7 +17,7 @@
 //     celebrations, and — by omission — school dates and vacations, which are
 //     already stored events).
 import assert from 'node:assert';
-import { buildVirtualEvents, groupVirtualEventsByDate } from './virtualEvents';
+import { buildOccasionSeries, buildVirtualEvents, groupVirtualEventsByDate } from './virtualEvents';
 import type {
   CalendarAnniversary,
   CalendarBirthday,
@@ -231,6 +231,106 @@ function nameCelebration(id: string, memberId: string, memberName: string, c: Na
   const multiYear = buildVirtualEvents({ birthdays: [a] }, '2026-01-01', '2028-12-31');
   assert.strictEqual(multiYear.length, 3, 'a three-year range must yield three occurrences');
   assert.strictEqual(new Set(multiYear.map((v) => v.id)).size, 3, 'each occurrence needs its own id');
+}
+
+// ---------------------------------------------------------------------------
+// buildOccasionSeries — the export shape: rules, not dates
+// ---------------------------------------------------------------------------
+{
+  const NOW = new Date(2026, 7, 20);          // 2026-08-20, local
+
+  const lena = birthday({ memberId: 'm1', memberName: 'Lena', monthDay: '03-03', date: '2026-03-03', turningAge: 7 });
+  const [series] = buildOccasionSeries({ birthdays: [lena] }, NOW);
+  assert.strictEqual(series.repeat, 'yearly', 'a birthday must export as a repeating series, not a list of dates');
+  assert.strictEqual(series.date, '2019-03-03', 'DTSTART must anchor on the birth year when it is known');
+  assert.strictEqual(series.title, "Lena's birthday");
+  assert.ok(series.description?.includes('Born 2019'), 'the year belongs in the note, not the title — a title cannot say "turns 7" on a series');
+  assert.strictEqual(series.category, 'Birthday');
+  assert.strictEqual(series.id, 'virtual-birthday-m1', 'the id is the .ics UID and must not carry a date');
+
+  // One entry per occasion, however many years are on screen — that is the
+  // whole difference from buildVirtualEvents.
+  assert.strictEqual(buildOccasionSeries({ birthdays: [lena] }, NOW).length, 1);
+
+  // No birth year → anchor on the current year rather than inventing one.
+  const unknown = birthday({ memberId: 'm2', memberName: 'Sam', monthDay: '06-10', date: '2027-06-10', turningAge: null as unknown as number });
+  const [samSeries] = buildOccasionSeries({ birthdays: [unknown] }, NOW);
+  assert.strictEqual(samSeries.date, '2026-06-10', 'an unknown birth year anchors on today, not on year zero');
+  assert.ok(!samSeries.description?.includes('Born'), 'no birth year means no "Born" note');
+
+  // A 29 February series must anchor on a year that HAS a 29 February, or the
+  // exported rule describes a different day from the record.
+  const leapling = birthday({ memberId: 'm3', memberName: 'Ada', monthDay: '02-29', date: '2028-02-29', turningAge: 8 });
+  assert.strictEqual(buildOccasionSeries({ birthdays: [leapling] }, NOW)[0].date, '2020-02-29');
+  const leaplingNoYear = birthday({ memberId: 'm3b', memberName: 'Ada', monthDay: '02-29', date: '2028-02-29', turningAge: null as unknown as number });
+  assert.strictEqual(
+    buildOccasionSeries({ birthdays: [leaplingNoYear] }, NOW)[0].date, '2024-02-29',
+    'with no birth year the anchor steps back to the nearest leap year, never onto a 29 February that does not exist',
+  );
+}
+
+{
+  const NOW = new Date(2026, 7, 20);
+
+  const gran: CalendarExtendedBirthday = {
+    id: 'eb1', name: 'Grandma Sue', relationship: 'Grandparent',
+    monthDay: '09-14', date: '2026-09-14', daysUntil: 26, turningAge: 80,
+  };
+  const [granSeries] = buildOccasionSeries({ extendedBirthdays: [gran] }, NOW);
+  assert.strictEqual(granSeries.date, '1946-09-14');
+  assert.ok(granSeries.description?.includes('Grandparent'), 'an extended birthday carries the relationship — you need it to know who this is');
+
+  const fixed = nameCelebration('m5-c1', 'm5', 'Michael', celebration({
+    id: 'c1', title: 'Michaelitag', dateType: 'fixed', date: '09-29',
+  }));
+  const movable = nameCelebration('m6-c2', 'm6', 'Ganga', celebration({
+    id: 'c2', title: 'Kartik Purnima', dateType: 'movable',
+    movableRule: 'Kartik Purnima', resolvedDates: { '2026': '2026-11-24', '2027': '2027-11-13' },
+  }));
+
+  const days = buildOccasionSeries({ nameCelebrations: [fixed, movable] }, NOW);
+  const fixedOut = days.filter((o) => o.title === 'Michaelitag');
+  assert.strictEqual(fixedOut.length, 1);
+  assert.strictEqual(fixedOut[0].repeat, 'yearly', 'a fixed name day repeats every year');
+  assert.strictEqual(fixedOut[0].date, '2026-09-29');
+
+  const movableOut = days.filter((o) => o.title === 'Kartik Purnima');
+  assert.strictEqual(movableOut.length, 2, 'a movable celebration exports one entry per RESOLVED year');
+  assert.ok(movableOut.every((o) => o.repeat === 'once'), 'a movable date must never carry a yearly rule — the importing calendar would invent every future occurrence on the wrong day');
+  assert.strictEqual(new Set(movableOut.map((o) => o.id)).size, 2, 'each resolved year needs its own UID');
+
+  const unresolved = nameCelebration('m7-c3', 'm7', 'X', celebration({
+    id: 'c3', title: 'Unresolved', dateType: 'movable', movableRule: 'X',
+  }));
+  assert.strictEqual(buildOccasionSeries({ nameCelebrations: [unresolved] }, NOW).length, 0, 'no resolved year means nothing to export');
+}
+
+{
+  const NOW = new Date(2026, 7, 20);
+
+  const wedding: CalendarAnniversary = {
+    id: 'a1', title: 'Rory & Maria', kind: 'Wedding',
+    monthDay: '07-12', date: '2027-07-12', daysUntil: 100, years: 15,
+  };
+  const valentines: CalendarAnniversary = {
+    id: 'a2', title: "Valentine's Day", kind: 'Other',
+    monthDay: '02-14', date: '2027-02-14', daysUntil: 200, years: null,
+  };
+  const fromEvent: CalendarAnniversary = {
+    id: 'calendar-ev99', title: 'Our anniversary dinner', kind: 'Other',
+    monthDay: '07-12', date: '2026-07-12', daysUntil: 5, years: null,
+  };
+
+  const got = buildOccasionSeries({ anniversaries: [wedding, valentines, fromEvent] }, NOW);
+  assert.strictEqual(got.length, 2, 'a calendar-sourced anniversary is already a stored event and must not be exported twice');
+  const w = got.find((o) => o.id === 'virtual-anniversary-a1')!;
+  assert.strictEqual(w.date, '2012-07-12', 'the anniversary anchors on the year it started');
+  assert.ok(w.description?.includes('Since 2012'));
+  const v = got.find((o) => o.id === 'virtual-anniversary-a2')!;
+  assert.strictEqual(v.date, '2026-02-14', "Valentine's has no origin year, so it anchors on today");
+  assert.ok(!v.description?.includes('Since'));
+
+  assert.deepStrictEqual(buildOccasionSeries({}, NOW), [], 'no sources must be safe');
 }
 
 console.log('virtualEvents.test.ts: all assertions passed');

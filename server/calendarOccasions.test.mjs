@@ -1,0 +1,200 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildFeedOccasions, applyDivisionSettings, anchorIso, isLeapYear } from './calendarOccasions.mjs';
+import { buildPublishedIcs, yearlyRrule } from './calendarPublish.mjs';
+
+const NOW = new Date('2026-08-20T12:00:00Z');
+
+// --------------------------------------------------------------------------
+// Anchoring — DTSTART must describe a day that exists
+// --------------------------------------------------------------------------
+
+test('a series anchors on the origin year when there is one', () => {
+  assert.equal(anchorIso('03-03', 2019), '2019-03-03');
+});
+
+test('29 February steps back to a year that HAS a 29 February', () => {
+  // Anchoring a leap-day birthday on 2026-02-29 would describe a date that
+  // does not exist, and clients differ wildly on what they do with one.
+  assert.equal(anchorIso('02-29', 2026), '2024-02-29');
+  assert.equal(anchorIso('02-29', 2024), '2024-02-29');
+  assert.ok(isLeapYear(2024) && !isLeapYear(2026));
+});
+
+test('a month-day that is not a real date is refused, never coerced', () => {
+  assert.equal(anchorIso('02-30', 2026), null);
+  assert.equal(anchorIso('13-01', 2026), null);
+  assert.equal(anchorIso('4-1', 2026), null);
+  assert.equal(anchorIso('', 2026), null);
+  assert.equal(anchorIso(null, 2026), null);
+});
+
+// --------------------------------------------------------------------------
+// Birthdays — the gap this closes
+// --------------------------------------------------------------------------
+
+test('a member with a birthdate becomes a yearly series', () => {
+  const [b] = buildFeedOccasions({
+    members: [{ id: 'm1', name: 'Lena', birthdate: '2019-03-03' }],
+  }, NOW);
+  assert.equal(b.id, 'virtual-birthday-m1');
+  assert.equal(b.title, "Lena's birthday");
+  assert.equal(b.date, '2019-03-03');
+  assert.equal(b.repeat, 'yearly');
+  assert.equal(b.category, 'Birthday');
+  assert.match(b.description, /Born 2019/);
+});
+
+test('a member with no birthdate, no name or a broken date contributes nothing', () => {
+  assert.deepEqual(buildFeedOccasions({
+    members: [
+      { id: 'm1', name: 'Lena' },
+      { id: 'm2', name: '', birthdate: '2019-03-03' },
+      { id: 'm3', name: 'Broken', birthdate: '2019-02-30' },
+      { id: 'm4', name: 'Alsobroken', birthdate: 'sometime in March' },
+      null,
+    ],
+  }, NOW), []);
+});
+
+// --------------------------------------------------------------------------
+// Extended birthdays and anniversaries
+// --------------------------------------------------------------------------
+
+test('an extended birthday carries the relationship and, when known, the year', () => {
+  const out = buildFeedOccasions({
+    extendedBirthdays: [
+      { id: 'eb1', name: 'Grandma Sue', relationship: 'Grandmother', date: '09-14', originalYear: 1946 },
+      { id: 'eb2', name: 'Tom', date: '09-20' },
+    ],
+  }, NOW);
+  assert.equal(out.length, 2);
+  const sue = out.find((o) => o.id === 'virtual-extendedBirthday-eb1');
+  assert.equal(sue.date, '1946-09-14');
+  assert.match(sue.description, /Grandmother/);
+  assert.match(sue.description, /Born 1946/);
+
+  const tom = out.find((o) => o.id === 'virtual-extendedBirthday-eb2');
+  assert.equal(tom.date, '2026-09-20', 'no birth year anchors on today, never on year zero');
+  assert.ok(!/Born/.test(tom.description), 'and claims no year it does not have');
+});
+
+test('an anniversary counts from its origin year, or from today when it has none', () => {
+  const out = buildFeedOccasions({
+    anniversaries: [
+      { id: 'a1', title: 'Rory & Maria', date: '07-12', originalYear: 2012 },
+      { id: 'a2', title: "Valentine's Day", date: '02-14' },
+      { id: 'a3', title: '', date: '05-05' },
+    ],
+  }, NOW);
+  assert.equal(out.length, 2, 'an untitled anniversary is not exportable');
+  assert.equal(out.find((o) => o.id === 'virtual-anniversary-a1').date, '2012-07-12');
+  assert.equal(out.find((o) => o.id === 'virtual-anniversary-a2').date, '2026-02-14');
+});
+
+test('a bogus originalYear is ignored rather than trusted', () => {
+  const [a] = buildFeedOccasions({
+    anniversaries: [{ id: 'a1', title: 'X', date: '07-12', originalYear: 'nineteen ninety' }],
+  }, NOW);
+  assert.equal(a.date, '2026-07-12');
+});
+
+test('results are ordered by day of the year, not by document order', () => {
+  const out = buildFeedOccasions({
+    members: [
+      { id: 'm1', name: 'Zoe', birthdate: '2021-11-10' },
+      { id: 'm2', name: 'Ann', birthdate: '2015-01-02' },
+    ],
+  }, NOW);
+  assert.deepEqual(out.map((o) => o.title), ["Ann's birthday", "Zoe's birthday"]);
+});
+
+test('nothing at all is safe', () => {
+  assert.deepEqual(buildFeedOccasions({}, NOW), []);
+  assert.deepEqual(buildFeedOccasions(undefined, NOW), []);
+  assert.deepEqual(buildFeedOccasions({ members: 'not an array' }, NOW), []);
+});
+
+// --------------------------------------------------------------------------
+// Division settings — the feed must not show what the app hides
+// --------------------------------------------------------------------------
+
+test('a division switched off in the app is switched off in the feed', () => {
+  const sources = {
+    members: [{ id: 'm1', name: 'Lena', birthdate: '2019-03-03' }],
+    extendedBirthdays: [{ id: 'eb1', name: 'Sue', date: '09-14' }],
+    anniversaries: [{ id: 'a1', title: 'Wedding', date: '07-12' }],
+  };
+  const only = applyDivisionSettings(sources, { birthdays: false, anniversaries: false });
+  assert.deepEqual(only.members, []);
+  assert.deepEqual(only.anniversaries, []);
+  assert.equal(only.extendedBirthdays.length, 1, 'a division left unset stays ON');
+
+  // No settings document at all must not silently hide everything.
+  const none = applyDivisionSettings(sources, null);
+  assert.equal(none.members.length, 1);
+});
+
+// --------------------------------------------------------------------------
+// Serialization
+// --------------------------------------------------------------------------
+
+test('an occasion is written as a rule, with a UID that never moves', () => {
+  const ics = buildPublishedIcs([], {
+    now: NOW,
+    occasions: buildFeedOccasions({ members: [{ id: 'm1', name: 'Lena', birthdate: '2019-03-03' }] }, NOW),
+  });
+  assert.match(ics, /UID:virtual-birthday-m1@teluva\.app/);
+  assert.match(ics, /DTSTART;VALUE=DATE:20190303/);
+  assert.match(ics, /DTEND;VALUE=DATE:20190304/);
+  assert.match(ics, /RRULE:FREQ=YEARLY/);
+  assert.match(ics, /SUMMARY:Lena's birthday/);
+  // A birthday must not read as "unavailable" to anyone scheduling around it.
+  assert.match(ics, /TRANSP:TRANSPARENT/);
+});
+
+test('the same UID as the .ics download, so the two paths do not double up', () => {
+  // src/utils/ics.ts writes exactly this for the same occasion. A family that
+  // both imports the file and subscribes to the feed must end up with ONE
+  // birthday per person, which only happens if the identities match.
+  const ics = buildPublishedIcs([], {
+    now: NOW,
+    occasions: [{ id: 'virtual-anniversary-a1', title: 'X', date: '2012-07-12', repeat: 'yearly', category: 'Anniversary' }],
+  });
+  assert.match(ics, /UID:virtual-anniversary-a1@teluva\.app/);
+});
+
+test('29 February gets the fallback rule, not the literal one', () => {
+  assert.equal(yearlyRrule('2024-02-29'), 'RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=28,29;BYSETPOS=-1');
+  assert.equal(yearlyRrule('2019-03-03'), 'RRULE:FREQ=YEARLY');
+});
+
+test('a one-off occasion gets no rule at all', () => {
+  const ics = buildPublishedIcs([], {
+    now: NOW,
+    occasions: [{ id: 'virtual-nameDay-x-2026-11-24', title: 'Kartik Purnima', date: '2026-11-24', repeat: 'once', category: 'Name day' }],
+  });
+  assert.ok(!ics.includes('RRULE'));
+});
+
+test('busy mode never carries occasions, whatever the caller passes', () => {
+  // The last line of defence: busy mode exists so a link can go outside the
+  // family without saying why a slot is taken. "Lena's birthday" would undo
+  // that in one line, so the serializer refuses even if the caller slips.
+  const ics = buildPublishedIcs([], {
+    mode: 'busy',
+    now: NOW,
+    occasions: buildFeedOccasions({ members: [{ id: 'm1', name: 'Lena', birthdate: '2019-03-03' }] }, NOW),
+  });
+  assert.ok(!ics.includes('Lena'));
+  assert.ok(!ics.includes('RRULE'));
+});
+
+test('a malformed occasion is dropped without taking the feed down', () => {
+  const ics = buildPublishedIcs([], {
+    now: NOW,
+    occasions: [null, { id: 'x' }, { id: 'y', date: 'nope' }, { id: 'z', date: '2020-01-01', title: 'Kept', repeat: 'yearly' }],
+  });
+  assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 1);
+  assert.match(ics, /SUMMARY:Kept/);
+});
