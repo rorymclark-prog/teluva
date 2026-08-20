@@ -24,6 +24,11 @@ import {
   PUBLISH_MODES,
 } from './server/calendarPublish.mjs';
 import { buildFeedOccasions, applyDivisionSettings } from './server/calendarOccasions.mjs';
+import {
+  matchesMonthDay,
+  monthDayFallsOn,
+  buildYearlyCelebrations,
+} from './server/yearlyCelebrations.mjs';
 import { trimContext } from './server/chatContext.mjs';
 import {
   DOC_PASSAGE_TOPICS,
@@ -4278,30 +4283,22 @@ function viennaMonthDay(now = new Date()) {
   return { year, month, day };
 }
 
-const isLeapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-
-/* Does a YYYY-MM-DD string fall on the given month/day (ignoring year)?
+/* isLeapYear / matchesMonthDay / monthDayFallsOn now live in
+ * server/yearlyCelebrations.mjs (imported at the top of this file) rather than
+ * being defined here.
  *
- * 29 FEBRUARY. Three years in four that date does not exist, and a plain
- * equality check means a child born on it is the one person in the family the
- * app never wishes a happy birthday — silently, and only visible to whoever
- * notices they were skipped. The convention is the one OnThisDay.tsx already
- * uses on the client (occurrenceInYear): in an ordinary year the day collapses
- * to 28 February, so the notification lands the day before it otherwise would
- * rather than not at all. Both halves of the app must agree here, or the card
- * on the home screen and the notification fire on different days.
- * `year` is the Vienna year — leapness has to be asked of the year the run is
- * happening in, not the year of birth. */
-function matchesMonthDay(dateStr, month, day, year) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim());
-  if (!m) return false;
-  const storedMonth = Number(m[2]);
-  const storedDay = Number(m[3]);
-  if (storedMonth === month && storedDay === day) return true;
-  return storedMonth === 2 && storedDay === 29
-    && month === 2 && day === 28
-    && Number.isFinite(year) && !isLeapYear(year);
-}
+ * 29 FEBRUARY is the reason they moved. Three years in four that date does not
+ * exist, and a plain equality check means a child born on it is the one person
+ * in the family the app never wishes a happy birthday — silently, and only
+ * visible to whoever notices they were skipped. The convention is the one
+ * OnThisDay.tsx already uses on the client (occurrenceInYear): in an ordinary
+ * year the day collapses to 28 February, so the notification lands the day
+ * before it otherwise would rather than not at all. Both halves of the app must
+ * agree here, or the card on the home screen and the notification fire on
+ * different days — and when extended birthdays and anniversaries joined the
+ * cron they needed the identical rule, so one exported copy beats a fourth
+ * hand-written one. `year` is the Vienna year: leapness has to be asked of the
+ * year the run is happening in, not the year of birth. */
 
 // Send one notification to every subscription of a family, pruning any that the
 // push service reports as gone (404/410). Each send is wrapped so one bad
@@ -4355,11 +4352,19 @@ async function sendToFamily(familyRef, payloadObj) {
 // so even a request that somehow reaches this handler without the shared secret
 // is rejected 401. A random internet POST can never fire notifications.
 //
-// DECEASED-EXCLUSION SAFETY: this handler reads ONLY families/{id}/family_members
-// (living members) and families/{id}/info/info (business anniversary). It NEVER
-// reads families/{id}/reference/inMemory or any Departed/InMemory data, so a
-// deceased relative's birthday can NEVER trigger a notification. Do not add any
-// read of the inMemory reference doc here.
+// DECEASED-EXCLUSION SAFETY: this handler reads families/{id}/family_members
+// (living members), families/{id}/info/info (business anniversary),
+// families/{id}/calendar_events (deadline reminders) and — since v227 — the
+// reference docs `extendedBirthdays`, `anniversaries` and `info` (whose
+// `contacts` may carry a birthdate). It NEVER reads
+// families/{id}/reference/inMemory or any Departed/InMemory data, so a deceased
+// relative's birthday can NEVER trigger a notification. Do not add any read of
+// the inMemory reference doc here.
+//
+// Note that reference/info is a DIFFERENT document from info/info: the first is
+// FamilyInfo (numbers, contacts, providers, vendors), the second FamilyInfoDoc
+// (the space's name, admin, type, founding date). Reading the wrong one is the
+// mistake this area invites — see the same warning in src/db.ts.
 
 /* --- Expiry reminders -------------------------------------------------------
  *
@@ -4455,10 +4460,9 @@ async function runDailyCelebrations() {
   // there is one dataset, on the client, and nothing here to drift from it.
   const monthDay = `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   // Does a stored 'MM-DD' fall today? Same 29-February convention as
-  // matchesMonthDay above (collapse to 28 Feb in an ordinary year), for the
+  // matchesMonthDay (collapse to 28 Feb in an ordinary year), for the
   // month-day-only fields: legacy nameDay and fixed celebrations.
-  const monthDayIsToday = (md) =>
-    md === monthDay || (md === '02-29' && month === 2 && day === 28 && !isLeapYear(year));
+  const monthDayIsToday = (md) => monthDayFallsOn(md, month, day, year);
   // At most this many movable-rule model calls per run, shared across all
   // families. Each call is individually capped at 25s (resolveMovableRuleDates)
   // but Cloud Run gives the whole request only 300s — an unbounded backlog of
@@ -4624,6 +4628,31 @@ async function runDailyCelebrations() {
         body: `Today marks another year for ${bizName}${yearPart}`,
       });
     }
+
+    /* Extended birthdays, anniversary records and contacts with a birthdate.
+     *
+     * These three stores existed for months and the cron never opened them, so
+     * a grandmother on the Extended Birthdays screen, a wedding anniversary the
+     * family had entered, and every non-family birthday the ASSISTANT had filed
+     * as a contact all showed up inside the app and produced no notification —
+     * while the assistant's own prompt promised the family an "ongoing yearly
+     * nudge like a family member's birthday". See server/yearlyCelebrations.mjs
+     * for why calendarDivisions is deliberately NOT consulted here.
+     *
+     * Read together, and tolerated individually: a family that has never opened
+     * one of these screens has no such doc, and a permission or transport
+     * failure on one of them must not cost the family their birthdays. */
+    const [ebSnap, annSnap, refInfoSnap] = await Promise.all([
+      familyRef.collection('reference').doc('extendedBirthdays').get().catch(() => null),
+      familyRef.collection('reference').doc('anniversaries').get().catch(() => null),
+      familyRef.collection('reference').doc('info').get().catch(() => null),
+    ]);
+    const refData = (snap) => (snap && snap.exists ? (snap.data() || {}) : {});
+    celebrations.push(...buildYearlyCelebrations({
+      extendedBirthdays: refData(ebSnap).extendedBirthdays,
+      anniversaries: refData(annSnap).anniversaries,
+      contacts: refData(refInfoSnap).contacts,
+    }, { month, day, year }));
 
     celebrationsFound += celebrations.length;
     for (const c of celebrations) {

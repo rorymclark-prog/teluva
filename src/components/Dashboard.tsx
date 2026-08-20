@@ -1834,6 +1834,37 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     pendingTabRef.current = null;
   }, [selectedMemberId]);
 
+  /* Bring the member panel into view when something deep-links into it.
+   *
+   * Declared AFTER the [mainView] effect above deliberately: that one yanks the
+   * page to the top on a view change, and when a deep-link changes both at once
+   * the later effect is the one that gets the last word. 'auto' for the same
+   * reason it gives: this is a destination, and smooth-scrolling past two
+   * thousand pixels of unrelated cards to reach it is noise. scroll-mt-24 on
+   * the section keeps the heading clear of the sticky header. */
+  const memberPanelRef = useRef<HTMLElement | null>(null);
+  const [memberJumpSignal, setMemberJumpSignal] = useState(0);
+  useEffect(() => {
+    if (!memberJumpSignal) return;
+    memberPanelRef.current?.scrollIntoView({ block: 'start', behavior: 'auto' });
+  }, [memberJumpSignal]);
+
+  /* Deep-link to one member's tab.
+   *
+   * THE SCROLL IS THE FEATURE, not a nicety. These nudges sit at the top of the
+   * home screen and the member panel they open is roughly two thousand pixels
+   * below it, so selecting the member and setting the tab — which this always
+   * did correctly — changed nothing whatsoever within sight of the person who
+   * clicked. "No growth checks for Ganga yet" read as a dead button, and so did
+   * every other nudge with a `tab` (sizes, check-ups, medical, documents) and
+   * the whole ReadinessCard, while the nudges carrying a `view` worked, because
+   * a view change scrolls to the top. Two rows of the same list, one live and
+   * one apparently broken, with nothing on screen to explain the difference.
+   *
+   * setMainView('profiles') matters for the callers that are NOT on this screen
+   * — the assistant bubble is mounted globally, so a member link tapped from
+   * the calendar or the insurance view has to bring the profiles view with it.
+   * One caller used to remember that itself; the other three did not. */
   const goToMemberTab = (memberId: string, tab: string) => {
     if (memberId === selectedMemberId) {
       setActiveTab(tab as TabId);
@@ -1841,7 +1872,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       pendingTabRef.current = tab as TabId;
       setSelectedMemberId(memberId);
     }
+    setMainView('profiles');
     setDeleteConfirmMemberId(null);
+    // A counter, not a boolean: asking for the tab you are already on is still
+    // a request to be taken there, and must still scroll.
+    setMemberJumpSignal((n) => n + 1);
   };
 
   // Renewal notices across passports, permits, licenses and visas (real date)
@@ -2200,7 +2235,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         {mainView === 'gifts' && (
           <GiftsOccasionsView
             members={members}
-            onSelectMember={(id) => { goToMemberTab(id, 'favorites'); setMainView('profiles'); }}
+            onSelectMember={(id) => goToMemberTab(id, 'favorites')}
           />
         )}
 
@@ -2437,7 +2472,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
                 </section>
 
                 {/* Selected member detail */}
-                <section className="lg:col-span-8 space-y-5">
+                <section ref={memberPanelRef} className="lg:col-span-8 space-y-5 scroll-mt-24">
                   {selectedMember ? (
                     <div className="card overflow-hidden min-h-[500px] flex flex-col">
                       <div className="p-5 sm:p-6 border-b border-cream-200 flex flex-col xl:flex-row xl:items-center justify-between gap-4">

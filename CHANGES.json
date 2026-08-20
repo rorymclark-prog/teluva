@@ -1,9 +1,10 @@
 {
-  "label": "v226",
+  "label": "v227",
   "changes": [
-    "Birthdays now come with you. Save your calendar as a file, or subscribe your phone to a Teluva link, and birthdays, name days and anniversaries come too — as yearly repeats, so you set it up once and they keep arriving every year after that.",
-    "When you create a sharing link you now choose whether it carries birthdays. Links you made before this stay exactly as they were — a link already sitting in somebody else's calendar app never quietly starts showing more than it did.",
-    "A \"Busy only\" link never carries birthdays, whatever else is set. That link exists so someone outside the family can see when you're busy without seeing why.",
-    "Importing your own exported file back no longer makes a second, frozen copy of every birthday. Teluva works those out from the family records, so it now recognises its own and leaves them out — and tells you it did."
+    "Extended birthdays now reach your phone. Grandparents, aunts, godparents and friends you keep on the Extended Birthdays list were shown in the app on the day and never notified anyone — now they arrive like a family member's birthday does.",
+    "Anniversaries do too. Wedding anniversaries and any other yearly date your family keeps now send a notification on the morning, counting the years when you've told us which year it started.",
+    "A birthday saved on a contact now counts as a real yearly reminder. That is where the assistant files a birthday for someone who isn't a full family member, and it had been promising you an ongoing yearly nudge it wasn't actually sending.",
+    "Someone you've recorded in two places is still only announced once — but two different people sharing a day always get their own notification.",
+    "Tapping a \"Needs attention\" row now takes you to the person. Rows like \"No growth checks for Ganga yet\" were opening the right page far below where you were looking, so they read as buttons that did nothing."
   ]
 }
