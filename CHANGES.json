@@ -1,11 +1,12 @@
 {
-  "label": "v230",
+  "label": "v231",
   "changes": [
     "Wills & Estate is now private. Only admins can open it — the will, the letter you leave behind, the executor's details and who holds the signed original are no longer visible to everyone in the family.",
     "You can name individual people who may read it. Open Wills & Estate and use \"Who can open this\" — the person you've designated to handle your estate can be given the will without being handed the rest of the vault, and nobody else gets it by default.",
     "Naming someone lets them read it, never change it. Only admins can edit records, the successor or the letter.",
     "Old grants no longer linger silently. If someone leaves the space or becomes an admin, their access shows up as an old grant you can clear, instead of quietly coming back if they're ever re-added.",
     "The rest of the app respects the lock too. The readiness score, \"needs attention\" and the assistant no longer mention the will — or that one is missing — to anyone who can't open it.",
-    "If the assistant is asked to change the will by someone who isn't an admin, it now says so plainly instead of reporting a save problem."
+    "If the assistant is asked to change the will by someone who isn't an admin, it now says so plainly instead of reporting a save problem.",
+    "A phone that could open Wills & Estate before now clears its saved copy the first time it opens the app after the lock. Without this the lock changed nothing on the one device that already had the file."
   ]
 }

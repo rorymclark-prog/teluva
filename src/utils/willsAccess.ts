@@ -34,6 +34,24 @@ export function canReadWills(
   return (access?.readerUids || []).includes(uid);
 }
 
+/**
+ * Should this device throw away its cached plaintext copy of the will?
+ *
+ * Only when we KNOW who this is AND know they are denied. A null role means
+ * "not resolved yet" or "signed out", and both of those happen on an ADMIN's
+ * own device — purging there would delete their offline copy and, worse, the
+ * dirty flag that marks an edit they made offline and haven't synced yet.
+ * Absence of permission is not the same as permission being absent.
+ */
+export function shouldPurgeLocalWills(
+  role: FamilyRole | null,
+  uid: string | null,
+  access: WillsAccessDoc | null,
+): boolean {
+  if (!uid || !role) return false;
+  return !canReadWills(role, uid, access);
+}
+
 /** Can this person CHANGE it — records, successor, the letter? Admins only. */
 export function canWriteWills(role: FamilyRole | null): boolean {
   return role === 'admin';

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { loadWillsAccess } from '../utils/db';
-import { canReadWills, canWriteWills } from '../utils/willsAccess';
+import { loadWillsAccess, purgeLocalWillsEstate } from '../utils/db';
+import { canReadWills, canWriteWills, shouldPurgeLocalWills } from '../utils/willsAccess';
 import type { WillsAccessDoc } from '../types';
 
 /*
@@ -58,9 +58,14 @@ export function useWillsAccess(): WillsAccessState {
       if (!active) return;
       setAccess(a);
       setLoading(false);
+      // The lock has to reach the devices that already had the data. Nothing
+      // else will clear it: from v230 a locked-out member never requests the
+      // document, so the server never refuses, so loadReferenceDoc's own purge
+      // never runs — see purgeLocalWillsEstate.
+      if (shouldPurgeLocalWills(role, uid, a)) purgeLocalWillsEstate();
     });
     return () => { active = false; };
-  }, [familyId, uid, nonce]);
+  }, [familyId, uid, role, nonce]);
 
   const refresh = useCallback(() => {
     invalidateWillsAccess();

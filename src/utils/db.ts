@@ -822,6 +822,29 @@ export async function loadWillsAccess(): Promise<WillsAccessDoc | null> {
   }
 }
 
+/**
+ * Drop this device's cached plaintext copy of the will.
+ *
+ * loadReferenceDoc purges the cache when the SERVER refuses a read — but from
+ * v230 a locked-out member never makes that request at all, because the app
+ * stops asking (hidden nav, skipped nudges, skipped readiness, no AI context).
+ * The refusal that would have cleaned up never happens, so a member who could
+ * open the will yesterday keeps a readable copy in their own localStorage
+ * indefinitely, reachable from devtools. Called by useWillsAccess the moment
+ * the answer comes back "no".
+ *
+ * Deliberately unconditional and silent: there is no case where a device that
+ * may not read this document should keep a copy of it.
+ */
+export function purgeLocalWillsEstate() {
+  try {
+    localStorage.removeItem(`${SHARED_DOCS.willsEstate.localKey}_${FAMILY_ID}`);
+  } catch { /* private mode */ }
+  // A pending write we are no longer allowed to make would otherwise be
+  // retried on every load, forever.
+  clearDirty(SHARED_DOCS.willsEstate.key, FAMILY_ID);
+}
+
 /** Admins only — the rule rejects everyone else. Returns false if it did. */
 export async function saveWillsAccess(readerUids: string[], updatedBy?: string): Promise<boolean> {
   if (!auth.currentUser) return false;

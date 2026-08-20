@@ -18,7 +18,7 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { canReadWills, canWriteWills, grantableMembers, withReader, staleReaders } from './willsAccess';
+import { canReadWills, canWriteWills, shouldPurgeLocalWills, grantableMembers, withReader, staleReaders } from './willsAccess';
 import type { FamilyMemberRole, WillsAccessDoc } from '../types';
 
 const access = (readerUids: string[]): WillsAccessDoc => ({ readerUids });
@@ -50,6 +50,23 @@ assert.strictEqual(canWriteWills('admin'), true);
 assert.strictEqual(canWriteWills('member'), false);
 assert.strictEqual(canWriteWills('child'), false);
 assert.strictEqual(canWriteWills(null), false);
+
+// ── shouldPurgeLocalWills ─────────────────────────────────────────────────
+// The cached plaintext copy on a device that may no longer read the will.
+// Purge it for a KNOWN denied person...
+assert.strictEqual(shouldPurgeLocalWills('member', 'u-mem', null), true);
+assert.strictEqual(shouldPurgeLocalWills('member', 'u-mem', access(['u-other'])), true);
+assert.strictEqual(shouldPurgeLocalWills('child', 'u-kid', access(['u-kid'])), true);
+// ...never for someone who may read it...
+assert.strictEqual(shouldPurgeLocalWills('admin', 'u-admin', null), false);
+assert.strictEqual(shouldPurgeLocalWills('member', 'u-mem', access(['u-mem'])), false);
+// ...and NEVER on an unresolved or signed-out identity. This is the dangerous
+// case: those states occur on an ADMIN's own device (auth still resolving,
+// or signed out), and the purge also clears the dirty flag — so firing here
+// would discard an edit they made offline and hadn't synced yet.
+assert.strictEqual(shouldPurgeLocalWills(null, null, null), false, 'signed out is not "denied"');
+assert.strictEqual(shouldPurgeLocalWills(null, 'u-admin', null), false, 'role not resolved yet');
+assert.strictEqual(shouldPurgeLocalWills('admin', null, null), false, 'uid not resolved yet');
 
 // ── grantableMembers ──────────────────────────────────────────────────────
 const roles: Record<string, FamilyMemberRole> = {
