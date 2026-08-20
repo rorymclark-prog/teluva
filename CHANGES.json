@@ -1,11 +1,12 @@
 {
-  "label": "v228",
+  "label": "v229",
   "changes": [
     "Birthdays for people who aren't family members now all live in one place. Extended Birthdays is it — anything saved there shows on the family calendar, goes out in your exported calendar file, and sends a reminder every year.",
     "The assistant now saves them there. Tell it \"Granny's birthday is 3 March\" and it lands on the Extended Birthdays list, where it recurs, instead of quietly becoming a note on a contact that only ever showed on the home screen.",
     "Birthdays you'd already saved on a contact have been moved across for you — nothing to do, and nothing lost.",
     "The contact form no longer asks for a birthday. It points to Extended Birthdays instead, so a birthday can't end up in the weaker place by accident.",
     "\"Needs attention\" now says it on the day itself, not just in the run-up, and tapping the row opens the Extended Birthdays list.",
-    "An age is only shown when we actually know the year someone was born. Before, a birthday saved without a year could show a made-up age."
+    "An age is only shown when we actually know the year someone was born. Before, a birthday saved without a year could show a made-up age.",
+    "Your household vendor list can no longer be wiped by an edit made elsewhere. A change to Important info from another device, or a contact filed by the assistant, was dropping the plumber/electrician list from the same page."
   ]
 }

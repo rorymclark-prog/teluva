@@ -2247,7 +2247,11 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
           />
         )}
 
-        {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onContactsChange={setContacts} />}
+        {/* onContactsChange is skipped in the demo: ImportantInfo reads the real
+            (empty) vault on mount and would push [] up, wiping the demo family's
+            contacts — and with them Oma's birthday off the home screen the
+            moment you looked at the Info tab. */}
+        {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onContactsChange={demo ? undefined : setContacts} />}
 
         {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} />}
 

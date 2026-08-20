@@ -50,7 +50,11 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
   // contact / provider forms are child components holding their own draft
   // state, so a list refresh never disturbs what someone is typing.
   useSharedDoc<FamilyInfo>('info', (d) => {
-    const next = { numbers: d.numbers || [], contacts: d.contacts || [], providers: d.providers || [] };
+    // `vendors` belongs here too. Leaving it out dropped the household-vendor
+    // list from local state on any remote update — and the next edit made on
+    // this screen persists exactly this object, so the omission would have
+    // been written back to Firestore as a deletion.
+    const next = { numbers: d.numbers || [], contacts: d.contacts || [], providers: d.providers || [], vendors: d.vendors || [] };
     setInfo(next);
     onContactsChange?.(next.contacts);
   });

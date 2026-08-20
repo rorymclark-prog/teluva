@@ -432,7 +432,10 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
       });
     }
   }
-  return { numbers, contacts, providers };
+  // `vendors` is carried through, not rebuilt: no edit kind writes it, and
+  // returning the doc without it made every AI info edit read as "the household
+  // vendor list was deleted".
+  return { numbers, contacts, providers, vendors: info.vendors };
 }
 
 export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote' || e.kind === 'cv' || e.kind === 'vaccination' || e.kind === 'visa' || e.kind === 'guardian' || e.kind === 'clear_field');
