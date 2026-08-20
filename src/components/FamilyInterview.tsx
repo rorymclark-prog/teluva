@@ -386,12 +386,18 @@ type Tone = 'clay' | 'sage' | 'dusk' | 'rosa' | 'honey';
 // day). Same per-step tone colour-coding as before, just recoloured for a
 // dark background — badge/eyebrow/accent per tone, mirroring how the hero
 // itself uses a tinted accent circle (bg-clay-500/20) on bg-ink-900.
-const TONE_CLASSES: Record<Tone, { badge: string; eyebrow: string; accent: string }> = {
-  clay:  { badge: 'bg-clay-500/20 text-clay-300',   eyebrow: 'text-clay-300',   accent: 'bg-clay-500/20' },
-  sage:  { badge: 'bg-sage-500/20 text-sage-300',   eyebrow: 'text-sage-300',   accent: 'bg-sage-500/20' },
-  dusk:  { badge: 'bg-dusk-500/20 text-dusk-300',   eyebrow: 'text-dusk-300',   accent: 'bg-dusk-500/20' },
-  rosa:  { badge: 'bg-rosa-500/20 text-rosa-300',   eyebrow: 'text-rosa-300',   accent: 'bg-rosa-500/20' },
-  honey: { badge: 'bg-honey-500/20 text-honey-300', eyebrow: 'text-honey-300', accent: 'bg-honey-500/20' },
+//
+// Rory (2026-08-20, on the resume card): wanted the eyebrow bigger and
+// painted with the same gradient as the progress bar at the top of the card.
+// That ramp is shared across every step — so the eyebrow no longer carries
+// the per-step tone, and the badge and accent circle below carry it alone.
+// See .step-eyebrow in index.css; do NOT add a text-* utility to that span.
+const TONE_CLASSES: Record<Tone, { badge: string; accent: string }> = {
+  clay:  { badge: 'bg-clay-500/20 text-clay-300',   accent: 'bg-clay-500/20' },
+  sage:  { badge: 'bg-sage-500/20 text-sage-300',   accent: 'bg-sage-500/20' },
+  dusk:  { badge: 'bg-dusk-500/20 text-dusk-300',   accent: 'bg-dusk-500/20' },
+  rosa:  { badge: 'bg-rosa-500/20 text-rosa-300',   accent: 'bg-rosa-500/20' },
+  honey: { badge: 'bg-honey-500/20 text-honey-300', accent: 'bg-honey-500/20' },
 };
 
 function StepHeader({ icon: Icon, tone, eyebrow, title, body }: {
@@ -410,8 +416,8 @@ function StepHeader({ icon: Icon, tone, eyebrow, title, body }: {
           <Icon className="w-5 h-5" />
         </div>
         <div className="min-w-0 pt-0.5">
-          <span className={`block text-[11px] font-bold uppercase tracking-wide ${t.eyebrow}`}>{eyebrow}</span>
-          <h3 id="interview-step-title" className="font-display text-lg font-semibold text-white leading-snug mt-1">
+          <span className="step-eyebrow">{eyebrow}</span>
+          <h3 id="interview-step-title" className="font-display text-lg font-semibold text-white leading-snug mt-1.5">
             {title}
           </h3>
         </div>

@@ -594,6 +594,48 @@ export interface HouseholdInfo {
   vehicles?: Vehicle[];
   pets?: Pet[];
   locations?: BusinessLocation[];
+  // What was actually DONE to this property, and by whom. See HomeServiceRecord.
+  homeServiceLog?: HomeServiceRecord[];
+}
+
+// One piece of work done on the property — the plumber, the electrician, the
+// boiler service, the roofer who came once and was never seen again.
+//
+// Rory, 2026-08-20: "we should be able to keep a log of what a plumber,
+// electrician or any service person did on the house, same with vehicle." A
+// vehicle has had exactly this since it shipped (Vehicle.serviceLog) and the
+// house had nothing — you could store WHO to call (HouseholdVendor, v236) but
+// not WHAT THEY DID, which is the half you actually need three years later
+// when the same pipe leaks again and the question is who touched it last.
+//
+// LIVES ON THE HOUSEHOLD, NOT ON THE VENDOR, for two reasons. Work done by
+// someone who was never in your directory — a one-off roofer, the landlord's
+// own man — still has to land somewhere. And "what has happened to this
+// house" is a chronology; hanging each entry off a vendor row makes it
+// unanswerable without walking every vendor.
+//
+// `by` and `trade` are DENORMALISED ON PURPOSE. A service log is a historical
+// record: "Installateur Hofer replaced the boiler valve in March 2024" stays
+// true after you stop using Hofer and delete them from the directory. Only
+// `vendorId` is a live link, and every reader must treat it as optional and
+// possibly dangling.
+//
+// Deliberately NOT written back to HouseholdVendor.lastServiceDate. That
+// field is a manual summary the family types, this is the history; a single
+// fact with two writers is how v228's birthday split-brain started. If the
+// two ever need to agree, derive the summary from the log — do not add a
+// second writer.
+export interface HomeServiceRecord {
+  id: string;
+  date: string;           // YYYY-MM-DD
+  work: string;           // what was done / what had broken
+  by?: string;            // who did it — a name, kept even if the vendor is later deleted
+  trade?: VendorTrade;    // same closed vocabulary as the vendor directory, so it filters
+  vendorId?: string;      // → HouseholdVendor.id when they are in the directory. May dangle.
+  area?: string;          // where/what — "Boiler", "Kitchen", "Roof", "Flat 2"
+  cost?: string;
+  warrantyUntil?: string; // YYYY-MM-DD — how long the work is guaranteed for
+  notes?: string;
 }
 
 // --- Finances (family-wide references, not passwords) ---

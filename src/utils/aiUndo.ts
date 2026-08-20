@@ -26,7 +26,7 @@ import type { AiEdit } from '../components/AIChatbot';
 export type UndoDomain =
   | 'member' | 'memberNested' | 'transitPass' | 'vaccination' | 'visa' | 'guardian' | 'serviceRecord'
   | 'contact' | 'number' | 'provider' | 'vendor'
-  | 'calendar' | 'vehicle' | 'pet' | 'utility'
+  | 'calendar' | 'vehicle' | 'pet' | 'utility' | 'homeService'
   | 'bank' | 'insurance' | 'benefit'
   | 'timeline' | 'familyWord' | 'shopping' | 'asset' | 'recipe' | 'slip' | 'estate'
   | 'anniversary' | 'extendedBirthday'
@@ -171,6 +171,10 @@ export function diffHouseholdUndo(before: HouseholdInfo, after: HouseholdInfo): 
       out.push({ domain: 'serviceRecord', id: rec.id, parentId: v.id, label: `${(v.name || 'vehicle').trim()}: ${(rec as any).work || 'service'}` });
     }
   }
+  // House work log — a flat list on the household itself, so unlike vehicle
+  // service records these need no parentId. There is only one house.
+  out.push(...mapNewIds(before.homeServiceLog, after.homeServiceLog, 'homeService',
+    (r: any) => [r.work || 'work', r.by].filter(Boolean).join(' — ')));
   return out;
 }
 
@@ -248,6 +252,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
     case 'cv': return `${who(e.member)}'s profile · CV`;
     case 'estate_record': return 'Wills & estate';
     case 'service_record': return 'Household · vehicle service history';
+    case 'home_service': return 'Household · work done on the house';
     // delete_record/update_record don't carry a `member` name — the person
     // (if any) is already named inside `e.label`, built by
     // annotateDestructiveEdits in aiDestructive.ts (e.g. "…from Rory's
@@ -264,6 +269,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
         visa: 'Travel · Visas', referral: 'Medical · Referrals & results', document: 'Document Vault',
         contact: 'Contacts', provider: 'Providers & services', number: 'Important numbers', vendor: 'Household vendors',
         vehicle: 'Household · Vehicles', pet: 'Household · Pets', utility: 'Household · Utilities',
+        home_service: 'Household · work done on the house',
         bank: 'Finances · Banks', insurance: 'Finances · Insurance', benefit: 'Finances · Benefits',
         timeline: 'Family timeline', calendar_event: 'Calendar', slip: 'Slips', asset: 'Assets',
       };

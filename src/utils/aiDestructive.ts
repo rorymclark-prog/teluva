@@ -98,6 +98,11 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   // silently changed nothing (found 2026-08-15, chat-function audit).
   vehicle: { name: 'name', make: 'make', model: 'model', year: 'year', registration: 'registration', vin: 'vin', fuelType: 'fuelType', assignedMember: 'assignedMember', insurer: 'insurer', insuranceNumber: 'insuranceNumber', insuranceRenewal: 'insuranceRenewal', inspectionExpiry: 'inspectionExpiry', vignetteExpiry: 'vignetteExpiry', lastService: 'lastService', serviceIntervalMonths: 'serviceIntervalMonths', parkingPermit: 'parkingPermit', parkingPermitExpiry: 'parkingPermitExpiry', notes: 'notes' },
   pet: { name: 'name', species: 'species', vet: 'vet', vaccinations: 'vaccinations', microchip: 'microchip', notes: 'notes' },
+  // A logged piece of house work. `work`, `by` and `date` are the ones that get
+  // corrected ("that was the 4th, not the 14th" / "it was his apprentice");
+  // vendorId is deliberately NOT patchable from chat — it is a link aiApply
+  // resolves, not a value the model has any way to know.
+  home_service: { work: 'work', date: 'date', by: 'by', trade: 'trade', area: 'area', cost: 'cost', warrantyUntil: 'warrantyUntil', notes: 'notes', note: 'notes' },
   utility: { type: 'type', provider: 'provider', accountNumber: 'accountNumber', notes: 'notes' },
   bank: { bankName: 'bankName', accountHolder: 'accountHolder', iban: 'iban', bic: 'bic', notes: 'notes' },
   insurance: { provider: 'provider', type: 'type', policyNumber: 'policyNumber', renewalDate: 'renewalDate', notes: 'notes' },
@@ -144,6 +149,7 @@ function recordPhrase(targetKind: string, r: any): string {
     case 'vehicle': return `vehicle ${r.name || [r.make, r.model].filter(Boolean).join(' ') || r.registration || ''}`.trim();
     case 'pet': return `pet ${r.name || ''}`.trim();
     case 'utility': return `${r.type || 'utility'}${r.provider ? ' (' + r.provider + ')' : ''}`;
+    case 'home_service': return `house work “${r.work || ''}”${r.by ? ' by ' + r.by : ''}${r.date ? ' (' + r.date + ')' : ''}`;
     case 'bank': return `bank account ${r.bankName || ''}${r.iban ? ' · ' + r.iban : ''}`.trim();
     case 'insurance': return `${r.type || 'insurance'} policy${r.provider ? ' (' + r.provider + ')' : ''}`;
     case 'benefit': return `benefit ${r.name || ''}`.trim();
@@ -203,6 +209,7 @@ function findInContext(context: any, targetKind: string, id: string): Found {
     vehicle: context?.household?.vehicles,
     pet: context?.household?.pets,
     utility: context?.household?.utilities,
+    home_service: context?.household?.homeServiceLog,
     bank: context?.finances?.banks,
     insurance: context?.finances?.insurance,
     benefit: context?.finances?.benefits,
@@ -385,12 +392,12 @@ export async function applyDestructiveEdits(edits: AiEdit[], ctxMembers: FamilyM
     }
   }
 
-  // 4) household store (vehicles / pets / utilities).
+  // 4) household store (vehicles / pets / utilities / house work log).
   {
-    const relevant = [...dels, ...upds].filter(e => ['vehicle', 'pet', 'utility'].includes(e.targetKind));
+    const relevant = [...dels, ...upds].filter(e => ['vehicle', 'pet', 'utility', 'home_service'].includes(e.targetKind));
     if (relevant.length) {
       const h: any = (await loadHousehold()) || {};
-      const arrKey: Record<string, 'vehicles' | 'pets' | 'utilities'> = { vehicle: 'vehicles', pet: 'pets', utility: 'utilities' };
+      const arrKey: Record<string, 'vehicles' | 'pets' | 'utilities' | 'homeServiceLog'> = { vehicle: 'vehicles', pet: 'pets', utility: 'utilities', home_service: 'homeServiceLog' };
       let dirty = false;
       for (const e of relevant) {
         const key = arrKey[e.targetKind];

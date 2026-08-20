@@ -41,6 +41,7 @@ import {
   hasStatusEdits, applyStatusEdit,
   hasSlipEdits, applySlipEdits,
   hasServiceRecordEdits, applyServiceRecordEdits,
+  hasHomeServiceEdits, applyHomeServiceEdits,
 } from '../utils/aiApply';
 // EDIT/DELETE existing records (confirm-before-destroy) — real logic lives here.
 import { hasDestructiveEdits, applyDestructiveEdits } from '../utils/aiDestructive';
@@ -1153,19 +1154,26 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       if (!ok) failures.push('calendar');
       else undo.push(...mapNewIds(events, next, 'calendar', (e) => e.title || 'event'));
     }
-    if (hasHouseholdEdits(edits) || hasServiceRecordEdits(edits)) {
+    if (hasHouseholdEdits(edits) || hasServiceRecordEdits(edits) || hasHomeServiceEdits(edits)) {
       const h = (await loadHousehold()) || {};
+      // The vendor directory lives in the OTHER document, and is read here for
+      // one purpose only: turning "the plumber was Hofer" into a link to the
+      // Hofer row. Loaded lazily so a batch with no house work doesn't pay for
+      // a second read, and never written back — see applyHomeServiceEdits.
+      const vendorDirectory = hasHomeServiceEdits(edits)
+        ? ((await loadFamilyInfo())?.vendors || [])
+        : [];
       // Apply household list_add/household_set first (so a vehicle added in the
       // same batch exists), then append any scanned service records onto the
-      // matching vehicle. One save covers both.
-      const h2 = applyHouseholdEdits(h, edits);
+      // matching vehicle, then any work done on the house. One save covers all.
+      const h2 = applyHomeServiceEdits(applyHouseholdEdits(h, edits), edits, vendorDirectory);
       const { vehicles, matched, unmatched } = applyServiceRecordEdits(h2.vehicles || [], edits);
       // If service records named a vehicle that isn't on file AND there is
       // nothing else to save from this batch, tell the user plainly instead of
       // dropping the data. Throw BEFORE saving so a retry can't double-add
       // (nothing was persisted yet); when other edits or matched records exist
       // we save them and let the assistant's reply mention any it couldn't place.
-      if (unmatched.length && matched === 0 && !hasHouseholdEdits(edits)) {
+      if (unmatched.length && matched === 0 && !hasHouseholdEdits(edits) && !hasHomeServiceEdits(edits)) {
         throw new Error(`I couldn't find a vehicle on file matching ${unmatched.join(', ')}. Add that vehicle first (or check the plate on the document), then scan the service history again.`);
       }
       const after = { ...h2, vehicles };
@@ -1329,7 +1337,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
       hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasAnniversaryEdits(edits) || hasEstateEdits(edits) || hasSlipEdits(edits) ||
       hasSuccessorEdits(edits) || hasInstructionsEdits(edits) ||
-      hasServiceRecordEdits(edits) || hasDestructiveEdits(edits)
+      hasServiceRecordEdits(edits) || hasHomeServiceEdits(edits) || hasDestructiveEdits(edits)
     ) {
       setAiDataVersion(v => v + 1);
     }
@@ -1451,14 +1459,16 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       setEvents(next);
     }
 
-    // --- Household: vehicles / pets / utilities + service records ---
+    // --- Household: vehicles / pets / utilities + vehicle & house work logs ---
     const vehIds = idsFor('vehicle'), petIds = idsFor('pet'), utilIds = idsFor('utility');
+    const homeSvcIds = idsFor('homeService');
     const serviceRecs = records.filter(r => r.domain === 'serviceRecord');
-    if (vehIds.size || petIds.size || utilIds.size || serviceRecs.length) {
+    if (vehIds.size || petIds.size || utilIds.size || homeSvcIds.size || serviceRecs.length) {
       const h = (await loadHousehold()) || {};
       tally(new Set((h.vehicles || []).map(v => v.id)), vehIds);
       tally(new Set((h.pets || []).map(p => p.id)), petIds);
       tally(new Set((h.utilities || []).map(u => u.id)), utilIds);
+      tally(new Set((h.homeServiceLog || []).map(r => r.id)), homeSvcIds);
       let vehicles = (h.vehicles || []).filter(v => !vehIds.has(v.id));
       const byVeh = new Map<string, Set<string>>();
       for (const r of serviceRecs) {
@@ -1475,11 +1485,16 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       });
       // Service records whose vehicle no longer exists — count as not-found.
       for (const rm of byVeh.values()) for (const _ of rm) missing++;
+      // ...h first, and it is load-bearing: this document is three-way-merged
+      // on save, so any household key not named here would be read as a
+      // deletion. That is exactly how the info doc's `vendors` list was being
+      // wiped by an unrelated undo until v236.
       await saveHousehold({
         ...h,
         vehicles,
         pets: (h.pets || []).filter(p => !petIds.has(p.id)),
         utilities: (h.utilities || []).filter(u => !utilIds.has(u.id)),
+        homeServiceLog: (h.homeServiceLog || []).filter(r => !homeSvcIds.has(r.id)),
       });
     }
 

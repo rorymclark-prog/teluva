@@ -112,6 +112,23 @@
      someone else's brand identity, not ours. This stays warm end-to-end
      instead of rotating into purple/magenta. */
   --gradient-ring: linear-gradient(45deg, #EFC97E 0%, #EA5A3B 45%, #CF1740 100%);
+  /* The same ramp for painting TEXT ON A DARK CARD (see .step-eyebrow). Two
+     deliberate differences from --gradient-ring, both forced by the fact that
+     this one has to be READ rather than looked at:
+
+     HORIZONTAL. A 45° gradient on a one-line text box is a diagonal across a
+     box whose width changes with the label — "ALL SET" would show a squeezed
+     corner of the ramp while "IDENTITY & DOCUMENTS" showed all of it.
+
+     LIGHTER AT THE ROSE END. --gradient-ring finishes on rosa-600 (#CF1740),
+     which is ~3.1:1 against ink-900 — under AA for 13px text, and the last
+     word of every eyebrow would have landed in it. These are the 200/400
+     steps of the same three families (honey → clay → rosa), i.e. the same
+     ramp drawn for a dark ground, exactly as the per-step tone classes on
+     this card already use the 300 steps rather than the 500s. Measured
+     against ink-900: 10.9:1, 6.0:1, 5.0:1. Do not "restore" the darker
+     stops — it is the same gradient, corrected for where it is used. */
+  --gradient-ring-text: linear-gradient(90deg, #EFC97E 0%, #F0764F 50%, #E95777 100%);
 
   --shadow-soft: 0 1px 2px rgba(28, 25, 23, 0.05);
   --shadow-lift: 0 4px 12px rgba(28, 25, 23, 0.07), 0 12px 32px rgba(28, 25, 23, 0.07);
@@ -274,6 +291,49 @@
      of erroring, rather than risk that here on an untested bracket class. */
   .progress-fill {
     background: var(--gradient-ring);
+  }
+
+  /* Guided-setup step eyebrow ("GUIDED SETUP", "MEDICAL ESSENTIALS"…),
+     painted with the same gradient as the progress bar a few pixels above it
+     so the two read as one piece of furniture rather than two unrelated
+     accents on the same card. Bigger than the 11px it was, because at that
+     size on a black card it was a footnote above the headline instead of the
+     label of the flow you are in.
+
+     NO TAILWIND COLOUR UTILITY MAY BE PUT ON THIS ELEMENT. Tailwind's
+     utilities layer sorts after @layer components, so a `text-clay-300`
+     alongside this class wins the `color` declaration, repaints the glyphs
+     opaque, and hides the gradient behind them — silently, and only in the
+     browser, which is exactly the kind of thing a test never sees. The
+     per-step tone colour still shows on the icon badge and the accent
+     circle; the eyebrow is deliberately one shared ramp across every step.
+
+     The @supports guard matters: `color: transparent` with no working
+     background-clip is INVISIBLE TEXT, not a degraded colour. Outside the
+     guard the eyebrow simply inherits the card's white. */
+  .step-eyebrow {
+    display: block;
+    /* fit-content, not the default block width: background-clip paints the
+       ELEMENT's box, and a full-width block would stretch the ramp across
+       whatever the widest sibling happens to be — so the same label would
+       show a different slice of the gradient on every step. Shrink-wrapping
+       gives every eyebrow the whole sweep, short or long. */
+    width: fit-content;
+    max-width: 100%;
+    font-size: 0.8125rem;   /* 13px, from 11px */
+    line-height: 1.15;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: #fff;
+  }
+  @supports (background-clip: text) or (-webkit-background-clip: text) {
+    .step-eyebrow {
+      background: var(--gradient-ring-text);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
   }
 }
 

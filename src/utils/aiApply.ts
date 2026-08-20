@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind, ExtendedBirthday, HouseholdVendor } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind, ExtendedBirthday, HouseholdVendor, HomeServiceRecord } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
@@ -416,7 +416,7 @@ const VALID_VENDOR_TRADES = [
  * rather than discarding it. A vendor filed as "Other" with no trace of
  * "Roofer" anywhere is a worse record than the user's own sentence was.
  */
-function matchVendorTrade(raw?: string): { trade: HouseholdVendor['trade']; unmatched?: string } {
+export function matchVendorTrade(raw?: string): { trade: HouseholdVendor['trade']; unmatched?: string } {
   const t = String(raw || '').trim();
   if (!t) return { trade: 'Other' };
   const norm = t.toLowerCase();
@@ -996,4 +996,63 @@ export function applyServiceRecordEdits(
     matched += recs.length;
   }
   return { vehicles: next, matched, unmatched };
+}
+
+// --- House service history (what the plumber/electrician actually did) ------
+// The property's version of the above. There is only one house, so there is
+// nothing to match against and nothing that can fail to land — the entire
+// unmatched/throw machinery of applyServiceRecordEdits has no equivalent here.
+//
+// `by` is resolved against the vendor directory when one is supplied, ONLY to
+// stamp vendorId and to borrow their canonical trade. The name is stored on
+// the record regardless: see HomeServiceRecord in types.ts for why a service
+// log must not go blank when a vendor row is deleted years later.
+//
+// Deliberately does not touch the vendor's own lastServiceDate. One fact, one
+// writer — that is v228's lesson and it applies here exactly.
+export const hasHomeServiceEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'home_service');
+
+const normVendorName = (s?: string) => (s || '').trim().toLowerCase();
+
+export function applyHomeServiceEdits(
+  household: HouseholdInfo,
+  edits: AiEdit[],
+  vendors: HouseholdVendor[] = [],
+): HouseholdInfo {
+  const recs: HomeServiceRecord[] = [];
+  for (const e of edits) {
+    if (e.kind !== 'home_service') continue;
+    for (const r of e.records || []) {
+      const work = (r?.work || '').trim();
+      if (!work) continue;   // an entry with no work done is not a record of anything
+      const by = r.by?.trim() || undefined;
+      // Match on the person's name OR their firm — a family says "Hofer" for
+      // both, and which one is in the directory's `name` field is a coin flip.
+      const hit = by
+        ? vendors.find(v => normVendorName(v.name) === normVendorName(by))
+          ?? vendors.find(v => v.company && normVendorName(v.company) === normVendorName(by))
+        : undefined;
+      // The model's word wins when it gave one; the linked vendor's trade only
+      // fills a blank. Someone's usual plumber can turn up to fit a radiator.
+      const trade = r.trade ? matchVendorTrade(r.trade).trade : hit?.trade;
+      const unmatched = r.trade ? matchVendorTrade(r.trade).unmatched : undefined;
+      const notes = [r.notes?.trim(), unmatched ? `Trade: ${unmatched}` : ''].filter(Boolean).join(' · ');
+      recs.push({
+        id: newId(),
+        date: (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) ? r.date : new Date().toISOString().slice(0, 10),
+        work,
+        by,
+        trade,
+        vendorId: hit?.id,
+        area: r.area?.trim() || undefined,
+        cost: r.cost?.trim() || undefined,
+        warrantyUntil: (r.warrantyUntil && /^\d{4}-\d{2}-\d{2}$/.test(r.warrantyUntil)) ? r.warrantyUntil : undefined,
+        notes: notes || undefined,
+      });
+    }
+  }
+  if (!recs.length) return household;
+  // Spread, never a key list — HouseholdInfo is a merged shared doc and every
+  // key this function fails to name would be read as a deletion on save.
+  return { ...household, homeServiceLog: [...(household.homeServiceLog || []), ...recs] };
 }

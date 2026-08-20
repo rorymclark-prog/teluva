@@ -134,7 +134,15 @@ const MANUALLY_INCLUDED_FIELDS = ['cv'];
 // exactly why `vendors` sat unreachable by the assistant for as long as it did
 // while newer docs were caught within a day. The guard was blind to the
 // document the bug class started in.
-const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc', 'ExtendedBirthdaysDoc', 'FamilyInfo'];
+//
+// 'HouseholdInfo' added 2026-08-20 while giving the house a service log. Its
+// absence is the same shape of hole as FamilyInfo's: vehicles, pets and
+// utilities have had AI kinds for a long time, but nothing was checking, so
+// the next collection added to the household document — homeServiceLog, in
+// this case — could have shipped unreachable by the assistant and no test
+// would have said a word. Adding it also forces `locations` to declare itself,
+// which is how the known_gap below got written down instead of forgotten.
+const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc', 'ExtendedBirthdaysDoc', 'FamilyInfo', 'HouseholdInfo'];
 
 function extractRecordFields(body: string): string[] {
   const out: string[] = [];
@@ -298,6 +306,23 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   'FamilyInfo.contacts': covered('contact'),
   'FamilyInfo.providers': covered('provider'),
   'FamilyInfo.vendors': covered('vendor'),
+
+  // The household document. utilities/vehicles/pets are written by
+  // household's list_add; the two service histories have their own kinds
+  // because both APPEND onto an existing parent rather than creating a row.
+  'HouseholdInfo.utilities': covered('list_add', 'list "utilities"'),
+  'HouseholdInfo.vehicles': covered('list_add', 'list "vehicles"'),
+  'HouseholdInfo.pets': covered('list_add', 'list "pets"'),
+  'HouseholdInfo.homeServiceLog': covered('home_service'),
+  'HouseholdInfo.locations': knownGap(
+    'Business-space only: the extra premises of a multi-site business, shown '
+    + 'in HouseholdView behind isBusinessSpace. The assistant has no business-'
+    + 'space vocabulary for it — household list_add writes utilities, vehicles '
+    + 'and pets only — so "add our Cape Town branch at 5 Long Street" lands '
+    + 'nowhere today. Small, real, and deliberately left until the business '
+    + 'bundle is a product rather than a family vault wearing a different hat '
+    + '(see project_teluva_business_bundle).',
+  ),
 
   // calendarFeeds is intentionally read-only to the AI, not covered by a
   // write kind. Subscribing to a feed means pasting in another calendar's

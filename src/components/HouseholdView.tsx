@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { HouseholdInfo, UtilityProvider, Pet, BusinessLocation } from '../types';
-import { loadHousehold, saveHousehold } from '../utils/db';
+import { HouseholdInfo, UtilityProvider, Pet, BusinessLocation, HomeServiceRecord, HouseholdVendor, VendorTrade } from '../types';
+import { loadHousehold, saveHousehold, loadFamilyInfo } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import EmptyState from './EmptyState';
+import ConfirmDeleteButton from './ConfirmDeleteButton';
 import {
   Home, Plug, PawPrint, Plus, Trash2, Pencil, Check, X,
-  Cloud, CloudOff, MapPin, Building2, KeyRound, Info,
+  Cloud, CloudOff, MapPin, Building2, KeyRound, Info, Wrench,
 } from 'lucide-react';
 
 const EMPTY: HouseholdInfo = {
@@ -25,7 +26,18 @@ const EMPTY: HouseholdInfo = {
   vehicles: [],
   pets: [],
   locations: [],
+  homeServiceLog: [],
 };
+
+// The vendor directory's vocabulary, reused verbatim so a logged job and the
+// tradesperson's directory row can never describe the same trade differently.
+// Sourced from VendorTrade in types.ts; aiApply.matchVendorTrade maps whatever
+// the assistant says onto the same list.
+const TRADES: VendorTrade[] = [
+  'Plumber', 'Electrician', 'Boiler / heating', 'Locksmith', 'Handyman',
+  'Cleaner', 'Gardener', 'Appliance repair', 'Pest control',
+  'Neighbour (spare key)', 'Other',
+];
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
@@ -38,6 +50,11 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
   const [info, setInfo] = useState<HouseholdInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
+  // The tradespeople directory lives in the OTHER shared document (Important
+  // info → vendors). Read here, never written: it only populates the "who did
+  // it" picker on the work log below, so a family that has already filed their
+  // plumber doesn't retype the name. A failed load just means a free-text box.
+  const [vendors, setVendors] = useState<HouseholdVendor[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -47,6 +64,8 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
         setInfo(data ? { ...EMPTY, ...data } : EMPTY);
         setLoaded(true);
       }
+      const fam = await loadFamilyInfo().catch(() => null);
+      if (active && fam?.vendors) setVendors(fam.vendors);
     })();
     return () => { active = false; };
   }, [refreshKey]);
@@ -291,6 +310,18 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
         onDelete={(id) => { if (window.confirm('Remove this utility? This can’t be undone.')) persist({ ...info, utilities: (info.utilities ?? []).filter(x => x.id !== id) }); }}
       />
 
+      {/* Work done on the property. Not gated on isBusinessSpace — an office
+          has a plumber too, and the same question ("who fixed this last time?")
+          is asked of premises exactly as it is of a home. */}
+      <HomeServiceSection
+        entries={info.homeServiceLog ?? []}
+        vendors={vendors}
+        isBusinessSpace={isBusinessSpace}
+        onAdd={(r) => persist({ ...info, homeServiceLog: [...(info.homeServiceLog ?? []), r] })}
+        onUpdate={(r) => persist({ ...info, homeServiceLog: (info.homeServiceLog ?? []).map(x => x.id === r.id ? r : x) })}
+        onDelete={(id) => persist({ ...info, homeServiceLog: (info.homeServiceLog ?? []).filter(x => x.id !== id) })}
+      />
+
       {/* Vehicles moved to their own dedicated "Vehicles" section (with inspection,
           insurance & service reminders). See VehiclesView. */}
 
@@ -492,6 +523,209 @@ function UtilitiesSection({ entries, onAdd, onUpdate, onDelete }: {
         </div>
       )}
     </section>
+  );
+}
+
+/* ─── Work done on the property ──────────────────────────────────────────── */
+
+/**
+ * The house's service history — the counterpart to a vehicle's serviceLog.
+ *
+ * Newest first, because the only question anyone ever brings to this list is
+ * "when did we last…" — a chronological-ascending log answers that last.
+ *
+ * Long lists collapse to the most recent six. A house accumulates decades of
+ * this, and a wall of 1998 boiler services buries the one entry from last
+ * month that someone actually opened the screen to check.
+ */
+function HomeServiceSection({ entries, vendors, isBusinessSpace, onAdd, onUpdate, onDelete }: {
+  entries: HomeServiceRecord[];
+  vendors: HouseholdVendor[];
+  isBusinessSpace?: boolean;
+  onAdd: (r: HomeServiceRecord) => void;
+  onUpdate: (r: HomeServiceRecord) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+
+  const sorted = [...entries].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const visible = showAll ? sorted : sorted.slice(0, 6);
+  const place = isBusinessSpace ? 'the premises' : 'the house';
+  const today = new Date().toLocaleDateString('en-CA');
+
+  return (
+    <section className="card p-5 space-y-4">
+      <div className="flex items-center justify-between pb-3 border-b border-cream-200">
+        <h3 className="section-label flex items-center gap-1.5"><Wrench className="w-3.5 h-3.5" /> Work done on {place}</h3>
+        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
+          <Plus className="w-3.5 h-3.5" /> Log work
+        </button>
+      </div>
+
+      {adding && (
+        <HomeServiceForm
+          vendors={vendors}
+          onSave={(r) => { onAdd(r); setAdding(false); }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+
+      {entries.length === 0 && !adding ? (
+        <EmptyState
+          icon={Wrench}
+          title={`Nothing logged yet — the plumber, the electrician, the boiler service, anyone who's worked on ${place}`}
+        />
+      ) : (
+        <div className="space-y-2.5">
+          {visible.map(r => editId === r.id ? (
+            <div key={r.id}>
+              <HomeServiceForm
+                initial={r}
+                vendors={vendors}
+                onSave={(upd) => { onUpdate(upd); setEditId(null); }}
+                onCancel={() => setEditId(null)}
+              />
+            </div>
+          ) : (
+            <div key={r.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+                  {r.date && <span className="tabular-nums">{r.date}</span>}
+                  {r.trade && <span className="text-clay-700">{r.trade}</span>}
+                  {r.area && <span>{r.area}</span>}
+                </div>
+                <p className="text-[14px] font-semibold text-ink-900 mt-0.5">{r.work}</p>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-[12px] text-ink-500">
+                  {r.by && <span>{r.by}</span>}
+                  {r.cost && <span className="font-semibold text-ink-700 tabular-nums">{r.cost}</span>}
+                  {/* A guarantee is only worth surfacing while it still runs —
+                      an expired one is history, not something to act on. */}
+                  {r.warrantyUntil && (
+                    r.warrantyUntil >= today
+                      ? <span className="text-sage-700 font-medium tabular-nums">Guaranteed to {r.warrantyUntil}</span>
+                      : <span className="tabular-nums">Guarantee ended {r.warrantyUntil}</span>
+                  )}
+                </div>
+                {r.notes && <p className="text-[12px] text-ink-500 mt-0.5 italic">“{r.notes}”</p>}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => { setEditId(r.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <ConfirmDeleteButton
+                  onConfirm={() => onDelete(r.id)}
+                  ariaLabel={`Delete log entry: ${r.work}`}
+                  hint="Removes this entry from the history. The tradesperson stays in your vendor list."
+                />
+              </div>
+            </div>
+          ))}
+          {sorted.length > visible.length && (
+            <button onClick={() => setShowAll(true)} className="btn-quiet text-xs px-3 py-1.5 w-full justify-center">
+              Show {sorted.length - visible.length} older {sorted.length - visible.length === 1 ? 'entry' : 'entries'}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HomeServiceForm({ initial, vendors, onSave, onCancel }: {
+  initial?: HomeServiceRecord;
+  vendors: HouseholdVendor[];
+  onSave: (r: HomeServiceRecord) => void;
+  onCancel: () => void;
+}) {
+  const [work, setWork] = useState(initial?.work ?? '');
+  // Defaults to today rather than blank: work is nearly always logged the day
+  // it happened or the evening after, and a blank date sorts the entry to the
+  // bottom of a list whose entire purpose is chronology.
+  const [date, setDate] = useState(initial?.date ?? new Date().toLocaleDateString('en-CA'));
+  const [by, setBy] = useState(initial?.by ?? '');
+  const [vendorId, setVendorId] = useState(initial?.vendorId ?? '');
+  const [trade, setTrade] = useState<string>(initial?.trade ?? '');
+  const [area, setArea] = useState(initial?.area ?? '');
+  const [cost, setCost] = useState(initial?.cost ?? '');
+  const [warrantyUntil, setWarrantyUntil] = useState(initial?.warrantyUntil ?? '');
+  const [notes, setNotes] = useState(initial?.notes ?? '');
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Picking a saved vendor fills the name and trade but leaves both editable —
+  // the usual plumber can turn up to do something outside their trade, and the
+  // record has to say what actually happened, not what the directory says.
+  const pickVendor = (id: string) => {
+    setVendorId(id);
+    const v = vendors.find(x => x.id === id);
+    if (!v) return;
+    setBy(v.name);
+    if (v.trade) setTrade(v.trade);
+  };
+
+  const save = () => {
+    if (!work.trim()) { setFormError('Say what was done'); return; }
+    setFormError(null);
+    // vendorId is dropped when the name has been typed over — a link to Hofer
+    // on a record that now reads "his apprentice" is worse than no link.
+    const linked = vendors.find(v => v.id === vendorId);
+    const keepLink = linked && linked.name.trim().toLowerCase() === by.trim().toLowerCase();
+    onSave({
+      id: initial?.id ?? newId(),
+      date: date || new Date().toLocaleDateString('en-CA'),
+      work: work.trim(),
+      by: by.trim() || undefined,
+      trade: (trade as VendorTrade) || undefined,
+      vendorId: keepLink ? vendorId : undefined,
+      area: area.trim() || undefined,
+      cost: cost.trim() || undefined,
+      warrantyUntil: warrantyUntil || undefined,
+      notes: notes.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
+      <input autoFocus className="field" placeholder="What was done  (e.g. replaced the boiler valve)" value={work} onChange={e => setWork(e.target.value)} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div>
+          <label className="field-label">When</label>
+          <input type="date" className="field" value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="field-label">Trade</label>
+          <select className="field" value={trade} onChange={e => setTrade(e.target.value)}>
+            <option value="">—</option>
+            {TRADES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+      {vendors.length > 0 && (
+        <div>
+          <label className="field-label">Who did it</label>
+          <select className="field" value={vendorId} onChange={e => pickVendor(e.target.value)}>
+            <option value="">Someone else / type a name below</option>
+            {vendors.map(v => <option key={v.id} value={v.id}>{v.name}{v.trade ? ` · ${v.trade}` : ''}</option>)}
+          </select>
+        </div>
+      )}
+      <input className="field" placeholder={vendors.length ? 'Name (or override the one picked above)' : 'Who did it  (e.g. Installateur Hofer)'} value={by} onChange={e => { setBy(e.target.value); }} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <input className="field" placeholder="Where / what  (e.g. Boiler, Roof)" value={area} onChange={e => setArea(e.target.value)} />
+        <input className="field" placeholder="Cost" value={cost} onChange={e => setCost(e.target.value)} />
+      </div>
+      <div>
+        <label className="field-label">Guaranteed until (optional)</label>
+        <input type="date" className="field" value={warrantyUntil} onChange={e => setWarrantyUntil(e.target.value)} />
+      </div>
+      <input className="field" placeholder="Notes  (what they said, parts used, what to watch)" value={notes} onChange={e => setNotes(e.target.value)} />
+      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
+        <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
+      </div>
+    </div>
   );
 }
 

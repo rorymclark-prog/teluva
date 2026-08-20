@@ -178,6 +178,14 @@ export type AiEdit =
   // registration plate, then name. Store-and-recall only: records exactly what
   // the document shows, never an interpretation ("overdue"/"you must…").
   | { kind: 'service_record'; vehicle?: string; plate?: string; vin?: string; records: { date: string; work: string; odometer?: string; cost?: string; garage?: string; notes?: string }[] }
+  // The same thing for the PROPERTY: work done on the house, by a tradesperson
+  // or by anyone else. Appends onto HouseholdInfo.homeServiceLog. There is only
+  // one house, so unlike service_record there is nothing to match against — it
+  // always has somewhere to land. `by` is a name; when it matches a vendor in
+  // the directory, aiApply stamps the link, but the name is stored either way
+  // so the record survives that vendor being deleted. Store-and-recall only:
+  // what the invoice or the user said, never a verdict ("that's overdue").
+  | { kind: 'home_service'; records: { date: string; work: string; by?: string; trade?: string; area?: string; cost?: string; warrantyUntil?: string; notes?: string }[] }
   // The one-line family status — the fridge whiteboard (HubSettings.status).
   // REPLACES the existing line, exactly like household_set; never appends.
   | { kind: 'hub_status'; text: string }
@@ -2970,6 +2978,14 @@ function describeEdit(e: AiEdit): string {
     const n = e.records?.length || 0;
     const tgt = e.plate || e.vehicle || e.vin || 'the vehicle';
     return `Add ${n} service record${n === 1 ? '' : 's'} to ${tgt}`;
+  }
+  if (e.kind === 'home_service') {
+    const n = e.records?.length || 0;
+    // Name the actual work when there is only one entry — "Add 1 house record"
+    // tells the family nothing about what they are agreeing to save.
+    const one = n === 1 ? e.records[0] : null;
+    if (one) return `Log house work: ${one.work}${one.by ? ` — ${one.by}` : ''}${one.date ? ` (${one.date})` : ''}`;
+    return `Add ${n} entries to the house work log`;
   }
   if (e.kind === 'hub_status') return `Update the family status: “${e.text}”`;
   // EDIT/DELETE existing records: clear_field describes itself directly; delete/
