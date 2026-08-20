@@ -1,7 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { X, ArrowLeft, ArrowRight, Sparkles } from 'lucide-react';
+import { X, ArrowLeft, ArrowRight, Sparkles, Compass } from 'lucide-react';
 import { getTourSeen, markTourSeen } from '../utils/tour';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import StepHero, { type HeroTone } from './StepHero';
 
 // ---------------------------------------------------------------------------
 // Step catalogue
@@ -34,11 +35,23 @@ interface TourStepDef {
   anchorOptional?: boolean;
   title: (ctx: TourCtx) => string;
   body: (ctx: TourCtx) => string;
+  /**
+   * Present = render this step as the black hero card (StepHero, shared with
+   * the guided setup) instead of quiet text on the white card.
+   *
+   * Only the two UNANCHORED steps set it. An anchored step already has the
+   * eye's attention pinned by the spotlight cut into the backdrop; a heavy
+   * black card next to it competes for that attention, which is precisely
+   * what a "look at THIS control" step must not do. The opening and closing
+   * slides have nothing to point at, so the card IS the thing to look at.
+   */
+  hero?: { icon: React.ComponentType<{ className?: string }>; tone: HeroTone; eyebrow: string };
 }
 
 const STEPS: TourStepDef[] = [
   {
     id: 'welcome',
+    hero: { icon: Sparkles, tone: 'clay', eyebrow: 'QUICK TOUR' },
     title: (ctx) => `Welcome to ${ctx.hubName}`,
     body: () =>
       "There's more packed in here than fits on one screen, and some of it is genuinely surprising. " +
@@ -93,6 +106,7 @@ const STEPS: TourStepDef[] = [
   },
   {
     id: 'closing',
+    hero: { icon: Compass, tone: 'sage', eyebrow: 'TOUR DONE' },
     title: () => "That's the tour",
     body: () =>
       "There's more waiting to be found — a family quiz, a growing-up video, a recipe book, a travel timeline, the things people said that you never want to forget. You'll bump into them. Find this tour again any time from Hub settings.",
@@ -403,6 +417,12 @@ export default function FirstRunTour({
                 transform: 'translate(-50%, -50%)',
                 width,
                 maxWidth: 'calc(100vw - 2rem)',
+                // The two centered slides carry the tall black hero card, and
+                // a centred fixed element that outgrows the viewport clips off
+                // BOTH ends with no way to reach the buttons. Anchored steps
+                // are left alone — their height feeds the placement maths.
+                maxHeight: 'calc(100dvh - 2rem)',
+                overflowY: 'auto',
               }
             : {
                 position: 'fixed',
@@ -434,16 +454,23 @@ export default function FirstRunTour({
           </button>
         </div>
 
-        {step.id === 'welcome' && (
-          <div className="w-10 h-10 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mb-3">
-            <Sparkles className="w-5 h-5" />
-          </div>
+        {step.hero ? (
+          <StepHero
+            icon={step.hero.icon}
+            tone={step.hero.tone}
+            eyebrow={step.hero.eyebrow}
+            title={step.title(ctx)}
+            body={step.body(ctx)}
+            titleId="tour-step-title"
+          />
+        ) : (
+          <>
+            <h3 id="tour-step-title" className="font-display text-lg font-semibold text-ink-900 leading-snug">
+              {step.title(ctx)}
+            </h3>
+            <p className="text-[13.5px] text-ink-600 leading-relaxed mt-1.5">{step.body(ctx)}</p>
+          </>
         )}
-
-        <h3 id="tour-step-title" className="font-display text-lg font-semibold text-ink-900 leading-snug">
-          {step.title(ctx)}
-        </h3>
-        <p className="text-[13.5px] text-ink-600 leading-relaxed mt-1.5">{step.body(ctx)}</p>
 
         <div className="flex items-center justify-between gap-2 mt-4 pt-3.5 border-t border-cream-200">
           <button

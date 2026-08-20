@@ -14,6 +14,7 @@ import { ScannedFile } from './DocumentScannerModal';
 const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import SheetGrabber from './SheetGrabber';
+import StepHero, { type HeroTone } from './StepHero';
 
 // ---------------------------------------------------------------------------
 // Why this exists, and how it decides what to ask
@@ -373,66 +374,28 @@ export default function FamilyInterview({
 
 /* ─────────────────────────── Step bodies ─────────────────────────── */
 
-// Every step gets a colour-coded icon badge + eyebrow chip now, not just
-// Welcome — a plain "Question N of 30" on a white card read as a form to
-// get through, not a family safety checklist. Skimming the badge alone now
-// tells you what kind of thing you're about to be asked, before you've
-// read a word of the title.
-type Tone = 'clay' | 'sage' | 'dusk' | 'rosa' | 'honey';
+// Every step gets a colour-coded icon badge + eyebrow, not just Welcome — a
+// plain "Question N of 30" on a white card read as a form to get through, not
+// a family safety checklist. Skimming the badge alone tells you what kind of
+// thing you're about to be asked, before you've read a word of the title.
+//
 // Rory (2026-08-19, live screenshot comparing this against the Family
 // Calendar hero — "SHARED PLANNING" eyebrow over "Family calendar" on a
 // black card): wanted that same black-card treatment here, not bold black
-// text on the white step card (the first pass, 2026-08-19 earlier the same
-// day). Same per-step tone colour-coding as before, just recoloured for a
-// dark background — badge/eyebrow/accent per tone, mirroring how the hero
-// itself uses a tinted accent circle (bg-clay-500/20) on bg-ink-900.
+// text on the white step card, which is what the first pass earlier that day
+// did.
 //
-// Rory (2026-08-20, on the resume card): wanted the eyebrow bigger and
-// painted with the same gradient as the progress bar at the top of the card.
-// That ramp is shared across every step — so the eyebrow no longer carries
-// the per-step tone, and the badge and accent circle below carry it alone.
-// See .step-eyebrow in index.css; do NOT add a text-* utility to that span.
-const TONE_CLASSES: Record<Tone, { badge: string; accent: string }> = {
-  clay:  { badge: 'bg-clay-500/20 text-clay-300',   accent: 'bg-clay-500/20' },
-  sage:  { badge: 'bg-sage-500/20 text-sage-300',   accent: 'bg-sage-500/20' },
-  dusk:  { badge: 'bg-dusk-500/20 text-dusk-300',   accent: 'bg-dusk-500/20' },
-  rosa:  { badge: 'bg-rosa-500/20 text-rosa-300',   accent: 'bg-rosa-500/20' },
-  honey: { badge: 'bg-honey-500/20 text-honey-300', accent: 'bg-honey-500/20' },
-};
+// The card itself now lives in StepHero.tsx, because the first-run tour's two
+// unanchored slides use it too (Rory, 2026-08-20: "should we give this a
+// similar treatment"). Two "here is what this screen is" moments built a day
+// apart WILL drift; one component is the only thing that actually stops that.
+// The per-step tone, the gradient eyebrow and the title sizing all live there
+// now — including the warning about never putting a text-* class on the
+// eyebrow span.
+type Tone = HeroTone;
 
-function StepHeader({ icon: Icon, tone, eyebrow, title, body }: {
-  icon: React.ComponentType<{ className?: string }>;
-  tone: Tone;
-  eyebrow: string;
-  title: string;
-  body: string;
-}) {
-  const t = TONE_CLASSES[tone];
-  return (
-    <div className="rounded-2xl bg-ink-900 text-white p-4 sm:p-5 mb-4 overflow-hidden relative">
-      <div className={`absolute -right-5 -top-7 w-20 h-20 rounded-full ${t.accent}`} aria-hidden="true" />
-      <div className="relative flex items-start gap-3">
-        <div className={`w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center ${t.badge}`}>
-          <Icon className="w-5 h-5" />
-        </div>
-        <div className="min-w-0 pt-0.5">
-          <span className="step-eyebrow">{eyebrow}</span>
-          {/* Rory (2026-08-20): "should the GUIDED SETUP part be bigger than
-              the Welcome back?" — no. The eyebrow says which flow you are in;
-              the title is the thing you are being told. Growing the eyebrow to
-              13px put them close enough to compete (13/18 = 72%, where an
-              eyebrow normally sits nearer 60%), so the fix is on this side:
-              the headline of the card that IS the screen was only text-lg.
-              text-balance because the wrap was leaving the last word stranded
-              on its own line ("…you're partway / through"). */}
-          <h3 id="interview-step-title" className="font-display text-xl font-semibold text-white leading-snug text-balance mt-1.5">
-            {title}
-          </h3>
-        </div>
-      </div>
-      <p className="relative text-[13.5px] text-white/70 leading-relaxed mt-2.5">{body}</p>
-    </div>
-  );
+function StepHeader(props: { icon: React.ComponentType<{ className?: string }>; tone: Tone; eyebrow: string; title: string; body: string }) {
+  return <StepHero {...props} titleId="interview-step-title" className="mb-4" />;
 }
 
 function WelcomeStep() {
