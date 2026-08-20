@@ -71,6 +71,17 @@ export type AiEdit =
   | { kind: 'passport'; member: string; country: string; number: string; expiry?: string }
   | { kind: 'contact'; name: string; relation?: string; phone?: string; email?: string; birthdate?: string }
   | { kind: 'provider'; name: string; type?: string; specialty?: string; practiceName?: string; phone?: string; afterHoursPhone?: string; email?: string; address?: string; forMember?: string }
+  /* A household TRADESPERSON — plumber, electrician, boiler service, locksmith,
+   * the neighbour with the spare key. Its own kind rather than a stretched
+   * 'provider' or 'contact': provider's `type` is a closed enum of medical and
+   * financial professionals (VALID_PROVIDER_TYPES in aiApply.ts) with no room
+   * for a trade, and a contact is a person you phone rather than a trade you
+   * book — a contact carries no trade, no account reference and no "our usual"
+   * flag, which are the three things that make this list worth having when a
+   * pipe bursts. `trade` is matched case-insensitively against VendorTrade in
+   * aiApply.ts; anything unrecognised lands as 'Other' with the word the model
+   * used kept in notes rather than thrown away. */
+  | { kind: 'vendor'; name: string; trade?: string; company?: string; phone?: string; afterHoursPhone?: string; accountRef?: string; lastServiceDate?: string; isUsual?: boolean; notes?: string }
   /* A non-resident parent/guardian, attached to an EXISTING member's own
    * profile (see NonResidentGuardian in types.ts). CONTACT INFO ONLY — same
    * trust level as 'contact'/'provider' above. Deliberately does NOT carry any
@@ -2914,6 +2925,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}${e.birthdate ? ` · birthday ${e.birthdate} → Extended Birthdays` : ''}`;
   if (e.kind === 'provider') return `Add ${(e.type || 'provider').toLowerCase()}: ${e.name}${e.specialty ? ` (${e.specialty})` : ''}${e.forMember ? ` — for ${e.forMember}` : ''}`;
   if (e.kind === 'number') return `Add number “${e.label}” → ${e.value}`;
+  if (e.kind === 'vendor') return `Add ${(e.trade || 'household vendor').toLowerCase()}: ${e.name}${e.company ? ` (${e.company})` : ''}${e.phone ? ` · ${e.phone}` : ''}${e.isUsual ? ' — our usual' : ''}`;
   // Name the third destination too. The card is the only chance the user gets
   // to see where something is about to land, so a referral that quietly also
   // files into Referrals & Results should say so before they tap Apply.

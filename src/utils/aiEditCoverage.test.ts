@@ -128,7 +128,13 @@ const MANUALLY_INCLUDED_FIELDS = ['cv'];
 // "Granny's birthday" never reached the Birthdays panel or the calendar
 // export. Scanning the doc now means the next field added to it has to
 // declare itself either AI-fileable or deliberately manual.
-const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc', 'ExtendedBirthdaysDoc'];
+//
+// 'FamilyInfo' added 2026-08-20. It is the OLDEST shared doc in the app —
+// contacts, numbers and providers — and it was never on this list, which is
+// exactly why `vendors` sat unreachable by the assistant for as long as it did
+// while newer docs were caught within a day. The guard was blind to the
+// document the bug class started in.
+const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc', 'ExtendedBirthdaysDoc', 'FamilyInfo'];
 
 function extractRecordFields(body: string): string[] {
   const out: string[] = [];
@@ -280,6 +286,18 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // no code kept, and AI-filed birthdays that never reached the family's
   // calendar. Closed by the 'extended_birthday' kind in v228.
   'ExtendedBirthdaysDoc.extendedBirthdays': covered('extended_birthday'),
+
+  // FamilyInfo — the oldest shared doc, added to the scan 2026-08-20. The first
+  // three were AI-fileable from the beginning; `vendors` was not, and said so
+  // out loud in aiApply.ts ("no edit kind writes it") for as long as it took
+  // somebody to read that line. The nearest kinds genuinely did not fit:
+  // provider's `type` is a closed enum of medical and financial professionals,
+  // and a contact is a person to phone with no trade, no account reference and
+  // no out-of-hours number. Closed by the 'vendor' kind in v236.
+  'FamilyInfo.numbers': covered('number'),
+  'FamilyInfo.contacts': covered('contact'),
+  'FamilyInfo.providers': covered('provider'),
+  'FamilyInfo.vendors': covered('vendor'),
 
   // calendarFeeds is intentionally read-only to the AI, not covered by a
   // write kind. Subscribing to a feed means pasting in another calendar's

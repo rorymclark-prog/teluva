@@ -87,6 +87,11 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   contact: { name: 'name', relation: 'relation', phone: 'phone', email: 'email', birthdate: 'birthdate', note: 'note' },
   provider: { name: 'name', type: 'type', specialty: 'specialty', practiceName: 'practiceName', phone: 'phone', afterHoursPhone: 'afterHoursPhone', email: 'email', address: 'address', forMember: 'forMember', note: 'note' },
   number: { label: 'label', value: 'value', note: 'note' },
+  // Field names mirror the 'vendor' create edit (AIChatbot.tsx) so the model
+  // reuses vocabulary it already has. lastServiceDate is the one that actually
+  // changes over time — "the plumber came again last Tuesday" is the whole
+  // reason a household vendor row is worth updating rather than re-filing.
+  vendor: { name: 'name', trade: 'trade', company: 'company', phone: 'phone', afterHoursPhone: 'afterHoursPhone', accountRef: 'accountRef', lastServiceDate: 'lastServiceDate', isUsual: 'isUsual', notes: 'notes', note: 'notes' },
   // serviceIntervalMonths is a real Vehicle field (types.ts) the create prompt
   // (server.js list_add) already teaches the model to set — it was missing
   // here, so "change the service interval to 12 months" on an existing vehicle
@@ -134,6 +139,7 @@ function recordPhrase(targetKind: string, r: any): string {
     case 'passport': return `${r.country || ''} passport${r.number ? ' ' + r.number : ''}`.trim() || 'passport';
     case 'contact': return `contact ${r.name || ''}`.trim();
     case 'provider': return `${(r.type || 'provider')}: ${r.name || ''}`.trim();
+    case 'vendor': return `${(r.trade || 'vendor')}: ${r.name || ''}${r.company ? ' (' + r.company + ')' : ''}`.trim();
     case 'number': return `number “${r.label || ''}”`;
     case 'vehicle': return `vehicle ${r.name || [r.make, r.model].filter(Boolean).join(' ') || r.registration || ''}`.trim();
     case 'pet': return `pet ${r.name || ''}`.trim();
@@ -193,6 +199,7 @@ function findInContext(context: any, targetKind: string, id: string): Found {
     contact: context?.info?.contacts,
     provider: context?.info?.providers,
     number: context?.info?.numbers,
+    vendor: context?.info?.vendors,
     vehicle: context?.household?.vehicles,
     pet: context?.household?.pets,
     utility: context?.household?.utilities,
@@ -353,10 +360,10 @@ export async function applyDestructiveEdits(edits: AiEdit[], ctxMembers: FamilyM
   // 3) info store (contacts / providers / numbers) — one load + one save.
   let updatedContacts: ContactEntry[] | undefined;
   {
-    const relevant = [...dels, ...upds].filter(e => ['contact', 'provider', 'number'].includes(e.targetKind));
+    const relevant = [...dels, ...upds].filter(e => ['contact', 'provider', 'number', 'vendor'].includes(e.targetKind));
     if (relevant.length) {
-      const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [] };
-      const arrKey: Record<string, 'contacts' | 'providers' | 'numbers'> = { contact: 'contacts', provider: 'providers', number: 'numbers' };
+      const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [], vendors: [] };
+      const arrKey: Record<string, 'contacts' | 'providers' | 'numbers' | 'vendors'> = { contact: 'contacts', provider: 'providers', number: 'numbers', vendor: 'vendors' };
       let dirty = false;
       for (const e of relevant) {
         const key = arrKey[e.targetKind];

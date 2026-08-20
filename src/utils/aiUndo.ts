@@ -25,7 +25,7 @@ import type { AiEdit } from '../components/AIChatbot';
 // Which store a created record lives in — drives how handleUndoAiEdits reverses it.
 export type UndoDomain =
   | 'member' | 'memberNested' | 'transitPass' | 'vaccination' | 'visa' | 'guardian' | 'serviceRecord'
-  | 'contact' | 'number' | 'provider'
+  | 'contact' | 'number' | 'provider' | 'vendor'
   | 'calendar' | 'vehicle' | 'pet' | 'utility'
   | 'bank' | 'insurance' | 'benefit'
   | 'timeline' | 'familyWord' | 'shopping' | 'asset' | 'recipe' | 'slip' | 'estate'
@@ -122,7 +122,36 @@ export function diffInfoUndo(before: FamilyInfo, after: FamilyInfo): UndoRecord[
     ...mapNewIds(before.contacts, after.contacts, 'contact', (c: any) => c.name || 'contact'),
     ...mapNewIds(before.numbers, after.numbers, 'number', (n: any) => n.label || 'number'),
     ...mapNewIds(before.providers, after.providers, 'provider', (p: any) => p.name || 'provider'),
+    ...mapNewIds(before.vendors, after.vendors, 'vendor', (v: any) => v.name || v.trade || 'vendor'),
   ];
+}
+
+/**
+ * Drop the records an Undo is reversing out of the info document, WITHOUT
+ * rebuilding it key by key.
+ *
+ * The spread is the entire point. This was written out longhand at the call
+ * site as `{ numbers, contacts, providers }` — three keys, back when those were
+ * the only three — and `vendors` was added to FamilyInfo later. Because
+ * saveFamilyInfo does a three-way merge against what this client last saw, a
+ * key present in the base and absent from the value reads as a DELETE and is
+ * applied: undoing any AI-filed contact, number or provider silently wiped the
+ * household vendor list. Nobody would connect the two.
+ *
+ * Spreading `info` first means the next field added to FamilyInfo survives
+ * without anyone remembering this function exists.
+ */
+export function removeUndoneInfoRecords(
+  info: FamilyInfo,
+  ids: { contacts: Set<string>; numbers: Set<string>; providers: Set<string>; vendors: Set<string> },
+): FamilyInfo {
+  return {
+    ...info,
+    numbers: (info.numbers || []).filter((n) => !ids.numbers.has(n.id)),
+    contacts: (info.contacts || []).filter((c) => !ids.contacts.has(c.id)),
+    providers: (info.providers || []).filter((p) => !ids.providers.has(p.id)),
+    vendors: (info.vendors || []).filter((v) => !ids.vendors.has(v.id)),
+  };
 }
 
 // Household is compound too: new vehicles/pets/utilities undo as whole rows;
@@ -188,6 +217,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
     case 'passport': return `${who(e.member)}'s profile · ID & Passports`;
     case 'contact': return 'Contacts';
     case 'provider': return 'Providers & services';
+    case 'vendor': return 'Household vendors';
     case 'number': return 'Important numbers';
     case 'document': {
       const owner = resolveName(e.member);
@@ -232,7 +262,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
         passport: 'ID & Passports', transit_pass: 'Travel', care_schedule: 'Care schedule',
         saying: 'Sayings', favorite_quote: 'Favourite quotes', vaccination: 'Medical · Vaccinations',
         visa: 'Travel · Visas', referral: 'Medical · Referrals & results', document: 'Document Vault',
-        contact: 'Contacts', provider: 'Providers & services', number: 'Important numbers',
+        contact: 'Contacts', provider: 'Providers & services', number: 'Important numbers', vendor: 'Household vendors',
         vehicle: 'Household · Vehicles', pet: 'Household · Pets', utility: 'Household · Utilities',
         bank: 'Finances · Banks', insurance: 'Finances · Insurance', benefit: 'Finances · Benefits',
         timeline: 'Family timeline', calendar_event: 'Calendar', slip: 'Slips', asset: 'Assets',

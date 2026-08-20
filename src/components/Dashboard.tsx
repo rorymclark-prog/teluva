@@ -49,6 +49,7 @@ import type { PackRequest } from '../utils/exportPack';
 import {
   UndoRecord, UndoDomain,
   diffMemberUndo, diffInfoUndo, diffHouseholdUndo, diffFinancesUndo, mapNewIds,
+  removeUndoneInfoRecords,
 } from '../utils/aiUndo';
 import AssistantBubble from './AssistantBubble';
 import AiConsentModal from './AiConsentModal';
@@ -1419,18 +1420,23 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       await persistChanges(next);
     }
 
-    // --- Contacts / numbers / providers ---
-    const contactIds = idsFor('contact'), numberIds = idsFor('number'), providerIds = idsFor('provider');
-    if (contactIds.size || numberIds.size || providerIds.size) {
-      const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [] };
+    // --- Contacts / numbers / providers / household vendors ---
+    // nextInfo is built by removeUndoneInfoRecords (aiUndo.ts), which SPREADS
+    // the loaded document rather than rebuilding it key by key. Rebuilding is
+    // what made this a data-loss path: saveFamilyInfo merges against what this
+    // client last saw, so a key that was in the base and missing from the value
+    // reads as a delete — and the three keys named here were written before
+    // `vendors` existed.
+    const contactIds = idsFor('contact'), numberIds = idsFor('number'), providerIds = idsFor('provider'), vendorIds = idsFor('vendor');
+    if (contactIds.size || numberIds.size || providerIds.size || vendorIds.size) {
+      const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [], vendors: [] };
       tally(new Set((info.contacts || []).map(c => c.id)), contactIds);
       tally(new Set((info.numbers || []).map(n => n.id)), numberIds);
       tally(new Set((info.providers || []).map(p => p.id)), providerIds);
-      const nextInfo = {
-        numbers: (info.numbers || []).filter(n => !numberIds.has(n.id)),
-        contacts: (info.contacts || []).filter(c => !contactIds.has(c.id)),
-        providers: (info.providers || []).filter(p => !providerIds.has(p.id)),
-      };
+      tally(new Set((info.vendors || []).map(v => v.id)), vendorIds);
+      const nextInfo = removeUndoneInfoRecords(info, {
+        contacts: contactIds, numbers: numberIds, providers: providerIds, vendors: vendorIds,
+      });
       await saveFamilyInfo(nextInfo);
       setContacts(nextInfo.contacts);
     }

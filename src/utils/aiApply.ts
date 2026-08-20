@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind, ExtendedBirthday } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind, ExtendedBirthday, HouseholdVendor } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
@@ -400,11 +400,43 @@ function defaultCareInterval(kind: string): number {
 
 const VALID_PROVIDER_TYPES = ['GP practice', 'Dentist', 'Optician', 'Specialist', 'Pharmacy', 'Other', 'Financial advisor', 'Accountant', 'Lawyer / Notary', 'Insurance broker', 'Bank contact'];
 
-// Apply contact + number + provider edits onto the shared family info doc.
+// VendorTrade in types.ts. Matched CASE-INSENSITIVELY, unlike the provider
+// types above, because these values are not things a model reproduces byte for
+// byte — "Boiler / heating" comes back as "boiler", "Heating", "boiler service".
+// An exact-match-or-Other rule would file most real trades as 'Other'.
+const VALID_VENDOR_TRADES = [
+  'Plumber', 'Electrician', 'Boiler / heating', 'Locksmith', 'Handyman',
+  'Cleaner', 'Gardener', 'Appliance repair', 'Pest control',
+  'Neighbour (spare key)', 'Other',
+] as const;
+
+/**
+ * Best-effort trade match. Returns the canonical VendorTrade plus, when nothing
+ * matched, the word the model actually used — the caller keeps it in `notes`
+ * rather than discarding it. A vendor filed as "Other" with no trace of
+ * "Roofer" anywhere is a worse record than the user's own sentence was.
+ */
+function matchVendorTrade(raw?: string): { trade: HouseholdVendor['trade']; unmatched?: string } {
+  const t = String(raw || '').trim();
+  if (!t) return { trade: 'Other' };
+  const norm = t.toLowerCase();
+  const exact = VALID_VENDOR_TRADES.find((v) => v.toLowerCase() === norm);
+  if (exact) return { trade: exact };
+  // A loose contains-match in both directions, so "boiler" finds
+  // "Boiler / heating" and "Locksmith (24h)" finds "Locksmith".
+  const loose = VALID_VENDOR_TRADES.find(
+    (v) => v !== 'Other' && (norm.includes(v.toLowerCase()) || v.toLowerCase().includes(norm)),
+  );
+  if (loose) return { trade: loose };
+  return { trade: 'Other', unmatched: t };
+}
+
+// Apply contact + number + provider + vendor edits onto the shared family info doc.
 export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   const numbers = [...(info.numbers || [])];
   const contacts = [...(info.contacts || [])];
   const providers = [...(info.providers || [])];
+  const vendors = [...(info.vendors || [])];
   for (const e of edits) {
     if (e.kind === 'contact') {
       // Deliberately NOT writing e.birthdate. A birthday on a contact only
@@ -430,16 +462,35 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
         address: e.address,
         forMember: e.forMember,
       });
+    } else if (e.kind === 'vendor') {
+      const { trade, unmatched } = matchVendorTrade(e.trade);
+      const notes = [unmatched ? `Trade: ${unmatched}` : '', (e.notes || '').trim()].filter(Boolean).join(' · ');
+      vendors.push({
+        id: newId(),
+        name: e.name,
+        trade,
+        company: e.company,
+        phone: e.phone,
+        afterHoursPhone: e.afterHoursPhone,
+        accountRef: e.accountRef,
+        lastServiceDate: e.lastServiceDate,
+        isUsual: e.isUsual === true,
+        notes: notes || undefined,
+      });
     }
   }
-  // `vendors` is carried through, not rebuilt: no edit kind writes it, and
-  // returning the doc without it made every AI info edit read as "the household
-  // vendor list was deleted".
-  return { numbers, contacts, providers, vendors: info.vendors };
+  // The spread is load-bearing, not tidiness. This returns the WHOLE document
+  // and the caller saves it, and saveFamilyInfo merges the result against what
+  // this client last saw — so a key present in the base and missing here reads
+  // as a DELETE and is applied. `vendors` was carried through by hand for
+  // exactly that reason back when no edit kind wrote it; spreading `info`
+  // instead means the NEXT field added to FamilyInfo survives without anyone
+  // remembering this line exists. aiVendorEdits.test.ts pins it.
+  return { ...info, numbers, contacts, providers, vendors };
 }
 
 export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote' || e.kind === 'cv' || e.kind === 'vaccination' || e.kind === 'visa' || e.kind === 'guardian' || e.kind === 'clear_field');
-export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number' || e.kind === 'provider');
+export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number' || e.kind === 'provider' || e.kind === 'vendor');
 
 const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;
 type CalendarCat = typeof VALID_CALENDAR_CATS[number];

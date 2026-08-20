@@ -1,7 +1,9 @@
 {
-  "label": "v235",
+  "label": "v236",
   "changes": [
-    "A celebration you chose to see but not be reminded about now keeps its dates up to date like every other one. Movable ones — the dates that shift each year — used to quietly run out after a couple of years and just stop appearing.",
-    "Name day reminders themselves are unchanged: same day, same wording, and still only for the days you confirmed."
+    "Tell the assistant about your plumber, electrician, boiler service or locksmith and it now files them under Household vendors — with the out-of-hours number, the account reference, and a star if they're the one you always call. It couldn't write to that list at all before.",
+    "A locksmith goes to the vendor list now instead of sitting among your contacts, next to the lock and key details they'd ask you for.",
+    "You can also ask it to update one — “the plumber came again on Tuesday” — rather than ending up with the same firm twice.",
+    "Fixed: undoing something the assistant filed into Contacts, Important numbers or Providers could wipe your whole household vendor list. No warning, nothing to notice."
   ]
 }
