@@ -3,6 +3,7 @@ import { ShieldCheck, ChevronRight, ChevronDown } from 'lucide-react';
 import { FamilyMember, HouseholdInfo, InsurancePolicy, EstateRecord } from '../types';
 import { loadHousehold, loadFinances, loadWillsEstate, loadFamilyRoles } from '../utils/db';
 import { computeReadiness, ReadinessGap, ReadinessSeverity } from '../utils/readiness';
+import { useWillsAccess } from '../hooks/useWillsAccess';
 
 // The "Emergency Readiness" card — see utils/readiness.ts for the full
 // reasoning and the CRITICAL design decision behind it: this is NOT a survey.
@@ -42,6 +43,11 @@ export default function ReadinessCard(
     onGoView: (view: string) => void;
   },
 ) {
+  // Wills & Estate is no longer readable by every member (v230), so the will
+  // check is only scored for people who can actually open it. `demo` keeps
+  // the sample card unchanged — there is no real document behind it.
+  const { mayRead } = useWillsAccess();
+  const mayReadWills = demo || mayRead;
   const [household, setHousehold] = useState<HouseholdInfo | null>(null);
   const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
   const [estateRecords, setEstateRecords] = useState<EstateRecord[]>([]);
@@ -56,7 +62,14 @@ export default function ReadinessCard(
     let cancelled = false;
     loadHousehold().then((h) => { if (!cancelled) setHousehold(h); }).catch(() => { if (!cancelled) setHousehold(null); });
     loadFinances().then((f) => { if (!cancelled) setInsurancePolicies(f?.insurance || []); }).catch(() => { if (!cancelled) setInsurancePolicies([]); });
-    loadWillsEstate().then((d) => { if (!cancelled) setEstateRecords(d?.records || []); }).catch(() => { if (!cancelled) setEstateRecords([]); });
+    // Only if this person may open Wills & Estate. Without the guard the read
+    // is refused by the rule and the score silently reports "no will on file"
+    // to someone who simply isn't allowed to know either way.
+    if (mayReadWills) {
+      loadWillsEstate().then((d) => { if (!cancelled) setEstateRecords(d?.records || []); }).catch(() => { if (!cancelled) setEstateRecords([]); });
+    } else {
+      setEstateRecords([]);
+    }
     if (familyId) {
       loadFamilyRoles(familyId)
         .then((roles) => {
@@ -70,11 +83,11 @@ export default function ReadinessCard(
         .catch(() => { /* keep the safe default of 1 */ });
     }
     return () => { cancelled = true; };
-  }, [familyId]);
+  }, [familyId, mayReadWills]);
 
   const result = useMemo(
-    () => computeReadiness({ members, estateRecords, insurancePolicies, household, adminCount }),
-    [members, estateRecords, insurancePolicies, household, adminCount],
+    () => computeReadiness({ members, estateRecords, insurancePolicies, household, adminCount, estateVisible: mayReadWills }),
+    [members, estateRecords, insurancePolicies, household, adminCount, mayReadWills],
   );
 
   const [showAll, setShowAll] = useState(false);

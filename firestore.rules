@@ -156,9 +156,68 @@ service cloud.firestore {
       // All shared household data is writable by any adult (admin or member);
       // children are read-only. This is a family hub — members must be able to
       // contribute the address, assets, contacts, etc. they add via the AI chat.
+      //
+      // 'willsEstate' and 'willsAccess' are CARVED OUT of this rule and matched
+      // separately below. The exclusion is load-bearing: Firestore ORs the
+      // results of every rule whose path matches, so a stricter rule on
+      // /reference/willsEstate does NOT override a permissive wildcard — it
+      // just adds a second way in, and this one would keep granting every
+      // member read. Excluding the names here is the only thing that makes the
+      // rule below mean anything.
+      function isProtectedReferenceDoc(docId) {
+        return docId == 'willsEstate' || docId == 'willsAccess';
+      }
+
       match /reference/{docId} {
-        allow read: if isMemberOf(familyId);
-        allow write: if canWriteIn(familyId);
+        allow read:  if !isProtectedReferenceDoc(docId) && isMemberOf(familyId);
+        allow write: if !isProtectedReferenceDoc(docId) && canWriteIn(familyId);
+      }
+
+      // Wills & estate — where the will is kept, who holds the signed original,
+      // the notary, the executor, the "if something happens to me" letter.
+      //
+      // Until now this sat under the wildcard above, which meant EVERY member
+      // could read it — including a teenager on a `member` role, since the
+      // "children are read-only" distinction only ever governed WRITES. Rory
+      // asked for this on 2026-08-20: "we should lock the will right? and give
+      // access to certain people — i don't want the kids going through it".
+      //
+      // Admins always. Anyone else only if an admin has explicitly named them
+      // in reference/willsAccess — which is the point of the feature: the
+      // person you designate to handle your estate can be given the will
+      // without being handed the whole vault, and nobody else in the family
+      // gets it by default.
+      //
+      // Modelled on passwords/{pwId} below, which has had exactly this shape
+      // since it shipped and is the precedent this document never got.
+      //
+      // canWriteIn(), not isMemberOf(): a CHILD is never a named reader, even
+      // if their uid is on the list. That is not hypothetical — a teenager
+      // granted access while on a `member` role and later moved to `child`
+      // keeps their uid on the list, and without this clause the demotion
+      // would silently leave the will open to them. Caught by the emulator
+      // probe, not by the app: utils/willsAccess.ts already refused this case
+      // client-side, which is exactly why the rule had to be checked
+      // separately rather than inferred from the UI behaving correctly.
+      function isNamedWillReader(familyId) {
+        return canWriteIn(familyId)
+          && exists(/databases/$(database)/documents/families/$(familyId)/reference/willsAccess)
+          && request.auth.uid in get(/databases/$(database)/documents/families/$(familyId)/reference/willsAccess).data.get('readerUids', []);
+      }
+
+      match /reference/willsEstate {
+        allow read:  if isAdminOf(familyId) || isNamedWillReader(familyId);
+        allow write: if isAdminOf(familyId);
+      }
+
+      // The access list itself. Readable by any member so a granted person's
+      // app can tell them they have access without asking an admin; writable
+      // by admins ONLY — a list you can add yourself to is not an access list.
+      // It holds uids and nothing else; names are resolved from roles/{uid},
+      // which every member can already read.
+      match /reference/willsAccess {
+        allow read:  if isMemberOf(familyId);
+        allow write: if isAdminOf(familyId);
       }
 
       // Asset inventory — any adult can add/edit; children read-only.

@@ -17,6 +17,7 @@ import { redactHousehold, redactFinances, redactMember, redactInfoNumbers } from
 import { annotateDestructiveEdits, hasDestructiveEdits } from '../utils/aiDestructive';
 import { PackRequest, resolveTopics } from '../utils/exportPack';
 import { useFamilyCtx } from '../contexts/FamilyContext';
+import { useWillsAccess } from '../hooks/useWillsAccess';
 import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import ImageLightbox from './ImageLightbox';
@@ -725,6 +726,7 @@ function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): s
 
 export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAddReferral, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits, onPrepareExport, initialDraft, onDraftApplied }: Props) {
   const { uid, familyId } = useFamilyCtx();
+  const { mayRead: mayReadWills } = useWillsAccess();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
   /* Starts empty on purpose. Restoring here looks right but cannot work:
@@ -1128,7 +1130,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   const buildContext = async () => {
     const [info, household, finances, timeline, docs, events, spaceInfo, slips, hubSettings, assets, recipes, familyWords, willsEstate, shopping, anniversaries, extendedBirthdays] = await Promise.all([
       loadFamilyInfo(), loadHousehold(), loadFinances(), loadTimeline(), loadDocuments(), loadCalendarEvents(), loadSpaceInfo(), loadSlips(), loadSettings(), loadAssets(),
-      loadRecipes(), loadFamilyWords(), loadWillsEstate(), loadShopping(), loadAnniversaries(), loadExtendedBirthdays(),
+      loadRecipes(), loadFamilyWords(), mayReadWills ? loadWillsEstate() : Promise.resolve(null), loadShopping(), loadAnniversaries(), loadExtendedBirthdays(),
     ]);
     // Say plainly, for each vault document, whether it is actually on a person's
     // profile Documents tab or only in the shared vault — because that is the
@@ -1231,6 +1233,13 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     // reason as assets/slips/documents above. successor and instructions are
     // single objects rather than arrays, so — like familyWordsCtx — they ride
     // through unslimmed; there's nothing bulky/binary on either to strip.
+    //
+    // Since v230 this document is admin-and-named-readers-only, so for anyone
+    // else it isn't loaded at all and `willsEstate` is null — the assistant
+    // then simply has no estate context and answers "I don't have that",
+    // which is the honest answer for someone who can't open the screen. The
+    // gate is here as well as in the rule because the assistant is the one
+    // surface that would happily read the whole vault out loud.
     const willsEstateCtx = {
       records: willsEstate?.records || [],
       successor: willsEstate?.successor,

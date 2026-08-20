@@ -7,6 +7,7 @@ import { vehicleDeadlines, vehicleLabel, daysUntil } from '../utils/vehicle';
 import { birthdayPhotoNudge } from '../utils/birthday';
 import { nextAnniversary, nextMilestoneAnniversary } from '../utils/businessMilestone';
 import { isReviewStale } from '../utils/willsEstate';
+import { useWillsAccess } from '../hooks/useWillsAccess';
 import { sizeStaleness } from '../utils/sizeStaleness';
 import { todayISO } from '../utils/age';
 import { nameDayOccurrenceInYear } from '../utils/nameDay';
@@ -566,6 +567,7 @@ export default function NeedsAttention(
   { members, extendedBirthdays, onGo, onGoView }:
   { members: FamilyMember[]; extendedBirthdays?: ExtendedBirthday[]; onGo: (memberId: string, tab: string) => void; onGoView?: (view: string) => void },
 ) {
+  const { mayRead: mayReadWills } = useWillsAccess();
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [spaceInfo, setSpaceInfo] = useState<FamilyInfoDoc | null>(null);
@@ -585,9 +587,18 @@ export default function NeedsAttention(
     loadSpaceInfo()
       .then((s) => { if (!cancelled) setSpaceInfo(s); })
       .catch(() => { if (!cancelled) setSpaceInfo(null); });
-    loadWillsEstate()
-      .then((d) => { if (!cancelled) setEstateRecords(d?.records || []); })
-      .catch(() => { if (!cancelled) setEstateRecords([]); });
+    // Wills & Estate is admin-and-named-readers-only since v230. Skip the read
+    // entirely for anyone else — an "estate document hasn't been reviewed in a
+    // while" nudge tells a locked-out member both that the will exists and
+    // roughly when it was last touched, and links them to a screen they can't
+    // open.
+    if (mayReadWills) {
+      loadWillsEstate()
+        .then((d) => { if (!cancelled) setEstateRecords(d?.records || []); })
+        .catch(() => { if (!cancelled) setEstateRecords([]); });
+    } else {
+      setEstateRecords([]);
+    }
     loadSlips()
       .then((s) => { if (!cancelled) setSlips(s || []); })
       .catch(() => { if (!cancelled) setSlips([]); });
@@ -601,7 +612,7 @@ export default function NeedsAttention(
       .then((f) => { if (!cancelled) setInsurancePolicies(f?.insurance || []); })
       .catch(() => { if (!cancelled) setInsurancePolicies([]); });
     return () => { cancelled = true; };
-  }, []);
+  }, [mayReadWills]);
 
   const [showAll, setShowAll] = useState(false);
 

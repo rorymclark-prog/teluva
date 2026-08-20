@@ -4,6 +4,7 @@ import { withContactBirthdays } from '../utils/extendedBirthdaySources';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
 import { useFamilyCtx } from '../contexts/FamilyContext';
+import { useWillsAccess } from '../hooks/useWillsAccess';
 import {
   loadFamilyMembers, saveFamilyMembers,
   loadCalendarEvents, saveCalendarEvents,
@@ -346,6 +347,9 @@ interface DashboardProps {
 export default function Dashboard({ familySettingsButton }: DashboardProps = {}) {
   const demo = isDemoMode();
   const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId, loading: ctxLoading } = useFamilyCtx();
+  // Wills & Estate has its own access answer, separate from role — see
+  // hooks/useWillsAccess.ts and the carve-out in firestore.rules.
+  const { mayRead: mayReadWills, mayWrite: mayWriteWills } = useWillsAccess();
 
   const activeSpaceType = spaces.find((s) => s.id === activeSpaceId)?.type || 'family';
   const isBusinessSpace = activeSpaceType === 'business';
@@ -1098,6 +1102,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // as "Applied" when data didn't actually reach Firestore.
   const handleApplyAiEdits = async (edits: AiEdit[]): Promise<UndoRecord[]> => {
     const failures: string[] = [];
+    // Refusals are NOT failures: nothing went wrong, the person simply isn't
+    // allowed to change that thing. Kept apart so the message can say so
+    // instead of blaming the network (see the throw at the end).
+    const refusals: string[] = [];
     // Undo manifest: the ids of the records this Apply CREATES, learned by
     // diffing each domain's collection before vs. after (the pure apply helpers
     // mint ids internally, so this is the only non-invasive way to recover them).
@@ -1255,6 +1263,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     // explicit base as well means the merge sees exactly what this screen was
     // built from rather than whatever getSeen happens to be holding.
     if (hasEstateEdits(edits) || hasSuccessorEdits(edits) || hasInstructionsEdits(edits)) {
+      // Writing this document is admins-only since v230. Without this branch a
+      // non-admin's estate edit fell through to the write, got refused by the
+      // rule, and was reported as "couldn't be saved to the cloud — check your
+      // connection" — which is not what happened and sends them to fix the
+      // wrong thing. Say the actual reason.
+      if (!mayWriteWills) {
+        refusals.push('Wills & Estate can only be changed by an admin of this space');
+      } else {
       const doc = (await loadWillsEstate()) || { records: [] };
       const after = hasEstateEdits(edits) ? applyEstateEdits(doc.records || [], edits) : (doc.records || []);
       const successor = hasSuccessorEdits(edits) ? applySuccessorEdit(doc.successor, edits) : doc.successor;
@@ -1262,6 +1278,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const ok = await saveWillsEstate({ ...doc, records: after, successor, instructions }, doc);
       if (!ok) failures.push('wills & estate');
       else undo.push(...mapNewIds(doc.records, after, 'estate', (r: any) => r.kind || 'estate record'));
+      }
     }
     if (hasSlipEdits(edits)) {
       const current = await loadSlips();
@@ -1316,7 +1333,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       setAiDataVersion(v => v + 1);
     }
 
-    if (failures.length > 0) {
+    if (failures.length > 0 || refusals.length > 0) {
       // A failure partway through (say, finances after members already saved)
       // used to throw a plain Error with nothing about what had already
       // landed. AIChatbot's catch left the card un-applied — still showing
@@ -1332,10 +1349,17 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       // Applied+Undo) instead of leaving it retry-ready. Undo removes the
       // partial saves first; a re-apply after that is clean, same as any
       // other Undo→re-apply cycle.
-      const err: any = new Error(
-        `Some of this couldn't be saved to the cloud (${failures.join(', ')}) — but the rest already did. `
-        + `Check your connection, then use Undo on this card before trying again, so nothing gets saved twice.`,
-      );
+      const parts: string[] = [];
+      if (failures.length > 0) {
+        parts.push(
+          `Some of this couldn't be saved to the cloud (${failures.join(', ')}) — but the rest already did. `
+          + `Check your connection, then use Undo on this card before trying again, so nothing gets saved twice.`,
+        );
+      }
+      if (refusals.length > 0) {
+        parts.push(`${refusals.join('; ')}. Everything else was saved.`);
+      }
+      const err: any = new Error(parts.join(' '));
       err.partialUndo = undo;
       throw err;
     }
@@ -1508,7 +1532,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       setExtendedBirthdayRecords(after);   // home screen too — see the apply path
     }
     const estateIds = idsFor('estate');
-    if (estateIds.size) {
+    // Can only be non-empty for someone who successfully applied estate edits,
+    // i.e. an admin — but guarded anyway so an undo never fires a write the
+    // rule will refuse and then reports the delete as done.
+    if (estateIds.size && mayWriteWills) {
       const doc = (await loadWillsEstate()) || { records: [] };
       tally(new Set((doc.records || []).map(r => r.id)), estateIds);
       // Same three-siblings-one-document gotcha as the apply path above: saving
@@ -2172,6 +2199,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             <SectionMenu
               views={VIEWS
                 .filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin))
+                // Wills & Estate: admins plus anyone an admin has named (v230).
+                // Same shape as the passwords gate above — the rule is the real
+                // boundary, this just stops offering a door that won't open.
+                .filter(view => !(view.id === 'willsEstate' && !mayReadWills))
                 .filter(view => !(isBusinessSpace && HIDDEN_VIEWS_IN_BUSINESS.includes(view.id)))
                 .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t, isBusinessSpace) }))}
               current={mainView}

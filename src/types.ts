@@ -1484,6 +1484,27 @@ export interface WillsEstateDoc {
   successor?: DesignatedSuccessor;
   instructions?: EmergencyInstructions;
 }
+
+/* Who, besides an admin, may OPEN the wills & estate document.
+ *
+ * Stored at families/{id}/reference/willsAccess and enforced by
+ * firestore.rules, not by the app — the UI gates below are there so nobody
+ * sees a permission error or a stale local copy, but the rule is the boundary.
+ * Admins are never listed here: they always have access by virtue of being
+ * admins, and writing them in would create a second place for the same fact.
+ *
+ * uids only. Names come from families/{id}/roles/{uid}, which is already the
+ * authoritative record of who is in the family and which every member can
+ * read — so this list can never drift out of step with an actual person.
+ *
+ * WRITABLE BY ADMINS ONLY. A list you can add yourself to is not an access
+ * list; that is the whole reason it lives in its own document rather than as
+ * a field on willsEstate, whose write rule would then have to be split anyway. */
+export interface WillsAccessDoc {
+  readerUids: string[];
+  updatedAt?: string;   // ISO — shown as "last changed" in the admin panel
+  updatedBy?: string;   // display name of the admin who last changed it
+}
 // --- Slips ("Keep the slip"): purchase receipts/till slips captured mainly
 // for their two DEADLINES, not as filing — a return window (short, shop
 // policy, usually ~30 days) and a warranty (much longer, 12/24 months). These

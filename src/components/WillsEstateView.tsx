@@ -2,13 +2,16 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ScrollText, Plus, Pencil, Trash2, X, Loader2, Info, User, Landmark,
   HandHeart, Paperclip, Upload, Eye, AlertCircle, MapPin, Phone, HandCoins,
-  Users, Key, Check,
+  Users, Key, Check, Lock,
 } from 'lucide-react';
 import {
   EstateRecord, FamilyMember, VaultDocument, FamilyDocument, InsurancePolicy,
   WillsEstateDoc, DesignatedSuccessor, EmergencyInstructions, NotifyContact, AccountToClose, FamilyMemberRole,
+  WillsAccessDoc,
 } from '../types';
-import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile, loadFinances, loadFamilyRoles } from '../utils/db';
+import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile, loadFinances, loadFamilyRoles, saveWillsAccess } from '../utils/db';
+import { grantableMembers, withReader, staleReaders } from '../utils/willsAccess';
+import { useWillsAccess } from '../hooks/useWillsAccess';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { auth } from '../lib/firebase';
@@ -76,7 +79,18 @@ function toFamilyDoc(v: VaultDocument): FamilyDocument {
 }
 
 export default function WillsEstateView({ members, refreshKey = 0 }: { members: FamilyMember[]; refreshKey?: number }) {
-  const { canWrite, familyId } = useFamilyCtx();
+  /* `canWrite` (admin OR member) is NOT the gate here any more.
+   *
+   * Since v230 reference/willsEstate is admin-and-named-readers-only in
+   * firestore.rules — the will was previously readable by every member,
+   * which on this vault included a teenager, because the "children are
+   * read-only" distinction only ever governed writes. Editing is admins
+   * only, matching the rule; reading is admins plus whoever an admin has
+   * explicitly named. See utils/willsAccess.ts. */
+  const { role, familyId, isAdmin } = useFamilyCtx();
+  const { access, mayRead, mayWrite: canWrite, loading: accessLoading, refresh: refreshAccess } = useWillsAccess();
+  const [savingAccess, setSavingAccess] = useState<string | null>(null);
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [records, setRecords] = useState<EstateRecord[]>([]);
   // Who takes over, and the "if something happens to you" material that
   // doesn't belong to one specific document (see EmergencyInstructions in
@@ -112,7 +126,12 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   useBodyScrollLock(viewingId !== null);
   useBodyScrollLock(isFormOpen && !!form);
 
+  // The access answer comes first — everything else waits on it, because
+  // loading the estate document before we know whether this person may see it
+  // is exactly the request the rule will refuse.
   useEffect(() => {
+    if (accessLoading) return;
+    if (!mayRead) { setLoading(false); return; }
     let active = true;
     (async () => {
       const [estate, docs, finances] = await Promise.all([loadWillsEstate(), loadDocuments(), loadFinances()]);
@@ -126,7 +145,7 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
       }
     })();
     return () => { active = false; };
-  }, [refreshKey]);
+  }, [refreshKey, accessLoading, mayRead]);
 
   useEffect(() => {
     if (!familyId) return;
@@ -300,6 +319,13 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   });
   const viewing = records.find(r => r.id === viewingId) || null;
 
+  // Locked out. Return BEFORE the loading branch and before anything that
+  // could leak the contents — no record count, no successor name, nothing
+  // that answers "what's in there" for someone who isn't allowed to know.
+  if (!accessLoading && !mayRead) {
+    return <LockedCard isChild={role === 'child'} />;
+  }
+
   if (loading) {
     return (
       <div className="card p-8 text-center">
@@ -318,6 +344,27 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
       <datalist id="successor-name-options">
         {members.map(m => <option key={m.id} value={m.name} />)}
       </datalist>
+
+      {/* Who can open this — admins only. Deliberately the FIRST thing an
+          admin sees: the whole point of the lock is knowing, at a glance,
+          exactly who else can read this page. */}
+      {isAdmin && (
+        <AccessCard
+          access={access}
+          roles={roles}
+          savingUid={savingAccess}
+          error={accessError}
+          onToggle={async (targetUid, granted) => {
+            setAccessError(null);
+            setSavingAccess(targetUid);
+            const next = withReader(access, targetUid, granted);
+            const ok = await saveWillsAccess(next, auth.currentUser?.email || '');
+            if (ok) refreshAccess();
+            else setAccessError('That didn\u2019t save. Check your connection and try again.');
+            setSavingAccess(null);
+          }}
+        />
+      )}
 
       {/* Who takes over — the designated person */}
       <SuccessorCard
@@ -1238,6 +1285,163 @@ function AccountForm({ initial, onSave, onCancel }: {
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
         <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
       </div>
+    </div>
+  );
+}
+
+// ── Locked ──────────────────────────────────────────────────────────────
+// What someone without access sees. It names WHO to ask rather than just
+// refusing — a dead end with no next step reads as a broken app, and the
+// person who can grant access is always an admin of this space.
+function LockedCard({ isChild }: { isChild: boolean }) {
+  return (
+    <div className="max-w-lg">
+      <div className="card p-8 text-center">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-ink-900 text-white flex items-center justify-center">
+          <Lock className="w-7 h-7" />
+        </div>
+        <h2 className="font-display text-xl font-semibold text-ink-900">Wills &amp; Estate is private</h2>
+        <p className="text-[13px] text-ink-500 leading-relaxed mt-2 max-w-xs mx-auto">
+          {isChild
+            ? 'This part of the vault is kept for the grown-ups who look after it.'
+            : 'Only the people an admin has named can open this. Everything else in the vault is unchanged.'}
+        </p>
+        {!isChild && (
+          <p className="text-[12px] text-ink-400 leading-relaxed mt-4 max-w-xs mx-auto">
+            If you&rsquo;re meant to have it &mdash; you&rsquo;re handling someone&rsquo;s estate, or they&rsquo;ve
+            asked you to &mdash; ask an admin of this space to give you access.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Who can open this ───────────────────────────────────────────────────
+// Admin-only. Rory's ask, verbatim: "we should lock the will right? and give
+// access to certain people — i don't want the kids going through it."
+//
+// Admins are not listed: they already have access by rule, and a toggle that
+// can't be switched off reads as a bug. Children are not listed at all.
+function AccessCard({
+  access, roles, savingUid, error, onToggle,
+}: {
+  access: WillsAccessDoc | null;
+  roles: Record<string, FamilyMemberRole>;
+  savingUid: string | null;
+  error: string | null;
+  onToggle: (uid: string, granted: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const candidates = grantableMembers(roles);
+  const readers = access?.readerUids || [];
+  const stale = staleReaders(access, roles);
+  const grantedCount = readers.filter(u => !stale.includes(u)).length;
+
+  return (
+    <div className="card overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 p-4 sm:p-5 text-left hover:bg-cream-50 transition-colors"
+      >
+        <div className="p-2 rounded-xl bg-ink-900 text-white shrink-0">
+          <Lock className="w-4 h-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-semibold text-ink-900">Who can open this</p>
+          <p className="text-[12px] text-ink-500">
+            {grantedCount === 0
+              ? 'Admins only. Nobody else in the family can see this page.'
+              : `Admins, plus ${grantedCount} named ${grantedCount === 1 ? 'person' : 'people'}.`}
+          </p>
+        </div>
+        <span className="chip bg-ink-100 text-ink-700 shrink-0">{open ? 'Hide' : 'Change'}</span>
+      </button>
+
+      {open && (
+        <div className="px-4 sm:px-5 pb-5 pt-1 space-y-3 border-t border-cream-200">
+          <p className="text-[12px] text-ink-500 leading-relaxed pt-3">
+            Giving someone access lets them read this page &mdash; the will, the letter, who to call. It does not
+            let them change anything, and it doesn&rsquo;t touch the rest of the vault.
+          </p>
+
+          {candidates.length === 0 ? (
+            <p className="text-[12px] text-ink-400 italic">
+              There&rsquo;s nobody else to name yet. Everyone in this space is either an admin (who already has
+              access) or a child.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {candidates.map(c => {
+                const granted = readers.includes(c.uid);
+                const busy = savingUid === c.uid;
+                return (
+                  <button
+                    key={c.uid}
+                    onClick={() => onToggle(c.uid, !granted)}
+                    disabled={busy}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors text-left disabled:opacity-60 ${
+                      granted ? 'border-sage-300 bg-sage-50' : 'border-cream-200 hover:bg-cream-50'
+                    }`}
+                  >
+                    <div className={`w-5 h-5 rounded-md shrink-0 flex items-center justify-center ${
+                      granted ? 'bg-sage-600 text-white' : 'border border-ink-200'
+                    }`}>
+                      {busy
+                        ? <Loader2 className="w-3 h-3 animate-spin text-ink-400" />
+                        : granted ? <Check className="w-3.5 h-3.5" /> : null}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium text-ink-900 truncate">{c.label}</p>
+                      {c.email && c.email !== c.label && (
+                        <p className="text-[11px] text-ink-400 truncate">{c.email}</p>
+                      )}
+                    </div>
+                    <span className={`chip shrink-0 ${granted ? 'bg-sage-100 text-sage-700' : 'bg-cream-200 text-ink-500'}`}>
+                      {granted ? 'Can open' : 'No access'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* A grant outlives the person: remove someone, or promote them to
+              admin, and their uid stays on the list — silently re-granting
+              access if they're ever re-added. Show it rather than pretend. */}
+          {stale.length > 0 && (
+            <div className="rounded-xl bg-honey-50 border border-honey-200 p-3 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-honey-600 mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] text-ink-700 leading-relaxed">
+                  {stale.length} old {stale.length === 1 ? 'grant is' : 'grants are'} left over from
+                  {stale.length === 1 ? ' someone who' : ' people who'} left this space or became an admin.
+                </p>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {stale.map(u => (
+                    <button
+                      key={u}
+                      onClick={() => onToggle(u, false)}
+                      disabled={savingUid === u}
+                      className="btn-quiet text-[11px] px-2.5 py-1 rounded-lg disabled:opacity-60"
+                    >
+                      {savingUid === u ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                      Clear {u.slice(0, 6)}&hellip;
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {error && <p role="alert" className="text-[11px] text-rosa-600">{error}</p>}
+
+          <p className="text-[11px] text-ink-400 leading-relaxed">
+            Only people who already have a login for this space can be named. To give access to someone outside the
+            family &mdash; the person handling your estate &mdash; invite them from Settings first, then name them here.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

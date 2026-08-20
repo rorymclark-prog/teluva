@@ -1,12 +1,11 @@
 {
-  "label": "v229",
+  "label": "v230",
   "changes": [
-    "Birthdays for people who aren't family members now all live in one place. Extended Birthdays is it — anything saved there shows on the family calendar, goes out in your exported calendar file, and sends a reminder every year.",
-    "The assistant now saves them there. Tell it \"Granny's birthday is 3 March\" and it lands on the Extended Birthdays list, where it recurs, instead of quietly becoming a note on a contact that only ever showed on the home screen.",
-    "Birthdays you'd already saved on a contact have been moved across for you — nothing to do, and nothing lost.",
-    "The contact form no longer asks for a birthday. It points to Extended Birthdays instead, so a birthday can't end up in the weaker place by accident.",
-    "\"Needs attention\" now says it on the day itself, not just in the run-up, and tapping the row opens the Extended Birthdays list.",
-    "An age is only shown when we actually know the year someone was born. Before, a birthday saved without a year could show a made-up age.",
-    "Your household vendor list can no longer be wiped by an edit made elsewhere. A change to Important info from another device, or a contact filed by the assistant, was dropping the plumber/electrician list from the same page."
+    "Wills & Estate is now private. Only admins can open it — the will, the letter you leave behind, the executor's details and who holds the signed original are no longer visible to everyone in the family.",
+    "You can name individual people who may read it. Open Wills & Estate and use \"Who can open this\" — the person you've designated to handle your estate can be given the will without being handed the rest of the vault, and nobody else gets it by default.",
+    "Naming someone lets them read it, never change it. Only admins can edit records, the successor or the letter.",
+    "Old grants no longer linger silently. If someone leaves the space or becomes an admin, their access shows up as an old grant you can clear, instead of quietly coming back if they're ever re-added.",
+    "The rest of the app respects the lock too. The readiness score, \"needs attention\" and the assistant no longer mention the will — or that one is missing — to anyone who can't open it.",
+    "If the assistant is asked to change the will by someone who isn't an admin, it now says so plainly instead of reporting a save problem."
   ]
 }

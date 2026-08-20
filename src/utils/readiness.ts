@@ -66,6 +66,17 @@ export interface ReadinessInput {
   household: HouseholdInfo | null;
   /** How many people hold the 'admin' role on this space (families/{id}/roles) — see db.ts's loadFamilyRoles. */
   adminCount: number;
+  /**
+   * Whether this viewer may open Wills & Estate at all (see utils/willsAccess.ts).
+   *
+   * Defaults to true — every caller before v230 passed a real estateRecords
+   * list because everyone could read the document. When it's false the will
+   * check is skipped ENTIRELY rather than failed: a locked-out member must
+   * not be told "no will on file yet" (that is itself a fact about the will),
+   * and must not be permanently docked points for a gap they can neither see
+   * nor fill.
+   */
+  estateVisible?: boolean;
 }
 
 // Points per check. Sized by real-world consequence, per the brief: "no
@@ -144,7 +155,7 @@ function hasMedicalBasics(m: FamilyMember): boolean {
 }
 
 export function computeReadiness(input: ReadinessInput, now: number = Date.now()): ReadinessResult {
-  const { members, estateRecords, insurancePolicies, household, adminCount } = input;
+  const { members, estateRecords, insurancePolicies, household, adminCount, estateVisible = true } = input;
   const gaps: ReadinessGap[] = [];
   let earned = 0;
   let max = 0;
@@ -168,12 +179,14 @@ export function computeReadiness(input: ReadinessInput, now: number = Date.now()
     severity: 'critical',
   });
 
-  check(WEIGHT.WILL_ESTATE, estateRecords.length > 0, {
-    id: 'will-estate',
-    label: 'No will, power of attorney or similar record on file yet',
-    severity: 'critical',
-    view: 'willsEstate',
-  });
+  if (estateVisible) {
+    check(WEIGHT.WILL_ESTATE, estateRecords.length > 0, {
+      id: 'will-estate',
+      label: 'No will, power of attorney or similar record on file yet',
+      severity: 'critical',
+      view: 'willsEstate',
+    });
+  }
 
   check(WEIGHT.INSURANCE, insurancePolicies.length > 0, {
     id: 'insurance',

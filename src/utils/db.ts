@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, WillsAccessDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -625,6 +625,24 @@ async function loadReferenceDoc<T>(
       }
     } catch (error) {
       console.error(`Error loading ${key}:`, error);
+      /* A REFUSAL IS NOT AN OUTAGE, and must not fall through to the cache.
+       *
+       * Everything below this block treats a failed read as "we're offline,
+       * serve what we last saw" — right for a network blip, wrong when the
+       * server has just told us this person may not read this document. Since
+       * reference/willsEstate became admin-and-named-readers-only, that case is
+       * real: a member who could open the will yesterday still has a plaintext
+       * copy in their own localStorage, and serving it would mean the lock
+       * changed nothing on the one device that already had the data.
+       *
+       * So a permission-denied purges the local copy and returns null. It also
+       * clears any dirty flag: a pending write we are no longer allowed to make
+       * would otherwise be retried on every load, forever. */
+      if ((error as { code?: string })?.code === 'permission-denied') {
+        try { localStorage.removeItem(scopedKey); } catch { /* private mode */ }
+        clearDirty(key, FAMILY_ID);
+        return null;
+      }
     }
   }
   const local = localStorage.getItem(scopedKey);
@@ -782,6 +800,42 @@ export const loadFamilyWords = () => loadReferenceDoc<FamilyWordsDoc>('familyWor
 // Wills & estate — family-wide, store-and-recall only (see WillsEstateView).
 export const saveWillsEstate = (w: WillsEstateDoc, base?: WillsEstateDoc) => saveReferenceDoc('willsEstate', w, 'family_wills_estate', base);
 export const loadWillsEstate = () => loadReferenceDoc<WillsEstateDoc>('willsEstate', 'family_wills_estate');
+
+/* Who else may open it. DELIBERATELY NOT a saveReferenceDoc/loadReferenceDoc
+ * pair like everything above: those cache to localStorage and fall back to the
+ * cache when the network is unavailable, and an access list served from a stale
+ * local copy is an access list that can be wrong in the permissive direction on
+ * exactly the device you'd least want that. Straight to Firestore, or nothing.
+ *
+ * Reads return null on any failure — the caller treats that as "no extra
+ * readers", which is the closed-fail direction. */
+export async function loadWillsAccess(): Promise<WillsAccessDoc | null> {
+  if (!auth.currentUser) return null;
+  try {
+    const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', 'willsAccess'));
+    if (!snap.exists()) return null;
+    const data = snap.data() as WillsAccessDoc;
+    return { ...data, readerUids: Array.isArray(data.readerUids) ? data.readerUids : [] };
+  } catch (error) {
+    console.error('Error loading willsAccess:', error);
+    return null;
+  }
+}
+
+/** Admins only — the rule rejects everyone else. Returns false if it did. */
+export async function saveWillsAccess(readerUids: string[], updatedBy?: string): Promise<boolean> {
+  if (!auth.currentUser) return false;
+  try {
+    await setDoc(
+      doc(db, 'families', FAMILY_ID, 'reference', 'willsAccess'),
+      { readerUids, updatedAt: new Date().toISOString(), updatedBy: updatedBy || '' },
+    );
+    return true;
+  } catch (error) {
+    console.error('Error saving willsAccess:', error);
+    return false;
+  }
+}
 
 export const saveTravelTimeline = (t: TravelTimelineDoc, base?: TravelTimelineDoc) => saveReferenceDoc('travelTimeline', t, 'family_travel_timeline', base);
 export const loadTravelTimeline = () => loadReferenceDoc<TravelTimelineDoc>('travelTimeline', 'family_travel_timeline');

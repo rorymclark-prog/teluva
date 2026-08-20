@@ -155,4 +155,36 @@ function member(overrides: Partial<FamilyMember> = {}): FamilyMember {
   assert.ok(!result.gaps.some((g) => g.id === 'id-on-file-expired1')); // it IS on file, just stale
 }
 
+// --- estateVisible: false — a viewer who cannot open Wills & Estate ---
+// The will check is SKIPPED, not failed. Two things must both hold: no
+// "no will on file" gap (that sentence is itself a fact about the will), and
+// no silent points penalty for a gap they can neither see nor fill. The
+// second is checked by comparing scores — a locked-out viewer with no will
+// recorded must score the same as an admin who HAS recorded one, because for
+// them the check simply doesn't apply.
+{
+  // adminCount 2 so the only OTHER family-wide check passes — that makes the
+  // score a meaningful ratio here rather than 0/0.
+  const base = { members: [], insurancePolicies: [], household: null, adminCount: 2 };
+  const locked = computeReadiness({ ...base, estateRecords: [], estateVisible: false }, NOW);
+  const hasWill = computeReadiness(
+    { ...base, estateRecords: [{ id: 'e1', kind: 'Will', originalLocation: 'Notary safe' }] },
+    NOW,
+  );
+  const noWill = computeReadiness({ ...base, estateRecords: [] }, NOW);
+
+  assert.ok(!locked.gaps.some((g) => g.id === 'will-estate'), 'a locked-out viewer must not be told the will is missing');
+  assert.ok(noWill.gaps.some((g) => g.id === 'will-estate'), 'control: the gap does appear when the doc is visible');
+  // The check leaves the denominator entirely — it isn't quietly counted as
+  // failed. `max` is "points that actually apply to this family", so a skipped
+  // check must shrink it by exactly the will's weight and earn nothing.
+  assert.strictEqual(locked.earned, noWill.earned, 'a skipped check earns nothing either way');
+  assert.strictEqual(hasWill.max, noWill.max, 'control: recording a will does not change what applies');
+  assert.strictEqual(locked.max, noWill.max - (hasWill.earned - noWill.earned), 'the will weight leaves max entirely');
+  assert.ok(locked.score > noWill.score, 'so the locked-out viewer is not docked for an invisible gap');
+
+  // Default stays true — every pre-v230 caller omits the field.
+  assert.ok(computeReadiness({ ...base, estateRecords: [] }, NOW).gaps.some((g) => g.id === 'will-estate'));
+}
+
 console.log('readiness.test.ts: all assertions passed');
