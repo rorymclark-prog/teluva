@@ -255,6 +255,17 @@ const COVERAGE_MAP: Record<string, Coverage> = {
     "spec forbids. The assistant CAN read resolved celebrations — server.js exposes " +
     "them as read-only recall alongside expiries/gaps — only writing is excluded."
   ),
+  nameMeanings: manual(
+    "Same boundary as nameCelebrations above, for the same reason one step over. " +
+    "Every entry carries a REQUIRED confidence ('established' | 'likely' | " +
+    "'contested') that the research endpoint refuses to default (see " +
+    "sanitizeNameMeaning in server.js), because a derivation stated flat with no " +
+    "hedge is the app asserting folk etymology as fact about someone's own name. " +
+    "An AiEdit kind would let a chat message store a meaning with no confidence, " +
+    "no origin and no provenance — the one outcome this feature exists to prevent. " +
+    "Confirmed only through NameMeaningModal.tsx. The assistant CAN read kept " +
+    "meanings (server.js exposes them as read-only recall, same as celebrations)."
+  ),
 
   // Was the third instance of the AI-invisible-section bug, and the first one
   // this test caught rather than a user. Wired up the same day it was found.
@@ -285,6 +296,17 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // from day one — unlike FamilyWordsDoc/RecipeBookDoc above, there was never
   // a gap here to close, this is just the normal step-2b entry.
   'AnniversariesDoc.anniversaries': covered('anniversary'),
+
+  // The family-name half of nameMeanings (see its entry above for the full
+  // reasoning). Lives on the SHARED document rather than the member because a
+  // surname is one etymology however many people carry it — so an AI write
+  // here would not just store an unhedged derivation, it would store it for
+  // everyone with that name at once.
+  'FamilyInfo.surnameMeanings': manual(
+    "The shared half of nameMeanings — human-confirmed in NameMeaningModal.tsx, " +
+    "with the same required-confidence rule. Writing it from chat would assert a " +
+    "contested derivation as fact for every member carrying that family name."
+  ),
 
   // ExtendedBirthdaysDoc shipped 2026-08-19 WITHOUT an edit kind, and it is the
   // clearest example yet of what this guard is for. The assistant couldn't

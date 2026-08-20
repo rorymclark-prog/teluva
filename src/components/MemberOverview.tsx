@@ -2,13 +2,14 @@ import {
   AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Lock, Stethoscope, Dices, RefreshCw,
 } from 'lucide-react';
 import { useState, useEffect, type ElementType, useMemo } from 'react';
-import { FamilyMember, FamilyDocument } from '../types';
+import { FamilyMember, FamilyDocument, SurnameMeaning } from '../types';
 import { soonestCare, careDueLabel } from '../utils/care';
 import { sunSign, elementTint } from '../utils/astrology';
 import { computeBirthChart } from '../utils/birthChart';
-import { isHintSeen, markHintSeen, loadSpaceInfo } from '../utils/db';
+import { isHintSeen, markHintSeen, loadSpaceInfo, loadFamilyInfo } from '../utils/db';
 import { formatNameDay } from '../utils/nameDay';
 import { resolveCelebrations, suggestLocal, daysUntilCelebration } from '../utils/nameCelebrations';
+import { meaningsFor, roleLabel, confidenceLabel } from '../utils/nameMeanings';
 import MemberBelongings from './MemberBelongings';
 import ShowCardModal, { type ShowCardField } from './ShowCardModal';
 
@@ -88,6 +89,19 @@ export default function MemberOverview({
     loadSpaceInfo().then((info) => { if (!cancelled) setSuppressReligious(!!info?.suppressReligiousSuggestions); });
     return () => { cancelled = true; };
   }, [member.id]);
+  // Family-name meanings live once per space, not on the member — so the card
+  // below needs the shared document as well as the member. Same shape as the
+  // space-info read above; db.ts serves it from the local cache, so this is not
+  // a network round-trip per profile view.
+  const [surnameMeanings, setSurnameMeanings] = useState<SurnameMeaning[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadFamilyInfo()
+      .then((info) => { if (!cancelled) setSurnameMeanings(info?.surnameMeanings || []); })
+      .catch(() => { /* offline: given names still show, the family name simply doesn't */ });
+    return () => { cancelled = true; };
+  }, [member.id]);
+  const meanings = meaningsFor(member, surnameMeanings);
   const zodiac = showAstrology ? sunSign(member.birthdate) : null;
   // The real positions, plus what is and isn't knowable from what's on file.
   const chart = useMemo(() => computeBirthChart({
@@ -256,6 +270,40 @@ export default function MemberOverview({
           </div>
         </div>
       )}
+      {/* What the names mean. Every row wears its confidence — the hedge is
+          load-bearing, not decoration: a derivation shown flat is the app
+          asserting folk etymology as fact about someone's own family. A member
+          with nothing kept draws nothing, and there is no offer to research
+          from here: that costs an AI call and belongs behind Edit, where the
+          person deciding is the person who opened the editor. */}
+      {meanings.length > 0 && (
+        <div className="card p-4">
+          <p className="text-[11px] font-bold text-ink-400 uppercase tracking-wider">What the names mean</p>
+          <div className="mt-2 space-y-2">
+            {meanings.map((m) => (
+              <div key={m.id}>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <p className="text-[14px] font-semibold text-ink-800">{m.token}</p>
+                  <span className="text-[10.5px] font-semibold text-ink-300">{roleLabel(m.role)}</span>
+                  {/* Only the two uncertain states are chipped. 'Well
+                      established' would be a badge on almost every row, which
+                      is how a hedge stops being read at all — the absence of a
+                      chip is what says "no caveat here". */}
+                  {m.confidence !== 'established' && (
+                    <span className={`chip ${m.confidence === 'contested' ? 'bg-honey-100 text-honey-800' : 'bg-cream-200 text-ink-600'}`}>
+                      {confidenceLabel(m.confidence)}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[13px] text-ink-600 leading-snug">
+                  {m.meaning}{m.origin ? <span className="text-ink-400"> · {m.origin}</span> : null}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!celebrations.primary && suggestion && suggestion.matchType !== 'second_name' && onSetNameDay && (
         <div className="card p-4 flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-cream-100 flex items-center justify-center text-xl shrink-0" aria-hidden="true">💐</div>

@@ -1,8 +1,9 @@
 {
-  "label": "v241",
+  "label": "v242",
   "changes": [
-    "You can now turn religious suggestions back on from inside the name-day screen itself. It used to tell you the setting was off and then leave you to go and find it — abandoning whatever you were editing to get there.",
-    "Turning it on runs the search again straight away, so you get the answer you came for instead of having to ask a second time.",
-    "It's an admin-only setting and it applies to the whole family, so the screen says both out loud. If you're not an admin it tells you who can change it rather than showing a button that wouldn't work."
+    "You can look up what your names actually mean — first name, second names and the family name, each one separately, since they are usually three different languages.",
+    "Every meaning says how sure it is. \"Sources disagree\" means exactly that, and nothing is kept until you say so — a made-up story about your own family name is worse than no story.",
+    "The family name is looked up once and shared, so everyone carrying it sees the same answer instead of you paying for the same research on each person.",
+    "Ask the assistant \"what does my name mean\" and it answers from what you kept — carrying the same hedge, and never inventing one for a name you haven't looked up."
   ]
 }

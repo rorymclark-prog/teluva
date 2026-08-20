@@ -167,6 +167,74 @@ export interface NameCelebration {
   notify: boolean;          // default true for the primary, false for additional
 }
 
+/**
+ * What one part of a person's name MEANS — the sibling of NameCelebration
+ * above, which answers when a name is celebrated. Rory asked for this
+ * (2026-08-20): "the meaning of our names as well second and surname
+ * included", so it covers every part, not just the first name.
+ *
+ * WHY IT IS PER NAME PART, NOT PER PERSON. "Rory Michael Clark" is three
+ * separate etymologies from three different languages. Collapsing them into
+ * one blob of prose means the app can never say "Michael is Hebrew" next to
+ * "Rory is Gaelic", and a family that only wants to keep one of the three has
+ * nothing to delete.
+ *
+ * WHY `confidence` IS REQUIRED. Name etymology is genuinely contested far more
+ * often than people expect — plenty of surnames have two respectable competing
+ * derivations and some have none anyone can evidence. A meaning presented flat,
+ * with no hedge, is the failure mode this field exists to prevent: the app
+ * would be stating folk etymology as fact about someone's own family. Every
+ * surface that renders a meaning must render this alongside it.
+ */
+export interface NameMeaning {
+  id: string;
+  /** The name part as the family writes it — 'Shyam', 'Michael', 'Clark'. */
+  token: string;
+  // WHICH part of the name this is. Labelled rather than positional because
+  // there is no surname field on a member (see FamilyMember.name — one string)
+  // and last-token-is-the-surname is wrong for Spanish and Portuguese double
+  // surnames, for Hungarian name order, and for any particle name ('van der
+  // Berg'). The research segments and labels; the family sees the label and
+  // can drop anything it got wrong.
+  role: 'given' | 'middle' | 'family';
+  /** The short answer, on its own line — 'red king', 'who is like God'. */
+  meaning: string;
+  /** Language or culture of origin — 'Sanskrit', 'Old Irish', 'Old English'. */
+  origin?: string;
+  /** The longer story: how it was formed, what it meant to the people using it. */
+  explanation?: string;
+  /** Where the name also appears — related forms, cognates, the same root elsewhere. */
+  alsoKnown?: string;
+  // 'established' = the derivation is not seriously disputed. 'likely' = the
+  // leading explanation, with others in circulation. 'contested' = respectable
+  // sources genuinely disagree, and the UI must say so rather than pick one.
+  confidence: 'established' | 'likely' | 'contested';
+  source?: string;
+  /** Nothing is shown as the family's own until they kept it — same rule as NameCelebration. */
+  confirmed: boolean;
+}
+
+/**
+ * A surname's meaning, held ONCE for the whole space rather than copied onto
+ * every member who carries it.
+ *
+ * A surname is shared by definition, so storing it on the member would mean
+ * researching (and paying for) the same name once per person, and letting four
+ * copies of one fact drift apart — the split-brain this codebase has already
+ * been bitten by once (see the birthday stores). Given names stay on the
+ * member, because they genuinely are that person's own.
+ *
+ * It is a LIST, not a single field: a family is not one surname. Step-families,
+ * partners who kept their name, and children carrying both are all ordinary,
+ * so this is keyed by the surname itself and any member whose name contains it
+ * reads the same entry.
+ */
+export interface SurnameMeaning extends NameMeaning {
+  role: 'family';
+  /** Lower-cased `token`, the lookup key. Two members spelling it the same share one entry. */
+  key: string;
+}
+
 export interface FamilyMember {
   id: string;
   name: string;
@@ -201,6 +269,10 @@ export interface FamilyMember {
   // Both stay valid: utils/nameCelebrations.ts merges the legacy pair in as an
   // implicit confirmed name day, so existing Austrian data works unmigrated.
   nameCelebrations?: NameCelebration[];
+  // What this person's GIVEN names mean. The surname's meaning is deliberately
+  // NOT here — it lives once per space on FamilyInfo.surnameMeanings, because
+  // several members share it. See NameMeaning/SurnameMeaning above.
+  nameMeanings?: NameMeaning[];
   // The family answered "No name celebration" for this member — a deliberate
   // decision, so stop suggesting. Absence just means they haven't been asked.
   nameCelebrationDismissed?: boolean;
@@ -1136,6 +1208,10 @@ export interface FamilyInfo {
   contacts: ContactEntry[];
   providers: HealthcareProvider[];
   vendors?: HouseholdVendor[]; // household trades/services directory — plumber, electrician, locksmith…
+  // Surname meanings, one entry per distinct surname in the space, keyed by
+  // SurnameMeaning.key. Lives here rather than on each member so four people
+  // called Clark share one researched answer instead of four that can drift.
+  surnameMeanings?: SurnameMeaning[];
 }
 
 // --- Shopping list ---

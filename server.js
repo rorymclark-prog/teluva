@@ -686,6 +686,7 @@ Canonical member field keys (use ONLY these):
 basic: name, nickname, birthdate, name_day, place_of_birth, nationality, languages, gender
   name_day is the Namenstag (Austrian name day) — a recurring MONTH AND DAY with NO YEAR, written "MM-DD" (e.g. "03-19" for Josef on 19 March). It is NOT a birthday and must never be derived from one. Set it only when the user states which day they keep ("Maria's name day is the 12th of September", "we celebrate Opa's Namenstag on Josefi"). NEVER work one out from the person's name yourself: the app has its own name-day table and offers the date for the family to confirm, and a name day you invented is indistinguishable, on the day, from one they chose. If asked what someone's name day is and the field is empty, say it isn't set yet and that the app can suggest one from their name.
   FAMILY DATA may also carry a member's resolved "nameCelebrations" — their Name Days & Name Celebrations beyond the Austrian name_day above (title, tradition, explanation, which date it falls on). This is READ-ONLY RECALL, the same as "expiries"/"gaps" further down: there is no field key for it and no edit kind writes it. Answer questions about it straight from the data ("when is X's name day", "why does that date matter for Ganga"); if asked to add, change or research one, say that happens from the person's profile under Name Days & Name Celebrations, not from chat.
+  FAMILY DATA may also carry "nameMeanings" on a member (what their first and second names mean) and "surnameMeanings" on the family info document (what the family name means, shared by everyone who carries it). Also READ-ONLY RECALL, same rule: no field key, no edit kind. Each entry has a "confidence" of "established", "likely" or "contested" — ALWAYS carry that hedge into your answer. Say "most likely" for likely and "sources disagree about this one" for contested; never state a contested or likely derivation as plain fact, and never supply a meaning for a name that has no entry, however obvious it looks to you — an invented etymology of someone's own family name is indistinguishable, to them, from a researched one. If asked to look up or change a meaning, say that happens from the person's profile under "What the names mean", not from chat.
 contact: address, phone, email
 sizes: shirt_size, pants_size, shoe_size, dress_size, jacket_size, hat_size, ring_size, height_cm, weight_kg, size_notes
 medical: blood_group, allergies, medications, conditions, surgeries, emergency_medication, organ_donor, family_medical_history, medical_notes
@@ -2856,6 +2857,72 @@ Output ONLY valid JSON: {"dates": {"<year>": "YYYY-MM-DD", ...}} — one entry p
 // one bad proposal must never fail the whole request, and a dropped proposal
 // reads to the family as the same honest "nothing found here" as an empty
 // array, never a fabricated fallback.
+// ---------------------------------------------------------------------------
+// Name MEANINGS (mode 'meaning') — the sibling of the celebration research
+// above. Same endpoint so it inherits the auth, rate limit and usage metering,
+// but a completely separate prompt: a meaning is an etymology, not a date, and
+// the failure modes are different. The one that matters is confident folk
+// etymology — "Clark means a great warrior" — which is exactly the kind of
+// thing that sounds right, spreads, and is wrong. Hence a REQUIRED confidence
+// on every entry and an explicit instruction that admitting ignorance beats
+// filling the field.
+// ---------------------------------------------------------------------------
+const NAME_MEANING_RESEARCH_SYSTEM = `You research what personal names MEAN, for a family-records app ("Teluva"). A family gave you the full name of one of their own members and wants to know what each part of it means. This is about their own family, so being wrong is worse than being incomplete.
+
+Return STRICT JSON: {"entries":[...]} and nothing else. One entry per part of the name you can genuinely say something about. Omit any part you cannot — an empty array is a correct and useful answer.
+
+Each entry:
+- token (string, REQUIRED): the name part EXACTLY as the family wrote it. Never correct their spelling, never substitute a "standard" form, never translate it.
+- role (REQUIRED): "given" for the first name, "middle" for any further given name, "family" for the surname. Segment by what the name actually is, not by position: Spanish and Portuguese names often carry TWO surnames, Hungarian order puts the family name first, and particles ("van der", "de la", "bin", "Mc") belong to the surname they precede. If you cannot tell which part is the surname, use "given" for all of them rather than guessing.
+- meaning (string, REQUIRED): the short answer, a few words. "red king". "who is like God". "clerk, scribe". Lower case unless it is a proper noun. NOT a sentence, NOT a paragraph — the explanation field is for that.
+- origin (string): the language or culture the name came from — "Old Irish", "Sanskrit", "Old English", "Hebrew". Be specific about the LANGUAGE, not the modern country.
+- explanation (string, 1-3 sentences): how the name was formed and what it meant to the people who used it. Plain language for a family, not a linguistics paper. No transliteration diacritics unless they carry meaning.
+- alsoKnown (string): closely related forms of the SAME name, or where the same root turns up elsewhere. Keep it short.
+- confidence (REQUIRED, one of "established" | "likely" | "contested"):
+  * "established" — the derivation is not seriously disputed by anyone who studies names.
+  * "likely" — this is the leading explanation but other respectable derivations are in circulation.
+  * "contested" — sources genuinely disagree and there is no consensus. USE THIS. It is the honest answer far more often than people expect, especially for surnames.
+- source (string): the kind of authority this rests on — "standard onomastic references", "Sanskrit lexicons", "English surname dictionaries". Never invent a citation, a URL, a page number or an author.
+
+HARD RULES:
+- NEVER invent a meaning. If a name has no established etymology, or you are not confident which of several names this is, LEAVE IT OUT. A missing entry is correct; a plausible-sounding invention about a real family's own name is not.
+- NEVER derive a meaning from what a name sounds like in another language.
+- A name shared with a famous person is not an etymology. Say what the NAME means, not who else has held it.
+- Do not guess the family's religion, nationality or ethnicity from their names, and do not comment on any of those. Say what the name means and where the word came from; stop there.
+- If two parts of the name are the same word, return one entry for it.
+- Never say a name is "beautiful", "strong", "powerful" or otherwise flatter it. Report, do not compliment.`;
+
+const NAME_MEANING_ROLES = new Set(['given', 'middle', 'family']);
+const NAME_MEANING_CONFIDENCE = new Set(['established', 'likely', 'contested']);
+
+function sanitizeNameMeaning(raw, { allowedTokens }) {
+  if (!raw || typeof raw !== 'object') return null;
+  const token = typeof raw.token === 'string' ? raw.token.trim().slice(0, 100) : '';
+  const meaning = typeof raw.meaning === 'string' ? raw.meaning.trim().slice(0, 300) : '';
+  const role = NAME_MEANING_ROLES.has(raw.role) ? raw.role : null;
+  const confidence = NAME_MEANING_CONFIDENCE.has(raw.confidence) ? raw.confidence : null;
+  // confidence is required, not defaulted: defaulting it to "likely" would let
+  // a model that skipped the field launder a contested derivation into a
+  // confident-looking one, which is the whole thing this guards against.
+  if (!token || !meaning || !role || !confidence) return null;
+
+  // The model may only speak about name parts the family actually sent. This
+  // stops an entry appearing for a name nobody in the family has — whether the
+  // model drifted, or the name itself carried an instruction.
+  if (!allowedTokens.has(token.toLowerCase())) return null;
+
+  const out = { token, role, meaning, confidence };
+  const origin = typeof raw.origin === 'string' ? raw.origin.trim().slice(0, 120) : '';
+  const explanation = typeof raw.explanation === 'string' ? raw.explanation.trim().slice(0, 800) : '';
+  const alsoKnown = typeof raw.alsoKnown === 'string' ? raw.alsoKnown.trim().slice(0, 300) : '';
+  const source = typeof raw.source === 'string' ? raw.source.trim().slice(0, 200) : '';
+  if (origin) out.origin = origin;
+  if (explanation) out.explanation = explanation;
+  if (alsoKnown) out.alsoKnown = alsoKnown;
+  if (source) out.source = source;
+  return out;
+}
+
 function sanitizeCelebrationProposal(raw, { currentYear, nextYear, suppressReligious, rejectedTitles }) {
   if (!raw || typeof raw !== 'object') return null;
   const title = typeof raw.title === 'string' ? raw.title.trim().slice(0, 200) : '';
@@ -2980,6 +3047,63 @@ app.post('/api/name-celebration-research', async (req, res) => {
       if (dates === null) return res.status(502).json({ error: 'Could not resolve dates for that rule right now — please try again.' });
       await recordAiUsage(caller.familyId);
       return res.json({ dates }); // may be a subset of the requested years — never a guessed one
+    }
+
+    if (mode === 'meaning') {
+      const { name } = req.body || {};
+      const full = typeof name === 'string' ? name.trim().slice(0, 200) : '';
+      if (!full) return res.status(400).json({ error: 'name is required.' });
+      // Split here as well as on the client so the allow-list the sanitiser
+      // checks against is derived from what the SERVER read, not from a list
+      // the client also supplied — otherwise a caller could authorise any token
+      // it liked simply by sending it.
+      const parts = full.split(/[\s\-–]+/).filter(Boolean).slice(0, 8);
+      if (!parts.length) return res.status(400).json({ error: 'name is required.' });
+      const allowedTokens = new Set(parts.map((t) => t.toLowerCase()));
+
+      console.log('[name-celebration-research] meaning for', full, 'from', caller.email);
+      const mRes = await generateContent(MODEL_SMART, {
+        systemInstruction: { parts: [{ text: NAME_MEANING_RESEARCH_SYSTEM }] },
+        contents: [{ role: 'user', parts: [{ text: `Full name as the family writes it: ${full}\nName parts, in order: ${parts.join(', ')}` }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+      });
+      if (!mRes.ok) {
+        const errDetail = await mRes.text().catch(() => '');
+        console.error('[name-celebration-research] meaning gemini error', mRes.status, errDetail.slice(0, 300));
+        return res.status(502).json({ error: 'Could not look up what these names mean right now — please try again.' });
+      }
+      const mData = await mRes.json();
+      const mText = (mData?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
+      if (!mText) {
+        console.error('[name-celebration-research] meaning empty response:', JSON.stringify(mData).slice(0, 400));
+        return res.status(502).json({ error: 'Could not look up what these names mean right now — please try again.' });
+      }
+      let mParsed;
+      try { mParsed = JSON.parse(mText); } catch {
+        console.error('[name-celebration-research] meaning unparseable JSON:', mText.slice(0, 400));
+        return res.status(502).json({ error: 'Could not look up what these names mean right now — please try again.' });
+      }
+      const rawEntries = Array.isArray(mParsed?.entries) ? mParsed.entries : [];
+      const seenTokens = new Set();
+      const entries = rawEntries
+        .map((e) => sanitizeNameMeaning(e, { allowedTokens }))
+        .filter(Boolean)
+        // One entry per name part. A model that returned two readings of the
+        // same token would otherwise put two rows on the card, each looking
+        // like a separate name.
+        .filter((e) => {
+          const k = e.token.toLowerCase();
+          if (seenTokens.has(k)) return false;
+          seenTokens.add(k);
+          return true;
+        })
+        .slice(0, 8);
+
+      // The call succeeded even when it honestly found nothing — an empty
+      // array is a real answer here (plenty of names have no established
+      // etymology), so it is metered like any other.
+      await recordAiUsage(caller.familyId);
+      return res.json({ entries });
     }
 
     if (mode !== 'suggest') return res.status(400).json({ error: 'Unknown mode.' });

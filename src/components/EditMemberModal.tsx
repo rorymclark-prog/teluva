@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  X, Sparkles, Camera, Upload, RefreshCcw, Save, Search, PartyPopper, Star, BellRing, BellOff, Trash2,
+  X, Sparkles, Camera, Upload, RefreshCcw, Save, Search, PartyPopper, Star, BellRing, BellOff, Trash2, BookOpen,
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
-import { FamilyMember, MemberRole, NameCelebration } from '../types';
+import { FamilyMember, MemberRole, NameCelebration, NameMeaning, SurnameMeaning } from '../types';
 import { listTimeZones } from '../utils/timeZone';
 import { auth } from '../lib/firebase';
-import { loadSpaceInfo, saveSuppressReligiousSuggestions } from '../utils/db';
+import { loadSpaceInfo, saveSuppressReligiousSuggestions, loadFamilyInfo, saveFamilyInfo } from '../utils/db';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -16,6 +16,8 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { isValidNameDay, formatNameDay } from '../utils/nameDay';
 import { resolveCelebrations, suggestLocal, LEGACY_NAME_DAY_ID } from '../utils/nameCelebrations';
 import NameCelebrationModal from './NameCelebrationModal';
+import NameMeaningModal from './NameMeaningModal';
+import { meaningsFor, foldMeanings, surnameKey, roleLabel, confidenceLabel } from '../utils/nameMeanings';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 
 interface EditMemberModalProps {
@@ -62,6 +64,20 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [nameCelebrations, setNameCelebrations] = useState<NameCelebration[]>([]);
   const [nameCelebrationDismissed, setNameCelebrationDismissed] = useState(false);
   const [showCelebrationModal, setShowCelebrationModal] = useState(false);
+  // What this person's names MEAN — the other half of the name section. Given
+  // and second names are this member's own and ride along on Save with every
+  // other field. The FAMILY name is not theirs alone, so it lives once per
+  // space in FamilyInfo.surnameMeanings and is written separately (see
+  // utils/nameMeanings.ts for why the two stores exist).
+  //
+  // `surnameBaseline` is what was loaded, kept so Save can tell whether the
+  // shared document needs writing at all — a member edit that never touched a
+  // surname must not write to a document everyone shares.
+  const [nameMeanings, setNameMeanings] = useState<NameMeaning[]>([]);
+  const [surnameMeanings, setSurnameMeanings] = useState<SurnameMeaning[]>([]);
+  const [surnameBaseline, setSurnameBaseline] = useState<SurnameMeaning[]>([]);
+  const [showMeaningModal, setShowMeaningModal] = useState(false);
+  const [meaningSaveError, setMeaningSaveError] = useState<string | null>(null);
   // Space-level "don't suggest religious celebrations" — read-only here (the
   // toggle itself lives in FamilySettings). Loaded once per open rather than
   // per keystroke since it cannot change while this modal is up. null = not
@@ -136,6 +152,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setNameDayFeast(member.nameDayFeast || '');
       setNameCelebrations(member.nameCelebrations || []);
       setNameCelebrationDismissed(!!member.nameCelebrationDismissed);
+      setNameMeanings(member.nameMeanings || []);
+      setMeaningSaveError(null);
       setBirthTime(member.birthTime || '');
       setPlaceOfBirth(member.placeOfBirth || '');
       setNationality(member.nationality || '');
@@ -194,6 +212,47 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const handleChangeSuppressReligious = async (suppress: boolean) => {
     await saveSuppressReligiousSuggestions(suppress);
     setSuppressReligiousSuggestions(suppress);
+  };
+
+  // Surname meanings, from the shared Important Info document. Read on open so
+  // a name already researched by someone else shows up here without a second
+  // AI call — a surname is one etymology however many people carry it.
+  //
+  // Loading also refreshes db.ts's merge base for that document, which is
+  // exactly what the load-mutate-save writers there expect (see
+  // saveReferenceDoc's docstring). The save below spreads what it re-loads
+  // rather than rebuilding it: a key present in the base and missing from the
+  // value reads as a DELETE.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    loadFamilyInfo().then((info) => {
+      if (cancelled) return;
+      const stored = info?.surnameMeanings || [];
+      setSurnameMeanings(stored);
+      setSurnameBaseline(stored);
+    }).catch(() => { /* offline: the section still works, it just starts empty */ });
+    return () => { cancelled = true; };
+  }, [isOpen]);
+
+  // One research call answers about the whole name, so one confirm splits its
+  // results across both stores at once — foldMeanings decides which goes where
+  // by the role the model assigned each part, never by position in the string
+  // (a last token is not reliably a surname).
+  const handleConfirmMeanings = (entries: NameMeaning[]) => {
+    const { own, surnames } = foldMeanings(nameMeanings, surnameMeanings, entries);
+    setNameMeanings(own);
+    setSurnameMeanings(surnames);
+    setMeaningSaveError(null);
+  };
+
+  // Removal is by token rather than by id because the caller cannot know which
+  // of the two stores an entry came from — meaningsFor() merges them, and that
+  // merged list is what the family sees and taps delete on.
+  const handleRemoveMeaning = (token: string) => {
+    const key = surnameKey(token);
+    setNameMeanings((prev) => prev.filter((m) => surnameKey(m.token) !== key));
+    setSurnameMeanings((prev) => prev.filter((s) => s.key !== key));
   };
 
 
@@ -366,10 +425,32 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const handleRemoveCelebration = (id: string) =>
     setNameCelebrations((prev) => prev.filter((c) => c.id !== id));
 
-  const handleSaveSubmit = (e: React.FormEvent) => {
+  const handleSaveSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !member) return;
     if (nameDay && !isValidNameDay(nameDay)) return; // inline error is already visible; don't save garbage
+
+    // The family-name half of this section lives in a document everyone
+    // shares, so it is written here rather than travelling with the member.
+    // Only when it actually changed: a member edit that never opened the
+    // meanings modal must not touch a shared document at all.
+    if (JSON.stringify(surnameMeanings) !== JSON.stringify(surnameBaseline)) {
+      try {
+        // Re-loaded immediately before writing, and SPREAD — this is the
+        // load-mutate-save contract saveFamilyInfo merges against. Naming the
+        // keys instead would delete every key added since this file was
+        // written.
+        const info = (await loadFamilyInfo()) || { numbers: [], contacts: [], providers: [] };
+        const ok = await saveFamilyInfo({ ...info, surnameMeanings });
+        if (!ok) throw new Error('Could not save the family-name meanings.');
+      } catch (err: any) {
+        // Deliberately blocks the save and keeps the modal open: the rest of
+        // this form is still in state and recoverable, but confirmed research
+        // that is silently dropped is gone for good.
+        setMeaningSaveError(err?.message ?? 'Could not save the family-name meanings. Check your connection and try again.');
+        return;
+      }
+    }
 
     let finalAvatarUrl: string | undefined = undefined;
     if (avatarMode === 'current' || avatarMode === 'upload') {
@@ -391,6 +472,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       nameDayFeast: nameDay && nameDay === member.nameDay ? member.nameDayFeast : (nameDayFeast || undefined),
       nameCelebrations: nameCelebrations.length ? nameCelebrations : undefined,
       nameCelebrationDismissed: nameCelebrationDismissed || undefined,
+      nameMeanings: nameMeanings.length ? nameMeanings : undefined,
       birthTime: birthTime || undefined,
       placeOfBirth: placeOfBirth.trim() || undefined,
       nationality: nationality.trim() || undefined,
@@ -659,6 +741,77 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                       </div>
                     );
                   })()}
+                </div>
+              )}
+
+              {/* What the names mean. Family-only for the same reason as the
+                  two blocks above: an employee record has no business holding
+                  an etymology of its holder's family name. */}
+              {!isBusinessSpace && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="field-label mb-0">What the names mean</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowMeaningModal(true)}
+                      disabled={!name.trim()}
+                      className="text-[12.5px] font-semibold text-clay-600 hover:text-clay-700 cursor-pointer inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" /> Look up the meanings
+                    </button>
+                  </div>
+
+                  {(() => {
+                    // Built from the name as CURRENTLY TYPED, so a name being
+                    // corrected in this session lists the parts it now has.
+                    const rows = meaningsFor({ name, nameMeanings }, surnameMeanings);
+                    if (rows.length === 0) return null;
+                    return (
+                      <div className="rounded-2xl border border-cream-200 divide-y divide-cream-100 overflow-hidden">
+                        {rows.map((m) => (
+                          <div key={m.id} className="flex items-start gap-2.5 p-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="text-[13px] font-semibold text-ink-800">{m.token}</p>
+                                <span className="chip bg-cream-200 text-ink-500">{roleLabel(m.role)}</span>
+                                {/* Never a bare meaning: the hedge is the point.
+                                    'contested' takes the warning tint because a
+                                    family repeating a disputed derivation as
+                                    fact is the failure this guards against. */}
+                                <span className={`chip ${m.confidence === 'established' ? 'bg-sage-100 text-sage-700' : m.confidence === 'contested' ? 'bg-honey-100 text-honey-800' : 'bg-cream-200 text-ink-600'}`}>
+                                  {confidenceLabel(m.confidence)}
+                                </span>
+                              </div>
+                              <p className="text-[12.5px] text-ink-600 mt-0.5">
+                                {m.meaning}{m.origin ? ` · ${m.origin}` : ''}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              title={m.role === 'family' ? 'Remove — this drops it for everyone with this family name' : 'Remove'}
+                              onClick={() => handleRemoveMeaning(m.token)}
+                              className="p-1.5 rounded-lg text-ink-300 hover:text-rosa-600 hover:bg-cream-100 cursor-pointer shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Said out loud because this is reached from ONE person's
+                      edit screen and the family-name row is not theirs alone —
+                      the surrounding context implies the opposite. */}
+                  {surnameMeanings.length > 0 && (
+                    <p className="text-[11.5px] text-ink-400 leading-snug">
+                      The family-name meaning is shared — everyone with that name sees it.
+                    </p>
+                  )}
+
+                  {meaningSaveError && (
+                    <p className="text-[12px] text-rosa-600 leading-snug">{meaningSaveError}</p>
+                  )}
                 </div>
               )}
 
@@ -1147,6 +1300,17 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
             onConfirm={handleConfirmCelebration}
             onDismiss={handleDismissCelebration}
             onClose={() => setShowCelebrationModal(false)}
+          />
+
+          <NameMeaningModal
+            open={showMeaningModal}
+            displayName={name}
+            // Same merged view the section above renders, so what the modal
+            // calls "already kept" is exactly what the form shows.
+            existing={meaningsFor({ name, nameMeanings }, surnameMeanings)}
+            onConfirm={handleConfirmMeanings}
+            onRemove={handleRemoveMeaning}
+            onClose={() => setShowMeaningModal(false)}
           />
         </div>
       )}
