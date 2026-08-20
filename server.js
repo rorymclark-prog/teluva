@@ -48,6 +48,7 @@ import {
   imageBatches,
   pageFromVisionResponse,
 } from './server/docOcr.mjs';
+import { addPendingReader, redeemPendingReader } from './server/willsInvite.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -3319,6 +3320,12 @@ app.post('/api/create-space', async (req, res) => {
 });
 
 // --- Create an invite code (admins only) ---
+//
+// `willReader: true` makes this an ESTATE invite: the person is being brought
+// into the vault specifically to handle the estate, and the invite carries a
+// grant to read Wills & Estate (locked to admins + named readers since v230).
+// See server/willsInvite.mjs for why the grant lives on the willsAccess doc and
+// only a pointer lives here.
 app.post('/api/create-invite', async (req, res) => {
   try {
     const caller = await requireMember(req);
@@ -3328,21 +3335,95 @@ app.post('/api/create-invite', async (req, res) => {
     // Short, readable, unguessable enough for a 14-day single-use code
     const code = crypto.randomBytes(6).toString('base64url').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
       || crypto.randomBytes(4).toString('hex').toUpperCase();
-    const role = (req.body || {}).role === 'child' ? 'child' : 'member';
-    await adminDb.doc(`invites/${code}`).set({
+    const body = req.body || {};
+    const wantsWillReader = body.willReader === true;
+    // An estate invite is always a full member. firestore.rules refuses a child
+    // as a will reader regardless (isNamedWillReader → canWriteIn), so minting
+    // one as a child would issue a grant the boundary does not honour.
+    const role = wantsWillReader ? 'member' : (body.role === 'child' ? 'child' : 'member');
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 14 * 24 * 3600 * 1000).toISOString();
+    const willReaderId = wantsWillReader ? crypto.randomUUID() : null;
+    const invite = {
       familyId: caller.familyId,
       role,
       createdBy: caller.uid,
-      createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString(),
+      createdAt: now.toISOString(),
+      expiresAt,
       usedBy: null,
+      ...(willReaderId ? { willReaderId } : {}),
+    };
+
+    if (!willReaderId) {
+      await adminDb.doc(`invites/${code}`).set(invite);
+      return res.json({ ok: true, code, role });
+    }
+
+    // Both writes in one transaction: an invite whose willReaderId points at no
+    // pending row grants nothing (the successor joins with no estate access and
+    // nobody is told), and a pending row with no invite behind it shows the
+    // admin an invite that was never issued. Neither half is safe alone.
+    const accessRef = adminDb.doc(`families/${caller.familyId}/reference/willsAccess`);
+    const entry = {
+      id: willReaderId,
+      name: String(body.forName || '').trim().slice(0, 80) || 'Someone outside the family',
+      invitedAt: now.toISOString(),
+      expiresAt,
+      invitedBy: caller.email || '',
+    };
+    const replaceId = typeof body.replacePendingId === 'string' ? body.replacePendingId : null;
+    await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(accessRef);
+      const next = addPendingReader(snap.exists ? snap.data() : null, entry, replaceId);
+      tx.set(adminDb.doc(`invites/${code}`), invite);
+      tx.set(accessRef, { pendingReaders: next, updatedAt: now.toISOString(), updatedBy: caller.email || '' }, { merge: true });
     });
-    res.json({ ok: true, code, role });
+    // pendingId lets the caller cancel or re-send this exact invite later.
+    res.json({ ok: true, code, role, pendingId: willReaderId });
   } catch (err) {
     console.error('/api/create-invite error:', err);
     res.status(500).json({ error: 'Could not create an invite. Please try again.' });
   }
 });
+
+/**
+ * Move an estate invite's pending grant onto the person who just redeemed it.
+ *
+ * Runs inside a transaction because an admin may be toggling readers on the
+ * same document at the same moment, and both writes replace the whole array.
+ * Returns true only if the grant actually landed; never throws — see the call
+ * site in /api/join-family for why.
+ */
+async function grantEstateAccessFromInvite(inv, uid) {
+  if (!inv?.willReaderId) return false;
+  try {
+    const accessRef = adminDb.doc(`families/${inv.familyId}/reference/willsAccess`);
+    let result;
+    await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(accessRef);
+      result = redeemPendingReader(snap.exists ? snap.data() : null, {
+        willReaderId: inv.willReaderId,
+        uid,
+        role: inv.role || 'member',
+      });
+      if (result.reason === 'not-an-estate-invite' || result.reason === 'cancelled') return;
+      tx.set(accessRef, {
+        readerUids: result.readerUids,
+        pendingReaders: result.pendingReaders,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    });
+    if (result && !result.granted) {
+      console.warn(`[join-family] estate invite not honoured (${result.reason}) uid=${uid} family=${inv.familyId}`);
+    }
+    return !!result?.granted;
+  } catch (err) {
+    // They ARE a member now; they just can't open Wills & Estate yet. Loud in
+    // the logs because the admin who sent it may not be around to notice.
+    console.error(`[join-family] FAILED to attach estate access for uid=${uid} family=${inv.familyId}:`, err);
+    return false;
+  }
+}
 
 // --- Join a family with an invite code ---
 //
@@ -3382,7 +3463,14 @@ app.post('/api/join-family', async (req, res) => {
       if (seatBlock) return res.status(seatBlock.status).json(seatBlock.body);
       await grantMembership(caller.uid, caller.email, caller.displayName, inv.familyId, inv.role || 'member', targetData.type || 'family', targetData.name);
       await inviteRef.set({ usedBy: caller.uid, usedAt: new Date().toISOString() }, { merge: true });
-      return res.json({ ok: true, familyId: inv.familyId });
+      // An ESTATE invite carries a grant: the person was invited to handle the
+      // estate, so joining also puts them on the Wills & Estate reader list.
+      // Deliberately after the membership write and deliberately swallowed —
+      // failing to attach the reader grant must never stop somebody joining
+      // the vault, and the admin can see it didn't land (the invite stays in
+      // "waiting to join" on the Who-can-open-this card).
+      const willReaderGranted = await grantEstateAccessFromInvite(inv, caller.uid);
+      return res.json({ ok: true, familyId: inv.familyId, willReaderGranted });
     }
 
     // No raw-UUID fallback: see the SECURITY note above this handler. Anything

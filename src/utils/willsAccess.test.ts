@@ -18,8 +18,8 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { canReadWills, canWriteWills, shouldPurgeLocalWills, grantableMembers, withReader, staleReaders } from './willsAccess';
-import type { FamilyMemberRole, WillsAccessDoc } from '../types';
+import { canReadWills, canWriteWills, shouldPurgeLocalWills, grantableMembers, withReader, staleReaders, pendingWillReaders, pendingInviteFor, isInviteExpired } from './willsAccess';
+import type { FamilyMemberRole, WillsAccessDoc, PendingWillReader } from '../types';
 
 const access = (readerUids: string[]): WillsAccessDoc => ({ readerUids });
 
@@ -111,8 +111,65 @@ assert.deepStrictEqual(staleReaders(access(['u-admin']), roles), ['u-admin'], 'p
 assert.deepStrictEqual(staleReaders(access(['u-kid']), roles), ['u-kid'], 'demoted to child');
 assert.deepStrictEqual(staleReaders(null, roles), []);
 
-// ── firestore.rules: the carve-out is what makes any of this real ─────────
+// ── Estate invites (v233) ─────────────────────────────────────────────────
+// The transitions themselves live server-side (server/willsInvite.mjs, tested
+// there against the same shapes). These are the read-side helpers the admin
+// panel renders from.
+const NOW = new Date('2026-08-20T12:00:00.000Z');
+const invite = (id: string, extra: Partial<PendingWillReader> = {}): PendingWillReader => ({
+  id, name: `Person ${id}`, invitedAt: '2026-08-10T00:00:00.000Z', ...extra,
+});
+
+// Every willsAccess doc written before v233 lacks the field entirely.
+assert.deepStrictEqual(pendingWillReaders(null), []);
+assert.deepStrictEqual(pendingWillReaders(access(['u-zoe'])), []);
+assert.deepStrictEqual(
+  pendingWillReaders({ readerUids: [], pendingReaders: [invite('a'), { id: '' } as PendingWillReader] }).map(p => p.id),
+  ['a'],
+  'a row with no id can never be redeemed — drop it rather than show it as pending',
+);
+
+assert.strictEqual(isInviteExpired(invite('a'), NOW), false, 'no expiry recorded means do not claim it expired');
+assert.strictEqual(isInviteExpired(invite('a', { expiresAt: '2026-08-24T00:00:00.000Z' }), NOW), false);
+assert.strictEqual(isInviteExpired(invite('a', { expiresAt: '2026-08-19T00:00:00.000Z' }), NOW), true);
+assert.strictEqual(isInviteExpired(invite('a', { expiresAt: 'not a date' }), NOW), false, 'unparseable is not expired');
+
+// Matching an outstanding invite back to the successor named on the card.
+const withInvites: WillsAccessDoc = {
+  readerUids: [],
+  pendingReaders: [invite('a', { name: 'Carl Meyer' }), invite('b', { name: 'Thandi' })],
+};
+assert.strictEqual(pendingInviteFor(withInvites, 'Carl Meyer')?.id, 'a');
+assert.strictEqual(pendingInviteFor(withInvites, '  carl meyer ')?.id, 'a', 'trimmed and case-insensitive');
+assert.strictEqual(pendingInviteFor(withInvites, 'Someone else'), null);
+assert.strictEqual(pendingInviteFor(withInvites, ''), null, 'an unnamed successor matches nothing');
+assert.strictEqual(pendingInviteFor(withInvites, undefined), null);
+assert.strictEqual(pendingInviteFor(null, 'Carl Meyer'), null);
+// Duplicates for one name: the newest is the live one.
+assert.strictEqual(
+  pendingInviteFor({ readerUids: [], pendingReaders: [invite('old', { name: 'Carl' }), invite('new', { name: 'Carl' })] }, 'Carl')?.id,
+  'new',
+);
+
+// ── The invite code must NEVER be stored on the pending row ───────────────
+// families/{id}/reference/willsAccess is readable by every member of the space
+// (a named reader's own app has to see that they're named). An invite code is
+// a credential — whoever redeems it gets the grant — so putting one in here
+// would hand the will to exactly the reader this lock exists to keep out, via
+// devtools, with no admin involved. The link is an opaque id instead; this
+// pins that decision to something that fails loudly if it's ever undone.
 const here = dirname(fileURLToPath(import.meta.url));
+const typesSrc = readFileSync(resolve(here, '../types.ts'), 'utf8');
+const pendingIface = /export interface PendingWillReader \{([\s\S]*?)\n\}/.exec(typesSrc);
+assert.ok(pendingIface, 'types.ts must declare PendingWillReader');
+const pendingFields = [...pendingIface[1].matchAll(/^\s{2}(\w+)\??:/gm)].map(m => m[1]);
+assert.deepStrictEqual(
+  pendingFields.sort(),
+  ['expiresAt', 'id', 'invitedAt', 'invitedBy', 'name'],
+  'PendingWillReader gained or lost a field — if it is a code or a token, it does not belong in a member-readable document',
+);
+
+// ── firestore.rules: the carve-out is what makes any of this real ─────────
 const rules = readFileSync(resolve(here, '../../firestore.rules'), 'utf8');
 
 // The protected list, and every name on it.

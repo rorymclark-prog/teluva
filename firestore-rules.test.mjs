@@ -20,7 +20,7 @@
 // notices structural damage (a carve-out deleted while tidying up). This one
 // asks what actually happens.
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -94,6 +94,23 @@ await env.withSecurityRulesDisabled(async (ctx) => {
 });
 await refused('a child named on the list reads it',   getDoc(wills(kid)));
 await allowed('the named member is unaffected',       getDoc(wills(mem)));
+
+console.log('\n── estate invites: the pending list is admin-writable only (v233) ──');
+// pendingReaders rides on the SAME document, and it is a grant in waiting: the
+// uid that redeems the invite behind a row is added to readerUids by the
+// server. So every write path to it has to be an admin's, including the two
+// array operations the app itself uses (cancel = arrayRemove from the admin
+// panel). A member who could append a row could name themselves an heir.
+await env.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), `families/${FAM}/reference/willsAccess`), {
+    readerUids: ['u-mem'],
+    pendingReaders: [{ id: 'p1', name: 'Carl', invitedAt: '2026-08-20T00:00:00.000Z' }],
+  });
+});
+await refused('a member appends a pending invite',    updateDoc(acl(mem), { pendingReaders: arrayUnion({ id: 'p2', name: 'Me', invitedAt: 'x' }) }));
+await refused('a member withdraws an invite',         updateDoc(acl(mem), { pendingReaders: arrayRemove({ id: 'p1', name: 'Carl', invitedAt: '2026-08-20T00:00:00.000Z' }) }));
+await refused('a child appends a pending invite',     updateDoc(acl(kid), { pendingReaders: arrayUnion({ id: 'p3', name: 'Kid', invitedAt: 'x' }) }));
+await allowed('an admin withdraws an invite',         updateDoc(acl(admin), { pendingReaders: arrayRemove({ id: 'p1', name: 'Carl', invitedAt: '2026-08-20T00:00:00.000Z' }) }));
 
 console.log('\n── the carve-out must not break every OTHER reference doc ──');
 await allowed('a member reads household',             getDoc(house(mem)));

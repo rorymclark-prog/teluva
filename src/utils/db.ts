@@ -1,6 +1,6 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, WillsAccessDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, WillsAccessDoc, PendingWillReader } from '../types';
 import { db, auth, storage } from '../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
 import { markDirty, clearDirty, isDirty } from './pendingSync';
@@ -815,7 +815,13 @@ export async function loadWillsAccess(): Promise<WillsAccessDoc | null> {
     const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', 'willsAccess'));
     if (!snap.exists()) return null;
     const data = snap.data() as WillsAccessDoc;
-    return { ...data, readerUids: Array.isArray(data.readerUids) ? data.readerUids : [] };
+    return {
+      ...data,
+      readerUids: Array.isArray(data.readerUids) ? data.readerUids : [],
+      // Written only by the server (estate invites). Absent on every doc
+      // created before v233, and on every space that has never sent one.
+      pendingReaders: Array.isArray(data.pendingReaders) ? data.pendingReaders : [],
+    };
   } catch (error) {
     console.error('Error loading willsAccess:', error);
     return null;
@@ -845,17 +851,85 @@ export function purgeLocalWillsEstate() {
   clearDirty(SHARED_DOCS.willsEstate.key, FAMILY_ID);
 }
 
-/** Admins only — the rule rejects everyone else. Returns false if it did. */
+/**
+ * Admins only — the rule rejects everyone else. Returns false if it did.
+ *
+ * MERGE, not overwrite. `pendingReaders` on this same document is written by
+ * the server (estate invites, see server/willsInvite.mjs) and is never sent
+ * from here; a full overwrite would silently delete a pending estate invite
+ * the moment an admin toggled anybody's access — the one grant nobody would be
+ * around to notice was missing.
+ */
 export async function saveWillsAccess(readerUids: string[], updatedBy?: string): Promise<boolean> {
   if (!auth.currentUser) return false;
   try {
     await setDoc(
       doc(db, 'families', FAMILY_ID, 'reference', 'willsAccess'),
       { readerUids, updatedAt: new Date().toISOString(), updatedBy: updatedBy || '' },
+      { merge: true },
     );
     return true;
   } catch (error) {
     console.error('Error saving willsAccess:', error);
+    return false;
+  }
+}
+
+/**
+ * Mint an invite that carries access to Wills & Estate (admins only).
+ *
+ * The same /api/create-invite Settings uses, with willReader set — so the
+ * person joins the vault as a member AND lands on the estate reader list the
+ * moment they sign in, without the admin having to come back and name them.
+ * That "without having to come back" is the entire point: the day this matters
+ * is the day they can't.
+ *
+ * `replacePendingId` re-sends an invite that expired unredeemed, replacing the
+ * old row instead of stacking a second one for the same person.
+ */
+export async function createEstateInvite(
+  forName: string,
+  replacePendingId?: string,
+): Promise<{ code: string; pendingId: string }> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in');
+  const token = await user.getIdToken();
+  const res = await fetch('/api/create-invite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ willReader: true, forName, replacePendingId: replacePendingId || null }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.code) throw new Error(data.error || 'Could not create the invite. Please try again.');
+  return { code: data.code, pendingId: data.pendingId };
+}
+
+/**
+ * Withdraw an estate invite that hasn't been redeemed yet (admins only).
+ *
+ * arrayRemove rather than "read, filter, write the whole array": the server
+ * appends to this same field when an invite is sent, and a read-modify-write
+ * from here could drop one that landed in between. Requires the exact stored
+ * object, so callers must pass the entry straight from loadWillsAccess without
+ * reshaping it.
+ *
+ * Removing the row is the whole cancellation — redemption looks the id up here
+ * and grants nothing when it is gone (server/willsInvite.mjs). The invite code
+ * itself still works as an ordinary invite until it expires; that is
+ * deliberate, "I didn't mean to give them the will" is not the same as "I
+ * didn't mean to invite them", and revoking membership is a separate, existing
+ * action in Members & roles.
+ */
+export async function cancelPendingWillReader(entry: PendingWillReader): Promise<boolean> {
+  if (!auth.currentUser) return false;
+  try {
+    await updateDoc(
+      doc(db, 'families', FAMILY_ID, 'reference', 'willsAccess'),
+      { pendingReaders: arrayRemove(entry), updatedAt: new Date().toISOString() },
+    );
+    return true;
+  } catch (error) {
+    console.error('Error cancelling estate invite:', error);
     return false;
   }
 }

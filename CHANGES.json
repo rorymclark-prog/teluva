@@ -1,10 +1,11 @@
 {
-  "label": "v232",
+  "label": "v233",
   "changes": [
-    "Household now has a Keys, locks & the safe section — the things a locksmith actually asks for when you're standing outside your own front door.",
-    "The security-card number is the one that matters: no locksmith will cut a copy of a security key without it, and it lives on a card in a drawer nobody can find at 11pm. Same for a safe — make and serial is what opens one you've lost the key to.",
-    "Also there: the lock make, who has a spare key, and your alarm company and its code.",
-    "The card number, safe serial and alarm code are encrypted the same way the door code and Wi-Fi password already were, and are never sent to the assistant. The lock make, safe make, alarm company and who-has-a-spare stay readable, so the assistant can still answer “what locks do we have?”",
-    "You can tell the assistant any of it, or photograph the card and let it read the number off. Your locksmith's own phone number goes with the plumber and electrician, under Important info."
+    "The person you've named to take over can now be invited straight from Who takes over — even if they've never heard of this app.",
+    "The invite carries the access with it: they sign in, and Wills & Estate opens for them. Nobody has to come back afterwards and tick a box, which matters, because the day it counts is the day you can't.",
+    "You see the exact message before you send it, and it goes out however you like — mail, WhatsApp, Signal.",
+    "If they're already in the vault, it's one tap instead: “Let them open this page”.",
+    "An invite you've sent but they haven't used shows up under Who can open this, with a way to withdraw it. Withdraw it and it grants nothing, even if they click the link afterwards.",
+    "Invites run out after 14 days. An expired one says so, and offers to send a fresh one rather than sitting there looking like it worked."
   ]
 }

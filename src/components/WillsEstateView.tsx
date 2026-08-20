@@ -2,15 +2,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ScrollText, Plus, Pencil, Trash2, X, Loader2, Info, User, Landmark,
   HandHeart, Paperclip, Upload, Eye, AlertCircle, MapPin, Phone, HandCoins,
-  Users, Key, Check, Lock,
+  Users, Key, Check, Lock, UserPlus, Send, Clock,
 } from 'lucide-react';
 import {
   EstateRecord, FamilyMember, VaultDocument, FamilyDocument, InsurancePolicy,
   WillsEstateDoc, DesignatedSuccessor, EmergencyInstructions, NotifyContact, AccountToClose, FamilyMemberRole,
-  WillsAccessDoc,
+  WillsAccessDoc, PendingWillReader,
 } from '../types';
-import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile, loadFinances, loadFamilyRoles, saveWillsAccess } from '../utils/db';
-import { grantableMembers, withReader, staleReaders } from '../utils/willsAccess';
+import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile, loadFinances, loadFamilyRoles, saveWillsAccess, createEstateInvite, cancelPendingWillReader } from '../utils/db';
+import { grantableMembers, withReader, staleReaders, pendingWillReaders, pendingInviteFor, isInviteExpired } from '../utils/willsAccess';
 import { useWillsAccess } from '../hooks/useWillsAccess';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
@@ -18,7 +18,7 @@ import { auth } from '../lib/firebase';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { ESTATE_DOC_KINDS, isReviewStale, reviewAgeLabel } from '../utils/willsEstate';
 import { isFuneralPolicy } from '../utils/funeralCover';
-import { resolveSuccessorAccess, SuccessorAccess } from '../utils/successor';
+import { resolveSuccessorAccess, SuccessorAccess, SuccessorAccessResult } from '../utils/successor';
 import DocumentViewer from './DocumentViewer';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import SheetGrabber from './SheetGrabber';
@@ -153,6 +153,34 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
     loadFamilyRoles(familyId).then((r) => { if (active) setRoles(r); }).catch(() => { if (active) setRoles({}); });
     return () => { active = false; };
   }, [familyId]);
+
+  // ── Who may open this page ────────────────────────────────────────────────
+  // Three ways in, all admin-only, all landing on the same willsAccess doc:
+  // name someone already here (toggleReader), invite someone who isn't
+  // (inviteSuccessor — the grant travels with the invite), or withdraw an
+  // invite before it's used (cancelInvite).
+  async function toggleReader(targetUid: string, granted: boolean) {
+    setAccessError(null);
+    setSavingAccess(targetUid);
+    const next = withReader(access, targetUid, granted);
+    const ok = await saveWillsAccess(next, auth.currentUser?.email || '');
+    if (ok) refreshAccess();
+    else setAccessError('That didn\u2019t save. Check your connection and try again.');
+    setSavingAccess(null);
+  }
+
+  /** Mints the invite and hands back the code — the caller does the sharing. */
+  async function inviteSuccessor(name: string, replacePendingId?: string): Promise<string> {
+    const { code } = await createEstateInvite(name, replacePendingId);
+    refreshAccess();
+    return code;
+  }
+
+  async function cancelInvite(entry: PendingWillReader): Promise<boolean> {
+    const ok = await cancelPendingWillReader(entry);
+    if (ok) refreshAccess();
+    return ok;
+  }
 
   // Live updates for BOTH shared documents this view writes: the estate records
   // (+ successor + instructions, same doc) and the shared Document Vault it
@@ -354,15 +382,8 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
           roles={roles}
           savingUid={savingAccess}
           error={accessError}
-          onToggle={async (targetUid, granted) => {
-            setAccessError(null);
-            setSavingAccess(targetUid);
-            const next = withReader(access, targetUid, granted);
-            const ok = await saveWillsAccess(next, auth.currentUser?.email || '');
-            if (ok) refreshAccess();
-            else setAccessError('That didn\u2019t save. Check your connection and try again.');
-            setSavingAccess(null);
-          }}
+          onToggle={toggleReader}
+          onCancelInvite={cancelInvite}
         />
       )}
 
@@ -373,6 +394,12 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
         roles={roles}
         canWrite={canWrite}
         onSave={persistSuccessor}
+        isAdmin={isAdmin}
+        willsAccess={access}
+        savingUid={savingAccess}
+        onGrantReader={(targetUid: string) => toggleReader(targetUid, true)}
+        onInvite={inviteSuccessor}
+        onCancelInvite={cancelInvite}
       />
 
       {/* "If something happens to you" — keys/letter + who to tell + what to close */}
@@ -884,12 +911,21 @@ const ACCESS_STYLE: Record<SuccessorAccess, string> = {
   unknown: 'bg-cream-200 text-ink-500',
 };
 
-function SuccessorCard({ successor, members, roles, canWrite, onSave }: {
+function SuccessorCard({
+  successor, members, roles, canWrite, onSave,
+  isAdmin, willsAccess, savingUid, onGrantReader, onInvite, onCancelInvite,
+}: {
   successor?: DesignatedSuccessor;
   members: FamilyMember[];
   roles: Record<string, FamilyMemberRole>;
   canWrite: boolean;
   onSave: (next: DesignatedSuccessor | undefined) => void;
+  isAdmin: boolean;
+  willsAccess: WillsAccessDoc | null;
+  savingUid: string | null;
+  onGrantReader: (uid: string) => Promise<void>;
+  onInvite: (name: string, replacePendingId?: string) => Promise<string>;
+  onCancelInvite: (entry: PendingWillReader) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(successor?.name || '');
@@ -980,6 +1016,17 @@ function SuccessorCard({ successor, members, roles, canWrite, onSave }: {
               <p className="text-[13px] text-ink-600 whitespace-pre-wrap">{successor.whatTheyShouldDo}</p>
             )}
             {access && <span className={`chip inline-block mt-1 ${ACCESS_STYLE[access.status]}`}>{access.label}</span>}
+            {isAdmin && access && (
+              <EstateAccessActions
+                successorName={successor.name}
+                resolved={access}
+                willsAccess={willsAccess}
+                savingUid={savingUid}
+                onGrantReader={onGrantReader}
+                onInvite={onInvite}
+                onCancelInvite={onCancelInvite}
+              />
+            )}
           </div>
         ) : (
           <p className="text-[13px] text-ink-500">
@@ -992,6 +1039,183 @@ function SuccessorCard({ successor, members, roles, canWrite, onSave }: {
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Getting the named person actually able to open this ──────────────────
+//
+// Rory's ask, verbatim: "can we give access to this person even tho they may
+// not be on the app? perhaps a good reason for that person designated to
+// download the app right? so we should be able to send a private note to that
+// person and say hey so-and-so, i have designated you to help with my estate
+// in the event of death, you can find full access to my records and will in
+// this app."
+//
+// Naming a successor and locking the will are two halves that don't meet on
+// their own: v230 will only let an admin name someone who ALREADY has a login
+// here, and the successor usually doesn't. So this closes it three ways —
+// one tap if they're already in the vault, an invite that CARRIES the grant if
+// they're not, and a visible pending state in between. The invite has to carry
+// the grant rather than remind the admin to come back and tick a box, because
+// the day it matters is the day they can't.
+//
+// Admin-only (rendered behind isAdmin): everything here writes willsAccess,
+// which the rule lets admins alone write.
+function estateInviteMessage(ownerName: string, code: string) {
+  return {
+    title: `${ownerName} has named you to look after their estate`,
+    text: [
+      `${ownerName} has named you as the person who steps in if something happens to them.`,
+      `This link gives you access to their will, their important papers and their instructions — they're kept in Teluva, a private family vault. You'll need to sign in with a Google account to open it.`,
+      `Invite code ${code}. It works once, and runs out in 14 days.`,
+      `Teluva is still in testing, so if Google turns you away, reply with the address you tried.`,
+    ].join('\n\n'),
+  };
+}
+
+function EstateAccessActions({
+  successorName, resolved, willsAccess, savingUid, onGrantReader, onInvite, onCancelInvite,
+}: {
+  successorName: string;
+  resolved: SuccessorAccessResult;
+  willsAccess: WillsAccessDoc | null;
+  savingUid: string | null;
+  onGrantReader: (uid: string) => Promise<void>;
+  onInvite: (name: string, replacePendingId?: string) => Promise<string>;
+  onCancelInvite: (entry: PendingWillReader) => Promise<boolean>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [code, setCode] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const granted = !!resolved.uid && (willsAccess?.readerUids || []).includes(resolved.uid);
+  const pending = pendingInviteFor(willsAccess, successorName);
+  const expired = pending ? isInviteExpired(pending) : false;
+
+  const ownerName = auth.currentUser?.displayName || auth.currentUser?.email || 'Someone';
+  const joinUrl = code ? `${window.location.origin}/join/${code}` : null;
+  const message = code ? estateInviteMessage(ownerName, code) : null;
+
+  async function send(replacePendingId?: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      setCode(await onInvite(successorName, replacePendingId));
+    } catch (e: any) {
+      setError(e?.message || 'Could not create the invite. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancel(entry: PendingWillReader) {
+    setBusy(true);
+    setError(null);
+    const ok = await onCancelInvite(entry);
+    if (!ok) setError('Could not withdraw that invite. Check your connection and try again.');
+    setBusy(false);
+  }
+
+  function copy() {
+    if (!joinUrl || !message) return;
+    navigator.clipboard.writeText(`${message.text}\n\n${joinUrl}`).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }).catch(() => setError('Could not copy — select the link above instead.'));
+  }
+
+  function share() {
+    if (!joinUrl || !message) return;
+    // Deliberately a SECOND tap, not chained onto the one that minted the code:
+    // the share sheet needs a live user gesture, and an await in between is
+    // enough for Safari to refuse it. It also means the message is read before
+    // it's sent, which for this particular message seems fair.
+    if (navigator.share) navigator.share({ title: message.title, text: message.text, url: joinUrl }).catch(() => {});
+    else copy();
+  }
+
+  // Already an admin — they can open this by rule, nothing to arrange.
+  if (resolved.status === 'admin') return null;
+
+  // Once a code exists the only thing left is to send it. Shown INSTEAD of the
+  // rows below, which would otherwise say "invite sent, waiting for them to
+  // sign in" while it is still sitting on this screen unsent.
+  if (code && message) {
+    return (
+      <div className="pt-2 space-y-2">
+        <div className="rounded-xl border border-sage-200 bg-sage-50/70 p-3 space-y-2">
+          <p className="text-[12px] font-semibold text-ink-900">Ready to send to {successorName}</p>
+          <p className="text-[12px] text-ink-600 leading-relaxed whitespace-pre-wrap">{message.text}</p>
+          <p className="text-[11px] font-mono text-ink-500 break-all">{joinUrl}</p>
+          <div className="flex gap-2">
+            <button onClick={share} className="btn-primary text-xs px-3 py-1.5 flex-1 justify-center">
+              <Send className="w-3.5 h-3.5" /> Send it
+            </button>
+            <button onClick={copy} className="btn-quiet text-xs px-3 py-1.5">
+              {copied ? <Check className="w-3.5 h-3.5" /> : null}{copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <p className="text-[11px] text-ink-400 leading-relaxed">
+            The link only works once. If you lose it, withdraw the invite below and send a fresh one.
+          </p>
+        </div>
+        {error && <p role="alert" className="text-[11px] text-rosa-600">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-2 space-y-2">
+      {granted ? (
+        <p className="text-[12px] text-sage-700 flex items-center gap-1.5">
+          <Lock className="w-3.5 h-3.5 shrink-0" />
+          Named on this page — they can open the will.
+        </p>
+      ) : resolved.uid ? (
+        // In the vault already; the will is what they still can't see.
+        <>
+          <p className="text-[12px] text-ink-500 leading-relaxed">
+            They&rsquo;re in the vault, but this page is locked to admins and the people you name.
+          </p>
+          <button
+            onClick={() => onGrantReader(resolved.uid!)}
+            disabled={savingUid === resolved.uid}
+            className="btn-primary text-xs px-3 py-1.5 disabled:opacity-60"
+          >
+            {savingUid === resolved.uid
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <Lock className="w-3.5 h-3.5" />}
+            Let them open this page
+          </button>
+        </>
+      ) : pending && !expired ? (
+        <div className="rounded-xl bg-cream-100 border border-cream-200 p-3 space-y-2">
+          <p className="text-[12px] text-ink-700 leading-relaxed">
+            Invite sent {new Date(pending.invitedAt).toLocaleDateString()} &mdash; waiting for them to sign in.
+            They&rsquo;ll be able to open this page the moment they do.
+          </p>
+          <button onClick={() => cancel(pending)} disabled={busy} className="btn-quiet text-[11px] px-2.5 py-1 disabled:opacity-60">
+            {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+            Withdraw the invite
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="text-[12px] text-ink-500 leading-relaxed">
+            {pending
+              ? `The invite you sent ${new Date(pending.invitedAt).toLocaleDateString()} ran out before it was used.`
+              : `${successorName} can't open any of this yet. Send them a private link — they join the vault as a member, and this page opens for them automatically.`}
+          </p>
+          <button onClick={() => send(pending?.id)} disabled={busy} className="btn-primary text-xs px-3 py-1.5 disabled:opacity-60">
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+            {pending ? 'Send a new invite' : 'Invite them'}
+          </button>
+        </>
+      )}
+
+      {error && <p role="alert" className="text-[11px] text-rosa-600">{error}</p>}
     </div>
   );
 }
@@ -1324,19 +1548,25 @@ function LockedCard({ isChild }: { isChild: boolean }) {
 // Admins are not listed: they already have access by rule, and a toggle that
 // can't be switched off reads as a bug. Children are not listed at all.
 function AccessCard({
-  access, roles, savingUid, error, onToggle,
+  access, roles, savingUid, error, onToggle, onCancelInvite,
 }: {
   access: WillsAccessDoc | null;
   roles: Record<string, FamilyMemberRole>;
   savingUid: string | null;
   error: string | null;
   onToggle: (uid: string, granted: boolean) => void;
+  onCancelInvite: (entry: PendingWillReader) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
+  const [cancelling, setCancelling] = useState<string | null>(null);
   const candidates = grantableMembers(roles);
   const readers = access?.readerUids || [];
   const stale = staleReaders(access, roles);
   const grantedCount = readers.filter(u => !stale.includes(u)).length;
+  // Estate invites that have been sent but not redeemed. Listed here as well
+  // as on the successor card because this is the card that answers "who can
+  // open this" — and an invite in flight is part of that answer.
+  const pending = pendingWillReaders(access);
 
   return (
     <div className="card overflow-hidden">
@@ -1353,6 +1583,7 @@ function AccessCard({
             {grantedCount === 0
               ? 'Admins only. Nobody else in the family can see this page.'
               : `Admins, plus ${grantedCount} named ${grantedCount === 1 ? 'person' : 'people'}.`}
+            {pending.length > 0 && ` ${pending.length} ${pending.length === 1 ? 'invite' : 'invites'} waiting.`}
           </p>
         </div>
         <span className="chip bg-ink-100 text-ink-700 shrink-0">{open ? 'Hide' : 'Change'}</span>
@@ -1434,11 +1665,47 @@ function AccessCard({
             </div>
           )}
 
+          {/* Invites that carry this access but haven't been redeemed. Shown
+              because an invite in flight is a grant in flight: it lands the
+              moment they sign in, with nobody having to approve it again. */}
+          {pending.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              <p className="text-[11px] font-semibold text-ink-500 uppercase tracking-wide">Invited, not joined yet</p>
+              {pending.map(p => {
+                const expired = isInviteExpired(p);
+                return (
+                  <div key={p.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-cream-200">
+                    <div className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center bg-cream-200 text-ink-500">
+                      <Clock className="w-3 h-3" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium text-ink-900 truncate">{p.name}</p>
+                      <p className="text-[11px] text-ink-400 truncate">
+                        {expired
+                          ? `Invite ran out ${p.expiresAt ? new Date(p.expiresAt).toLocaleDateString() : ''}`
+                          : `Invited ${new Date(p.invitedAt).toLocaleDateString()}`}
+                      </p>
+                    </div>
+                    <button
+                      onClick={async () => { setCancelling(p.id); await onCancelInvite(p); setCancelling(null); }}
+                      disabled={cancelling === p.id}
+                      className="btn-quiet text-[11px] px-2.5 py-1 rounded-lg shrink-0 disabled:opacity-60"
+                    >
+                      {cancelling === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                      {expired ? 'Clear' : 'Withdraw'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {error && <p role="alert" className="text-[11px] text-rosa-600">{error}</p>}
 
           <p className="text-[11px] text-ink-400 leading-relaxed">
-            Only people who already have a login for this space can be named. To give access to someone outside the
-            family &mdash; the person handling your estate &mdash; invite them from Settings first, then name them here.
+            Only people who already have a login for this space can be named here. To give access to someone outside
+            the family &mdash; the person handling your estate &mdash; name them under &ldquo;Who takes over&rdquo; and
+            send them an invite from there; it carries this access with it.
           </p>
         </div>
       )}

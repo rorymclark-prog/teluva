@@ -1531,8 +1531,37 @@ export interface WillsEstateDoc {
  * a field on willsEstate, whose write rule would then have to be split anyway. */
 export interface WillsAccessDoc {
   readerUids: string[];
+  /* People invited to this vault SPECIFICALLY to handle the estate, who
+   * haven't joined yet. The point of the whole feature: the person who takes
+   * over is usually not on the app, and "in the event of death" the admin is
+   * not around to come back and tick a box for them. So the grant is attached
+   * to the invite and lands the moment they sign in. See PendingWillReader. */
+  pendingReaders?: PendingWillReader[];
   updatedAt?: string;   // ISO — shown as "last changed" in the admin panel
   updatedBy?: string;   // display name of the admin who last changed it
+}
+
+/* An estate invite that has been sent but not yet redeemed.
+ *
+ * WRITTEN BY THE SERVER ONLY (create-invite / join-family, Admin SDK) — the
+ * client may cancel an entry but never mint one, because minting one is
+ * granting yourself will access with extra steps.
+ *
+ * `id` is deliberately NOT the invite code. This document is readable by every
+ * member of the space (a named reader's own app has to be able to see that
+ * they're named), so anything in here is visible to the teenager the lock
+ * exists to keep out — and an invite code is a credential: whoever redeems it
+ * gets the grant. So the code stays in invites/{code}, which no client can
+ * read, and the two are linked by this opaque id, which is worth nothing on
+ * its own. Cancelling an invite = deleting the entry with this id; redemption
+ * then finds nothing and grants nothing, so cancel is real rather than
+ * cosmetic. */
+export interface PendingWillReader {
+  id: string;           // random uuid, mirrored on invites/{code}.willReaderId
+  name: string;         // what the admin typed — for the admin's own list
+  invitedAt: string;    // ISO
+  expiresAt?: string;   // ISO, copied from the invite so the UI can say "expired"
+  invitedBy?: string;   // email of the admin who sent it
 }
 // --- Slips ("Keep the slip"): purchase receipts/till slips captured mainly
 // for their two DEADLINES, not as filing — a return window (short, shop

@@ -1,4 +1,4 @@
-import type { FamilyRole, FamilyMemberRole, WillsAccessDoc } from '../types';
+import type { FamilyRole, FamilyMemberRole, WillsAccessDoc, PendingWillReader } from '../types';
 
 /*
  * Who may open Wills & Estate.
@@ -101,4 +101,51 @@ export function staleReaders(
   roles: Record<string, FamilyMemberRole>,
 ): string[] {
   return (access?.readerUids || []).filter((uid) => roles[uid]?.role !== 'member');
+}
+
+/* ── Estate invites: someone outside the vault, invited to handle the estate ──
+ *
+ * These rows are written by the SERVER only (see server/willsInvite.mjs). The
+ * app reads them so an admin can see an invite is still outstanding, cancel it,
+ * or send it again once the 14 days have run out — an invite you can't see the
+ * state of is one you have to remember you sent. */
+
+/** Outstanding estate invites, newest last. Tolerates a doc without the field. */
+export function pendingWillReaders(access: WillsAccessDoc | null): PendingWillReader[] {
+  const raw = Array.isArray(access?.pendingReaders) ? access!.pendingReaders! : [];
+  return raw.filter((p) => p && typeof p.id === 'string' && !!p.id);
+}
+
+/**
+ * Has the code behind this invite run out?
+ *
+ * An expired row is dead weight, not a pending grant: /api/join-family refuses
+ * an expired code before the grant is ever considered. Shown as expired rather
+ * than quietly hidden, because "I sent it, they never used it" is exactly what
+ * the admin needs to notice.
+ */
+export function isInviteExpired(entry: PendingWillReader, now: Date = new Date()): boolean {
+  if (!entry.expiresAt) return false;
+  const at = new Date(entry.expiresAt).getTime();
+  return Number.isFinite(at) && at < now.getTime();
+}
+
+/**
+ * The outstanding invite for a given successor name, if there is one.
+ *
+ * Matched on the name the admin typed, which is all the two sides share — a
+ * pending invite has no uid yet (that is the point) and the successor is free
+ * text. Only ever used to say "you already sent this one"; nothing is granted
+ * or revoked off the back of it, so a missed match costs a duplicate invite
+ * rather than access.
+ */
+export function pendingInviteFor(
+  access: WillsAccessDoc | null,
+  name: string | undefined,
+): PendingWillReader | null {
+  const wanted = (name || '').trim().toLowerCase();
+  if (!wanted) return null;
+  const matches = pendingWillReaders(access).filter((p) => p.name.trim().toLowerCase() === wanted);
+  // Newest wins: "send again" replaces, but a hand-sent duplicate could stack.
+  return matches.length ? matches[matches.length - 1] : null;
 }
