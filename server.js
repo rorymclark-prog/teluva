@@ -49,6 +49,7 @@ import {
   pageFromVisionResponse,
 } from './server/docOcr.mjs';
 import { addPendingReader, redeemPendingReader } from './server/willsInvite.mjs';
+import { notifiableCelebrations, resolvableCelebrations, LEGACY_NAME_DAY_ID } from './server/nameCelebrations.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -4571,6 +4572,13 @@ async function runDailyCelebrations() {
   // unresolved rules must degrade to "the rest resolve tomorrow", never to
   // the cron dying mid-run with birthdays unsent.
   let resolveBudget = 12;
+  // ...of which this many are reserved for celebrations that actually notify.
+  // Keeping non-notifying movable celebrations resolved (so they stay in the
+  // published feed and the app's countdown) is worth model calls, but never
+  // worth a family missing a name day because a quiet entry on some other
+  // family spent the budget first. Quiet resolution stops here; notifying
+  // resolution spends all 12.
+  const QUIET_RESOLVE_FLOOR = 8;
   // Midnight UTC of today's Vienna date — the fixed point every deadline is
   // measured from, so a run at 06:00 and a run at 23:00 agree.
   const nowVienna = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
@@ -4600,39 +4608,19 @@ async function runDailyCelebrations() {
         });
       }
       // Name Days & Name Celebrations. mem.nameCelebrations (see types.ts) is
-      // the successor of the legacy nameDay/nameDayFeast pair below; both are
-      // read here, mirroring utils/nameCelebrations.ts's resolveCelebrations()
-      // merge so the cron and the client can never disagree about what's
-      // celebrated on a given day.
-      const memberCelebrations = Array.isArray(mem.nameCelebrations) ? mem.nameCelebrations : [];
-      // Same notify rule as resolveCelebrations(): the legacy Namenstag only
-      // notifies while it is the member's effective primary — an explicit
-      // confirmed primary demotes it (a family that chose a different primary
-      // did not also opt into a second annual push), and a confirmed
-      // same-date name_day that notifies replaces it outright (never
-      // congratulate a migrated member twice for the same day).
-      const legacyDemoted = memberCelebrations.some((c) => c && c.confirmed && c.primary);
-      const legacyReplaced = memberCelebrations.some(
-        (c) => c && c.confirmed && c.notify && c.kind === 'name_day' && c.dateType === 'fixed' && c.date === mem.nameDay,
-      );
-      // Namenstag. Only ever the month-day the family stored on this member —
-      // never derived here. See utils/nameDay.ts for why the suggestion and the
-      // stored fact are kept apart. monthDayIsToday, not raw equality: a
-      // stored 02-29 must collapse to 28 February in an ordinary year, same
-      // convention matchesMonthDay applies to birthdays above.
-      if (typeof mem.nameDay === 'string' && monthDayIsToday(mem.nameDay) && !legacyDemoted && !legacyReplaced) {
-        const feast = String(mem.nameDayFeast || '').trim();
-        celebrations.push({
-          key: `nameday-${mDoc.id}`,
-          title: `💐 ${name}'s name day`,
-          body: feast ? `Today is ${feast} — ${name}'s Namenstag.` : `Today is ${name}'s Namenstag.`,
-        });
-      }
-
-      // Confirmed + notify entries only — nothing is celebrated until the
-      // family confirmed the connection (spec: a name alone must never
-      // activate a religious or cultural association; "confirmed" is that
-      // gate, same as resolveCelebrations()'s primary/additional split).
+      // the successor of the legacy nameDay/nameDayFeast pair; both are merged
+      // by server/nameCelebrations.mjs — the same merge the published .ics feed
+      // uses, pinned to the client's by nameCelebrationsParity.test.ts — so the
+      // cron, the calendar and the app can never disagree about what is
+      // celebrated on a given day. notifiableCelebrations() adds the one rule
+      // that is the cron's alone (a notifying same-date name_day replaces the
+      // legacy Namenstag rather than congratulating a migrated member twice);
+      // the Namenstag's own wording predates nameCelebrations and is kept
+      // exactly as it was, keyed off LEGACY_NAME_DAY_ID below.
+      //
+      // Nothing is celebrated until the family CONFIRMED the connection: a name
+      // alone must never activate a religious or cultural association. That gate
+      // lives in resolveCelebrations' primary/additional split.
       //
       // Resolved movable dates are cached in the SIBLING field
       // nameCelebrationResolvedDates, never written into nameCelebrations
@@ -4651,8 +4639,10 @@ async function runDailyCelebrations() {
       let resolvedChanged = false;
       const resolvedFor = (nc, yr) =>
         (nc.resolvedDates && nc.resolvedDates[String(yr)]) || (cronResolved[nc.id] && cronResolved[nc.id][String(yr)]) || null;
-      const tryResolve = async (nc, yr) => {
-        if (resolveBudget <= 0) return null;
+      const tryResolve = async (nc, yr, quiet = false) => {
+        // A quiet (non-notifying) celebration may only spend what is left
+        // above the reserve. Notifying ones spend down to zero, as before.
+        if (resolveBudget <= (quiet ? QUIET_RESOLVE_FLOOR : 0)) return null;
         resolveBudget -= 1;
         try {
           const dates = await resolveMovableRuleDates(nc.movableRule, [yr]);
@@ -4667,46 +4657,73 @@ async function runDailyCelebrations() {
           return null;
         }
       };
-      for (const nc of memberCelebrations) {
-        if (!nc || !nc.confirmed || !nc.notify) continue;
-        const emoji = nc.kind === 'name_day' ? '💐' : '✨';
-        const label = nc.kind === 'name_day' ? 'name day' : 'name celebration';
-
-        if (nc.dateType === 'fixed') {
-          // monthDayIsToday, not raw equality — a fixed 02-29 celebration
-          // collapses to 28 February in ordinary years, like birthdays.
-          if (typeof nc.date === 'string' && monthDayIsToday(nc.date)) {
-            celebrations.push({
-              key: `namecel-${mDoc.id}-${nc.id}`,
-              title: `${emoji} ${name}'s ${label}`,
-              body: celebrationBody(nc),
-            });
-          }
-          continue;
-        }
-        if (nc.dateType !== 'movable' || !nc.movableRule) continue;
-
+      // PASS 1 — resolution. Deliberately separate from, and ahead of, the
+      // notification pass below: a movable celebration has no date at all
+      // until a model has worked one out, so "does it fall today" cannot be
+      // asked before this has run.
+      //
+      // Every CONFIRMED movable celebration is kept alive here, notifying or
+      // not. It used to be notify-only, which quietly starved the rest: an
+      // "additional" celebration a family chose to see but not be pinged about
+      // kept just the two years resolved at confirm time and then went dark
+      // — in the published feed, in the app's countdown — with no error to
+      // show for it. Notifying entries still take the budget FIRST and the
+      // quiet ones may only use what is left above QUIET_RESOLVE_FLOOR, so a
+      // family can never lose a notification to a celebration that was never
+      // going to send one. On a normal day both passes are free: a cached year
+      // costs no model call, and the budget is only touched when a year rolls
+      // over.
+      const movable = resolvableCelebrations(mem);
+      for (const nc of [...movable.filter((c) => c.notify), ...movable.filter((c) => !c.notify)]) {
+        const quiet = !nc.notify;
         // Lazy per-year resolution, budget-capped and wrapped so a Gemini
         // outage or a hung call can never take the whole cron down — a
         // celebration that fails to resolve today is simply skipped and tried
         // again on the next run, same "unknown until resolved, never guessed"
         // principle as celebrationDateInYear in nameCelebrations.ts.
         let resolved = resolvedFor(nc, year);
-        if (!resolved) resolved = await tryResolve(nc, year);
+        if (!resolved) resolved = await tryResolve(nc, year, quiet);
         // Once this year's occurrence is past, pre-resolve next year's while
         // the cron is already here — otherwise every client countdown for
         // this celebration goes dark until January, waiting for a date only
         // the server may resolve.
         if (resolved && resolved < `${year}-${monthDay}` && !resolvedFor(nc, year + 1)) {
-          await tryResolve(nc, year + 1);
+          await tryResolve(nc, year + 1, quiet);
         }
-        if (resolved === `${year}-${monthDay}`) {
+      }
+
+      // PASS 2 — notification. Reads resolvedFor(), not nc.resolvedDates, so
+      // a date pass 1 has just worked out counts today rather than tomorrow.
+      for (const nc of notifiableCelebrations(mem)) {
+        if (nc.dateType === 'fixed') {
+          // monthDayIsToday, not raw equality — a fixed 02-29 celebration
+          // collapses to 28 February in ordinary years, like birthdays.
+          if (typeof nc.date !== 'string' || !monthDayIsToday(nc.date)) continue;
+        } else if (nc.dateType === 'movable') {
+          if (resolvedFor(nc, year) !== `${year}-${monthDay}`) continue;
+        } else {
+          continue;
+        }
+
+        // The legacy Namenstag keeps the notification it has always had — its
+        // own key, its own wording. Changing either would re-notify a family
+        // for a day they were already told about.
+        if (nc.id === LEGACY_NAME_DAY_ID) {
+          const feast = String(mem.nameDayFeast || '').trim();
           celebrations.push({
-            key: `namecel-${mDoc.id}-${nc.id}`,
-            title: `${emoji} ${name}'s ${label}`,
-            body: celebrationBody(nc),
+            key: `nameday-${mDoc.id}`,
+            title: `💐 ${name}'s name day`,
+            body: feast ? `Today is ${feast} — ${name}'s Namenstag.` : `Today is ${name}'s Namenstag.`,
           });
+          continue;
         }
+        const emoji = nc.kind === 'name_day' ? '💐' : '✨';
+        const label = nc.kind === 'name_day' ? 'name day' : 'name celebration';
+        celebrations.push({
+          key: `namecel-${mDoc.id}-${nc.id}`,
+          title: `${emoji} ${name}'s ${label}`,
+          body: celebrationBody(nc),
+        });
       }
       if (resolvedChanged) {
         try {

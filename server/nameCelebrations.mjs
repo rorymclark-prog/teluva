@@ -134,3 +134,51 @@ export function resolveCelebrations(member) {
   const additional = confirmed.filter((c) => c !== primary);
   return { primary, additional, all };
 }
+
+/**
+ * The confirmed celebrations that should PUSH for this member today's run —
+ * the cron's gate, lifted out of server.js so it is testable and so there is
+ * one merge rather than two.
+ *
+ * Stricter than resolveCelebrations' primary/additional in one specific way,
+ * and the difference is deliberate: a confirmed, notifying, fixed name_day on
+ * the same date as the legacy Namenstag REPLACES it even when it is not the
+ * member's primary. resolveCelebrations keeps both (the calendar shows both
+ * rows, which is honest — they are two records of the same day), but two
+ * notifications for one day is just congratulating a migrated member twice.
+ *
+ * Returns entries in merge order. The legacy Namenstag, when it survives,
+ * carries id LEGACY_NAME_DAY_ID — server.js keys its notification off that,
+ * because the Namenstag's wording predates nameCelebrations and stays as it is.
+ */
+export function notifiableCelebrations(member) {
+  const { primary, additional } = resolveCelebrations(member);
+  const confirmed = primary ? [primary, ...additional] : additional;
+  const notifying = confirmed.filter((c) => c.notify);
+  const legacy = notifying.find((c) => c.id === LEGACY_NAME_DAY_ID);
+  if (!legacy) return notifying;
+  const replaced = notifying.some(
+    (c) => c.id !== LEGACY_NAME_DAY_ID && c.kind === 'name_day' && c.dateType === 'fixed' && c.date === legacy.date,
+  );
+  return replaced ? notifying.filter((c) => c.id !== LEGACY_NAME_DAY_ID) : notifying;
+}
+
+/**
+ * Every confirmed MOVABLE celebration on this member — the ones whose date
+ * only a model can work out, and which are therefore useless until the cron
+ * has resolved a year for them.
+ *
+ * NOT filtered by notify, and that is the whole point. The cron used to skip
+ * `notify: false` entries entirely, which quietly starved them: an "additional"
+ * celebration a family chose to see but not be pinged about kept only the two
+ * years resolved at confirm time, and then went dark — in the published feed,
+ * in the app's countdown, everywhere — with no error anywhere. server.js still
+ * spends its model budget on notifying entries FIRST and only lets these use
+ * what is left above a reserve, so keeping them alive cannot cost a family a
+ * birthday notification on a busy run.
+ */
+export function resolvableCelebrations(member) {
+  const { primary, additional } = resolveCelebrations(member);
+  const confirmed = primary ? [primary, ...additional] : additional;
+  return confirmed.filter((c) => c.dateType === 'movable' && typeof c.movableRule === 'string' && c.movableRule);
+}

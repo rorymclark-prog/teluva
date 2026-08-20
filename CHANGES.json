@@ -1,9 +1,7 @@
 {
-  "label": "v234",
+  "label": "v235",
   "changes": [
-    "Name days now reach the calendar link you subscribe to. Birthdays and anniversaries have been going out for a while; name days quietly weren't, so the day showed up in Teluva and nowhere else.",
-    "Nothing to redo — links you've already shared pick them up on their next refresh.",
-    "A movable celebration goes out only for the years it's actually been worked out, never as a repeating rule. A lunar date guessed a year ahead would land on the wrong day.",
-    "A day still waiting for your yes stays here. Teluva won't put a suggestion on somebody else's phone."
+    "A celebration you chose to see but not be reminded about now keeps its dates up to date like every other one. Movable ones — the dates that shift each year — used to quietly run out after a couple of years and just stop appearing.",
+    "Name day reminders themselves are unchanged: same day, same wording, and still only for the days you confirmed."
   ]
 }
