@@ -188,6 +188,24 @@ export interface NameCelebrationModalProps {
   existing: ResolvedCelebrations;
   dismissed: boolean;
   suppressReligiousSuggestions: boolean;
+  /**
+   * Turn the family-wide religious-suggestion switch on or off from in here.
+   *
+   * PRESENT = the caller is an admin and may change it. ABSENT = they may not,
+   * and the copy says who can instead of offering a button that would come
+   * back 403 (the server enforces admin on /api/set-suggestion-prefs — this
+   * prop only decides what to draw).
+   *
+   * It exists because the message telling you the switch is blocking the
+   * search was a dead end: the only way to act on it was to abandon the edit,
+   * leave for Members & roles, and come back. Same reason the calendar's empty
+   * name-days panel now names its path.
+   *
+   * Must RESOLVE before the next research call — the server re-reads the
+   * family flag on every one, so a fire-and-forget save would race it and the
+   * first search after switching would still come back suppressed.
+   */
+  onChangeSuppressReligious?: (suppress: boolean) => Promise<void>;
   /** A fully-formed, confirmed NameCelebration — id/primary/notify already
    *  decided. The caller is responsible for the single-primary invariant
    *  (demote any other confirmed primary when celebration.primary is true). */
@@ -199,7 +217,7 @@ export interface NameCelebrationModalProps {
 
 export default function NameCelebrationModal({
   open, displayName, nickname, existing, dismissed, suppressReligiousSuggestions,
-  onConfirm, onDismiss, onClose,
+  onChangeSuppressReligious, onConfirm, onDismiss, onClose,
 }: NameCelebrationModalProps) {
   useBodyScrollLock(open);
 
@@ -256,7 +274,17 @@ export default function NameCelebrationModal({
 
   const view = proposal ? viewOf(proposal) : null;
 
-  async function runResearch(rejected: string[]) {
+  /**
+   * `suppressOverride` exists for exactly one caller: the admin who has just
+   * turned religious suggestions back on. This function closes over the
+   * `suppressReligiousSuggestions` PROP, and the prop is still the old `true`
+   * during the tick in which that handler runs — so without the override the
+   * search fired straight after switching would post suppressReligious: true,
+   * the server would OR it with the (now false) family flag and suppress
+   * anyway, and the family would see the same empty result. The button would
+   * look broken while having worked perfectly.
+   */
+  async function runResearch(rejected: string[], suppressOverride?: boolean) {
     setResearching(true);
     setResearchError(null);
     setResearchExhausted(false);
@@ -274,7 +302,7 @@ export default function NameCelebrationModal({
           // the same split the local matcher walked.
           givenNames: splitNameTokens(displayName),
           nickname: nickname || undefined,
-          suppressReligious: suppressReligiousSuggestions,
+          suppressReligious: suppressOverride ?? suppressReligiousSuggestions,
           rejectedTitles: rejected,
         }),
       });
@@ -299,6 +327,30 @@ export default function NameCelebrationModal({
       setResearchError(e instanceof Error ? e.message : 'Could not reach the research service.');
     } finally {
       setResearching(false);
+    }
+  }
+
+  // Turn the family-wide switch back on and immediately do what the family
+  // came here for. Two things are deliberate:
+  //  - the save is AWAITED before searching again, because the server re-reads
+  //    the family flag on every research call and would otherwise still see
+  //    the old value;
+  //  - rejectedTitles is NOT cleared. Those are titles the family actually saw
+  //    and declined, and "never repeat a declined title" holds regardless of
+  //    why the last search came back empty.
+  const [allowingReligious, setAllowingReligious] = useState(false);
+  const [allowReligiousError, setAllowReligiousError] = useState<string | null>(null);
+  async function handleAllowReligious() {
+    if (!onChangeSuppressReligious) return;
+    setAllowingReligious(true);
+    setAllowReligiousError(null);
+    try {
+      await onChangeSuppressReligious(false);
+      await runResearch(rejectedTitles, false);
+    } catch (err: any) {
+      setAllowReligiousError(err?.message ?? 'Could not change the setting.');
+    } finally {
+      setAllowingReligious(false);
     }
   }
 
@@ -440,7 +492,9 @@ export default function NameCelebrationModal({
                     <p className="text-[13.5px] leading-relaxed text-ink-600">
                       {researchExhausted && `No further connections found for ${firstName}.`}
                       {!researchExhausted && suppressReligiousSuggestions && !dismissed &&
-                        'Religious suggestions are turned off for this family — you can still search other traditions or choose a date yourselves.'}
+                        (onChangeSuppressReligious
+                          ? 'Religious suggestions are turned off for this family. You can search other traditions, choose a date yourselves, or turn them back on.'
+                          : 'Religious suggestions are turned off for this family — you can still search other traditions or choose a date yourselves. An admin can turn them back on in Members & roles.')}
                       {!researchExhausted && !(suppressReligiousSuggestions && !dismissed) && dismissed &&
                         `The family previously said no name celebration for ${firstName}. You can look again any time.`}
                       {!researchExhausted && !(suppressReligiousSuggestions && !dismissed) && !dismissed && existing.primary &&
@@ -448,6 +502,36 @@ export default function NameCelebrationModal({
                       {!researchExhausted && !(suppressReligiousSuggestions && !dismissed) && !dismissed && !existing.primary &&
                         `No established name day found for ${firstName} in the local Austrian calendar — most names outside it genuinely have none. Try searching other traditions, or choose a date yourselves.`}
                     </p>
+                    {/* Rory (2026-08-20, on this exact box for Ganga): "i want
+                        to be able to toggle on religious setting here?" — the
+                        message named the thing standing in the way and then
+                        offered no way to move it. Admin-only, because the
+                        server rejects anyone else; the copy above tells a
+                        non-admin who to ask rather than drawing a 403 button.
+                        Says "for the whole family" out loud: this is reached
+                        from ONE member's edit screen and changes a setting for
+                        everyone, which is not what the surrounding context
+                        implies. */}
+                    {!researchExhausted && suppressReligiousSuggestions && !dismissed && onChangeSuppressReligious && (
+                      <div className="mt-3 pt-3 border-t border-cream-200">
+                        {allowReligiousError && (
+                          <p className="text-[12.5px] text-rosa-600 mb-2">{allowReligiousError}</p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void handleAllowReligious()}
+                          disabled={allowingReligious}
+                          className="btn-quiet text-[13px] px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {allowingReligious
+                            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Turning on…</>
+                            : <><Sparkles className="w-3.5 h-3.5" /> Turn them back on</>}
+                        </button>
+                        <p className="text-[12px] text-ink-400 mt-1.5">
+                          For the whole family, not just {firstName} — the same switch as in Members &amp; roles. You can turn it off again there.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 

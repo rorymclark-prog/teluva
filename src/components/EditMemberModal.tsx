@@ -6,7 +6,7 @@ import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { FamilyMember, MemberRole, NameCelebration } from '../types';
 import { listTimeZones } from '../utils/timeZone';
 import { auth } from '../lib/firebase';
-import { loadSpaceInfo } from '../utils/db';
+import { loadSpaceInfo, saveSuppressReligiousSuggestions } from '../utils/db';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -16,6 +16,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { isValidNameDay, formatNameDay } from '../utils/nameDay';
 import { resolveCelebrations, suggestLocal, LEGACY_NAME_DAY_ID } from '../utils/nameCelebrations';
 import NameCelebrationModal from './NameCelebrationModal';
+import { useFamilyCtx } from '../contexts/FamilyContext';
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -42,6 +43,10 @@ const timeZoneOptions = listTimeZones();
 
 export default function EditMemberModal({ isOpen, member, onClose, onSave, isBusinessSpace = false }: EditMemberModalProps) {
   useBodyScrollLock(isOpen && !!member);
+
+  // Only for the family-wide religious-suggestion switch below — that endpoint
+  // is admin-only, so a non-admin must not be shown a control for it.
+  const { isAdmin } = useFamilyCtx();
 
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
@@ -166,8 +171,11 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
     }
   }, [member, isOpen, isBusinessSpace]);
 
-  // families/{id}/info/info.suppressReligiousSuggestions — read-only here,
-  // see loadSpaceInfo's own docstring for why this modal cannot write it.
+  // families/{id}/info/info.suppressReligiousSuggestions. Read via
+  // loadSpaceInfo (which is read-only by design — see its docstring); WRITTEN,
+  // when an admin flips it from inside the celebration modal, through the same
+  // server endpoint FamilySettings uses. No client ever writes that doc
+  // directly.
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
@@ -176,6 +184,17 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
     });
     return () => { cancelled = true; };
   }, [isOpen]);
+
+  // The celebration modal's "religious suggestions are off" message used to be
+  // a dead end — it named the blocker and offered no way past it short of
+  // abandoning the edit. Admins can now flip it from in there; the server
+  // rejects everyone else, so non-admins get told who to ask instead (see
+  // NameCelebrationModal's onChangeSuppressReligious). Throws are deliberate:
+  // the modal shows the failure inline and leaves the switch as it was.
+  const handleChangeSuppressReligious = async (suppress: boolean) => {
+    await saveSuppressReligiousSuggestions(suppress);
+    setSuppressReligiousSuggestions(suppress);
+  };
 
 
   // Resolve a town to coordinates and a time zone. The search runs on our own
@@ -1121,6 +1140,10 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
             // a moment; treating it as allowed shows one to a family that
             // switched them off.
             suppressReligiousSuggestions={suppressReligiousSuggestions ?? true}
+            // Only handed over to an admin: /api/set-suggestion-prefs is
+            // admin-only, so passing this to anyone else would draw a button
+            // that always 403s. Absent = the modal says who to ask instead.
+            onChangeSuppressReligious={isAdmin ? handleChangeSuppressReligious : undefined}
             onConfirm={handleConfirmCelebration}
             onDismiss={handleDismissCelebration}
             onClose={() => setShowCelebrationModal(false)}
