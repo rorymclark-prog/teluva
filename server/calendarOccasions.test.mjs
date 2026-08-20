@@ -119,7 +119,7 @@ test('nothing at all is safe', () => {
 // Name days & name celebrations — the division the feed used to be missing
 // --------------------------------------------------------------------------
 
-const Shyam = {
+const SHYAM = {
   id: 'm-shyam',
   name: 'Shyam',
   nameCelebrations: [{
@@ -161,7 +161,7 @@ test('an UNCONFIRMED proposal never leaves the app', () => {
 test('a movable celebration is published as the resolved dates only, with NO rule', () => {
   // FREQ=YEARLY on a lunar date would have the subscribing calendar inventing
   // every future occurrence on the wrong day.
-  const out = buildFeedOccasions({ nameCelebrationMembers: [Shyam] }, NOW);
+  const out = buildFeedOccasions({ nameCelebrationMembers: [SHYAM] }, NOW);
   assert.deepEqual(out.map((o) => [o.id, o.date, o.repeat]), [
     ['virtual-nameDay-m-shyam-celeb-nit-2027-01-30', '2027-01-30', 'once'],
     ['virtual-nameDay-m-shyam-celeb-nit-2026-02-09', '2026-02-09', 'once'],
@@ -170,7 +170,7 @@ test('a movable celebration is published as the resolved dates only, with NO rul
 });
 
 test('a movable celebration with nothing resolved yet publishes nothing rather than a guess', () => {
-  const unresolved = { ...Shyam, nameCelebrationResolvedDates: {} };
+  const unresolved = { ...SHYAM, nameCelebrationResolvedDates: {} };
   assert.deepEqual(buildFeedOccasions({ nameCelebrationMembers: [unresolved] }, NOW), []);
 });
 

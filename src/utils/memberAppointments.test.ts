@@ -80,14 +80,14 @@ const TODAY = '2026-08-01';
   // the chat and I can't find it": right date, right time, right person,
   // filed as an Appointment — and invisible on every one of that person's
   // own screens until now.
-  const Steiner = ev({
+  const steiner = ev({
     id: '178531898309948',
     title: 'Appointment with Dr Johann Steiner',
     date: '2026-08-25',
     time: '15:30',
     memberIds: ['1781799906310'],
   });
-  const { upcoming } = memberAppointments([Steiner], '1781799906310', TODAY);
+  const { upcoming } = memberAppointments([steiner], '1781799906310', TODAY);
   assert.equal(upcoming.length, 1, 'the appointment that started all this now surfaces on the member');
   assert.equal(upcoming[0].title, 'Appointment with Dr Johann Steiner');
 }
