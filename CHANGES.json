@@ -1,9 +1,9 @@
 {
-  "label": "v237",
+  "label": "v238",
   "changes": [
-    "New: a record of work done on the house. Household now keeps a dated log of what the plumber, the electrician or the boiler service actually did — what it cost, how long it's guaranteed for, and who to ring if it goes again. Your car has had this for ages; the house didn't.",
+    "The guided-setup cards read properly now: the heading is bigger than the little label above it, and it no longer wraps with one lonely word on the last line.",
+    "New: a record of work done on the house. Household keeps a dated log of what the plumber, the electrician or the boiler service actually did — what it cost, how long it's guaranteed for, and who to ring if it goes again. Your car has had this for ages; the house didn't.",
     "Tell the assistant and it files it: “the plumber came Tuesday and replaced the boiler valve, 180 euro, two-year guarantee”. If that plumber is already in your vendor list the two are linked automatically, and a tradesman's invoice can be scanned straight in.",
-    "The entry keeps the name of whoever did the work, so your history still reads properly years later even if you've since removed them from your vendor list.",
-    "The guided-setup cards are easier to read at a glance — the label at the top of each one is bigger, and picks up the same colour sweep as the progress bar above it."
+    "The entry keeps the name of whoever did the work, so your history still reads properly years later even if you've since removed them from your vendor list."
   ]
 }

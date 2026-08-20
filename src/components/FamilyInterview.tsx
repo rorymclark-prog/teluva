@@ -417,7 +417,15 @@ function StepHeader({ icon: Icon, tone, eyebrow, title, body }: {
         </div>
         <div className="min-w-0 pt-0.5">
           <span className="step-eyebrow">{eyebrow}</span>
-          <h3 id="interview-step-title" className="font-display text-lg font-semibold text-white leading-snug mt-1.5">
+          {/* Rory (2026-08-20): "should the GUIDED SETUP part be bigger than
+              the Welcome back?" — no. The eyebrow says which flow you are in;
+              the title is the thing you are being told. Growing the eyebrow to
+              13px put them close enough to compete (13/18 = 72%, where an
+              eyebrow normally sits nearer 60%), so the fix is on this side:
+              the headline of the card that IS the screen was only text-lg.
+              text-balance because the wrap was leaving the last word stranded
+              on its own line ("…you're partway / through"). */}
+          <h3 id="interview-step-title" className="font-display text-xl font-semibold text-white leading-snug text-balance mt-1.5">
             {title}
           </h3>
         </div>
