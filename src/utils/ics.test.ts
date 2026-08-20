@@ -7,7 +7,7 @@ import type { CalendarEvent } from '../types';
 
 const MEMBERS = [
   { id: 'sophie', name: 'Sophie Clark' },
-  { id: 'Ganga', name: 'Ganga Clark' },
+  { id: 'ganga', name: 'Ganga Clark' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -230,7 +230,7 @@ const OUTLOOK = [
   const swims = r.events.filter((e) => e.title === 'Ganga swimming lesson');
   assert.equal(swims.length, 2, 'three weekly occurrences minus the one EXDATE removes');
   assert.ok(!swims.some((e) => e.date === '2026-09-17'), 'the excluded date is gone');
-  assert.deepEqual(swims[0].memberIds, ['Ganga']);
+  assert.deepEqual(swims[0].memberIds, ['ganga']);
   // Every generated occurrence needs its own id, or they collapse into one row.
   assert.equal(new Set(swims.map((e) => e.id)).size, swims.length);
 }

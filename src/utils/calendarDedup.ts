@@ -37,7 +37,7 @@ import { CalendarEvent } from '../types';
 /**
  * The identity of an appointment as a person perceives it: same day, same
  * time, same name. Title is compared case- and whitespace-insensitively
- * because "Klara" and "Klara " are not two appointments.
+ * because "Klara" and "klara " are not two appointments.
  */
 export function calendarEventKey(ev: Pick<CalendarEvent, 'date' | 'time' | 'title'>): string {
   const title = (ev.title || '').trim().toLowerCase().replace(/\s+/g, ' ');

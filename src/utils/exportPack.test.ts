@@ -58,7 +58,7 @@ const EVENTS: CalendarEvent[] = [
   { id: 'e2', title: 'Dentist', date: '2026-01-04', category: 'Appointment', remindMe: false, memberIds: ['sophie'] },
 ];
 
-const DATA = { members: [SOPHIE, VITA], events: EVENTS, vaultDocuments: VAULT, spaceName: 'Clark – Home Tribe', now: NOW };
+const DATA = { members: [SOPHIE, VITA], events: EVENTS, vaultDocuments: VAULT, spaceName: 'Clark – Family Hub', now: NOW };
 
 // --- the medical preset gathers the whole medical life ---------------------
 {

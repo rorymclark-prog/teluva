@@ -79,7 +79,7 @@ const EVENTS: CalendarEvent[] = Array.from({ length: 22 }, (_, i) => ({
 
 const pack = buildPack(
   { title: "Sophie's medical records", memberIds: ['sophie'], topics: TOPIC_PRESETS.medical },
-  { members: [SOPHIE], events: EVENTS, vaultDocuments: VAULT, spaceName: 'Clark – Home Tribe', now: new Date('2026-07-29T12:00:00') },
+  { members: [SOPHIE], events: EVENTS, vaultDocuments: VAULT, spaceName: 'Clark – Family Hub', now: new Date('2026-07-29T12:00:00') },
 );
 
 const { blob, size } = renderSummaryPdf(pack.summary);

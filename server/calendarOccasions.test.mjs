@@ -120,7 +120,7 @@ test('nothing at all is safe', () => {
 // --------------------------------------------------------------------------
 
 const Shyam = {
-  id: 'm-Shyam',
+  id: 'm-shyam',
   name: 'Shyam',
   nameCelebrations: [{
     id: 'celeb-nit', kind: 'name_celebration', title: 'Nityananda Trayodashi',
@@ -163,8 +163,8 @@ test('a movable celebration is published as the resolved dates only, with NO rul
   // every future occurrence on the wrong day.
   const out = buildFeedOccasions({ nameCelebrationMembers: [Shyam] }, NOW);
   assert.deepEqual(out.map((o) => [o.id, o.date, o.repeat]), [
-    ['virtual-nameDay-m-Shyam-celeb-nit-2027-01-30', '2027-01-30', 'once'],
-    ['virtual-nameDay-m-Shyam-celeb-nit-2026-02-09', '2026-02-09', 'once'],
+    ['virtual-nameDay-m-shyam-celeb-nit-2027-01-30', '2027-01-30', 'once'],
+    ['virtual-nameDay-m-shyam-celeb-nit-2026-02-09', '2026-02-09', 'once'],
   ]);
   assert.ok(out.every((o) => o.repeat === 'once'), 'a movable date must never carry a yearly rule');
 });

@@ -3,7 +3,7 @@ import { CalendarEvent, FamilyMember } from '../types';
 import { resolveEventMembers, eventBelongsToMember } from './eventMemberMatch';
 
 const M = (id: string, name: string) => ({ id, name }) as Pick<FamilyMember, 'id' | 'name'>;
-const FAMILY = [M('rory', 'Rory Clark'), M('Ganga', 'Ganga Clark'), M('vita', 'Vita Clark'), M('nom', 'Nomvula Clark')];
+const FAMILY = [M('rory', 'Rory Clark'), M('ganga', 'Ganga Clark'), M('vita', 'Vita Clark'), M('nom', 'Nomvula Clark')];
 
 const ev = (title: string, memberIds?: string[]) =>
   ({ title, memberIds }) as Pick<CalendarEvent, 'title' | 'memberIds'>;
@@ -14,9 +14,9 @@ const ev = (title: string, memberIds?: string[]) =>
   // absent from Ganga's Check-ups and Medical screens.
   const real = ev('Ganga – Orthodontist (Dr. Lena Hofer-Mayr)', []);
   const r = resolveEventMembers(real, FAMILY);
-  assert.deepEqual(r.memberIds, ['Ganga']);
+  assert.deepEqual(r.memberIds, ['ganga']);
   assert.equal(r.explicit, false, 'read from the title, and the UI should say so');
-  assert.equal(eventBelongsToMember(real, 'Ganga', FAMILY), true);
+  assert.equal(eventBelongsToMember(real, 'ganga', FAMILY), true);
   assert.equal(eventBelongsToMember(real, 'vita', FAMILY), false);
 }
 
@@ -38,7 +38,7 @@ const ev = (title: string, memberIds?: string[]) =>
 // --- several people in one title -------------------------------------------
 {
   const r = resolveEventMembers(ev('Vita & Ganga: Re-test Ferritin and Vitamin D', []), FAMILY);
-  assert.deepEqual(r.memberIds.sort(), ['vita', 'Ganga']);
+  assert.deepEqual(r.memberIds.sort(), ['ganga', 'vita']);
 }
 
 // --- word boundaries, which is what stops the nonsense ---------------------
@@ -51,13 +51,13 @@ const ev = (title: string, memberIds?: string[]) =>
 
 // --- punctuation is a boundary, not part of the name -----------------------
 {
-  assert.deepEqual(resolveEventMembers(ev('Zahnarzt (Ganga), 15:00', []), FAMILY).memberIds, ['Ganga']);
+  assert.deepEqual(resolveEventMembers(ev('Zahnarzt (Ganga), 15:00', []), FAMILY).memberIds, ['ganga']);
   assert.deepEqual(resolveEventMembers(ev('Impftermin für Nomvula', []), FAMILY).memberIds, ['nom']);
 }
 
 // --- case and accents ------------------------------------------------------
 {
-  assert.deepEqual(resolveEventMembers(ev('Ganga ORTHODONTIST', []), FAMILY).memberIds, ['Ganga']);
+  assert.deepEqual(resolveEventMembers(ev('GANGA ORTHODONTIST', []), FAMILY).memberIds, ['ganga']);
   const accented = [M('zoe', 'Zoë Clark')];
   assert.deepEqual(resolveEventMembers(ev('Zoe - dentist', []), accented).memberIds, ['zoe']);
   assert.deepEqual(resolveEventMembers(ev('Zoë - dentist', []), accented).memberIds, ['zoe']);
@@ -65,7 +65,7 @@ const ev = (title: string, memberIds?: string[]) =>
 
 // --- full name as well as first name ---------------------------------------
 {
-  assert.deepEqual(resolveEventMembers(ev('Parents evening — Ganga Clark', []), FAMILY).memberIds, ['Ganga']);
+  assert.deepEqual(resolveEventMembers(ev('Parents evening — Ganga Clark', []), FAMILY).memberIds, ['ganga']);
 }
 
 // --- a surname alone tags nobody -------------------------------------------

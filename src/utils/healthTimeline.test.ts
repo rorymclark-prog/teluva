@@ -100,7 +100,7 @@ const ev = (overrides: Partial<CalendarEvent> & { id: string; date: string }): C
 
 /* ---------------- rule 5: a name-matched (non-memberIds) appointment is included ---------------- */
 {
-  const m = member({ id: 'Ganga', name: 'Ganga Clark' });
+  const m = member({ id: 'ganga', name: 'Ganga Clark' });
   const events: CalendarEvent[] = [
     // Google-imported: memberIds is empty, only the title names the person —
     // exactly the bug Phase 0 fixed for the pediatric-only version.

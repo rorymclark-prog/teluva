@@ -292,7 +292,7 @@ const ALIASES: Record<string, string> = {
   // Katharina
   katharine: 'katharina', catherine: 'katharina', catharina: 'katharina', katrin: 'katharina',
   kathrin: 'katharina', katja: 'katharina', kati: 'katharina', kate: 'katharina', katie: 'katharina',
-  Klara: 'katharina', caren: 'katharina', karen: 'katharina', kathleen: 'katharina', caitlin: 'katharina',
+  klara: 'katharina', caren: 'katharina', karen: 'katharina', kathleen: 'katharina', caitlin: 'katharina',
   // Elisabeth
   elizabeth: 'elisabeth', elsa: 'elisabeth', else: 'elisabeth', lisa: 'elisabeth', liesl: 'elisabeth',
   liesbeth: 'elisabeth', betty: 'elisabeth', beth: 'elisabeth', bettina: 'elisabeth', sissi: 'elisabeth',

@@ -27,14 +27,20 @@ service firebase.storage {
     // Transition fallback: the original household accounts keep access to
     // THEIR OWN family's files even before their tokens carry the new claim.
     // Scoped to familyId == 'household' — no longer a master key to all families.
+    //
+    // Identified by UID, not by email address. Same three accounts, same
+    // effect — but a rules file is a published artifact, and a list of real
+    // household email addresses in one is a phishing target that grants
+    // nothing. A UID is opaque, is not an address anyone can write to, and is
+    // the identity the token actually carries.
     function isLegacyHouseholdMember(familyId) {
       return familyId == 'household' &&
         request.auth != null &&
         request.auth.token.email_verified == true &&
-        request.auth.token.email in [
-          'rorymclark@gmail.com',
-          'partner@example.com',
-          'child@example.com'
+        request.auth.uid in [
+          'P22E4pEZTiOJyMXRWCOprWj9ifo2',
+          'N3RtiCHzoMRloMOUktU4pUc5vS12',
+          'Yronp4TmgVdvBepCcsA28cLaDzB2'
         ];
     }
 

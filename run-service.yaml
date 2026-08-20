@@ -43,8 +43,11 @@ spec:
         # database with no daily read-quota cap.
         - name: FIRESTORE_DB_ID
           value: teluva-prod
-        - name: ALLOWED_EMAILS
-          value: rorymclark@gmail.com,partner@example.com,child@example.com
+        # (ALLOWED_EMAILS removed 2026-08-20: a hardcoded sign-in allowlist left
+        # over from before the custom-claim membership model. Nothing in the
+        # codebase read it — access is decided by the familyId/familyIds claims
+        # the server mints — so it was a live list of household addresses doing
+        # no work.)
         # Web Push (birthday/anniversary phone notifications). Public key is not
         # secret — it's shipped to every browser to subscribe. Private key + the
         # cron shared-secret come from Secret Manager.

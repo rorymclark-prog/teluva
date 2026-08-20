@@ -23,7 +23,7 @@ const ev = (p: Partial<CalendarEvent> & { id: string; date: string; title: strin
 // --- title comparison is forgiving about case and spacing -----------------
 {
   const a = ev({ id: 'a', date: '2026-08-07', time: '20:00', title: 'Klara' });
-  const b = ev({ id: 'b', date: '2026-08-07', time: '20:00', title: '  Klara  ' });
+  const b = ev({ id: 'b', date: '2026-08-07', time: '20:00', title: '  klara  ' });
   const c = ev({ id: 'c', date: '2026-08-07', time: '20:00', title: 'Klara   Meyer' });
   const d = ev({ id: 'd', date: '2026-08-07', time: '20:00', title: 'Klara Meyer' });
   assert.equal(calendarEventKey(a), calendarEventKey(b));
@@ -43,7 +43,7 @@ const ev = (p: Partial<CalendarEvent> & { id: string; date: string; title: strin
 // --- findDuplicateEvent ----------------------------------------------------
 {
   const existing = [ev({ id: 'a', date: '2026-08-25', time: '15:30', title: 'Dr Steiner' })];
-  assert.equal(findDuplicateEvent(existing, { date: '2026-08-25', time: '15:30', title: 'dr Steiner' })?.id, 'a');
+  assert.equal(findDuplicateEvent(existing, { date: '2026-08-25', time: '15:30', title: 'dr steiner' })?.id, 'a');
   assert.equal(findDuplicateEvent(existing, { date: '2026-08-26', time: '15:30', title: 'Dr Steiner' }), undefined, 'a different day is a different appointment');
   assert.equal(findDuplicateEvent(existing, { date: '', time: '15:30', title: 'Dr Steiner' }), undefined, 'no date, no judgement');
   assert.equal(findDuplicateEvent(existing, { date: '2026-08-25', time: '15:30', title: '   ' }), undefined, 'no title, no judgement');

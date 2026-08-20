@@ -25,8 +25,8 @@ function SuggestedTag({ onClear }: { onClear: () => void }) {
  * The header's one left-hand control: who you are and where you are.
  *
  * It used to be a grey pill sitting NEXT TO the hub title, which meant a
- * one-space household read its own name twice in a row — "Clark-Home Tribe"
- * as the heading and "Clark-Home Tribe" again in the pill beside it. So the
+ * one-space household read its own name twice in a row — "Clark-Family Hub"
+ * as the heading and "Clark-Family Hub" again in the pill beside it. So the
  * title itself is now the trigger, the way a workspace name is in Slack,
  * Notion or Linear: one name, tap it to switch or to reach the settings behind
  * it.

@@ -29,19 +29,19 @@ function makeEvent(partial: Partial<CalendarEvent> & Pick<CalendarEvent, 'id' | 
   return { category: 'Other', remindMe: false, ...partial };
 }
 
-const Ganga = makeMember('m-Ganga', 'Ganga');
+const ganga = makeMember('m-ganga', 'Ganga');
 
 // ── medical checks: a keyword-flagged calendar event with no care/referral
 //    record behind it must still appear ──────────────────────────────────
 {
   const events = [
-    makeEvent({ id: 'ev-sensor', title: 'Sensor', date: '2026-08-25', memberIds: ['m-Ganga'] }),
+    makeEvent({ id: 'ev-sensor', title: 'Sensor', date: '2026-08-25', memberIds: ['m-ganga'] }),
   ];
-  const checks = buildCalendarMedicalChecks([Ganga], events, NOW);
+  const checks = buildCalendarMedicalChecks([ganga], events, NOW);
   const flagged = checks.find((c) => c.id === 'calendar-ev-sensor');
   assert.ok(flagged, 'a bare "Sensor" calendar event must produce a Medical checks entry — no care/referral record needed');
   assert.strictEqual(flagged!.source, 'calendar', 'its source must be "calendar", not "care" or "referral"');
-  assert.strictEqual(flagged!.memberId, 'm-Ganga', 'the tagged member must be resolved by id');
+  assert.strictEqual(flagged!.memberId, 'm-ganga', 'the tagged member must be resolved by id');
   assert.strictEqual(flagged!.memberName, 'Ganga', 'the tagged member\'s name must be used');
   assert.strictEqual(flagged!.status, 'due-soon', '6 days out must be due-soon (within the 45-day window)');
 }
@@ -50,7 +50,7 @@ const Ganga = makeMember('m-Ganga', 'Ganga');
 //    row rather than being dropped ────────────────────────────────────────
 {
   const events = [makeEvent({ id: 'ev-dentist', title: "Dentist", date: '2026-09-01' })];
-  const checks = buildCalendarMedicalChecks([Ganga], events, NOW);
+  const checks = buildCalendarMedicalChecks([ganga], events, NOW);
   const flagged = checks.find((c) => c.id === 'calendar-ev-dentist');
   assert.ok(flagged, 'an untagged medical-sounding event must still be included');
   assert.strictEqual(flagged!.memberId, '', 'an untagged event must not be misattributed to a member');
@@ -69,7 +69,7 @@ const Ganga = makeMember('m-Ganga', 'Ganga');
     makeEvent({ id: 'ev-past', title: 'Blood test', date: '2026-08-01' }), // 18 days in the past
     makeEvent({ id: 'ev-far', title: 'Blood test far out', date: '2027-08-01' }), // ~1 year out
   ];
-  const checks = buildCalendarMedicalChecks([Ganga], events, NOW);
+  const checks = buildCalendarMedicalChecks([ganga], events, NOW);
   assert.ok(!checks.some((c) => c.id === 'calendar-ev-past'), 'a past-dated flagged calendar event must be dropped, not shown as overdue forever');
   assert.strictEqual(checks.find((c) => c.id === 'calendar-ev-far')!.status, 'ok', 'a far-future flagged event must be ok, not due-soon');
 }
@@ -78,7 +78,7 @@ const Ganga = makeMember('m-Ganga', 'Ganga');
 //    only the free-text calendar-event path changed, not referrals ────────
 {
   const memberWithReferral: FamilyMember = {
-    ...Ganga,
+    ...ganga,
     id: 'm-referral',
     referrals: [{ id: 'r-1', kind: 'Specialist', status: 'booked', appointmentDate: '2026-08-01' }] as any,
   };
@@ -91,13 +91,13 @@ const Ganga = makeMember('m-Ganga', 'Ganga');
 // ── medical checks: a non-matching event must not appear at all ────────────
 {
   const events = [makeEvent({ id: 'ev-offsite', title: 'Team offsite', date: '2026-08-25' })];
-  const checks = buildCalendarMedicalChecks([Ganga], events, NOW);
+  const checks = buildCalendarMedicalChecks([ganga], events, NOW);
   assert.ok(!checks.some((c) => c.id === 'calendar-ev-offsite'), 'an unrelated calendar event must not be pulled into Medical checks');
 }
 
 // ── medical checks: omitting events entirely must not throw (default param) ─
 {
-  assert.doesNotThrow(() => buildCalendarMedicalChecks([Ganga]), 'events must be optional, defaulting to none');
+  assert.doesNotThrow(() => buildCalendarMedicalChecks([ganga]), 'events must be optional, defaulting to none');
 }
 
 // ── anniversaries: existing AnniversaryRecord behaviour is undisturbed by
