@@ -1,8 +1,9 @@
 import type { ElementType } from 'react';
 import { Calendar, Sparkles, Cake, Ruler, GraduationCap, PartyPopper, Plane, BookOpen, Quote } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { FamilyMember, CalendarEvent, ContactEntry, NameCelebration } from '../types';
+import { FamilyMember, CalendarEvent, ExtendedBirthday, NameCelebration } from '../types';
 import { resolveCelebrations, daysUntilCelebration } from '../utils/nameCelebrations';
+import { nameDayOccurrenceInYear } from '../utils/nameDay';
 
 // "On this day" — the emotional daily hook on the home screen. Pure/presentational:
 // everything here is derived from members + events + the current date, no network,
@@ -102,6 +103,43 @@ function birthdayInsight(m: { id: string; name: string; birthdate?: string }, to
     text: `🎂 ${first} turns ${turningAge} ${when}`,
     tone: 'honey',
     score: 1000 - days * 10,
+  };
+}
+
+/* The same thing for someone who ISN'T a family member — a grandparent, a
+ * godparent, a friend (see utils/extendedBirthdaySources.ts).
+ *
+ * Separate from birthdayInsight above rather than reusing it, for one reason
+ * that matters: an ExtendedBirthday stores a month and a day, and the birth
+ * YEAR is optional, because families routinely keep a friend's birthday
+ * without knowing what year they were born. birthdayInsight always writes
+ * "turns N" — fed a record with no year it would cheerfully announce that
+ * Granny turns 126. Here the age appears only when it is actually known. */
+function extendedBirthdayInsight(eb: ExtendedBirthday, today: Date): Insight | null {
+  const t0 = startOfDay(today);
+  const thisYear = nameDayOccurrenceInYear(eb.date, t0.getFullYear());
+  if (!thisYear) return null;
+  const next = thisYear.getTime() < t0.getTime()
+    ? (nameDayOccurrenceInYear(eb.date, t0.getFullYear() + 1) ?? thisYear)
+    : thisYear;
+
+  const days = Math.round((next.getTime() - t0.getTime()) / DAY);
+  if (days > 10) return null;
+
+  const first = firstName(eb.name);
+  const when = days === 0 ? 'today!' : days === 1 ? 'tomorrow' : `in ${days} days`;
+  const age = eb.originalYear != null ? next.getFullYear() - eb.originalYear : null;
+
+  return {
+    key: `extended-bday-${eb.id}`,
+    icon: Cake,
+    text: age != null && age > 0
+      ? `🎂 ${first} turns ${age} ${when}`
+      : `🎂 ${first}'s birthday ${when}`,
+    tone: 'honey',
+    // Just under a family member's birthday at the same distance: on a day
+    // when both fall, the person who lives here leads.
+    score: 995 - days * 10,
   };
 }
 
@@ -334,8 +372,8 @@ function recordInsight(members: FamilyMember[], events: CalendarEvent[], today: 
 
 // Rank every candidate, always keep "today or very soon" items, and gently rotate
 // the long tail by day-of-year so it isn't always the same 2-4 items.
-function buildInsights(members: FamilyMember[], events: CalendarEvent[], contacts: ContactEntry[] = []): Insight[] {
-  if (members.length === 0 && events.length === 0 && contacts.length === 0) return [];
+function buildInsights(members: FamilyMember[], events: CalendarEvent[], extendedBirthdays: ExtendedBirthday[] = []): Insight[] {
+  if (members.length === 0 && events.length === 0 && extendedBirthdays.length === 0) return [];
 
   const today = new Date();
   const memberById = new Map(members.map((m) => [m.id, m]));
@@ -351,8 +389,8 @@ function buildInsights(members: FamilyMember[], events: CalendarEvent[], contact
     const s = sayingInsight(m, today);
     if (s) candidates.push(s);
   }
-  for (const c of contacts) {
-    const b = birthdayInsight(c, today);
+  for (const eb of extendedBirthdays) {
+    const b = extendedBirthdayInsight(eb, today);
     if (b) candidates.push(b);
   }
   for (const ev of events) {
@@ -381,8 +419,8 @@ function buildInsights(members: FamilyMember[], events: CalendarEvent[], contact
   return picked;
 }
 
-export default function OnThisDay({ members, events, contacts }: { members: FamilyMember[]; events: CalendarEvent[]; contacts?: ContactEntry[] }) {
-  const items = buildInsights(members, events, contacts);
+export default function OnThisDay({ members, events, extendedBirthdays }: { members: FamilyMember[]; events: CalendarEvent[]; extendedBirthdays?: ExtendedBirthday[] }) {
+  const items = buildInsights(members, events, extendedBirthdays);
   if (items.length === 0) return null;
 
   return (

@@ -72,7 +72,13 @@ function toForm(b: ExtendedBirthday): ExtendedBirthdayForm {
   };
 }
 
-export default function ExtendedBirthdaysView() {
+/* onChange keeps the home screen's "Needs attention" and "On this day" cards in
+ * step. Dashboard loads this list once per space, so without it a birthday
+ * added here would sit correctly on this screen while the home screen went on
+ * showing the old list until the next reload — the same class of split the
+ * whole extended-birthday rework exists to close. Same shape as
+ * ImportantInfo's onContactsChange. */
+export default function ExtendedBirthdaysView({ onChange }: { onChange?: (list: ExtendedBirthday[]) => void } = {}) {
   const { canWrite } = useFamilyCtx();
   const [birthdays, setBirthdays] = useState<ExtendedBirthday[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,12 +101,13 @@ export default function ExtendedBirthdaysView() {
   // same pattern as AnniversariesView.
   const remoteWaiting = useSharedDoc<{ extendedBirthdays: ExtendedBirthday[] }>(
     'extendedBirthdays',
-    (v) => setBirthdays(v.extendedBirthdays || []),
+    (v) => { setBirthdays(v.extendedBirthdays || []); onChange?.(v.extendedBirthdays || []); },
     { hold: isFormOpen },
   );
 
   const persist = async (updated: ExtendedBirthday[]) => {
     setBirthdays(updated);
+    onChange?.(updated);
     await saveExtendedBirthdays(updated);
   };
 

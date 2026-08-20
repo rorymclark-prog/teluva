@@ -115,6 +115,60 @@ function personKey(name, monthDay) {
 }
 
 /**
+ * Contact birthdays not already recorded as an ExtendedBirthday, in
+ * ExtendedBirthday shape.
+ *
+ * The server twin of src/utils/extendedBirthdaySources.ts's
+ * withContactBirthdays, for the published-calendar feed — which reads
+ * reference/extendedBirthdays and nothing else, and so had exactly the blind
+ * spot this whole change is about: a birthday the assistant filed as a contact
+ * never reached a subscriber's calendar.
+ *
+ * From v228 the assistant writes extended birthdays directly and
+ * scripts/migrate-contact-birthdays.mjs has moved what was already on file, so
+ * this normally returns nothing. It matters for a family whose migration hasn't
+ * run and for a phone on a cached older build still writing the old field —
+ * days, in this app, not minutes.
+ *
+ * A dedicated record always wins: it is richer and it is the one the family can
+ * edit. Matching is name + month-day, deliberately conservative — the same
+ * person written down twice is far likelier than two people sharing both a name
+ * and a birthday, and being wrong costs one duplicate row rather than a
+ * disappeared birthday.
+ */
+export function contactsAsExtendedBirthdays(contacts, extendedBirthdays = []) {
+  const list = Array.isArray(extendedBirthdays) ? extendedBirthdays : [];
+  const seen = new Set(list.map((eb) => personKey(eb?.name, clean(eb?.date, 5))));
+  const out = [];
+
+  for (const c of Array.isArray(contacts) ? contacts : []) {
+    if (!c || typeof c !== 'object' || !c.id) continue;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(clean(c.birthdate, 10));
+    const name = clean(c.name);
+    if (!m || !name) continue;
+
+    const monthDay = `${m[2]}-${m[3]}`;
+    const key = personKey(name, monthDay);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      // 'contact-' prefixed to match the client, so the same person produces
+      // the same .ics UID whichever side generated the entry.
+      id: `contact-${c.id}`,
+      name,
+      relationship: clean(c.relation, 40) || undefined,
+      date: monthDay,
+      originalYear: Number(m[1]),
+      notes: clean(c.note, 200) || undefined,
+      createdAt: '',
+    });
+  }
+
+  return out;
+}
+
+/**
  * Every extended birthday, anniversary and contact birthday falling today.
  *
  * Returns the same `{ key, title, body }` shape the cron already collects, so

@@ -1,6 +1,6 @@
 import { useState, useEffect, type ElementType } from 'react';
 import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, ChevronDown, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock } from 'lucide-react';
-import { FamilyMember, AssetItem, Vehicle, ContactEntry, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc, InsurancePolicy } from '../types';
+import { FamilyMember, AssetItem, Vehicle, ExtendedBirthday, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc, InsurancePolicy } from '../types';
 import { careNextDue } from '../utils/care';
 import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones, loadFinances } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel, daysUntil } from '../utils/vehicle';
@@ -9,6 +9,7 @@ import { nextAnniversary, nextMilestoneAnniversary } from '../utils/businessMile
 import { isReviewStale } from '../utils/willsEstate';
 import { sizeStaleness } from '../utils/sizeStaleness';
 import { todayISO } from '../utils/age';
+import { nameDayOccurrenceInYear } from '../utils/nameDay';
 import { isFuneralPolicy, inWaitingPeriod, daysUntilWaitingPeriodEnd } from '../utils/funeralCover';
 
 const DAY = 1000 * 60 * 60 * 24;
@@ -218,26 +219,38 @@ export function computeFuneralCoverNudges(policies: InsurancePolicy[]): Nudge[] 
 // Contact birthdays — same "within 21 days" window as a family member's
 // birthday nudge below, but a contact has no member profile/tab to jump to,
 // so this routes to the Info view (where contacts live) instead.
-function computeContactNudges(contacts: ContactEntry[]): Nudge[] {
+/* Birthdays for people who aren't family members.
+ *
+ * Reads ExtendedBirthday records, NOT contacts. It used to read contacts,
+ * because a contact's `birthdate` was once the only home for a non-member
+ * birthday — but that home was second-class (it reached this card and the
+ * "On this day" card and nothing else, never the calendar or the export), and
+ * v228 moved these onto their own records. The caller merges any leftover
+ * contact birthday into the same list, so nothing typed before that move
+ * disappears from this card. */
+function computeExtendedBirthdayNudges(extendedBirthdays: ExtendedBirthday[]): Nudge[] {
   const out: Nudge[] = [];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  for (const c of contacts) {
-    if (!c.birthdate) continue;
-    const bd = new Date(c.birthdate);
-    if (isNaN(bd.getTime())) continue;
-    const nb = new Date(today.getFullYear(), bd.getMonth(), bd.getDate());
-    if (nb.getTime() < today.getTime()) nb.setFullYear(today.getFullYear() + 1);
+  for (const eb of extendedBirthdays) {
+    // A stored month-day, so the occurrence is derived rather than parsed —
+    // and 29 February collapses to the 28th in an ordinary year, the same
+    // convention the calendar, the .ics export and the cron all use.
+    const occurrence = nameDayOccurrenceInYear(eb.date, today.getFullYear());
+    if (!occurrence) continue;
+    const nb = occurrence.getTime() < today.getTime()
+      ? (nameDayOccurrenceInYear(eb.date, today.getFullYear() + 1) ?? occurrence)
+      : occurrence;
     const days = Math.round((nb.getTime() - today.getTime()) / DAY);
-    if (days > 0 && days <= 21) {
+    if (days >= 0 && days <= 21) {
       out.push({
-        key: `contact-bday-${c.id}`,
+        key: `extended-bday-${eb.id}`,
         memberId: '',
         icon: Cake,
         tone: 'info',
-        text: days === 0 ? `It's ${c.name}'s birthday today! 🎂` : `${c.name}'s birthday in ${days} day${days !== 1 ? 's' : ''}`,
-        tab: 'info',
-        view: 'info',
+        text: days === 0 ? `It's ${eb.name}'s birthday today! 🎂` : `${eb.name}'s birthday in ${days} day${days !== 1 ? 's' : ''}`,
+        tab: 'extendedBirthdays',
+        view: 'extendedBirthdays',
       });
     }
   }
@@ -550,8 +563,8 @@ const TONE_STYLE: Record<Tone, string> = {
 };
 
 export default function NeedsAttention(
-  { members, contacts, onGo, onGoView }:
-  { members: FamilyMember[]; contacts?: ContactEntry[]; onGo: (memberId: string, tab: string) => void; onGoView?: (view: string) => void },
+  { members, extendedBirthdays, onGo, onGoView }:
+  { members: FamilyMember[]; extendedBirthdays?: ExtendedBirthday[]; onGo: (memberId: string, tab: string) => void; onGoView?: (view: string) => void },
 ) {
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -608,7 +621,7 @@ export default function NeedsAttention(
 
   const all = [
     ...computeNudges(members),
-    ...computeContactNudges(contacts || []),
+    ...computeExtendedBirthdayNudges(extendedBirthdays || []),
     ...computeVehicleNudges(vehicles),
     ...computeAssetNudges(assets),
     ...computeBusinessAnniversaryNudge(spaceInfo, settings),

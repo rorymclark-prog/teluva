@@ -119,7 +119,16 @@ const MANUALLY_INCLUDED_FIELDS = ['cv'];
 // context even though write support already existed). RecipeBookDoc's
 // interface body had to move off a single line for extractInterfaceBody's
 // regex to find it — see types.ts.
-const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc'];
+//
+// 'ExtendedBirthdaysDoc' added 2026-08-20, one day after the doc shipped
+// without an edit kind. Its absence from this list is why nothing caught
+// that: the assistant had no way to write an extended birthday, so its
+// system prompt sent non-family birthdays to a contact's `birthdate`
+// instead — a different store, read by different screens, so an AI-filed
+// "Granny's birthday" never reached the Birthdays panel or the calendar
+// export. Scanning the doc now means the next field added to it has to
+// declare itself either AI-fileable or deliberately manual.
+const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc', 'ExtendedBirthdaysDoc'];
 
 function extractRecordFields(body: string): string[] {
   const out: string[] = [];
@@ -262,6 +271,15 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // from day one — unlike FamilyWordsDoc/RecipeBookDoc above, there was never
   // a gap here to close, this is just the normal step-2b entry.
   'AnniversariesDoc.anniversaries': covered('anniversary'),
+
+  // ExtendedBirthdaysDoc shipped 2026-08-19 WITHOUT an edit kind, and it is the
+  // clearest example yet of what this guard is for. The assistant couldn't
+  // write here, so its system prompt pointed it at a contact's `birthdate`
+  // instead — a field that only fed two home-screen cards. The result was a
+  // promise ("an ongoing yearly nudge like a family member's birthday") that
+  // no code kept, and AI-filed birthdays that never reached the family's
+  // calendar. Closed by the 'extended_birthday' kind in v228.
+  'ExtendedBirthdaysDoc.extendedBirthdays': covered('extended_birthday'),
 
   // calendarFeeds is intentionally read-only to the AI, not covered by a
   // write kind. Subscribing to a feed means pasting in another calendar's

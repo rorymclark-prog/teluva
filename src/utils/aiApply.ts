@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind, ExtendedBirthday } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
@@ -407,9 +407,14 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
   const providers = [...(info.providers || [])];
   for (const e of edits) {
     if (e.kind === 'contact') {
-      // birthdate lets a contact who isn't a full family member (a
-      // grandparent, godparent, etc.) still surface a birthday nudge.
-      contacts.push({ id: newId(), name: e.name, relation: e.relation, phone: e.phone, email: e.email, birthdate: e.birthdate });
+      // Deliberately NOT writing e.birthdate. A birthday on a contact only
+      // ever reached two home-screen cards; from v228 it becomes an
+      // ExtendedBirthday instead, which the calendar, the .ics export and the
+      // push notifications all read. The prompt no longer asks for the field,
+      // but the model may still volunteer it — applyExtendedBirthdayEdits
+      // catches those so the birthday lands in the right place rather than
+      // being dropped here.
+      contacts.push({ id: newId(), name: e.name, relation: e.relation, phone: e.phone, email: e.email });
     } else if (e.kind === 'number') {
       numbers.push({ id: newId(), label: e.label, value: e.value });
     } else if (e.kind === 'provider') {
@@ -622,6 +627,69 @@ export function applyAnniversaryEdits(anniversaries: AnniversaryRecord[], edits:
     });
   }
   return [...anniversaries, ...added];
+}
+
+/* Extended birthdays — a birthday for someone who isn't a family member.
+ *
+ * Same shape as applyAnniversaryEdits above, and the same MM-DD discipline:
+ * an edit whose date isn't a bare month-day is DROPPED rather than coerced,
+ * because the model occasionally supplies a full YYYY-MM-DD and silently
+ * slicing it would put a made-up birth year on the record when what we want is
+ * originalYear left empty. DEDUPE against what's already on file — the model
+ * is shown the existing list, but a family who mentions Granny's birthday
+ * twice in two sessions must not end up with two Grannys. */
+/* A `contact` edit carrying a birthdate, normalised into the same shape.
+ *
+ * The prompt no longer asks for that field and applyInfoEdits no longer writes
+ * it, but a model that volunteered one anyway would otherwise have the birthday
+ * silently dropped — worse than the bug being fixed, because the family would
+ * have been told it was saved. So it is re-routed to its proper home instead.
+ * Only a full YYYY-MM-DD counts, which is what the old field always held. */
+function contactBirthdayAsEdit(e: AiEdit): Extract<AiEdit, { kind: 'extended_birthday' }> | null {
+  if (e.kind !== 'contact') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec((e.birthdate || '').trim());
+  if (!m || !(e.name || '').trim()) return null;
+  return {
+    kind: 'extended_birthday',
+    name: e.name,
+    relationship: e.relation,
+    date: `${m[2]}-${m[3]}`,
+    originalYear: Number(m[1]),
+  };
+}
+
+export const hasExtendedBirthdayEdits = (edits: AiEdit[]) =>
+  edits.some(e => e.kind === 'extended_birthday' || contactBirthdayAsEdit(e));
+
+export function applyExtendedBirthdayEdits(
+  extendedBirthdays: ExtendedBirthday[],
+  edits: AiEdit[],
+): ExtendedBirthday[] {
+  const today = new Date().toISOString().slice(0, 10);
+  const out = [...extendedBirthdays];
+  const seen = new Set(out.map(eb => `${(eb.name || '').trim().toLowerCase()}|${eb.date}`));
+
+  for (const raw of edits) {
+    const e = raw.kind === 'extended_birthday' ? raw : contactBirthdayAsEdit(raw);
+    if (!e) continue;
+    const name = (e.name || '').trim();
+    if (!name || !/^\d{2}-\d{2}$/.test(e.date || '')) continue;
+
+    const key = `${name.toLowerCase()}|${e.date}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      id: newId(),
+      name,
+      relationship: e.relationship?.trim() || undefined,
+      date: e.date,
+      originalYear: (typeof e.originalYear === 'number' && Number.isInteger(e.originalYear)) ? e.originalYear : undefined,
+      notes: e.notes?.trim() || undefined,
+      createdAt: today,
+    });
+  }
+  return out;
 }
 
 // Add slips ("Keep the slip") from AI edits. photoUrl/photoStoragePath (when

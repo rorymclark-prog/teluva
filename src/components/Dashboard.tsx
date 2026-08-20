@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, Suspense } from 'react';
-import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, VaultDocument, ReferralRecord, HealthcareProvider } from '../types';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, ExtendedBirthday, VaultDocument, ReferralRecord, HealthcareProvider } from '../types';
+import { withContactBirthdays } from '../utils/extendedBirthdaySources';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -19,6 +20,7 @@ import {
   loadWillsEstate, saveWillsEstate,
   loadSlips, saveSlips,
   loadAnniversaries, saveAnniversaries,
+  loadExtendedBirthdays, saveExtendedBirthdays,
   loadInMemory,
   leaveFamily,
   deleteDocumentEverywhere,
@@ -32,6 +34,7 @@ import {
   hasFamilyWordsEdits, applyFamilyWordsEdits,
   hasRecipeEdits, applyRecipeEdits,
   hasAnniversaryEdits, applyAnniversaryEdits,
+  hasExtendedBirthdayEdits, applyExtendedBirthdayEdits,
   hasEstateEdits, applyEstateEdits,
   hasSuccessorEdits, applySuccessorEdit, hasInstructionsEdits, applyInstructionsEdit,
   hasStatusEdits, applyStatusEdit,
@@ -407,6 +410,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
   // NeedsAttention/OnThisDay's birthday nudges. ImportantInfo's own view still
   // self-loads the full FamilyInfo doc (numbers/contacts/providers) for editing.
   const [contacts, setContacts] = useState<ContactEntry[]>([]);
+  const [extendedBirthdayRecords, setExtendedBirthdayRecords] = useState<ExtendedBirthday[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
@@ -648,10 +652,26 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
 
       const info = await loadFamilyInfo();
       setContacts(info?.contacts || []);
+      /* Birthdays for people who aren't family members. The home screen's
+       * "Needs attention" and "On this day" cards used to derive these from
+       * contacts alone, which stopped being right the moment birthdays moved
+       * to their own record — Granny would have quietly dropped off both cards
+       * the day her birthday was migrated across. */
+      setExtendedBirthdayRecords(await loadExtendedBirthdays());
       setInitialLoadDone(true);
     }
     init();
   }, [currentUser, ctxLoading, activeSpaceId]);
+
+  /* The one list of non-member birthdays the home screen works from: the
+   * dedicated records, plus any birthday still sitting on a contact from
+   * before v228 moved them (see utils/extendedBirthdaySources.ts). Merging
+   * here rather than in each card means the two cards can't disagree, and a
+   * person recorded in both places is only ever shown once. */
+  const homeExtendedBirthdays = useMemo(
+    () => withContactBirthdays(extendedBirthdayRecords, contacts),
+    [extendedBirthdayRecords, contacts],
+  );
 
   const hubName = settings.hubName || (isBusinessSpace ? 'Business Hub' : 'Family Hub');
 
@@ -1212,6 +1232,21 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       if (!ok) failures.push('anniversaries');
       else undo.push(...mapNewIds(current, after, 'anniversary', (a: any) => a.title || 'anniversary'));
     }
+    if (hasExtendedBirthdayEdits(edits)) {
+      const current = await loadExtendedBirthdays();
+      const after = applyExtendedBirthdayEdits(current, edits);
+      const ok = await saveExtendedBirthdays(after, current);
+      if (!ok) failures.push('extended birthdays');
+      else {
+        // Unlike its sibling doc above, this list is also rendered on the home
+        // screen ("Needs attention" / "On this day"), which works off state
+        // loaded once per space. Without this, telling the assistant about
+        // Granny's birthday would update the Extended Birthdays screen and
+        // leave the home screen showing the old list until the next reload.
+        setExtendedBirthdayRecords(after);
+        undo.push(...mapNewIds(current, after, 'extendedBirthday', (b: any) => `${b.name}'s birthday`));
+      }
+    }
     // All three parts of the wills & estate doc are loaded, applied and saved in
     // ONE write. They are siblings on the same Firestore document, and
     // saveReferenceDoc diffs `value` against `base` to work out the writer's
@@ -1463,6 +1498,14 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
       const current = await loadAnniversaries();
       tally(new Set(current.map(a => a.id)), anniversaryIds);
       await saveAnniversaries(current.filter(a => !anniversaryIds.has(a.id)));
+    }
+    const extendedBirthdayIds = idsFor('extendedBirthday');
+    if (extendedBirthdayIds.size) {
+      const current = await loadExtendedBirthdays();
+      tally(new Set(current.map(b => b.id)), extendedBirthdayIds);
+      const after = current.filter(b => !extendedBirthdayIds.has(b.id));
+      await saveExtendedBirthdays(after, current);
+      setExtendedBirthdayRecords(after);   // home screen too — see the apply path
     }
     const estateIds = idsFor('estate');
     if (estateIds.size) {
@@ -2264,7 +2307,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
         )}
 
         {mainView === 'extendedBirthdays' && (
-          demo ? <DemoUnavailable label="Extended birthdays" /> : <ExtendedBirthdaysView key={aiDataVersion} />
+          demo ? <DemoUnavailable label="Extended birthdays" /> : <ExtendedBirthdaysView key={aiDataVersion} onChange={setExtendedBirthdayRecords} />
         )}
 
         {mainView === 'inMemory' && (
@@ -2334,10 +2377,10 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
               />
             )}
 
-            <NeedsAttention members={members} contacts={contacts} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
+            <NeedsAttention members={members} extendedBirthdays={homeExtendedBirthdays} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
             <CelebrationOverlay members={members} />
 
-            <OnThisDay members={members} events={events} contacts={contacts} />
+            <OnThisDay members={members} events={events} extendedBirthdays={homeExtendedBirthdays} />
 
             {!isBusinessSpace && (
               <>

@@ -993,9 +993,23 @@ export interface ContactEntry {
   phone?: string;
   email?: string;
   note?: string;
-  birthdate?: string;   // YYYY-MM-DD, optional — lets a contact who isn't a full
-                         // family member (a grandparent, godparent, etc.) still
-                         // get a birthday nudge in NeedsAttention/OnThisDay
+  /** @deprecated LEGACY — read, never written. Use ExtendedBirthday instead.
+   *
+   * This was the first home for "a birthday for someone who isn't a family
+   * member", and it was a weak one: it produced a nudge on the home screen and
+   * nothing else — no calendar entry, no .ics export, no push notification. The
+   * ExtendedBirthday record below does all of that, and from v228 it is the only
+   * place a new one lands: the contact form no longer offers the field, the AI
+   * writes `extended_birthday`, and scripts/migrate-contact-birthdays.mjs moved
+   * what was already on file.
+   *
+   * Kept on the type because a phone running a cached older build — days, in
+   * this app — can still write one, and because dropping the field would delete
+   * an unmigrated family's data on their next contact edit. Every reader folds
+   * it in via utils/extendedBirthdaySources.ts (client) or
+   * server/yearlyCelebrations.mjs (cron + published feed). Do not add a new
+   * reader of this field; use one of those. */
+  birthdate?: string;   // YYYY-MM-DD
 }
 
 // A doctor, practice, specialist, or pharmacy — the family's own directory of

@@ -125,6 +125,13 @@ export type AiEdit =
   // memberNames resolves to memberIds client-side, the same as calendar_event
   // above — optional, since a date like Valentine's Day may tag nobody.
   | { kind: 'anniversary'; title: string; anniversaryKind?: AnniversaryKind; date: string; originalYear?: number; memberNames?: string[]; notes?: string }
+  /* A birthday for someone who ISN'T a family member — a grandparent, a
+   * godparent, a friend. `date` is MM-DD because the day is what recurs and
+   * the birth year is often simply not known; originalYear is separate and
+   * optional, and powers the age count when it IS known. Replaces the old
+   * habit of filing these onto a contact's `birthdate`, which never reached
+   * the calendar — see utils/extendedBirthdaySources.ts. */
+  | { kind: 'extended_birthday'; name: string; relationship?: string; date: string; originalYear?: number; notes?: string }
   | {
       kind: 'cv'; member: string; summary?: string;
       roles?: { title: string; employer?: string; startDate?: string; endDate?: string; current?: boolean; notes?: string }[];
@@ -2882,7 +2889,10 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'new_member') return `Add a new ${(e.role || 'family member').toLowerCase()}: ${e.name}${e.nickname ? ` “${e.nickname}”` : ''}`;
   if (e.kind === 'member') return `${e.member}: set ${e.field.replace(/_/g, ' ')} → “${e.value}”`;
   if (e.kind === 'passport') return `${e.member}: add ${e.country} passport ${e.number}${e.expiry ? ` (exp ${e.expiry})` : ''}`;
-  if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}${e.birthdate ? ` · birthday ${e.birthdate}` : ''}`;
+  // A birthdate on a contact edit is no longer saved onto the contact — it is
+  // re-routed to Extended Birthdays (see aiApply.ts's contactBirthdayAsEdit),
+  // so say where it is actually going rather than implying it lands here.
+  if (e.kind === 'contact') return `Add contact ${e.name}${e.relation ? ` (${e.relation})` : ''}${e.phone ? ` · ${e.phone}` : ''}${e.birthdate ? ` · birthday ${e.birthdate} → Extended Birthdays` : ''}`;
   if (e.kind === 'provider') return `Add ${(e.type || 'provider').toLowerCase()}: ${e.name}${e.specialty ? ` (${e.specialty})` : ''}${e.forMember ? ` — for ${e.forMember}` : ''}`;
   if (e.kind === 'number') return `Add number “${e.label}” → ${e.value}`;
   // Name the third destination too. The card is the only chance the user gets
@@ -2904,6 +2914,7 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'favorite_quote') return `${e.member}: save a favorite quote — “${e.text}”${e.source ? ` — ${e.source}` : ''}`;
   if (e.kind === 'family_word') return `Add family word: “${e.word}” — ${e.meaning}${e.coinedBy ? ` (${e.coinedBy})` : ''}`;
   if (e.kind === 'anniversary') return `Save “${e.title}” (${e.date})${e.originalYear ? ` since ${e.originalYear}` : ''}${e.memberNames?.length ? ` — ${e.memberNames.join(' & ')}` : ''}`;
+  if (e.kind === 'extended_birthday') return `Save ${e.name}'s birthday (${e.date})${e.originalYear ? `, born ${e.originalYear}` : ''}${e.relationship ? ` — ${e.relationship}` : ''}`;
   if (e.kind === 'cv') {
     const parts = [
       e.roles?.length ? `${e.roles.length} role${e.roles.length === 1 ? '' : 's'}` : '',

@@ -483,7 +483,10 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
   const [phone, setPhone] = useState(initial?.phone || '');
   const [email, setEmail] = useState(initial?.email || '');
   const [note, setNote] = useState(initial?.note || '');
-  const [birthdate, setBirthdate] = useState(initial?.birthdate || '');
+  // Carried through untouched rather than edited: a birthday someone typed in
+  // before v228 must survive an unrelated edit to their phone number, even
+  // though the form no longer offers a way to change it.
+  const birthdate = initial?.birthdate || '';
 
   const [formError, setFormError] = useState<string | null>(null);
   const save = () => {
@@ -520,10 +523,18 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
         <input className="field" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} />
       </div>
       <input className="field" placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} />
-      <div>
-        <label className="text-[11px] font-semibold text-ink-500 mb-1 block">Birthday (optional) — gets a reminder here even without a full profile</label>
-        <input type="date" className="field" value={birthdate} onChange={e => setBirthdate(e.target.value)} />
-      </div>
+      {/* No birthday field here any more.
+       *
+       * There used to be one, and a birthday typed into it was second-class:
+       * it produced a nudge on the home screen and nothing else — no calendar
+       * entry, nothing in the exported calendar file, nothing on a phone
+       * subscribed to the family feed. Extended Birthdays does all of that, so
+       * that is where birthdays live now. Anything already typed here is kept
+       * and still read (see utils/extendedBirthdaySources.ts) and has been
+       * migrated across; this just stops new ones landing in the weaker place. */}
+      <p className="text-[11px] text-ink-400">
+        Birthdays live in <span className="font-semibold text-ink-500">Extended Birthdays</span> — saved there they show on the family calendar and send a reminder every year.
+      </p>
       {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>

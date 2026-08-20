@@ -5,6 +5,7 @@ import {
   matchesMonthDay,
   monthDayFallsOn,
   buildYearlyCelebrations,
+  contactsAsExtendedBirthdays,
 } from './yearlyCelebrations.mjs';
 
 const TODAY = { month: 3, day: 14, year: 2026 };
@@ -244,4 +245,91 @@ test('nothing here reads or references the inMemory doc', async () => {
   // ever surface a departed relative is if someone wired inMemory into it.
   const code = src.split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
   assert.equal(/inMemory/.test(code), false);
+});
+
+// ── contactsAsExtendedBirthdays — the published feed's half of the v228 fix ──
+//
+// The feed reads reference/extendedBirthdays and nothing else, so a birthday
+// filed as a contact never reached a subscriber's calendar. These cases mirror
+// src/utils/extendedBirthdays.test.ts, which covers the client twin: the two
+// must agree, because a contact migrated later changes id and a subscriber's
+// calendar matches on UID alone.
+
+test('a contact birthday becomes a full extended-birthday record', () => {
+  const [only] = contactsAsExtendedBirthdays([
+    { id: 'c1', name: 'Granny Sue', birthdate: '1948-03-04', relation: 'Grandmother', note: 'Loves lilies' },
+  ]);
+  assert.deepEqual(only, {
+    id: 'contact-c1',
+    name: 'Granny Sue',
+    relationship: 'Grandmother',
+    date: '03-04',
+    originalYear: 1948,
+    notes: 'Loves lilies',
+    createdAt: '',
+  });
+});
+
+test('the id matches the client twin, so the .ics UID is stable across both', () => {
+  const [only] = contactsAsExtendedBirthdays([{ id: 'c1', name: 'Sue', birthdate: '1948-03-04' }]);
+  assert.equal(only.id, 'contact-c1');
+});
+
+test('a dedicated record wins over the same person as a contact', () => {
+  const stored = [{ id: 'eb1', name: 'Granny Sue', date: '03-04', relationship: 'Grandmother' }];
+  const extra = contactsAsExtendedBirthdays(
+    [{ id: 'c1', name: '  granny sue ', birthdate: '1948-03-04', relation: 'Gran' }],
+    stored,
+  );
+  assert.deepEqual(extra, []);
+});
+
+test('two different people sharing a day both survive', () => {
+  const stored = [{ id: 'eb1', name: 'Granny Sue', date: '03-04' }];
+  const extra = contactsAsExtendedBirthdays([{ id: 'c1', name: 'Uncle Ben', birthdate: '1955-03-04' }], stored);
+  assert.equal(extra.length, 1);
+  assert.equal(extra[0].name, 'Uncle Ben');
+});
+
+test('the same contact listed twice only lands once', () => {
+  const extra = contactsAsExtendedBirthdays([
+    { id: 'c1', name: 'Auntie Jo', birthdate: '1962-11-09' },
+    { id: 'c2', name: 'Auntie Jo', birthdate: '1962-11-09' },
+  ]);
+  assert.equal(extra.length, 1);
+});
+
+test('a contact with no birthdate, no name or a partial date is skipped', () => {
+  assert.deepEqual(contactsAsExtendedBirthdays([
+    { id: 'c1', name: 'No Birthday' },
+    { id: 'c2', name: '  ', birthdate: '1970-01-01' },
+    { id: 'c3', name: 'Bad Date', birthdate: '4 March' },
+    { id: 'c4', name: 'Month Day Only', birthdate: '03-04' },
+    { name: 'No Id', birthdate: '1970-01-01' },
+  ]), []);
+});
+
+test('29 February is carried through untouched, not pre-collapsed', () => {
+  const [only] = contactsAsExtendedBirthdays([{ id: 'c1', name: 'Leapling', birthdate: '2000-02-29' }]);
+  assert.equal(only.date, '02-29');
+});
+
+test('blank relation/note collapse to undefined, and long text is capped', () => {
+  const [plain] = contactsAsExtendedBirthdays([
+    { id: 'c1', name: 'Plain', birthdate: '1990-06-15', relation: '   ', note: '' },
+  ]);
+  assert.equal(plain.relationship, undefined);
+  assert.equal(plain.notes, undefined);
+
+  const [long] = contactsAsExtendedBirthdays([
+    { id: 'c2', name: 'Long', birthdate: '1990-06-15', relation: 'y'.repeat(500), note: 'z'.repeat(500) },
+  ]);
+  assert.equal(long.relationship.length, 40);
+  assert.equal(long.notes.length, 200);
+});
+
+test('junk input returns an empty list rather than throwing', () => {
+  assert.deepEqual(contactsAsExtendedBirthdays(undefined), []);
+  assert.deepEqual(contactsAsExtendedBirthdays(null, null), []);
+  assert.deepEqual(contactsAsExtendedBirthdays([null, 'nope', 42]), []);
 });
