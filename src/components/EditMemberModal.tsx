@@ -3,10 +3,10 @@ import {
   X, Sparkles, Camera, Upload, RefreshCcw, Save, Search, PartyPopper, Star, BellRing, BellOff, Trash2, BookOpen,
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
-import { FamilyMember, MemberRole, NameCelebration, NameMeaning, SurnameMeaning } from '../types';
+import { FamilyMember, MemberRole, NameCelebration, NameMeaning, SurnameMeaning, IdCountry } from '../types';
 import { listTimeZones } from '../utils/timeZone';
 import { auth } from '../lib/firebase';
-import { loadSpaceInfo, saveSuppressReligiousSuggestions, loadFamilyInfo, saveFamilyInfo } from '../utils/db';
+import { loadSpaceInfo, saveSuppressReligiousSuggestions, loadFamilyInfo, saveFamilyInfo, loadSettings } from '../utils/db';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -18,6 +18,7 @@ import { resolveCelebrations, suggestLocal, LEGACY_NAME_DAY_ID } from '../utils/
 import NameCelebrationModal from './NameCelebrationModal';
 import NameMeaningModal from './NameMeaningModal';
 import { meaningsFor, foldMeanings, surnameKey, roleLabel, confidenceLabel } from '../utils/nameMeanings';
+import { hideWorkFields, workingAgeNote } from '../utils/workingAge';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 
 interface EditMemberModalProps {
@@ -213,6 +214,19 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
     await saveSuppressReligiousSuggestions(suppress);
     setSuppressReligiousSuggestions(suppress);
   };
+
+  // The family's country of residence, which decides the youngest age at which
+  // the work fields below are drawn at all. Same setting that already picks the
+  // ID/passport field set, so a family never configures this twice.
+  const [country, setCountry] = useState<IdCountry | undefined>(undefined);
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    loadSettings()
+      .then((s) => { if (!cancelled && s?.country) setCountry(s.country); })
+      .catch(() => { /* falls back to the AT default inside minWorkingAge */ });
+    return () => { cancelled = true; };
+  }, [isOpen]);
 
   // Surname meanings, from the shared Important Info document. Read on open so
   // a name already researched by someone else shows up here without a second
@@ -1014,7 +1028,18 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                 </div>
               </div>
 
-              {/* Employer / workplace — useful in an emergency (who to call, where someone works). */}
+              {/* Employer / workplace — useful in an emergency (who to call,
+                  where someone works), and absurd on a six-year-old, which is
+                  what this gate is for. Keyed on the birthdate as CURRENTLY
+                  TYPED, so filling one in makes the fields appear or disappear
+                  as you'd expect rather than on the next open. See
+                  utils/workingAge.ts for the two cases it deliberately refuses
+                  to guess at — unknown birthdate, and work details already on
+                  file, both of which keep the fields visible. */}
+              {hideWorkFields({ birthdate, country, hasWorkDetails: !!(employer || jobTitle || workPhone || workAddress) }) ? (
+                <p className="text-[12px] text-ink-400 leading-snug">{workingAgeNote(country)}</p>
+              ) : (
+              <>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="field-label">Employer</label>
@@ -1060,6 +1085,8 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                   />
                 </div>
               </div>
+              </>
+              )}
 
               {/* Online Status Toggle */}
               <div className="bg-sage-50 border border-sage-100 rounded-2xl p-3 flex items-center justify-between">

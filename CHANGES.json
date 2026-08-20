@@ -1,9 +1,9 @@
 {
-  "label": "v242",
+  "label": "v243",
   "changes": [
-    "You can look up what your names actually mean — first name, second names and the family name, each one separately, since they are usually three different languages.",
-    "Every meaning says how sure it is. \"Sources disagree\" means exactly that, and nothing is kept until you say so — a made-up story about your own family name is worse than no story.",
-    "The family name is looked up once and shared, so everyone carrying it sees the same answer instead of you paying for the same research on each person.",
-    "Ask the assistant \"what does my name mean\" and it answers from what you kept — carrying the same hedge, and never inventing one for a name you haven't looked up."
+    "Employer, job title and work details no longer appear on a young child's profile. They show from the age someone can actually be employed where you live — 15 in Austria and South Africa, 13 in the UK, 14 in the US.",
+    "Choosing your own celebration date now has a \"Help me work it out\" option: it asks you two or three questions about what the day is attached to, then writes the title and the reason from your answers.",
+    "It will not invent a date. If your answers don't pin down a day, it says exactly what it still needs instead of quietly picking one that looks plausible — a date it chose would be indistinguishable from one you chose.",
+    "Everything it fills in stays editable, and nothing is saved until you press Save."
   ]
 }

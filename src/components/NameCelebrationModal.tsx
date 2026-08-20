@@ -174,6 +174,9 @@ function buildCelebration(view: ProposalView, primary: boolean, notify: boolean)
 
 type Phase = 'proposal' | 'custom' | 'primary-choice';
 
+/** One question from the custom-date assist. `hint` is placeholder text only. */
+interface AssistQuestion { id: string; question: string; hint?: string }
+
 export interface NameCelebrationModalProps {
   open: boolean;
   /** Name/nickname as CURRENTLY TYPED in the editor, not the saved member —
@@ -239,6 +242,21 @@ export default function NameCelebrationModal({
   const [customExplanation, setCustomExplanation] = useState('');
   const [customDate, setCustomDate] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
+  // "Help me work it out" — the custom form asks for a title, a reason and a
+  // date up front, which is three blank boxes when what a family actually has
+  // is a feeling that some day matters. This asks two or three questions and
+  // writes the boxes from the answers.
+  //
+  // It FILLS the form rather than replacing it: every field stays editable and
+  // nothing is saved until they press Save, so the assistant is a first draft
+  // and the family still has the last word. That also means a proposal that
+  // comes back without a date is a perfectly good outcome — see the server's
+  // never-invent-a-date rule.
+  const [assistQuestions, setAssistQuestions] = useState<AssistQuestion[] | null>(null);
+  const [assistAnswers, setAssistAnswers] = useState<Record<string, string>>({});
+  const [assistBusy, setAssistBusy] = useState(false);
+  const [assistError, setAssistError] = useState<string | null>(null);
+  const [assistMissing, setAssistMissing] = useState<string | null>(null);
 
   const [pendingCelebration, setPendingCelebration] = useState<NameCelebration | null>(null);
   const [primaryPick, setPrimaryPick] = useState<'existing' | 'new'>('existing');
@@ -394,7 +412,69 @@ export default function NameCelebrationModal({
     setCustomExplanation('');
     setCustomDate('');
     setCustomError(null);
+    setAssistQuestions(null);
+    setAssistAnswers({});
+    setAssistError(null);
+    setAssistMissing(null);
     setPhase('custom');
+  }
+
+  async function assistCall(body: Record<string, unknown>) {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Please sign in again.');
+    const token = await user.getIdToken();
+    const res = await fetch('/api/name-celebration-research', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ mode: 'custom_assist', name: customCelebrationOf.trim() || firstName, ...body }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not reach the assistant.');
+    return data;
+  }
+
+  async function startAssist() {
+    setAssistBusy(true);
+    setAssistError(null);
+    setAssistMissing(null);
+    try {
+      const data = await assistCall({});
+      setAssistQuestions(Array.isArray(data.questions) ? data.questions : null);
+      setAssistAnswers({});
+    } catch (err: any) {
+      setAssistError(err?.message ?? 'Something went wrong.');
+    } finally {
+      setAssistBusy(false);
+    }
+  }
+
+  async function finishAssist() {
+    if (!assistQuestions) return;
+    // Unanswered questions are simply left out rather than sent blank — a
+    // family that only wants to answer the first one should not have the
+    // model reasoning from two empty strings.
+    const answers = assistQuestions
+      .map((q) => ({ question: q.question, answer: (assistAnswers[q.id] || '').trim() }))
+      .filter((a) => a.answer);
+    if (!answers.length) { setAssistError('Answer at least one question first.'); return; }
+    setAssistBusy(true);
+    setAssistError(null);
+    try {
+      const { proposal } = await assistCall({ answers });
+      if (!proposal) throw new Error('Nothing came back — try again.');
+      if (proposal.title) setCustomTitle(proposal.title);
+      if (proposal.explanation) setCustomExplanation(proposal.explanation);
+      // Only ever set from a date the ANSWERS determined. The server returns
+      // null rather than guessing, and that null must not clear a date the
+      // family had already typed themselves.
+      if (proposal.date) { setCustomDate(proposal.date); setCustomError(null); }
+      setAssistMissing(proposal.date ? null : (proposal.missing || null));
+      setAssistQuestions(null);
+    } catch (err: any) {
+      setAssistError(err?.message ?? 'Something went wrong.');
+    } finally {
+      setAssistBusy(false);
+    }
   }
 
   function handleConfirmCustom() {
@@ -564,7 +644,72 @@ export default function NameCelebrationModal({
 
             {phase === 'custom' && (
               <div className="space-y-3.5">
-                <p className="text-[13px] text-ink-500">A date the family chooses — not looked up anywhere.</p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[13px] text-ink-500">A date the family chooses — not looked up anywhere.</p>
+                  {!assistQuestions && (
+                    <button
+                      type="button"
+                      onClick={() => void startAssist()}
+                      disabled={assistBusy}
+                      className="shrink-0 text-[12.5px] font-semibold text-clay-600 hover:text-clay-700 cursor-pointer inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {assistBusy
+                        ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Thinking…</>
+                        : <><Sparkles className="w-3.5 h-3.5" /> Help me work it out</>}
+                    </button>
+                  )}
+                </div>
+
+                {assistError && <p className="text-[12.5px] text-rosa-600">{assistError}</p>}
+
+                {/* The questions. Deliberately in the same panel as the form
+                    rather than a separate screen: the family can see what they
+                    are filling in, and abandoning halfway leaves the form
+                    exactly as it was. */}
+                {assistQuestions && (
+                  <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
+                    <p className="text-[12.5px] text-ink-500 leading-snug">
+                      Answer what you can — anything you skip is simply left out. Your answers fill in the boxes
+                      below, and you can change every one of them afterwards.
+                    </p>
+                    {assistQuestions.map((q) => (
+                      <div key={q.id}>
+                        <label className="text-[13px] font-semibold text-ink-800 leading-snug block mb-1">{q.question}</label>
+                        <textarea
+                          rows={2}
+                          className="field resize-none"
+                          placeholder={q.hint}
+                          value={assistAnswers[q.id] || ''}
+                          onChange={(e) => setAssistAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void finishAssist()}
+                        disabled={assistBusy}
+                        className="btn-primary text-[13px] px-4 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {assistBusy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Working…</> : <><Sparkles className="w-3.5 h-3.5" /> Fill it in</>}
+                      </button>
+                      <button type="button" onClick={() => setAssistQuestions(null)} className="btn-quiet text-[13px] px-4 py-2.5">
+                        Never mind
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* A proposal that came back WITHOUT a date is a success, not a
+                    failure — the server refuses to invent one, so this says
+                    what is still needed instead of quietly leaving the field
+                    empty for the family to discover on Save. */}
+                {assistMissing && (
+                  <p className="text-[12.5px] text-honey-800 bg-honey-50 border border-honey-100 rounded-xl px-3 py-2 leading-snug">
+                    Filled in what your answers gave. {assistMissing}
+                  </p>
+                )}
+
                 {customError && <p className="text-[12.5px] text-rosa-600">{customError}</p>}
                 <div>
                   <label className="field-label">Celebrating whose name</label>

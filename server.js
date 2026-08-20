@@ -2892,8 +2892,119 @@ HARD RULES:
 - If two parts of the name are the same word, return one entry for it.
 - Never say a name is "beautiful", "strong", "powerful" or otherwise flatter it. Report, do not compliment.`;
 
+// ── Custom-date assist ──────────────────────────────────────────────────────
+// Two prompts, because they are two different jobs and one prompt doing both
+// tends to start answering its own questions.
+
+const CUSTOM_ASSIST_QUESTIONS_SYSTEM = `You help a family pin down a day they want to celebrate someone's name on. You are NOT looking anything up: this is a day THEY choose, and your only job is to ask what would let them say which day it is and why it matters.
+
+Return JSON: {"questions":[{"id":"q1","question":"...","hint":"..."}]}
+
+Ask TWO or THREE questions. Never one, never four.
+
+What makes a good question here:
+- The FIRST one always opens up what the day is attached to — an event, a place, a person they were named after, something that happened, a tradition they already keep. Ask it warmly and in the open, not as a menu of options.
+- The others narrow towards an actual date: when in the year it falls, whether it is the same date every year, what was happening around it.
+- Short. One sentence. A parent is typing this on a phone, probably one-handed.
+- "hint" is placeholder text showing the KIND of answer that helps — a fragment, not a full sentence, and never so specific that it puts words in their mouth.
+
+Never:
+- Ask about religion, or which tradition a family belongs to. If a tradition matters to them it will come out in the answers.
+- Assume the name's origin, or that the person was named after anyone.
+- Ask anything answerable only by a date they have already told you — you have not been told anything yet.
+- Write questions that read like a form ("Please specify the significance of..."). Write them like a person who is interested.`;
+
+const CUSTOM_ASSIST_PROPOSAL_SYSTEM = `A family answered a few questions about a day they want to celebrate someone's name on. Turn their answers into the three things the form needs.
+
+Return JSON: {"title":"...","explanation":"...","date":"MM-DD" or null,"missing":"..." or null}
+
+- title: what this day is called, in THEIR terms. Short — a handful of words. Use what they actually said; if they gave the day a name, that IS the title. Do not invent a ceremonial-sounding name for an ordinary family occasion.
+- explanation: one or two plain sentences saying why this day. Written so that a child reading it in ten years understands what it was about. Use their own details — the place, the person, the thing that happened. No flourish, no "a beautiful reminder that...".
+- date: "MM-DD" ONLY when their answers actually determine a day and a month. Otherwise null.
+- missing: when date is null, one short sentence naming exactly what you still need ("Which day in June was the picnic?"). Otherwise null.
+
+THE RULE THAT OVERRIDES EVERYTHING ELSE: never invent, guess, infer or "helpfully" pick a date. Not from a season, not from a festival that falls near what they described, not from the name's usual associations, not by splitting the difference. If they said "sometime in spring", the date is null and you ask which day. A date you chose becomes, on the calendar and in the yearly notification, indistinguishable from one the family chose — and they will believe they chose it.
+
+Also never:
+- Add meaning they did not express, or tell them what the day symbolises.
+- Bring in a religious or cultural observance they did not name themselves.
+- Correct their spelling of a name, place, or word.
+- Write about the person rather than the day.`;
+
 const NAME_MEANING_ROLES = new Set(['given', 'middle', 'family']);
 const NAME_MEANING_CONFIDENCE = new Set(['established', 'likely', 'contested']);
+
+/**
+ * Pull the JSON body out of a Gemini response, or null. Shared by both
+ * custom-assist steps so a transport failure, an empty candidate and
+ * unparseable text all land in the same place instead of three copies of the
+ * same four checks.
+ */
+async function readJsonCandidate(resp, label) {
+  if (!resp.ok) {
+    console.error(`[name-celebration-research] ${label} gemini error`, resp.status, (await resp.text().catch(() => '')).slice(0, 300));
+    return null;
+  }
+  const data = await resp.json().catch(() => null);
+  const text = (data?.candidates?.[0]?.content?.parts || []).find((p) => p.text)?.text;
+  if (!text) {
+    console.error(`[name-celebration-research] ${label} empty response:`, JSON.stringify(data).slice(0, 400));
+    return null;
+  }
+  try { return JSON.parse(text); } catch {
+    console.error(`[name-celebration-research] ${label} unparseable JSON:`, text.slice(0, 400));
+    return null;
+  }
+}
+
+const MMDD_RE = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+/** Two or three questions, or null. Anything else means the model ignored the brief. */
+function sanitizeAssistQuestions(parsed) {
+  const raw = Array.isArray(parsed?.questions) ? parsed.questions : [];
+  const out = raw
+    .filter((q) => q && typeof q.question === 'string' && q.question.trim())
+    .slice(0, 3)
+    .map((q, i) => ({
+      id: `q${i + 1}`,
+      question: q.question.trim().slice(0, 300),
+      hint: typeof q.hint === 'string' ? q.hint.trim().slice(0, 120) : '',
+    }));
+  return out.length >= 2 ? out : null;
+}
+
+/**
+ * The proposal, with the no-invented-date rule enforced in CODE rather than
+ * left to the prompt.
+ *
+ * A malformed or out-of-range date is dropped to null instead of failing the
+ * whole call: the title and explanation are still worth having, and the form
+ * they land in has its own date field the family can fill. Silently KEEPING a
+ * bad date would be the one unacceptable outcome, so that is the case this
+ * function exists to make impossible.
+ */
+function sanitizeAssistProposal(parsed, who) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const title = typeof parsed.title === 'string' ? parsed.title.trim().slice(0, 120) : '';
+  const explanation = typeof parsed.explanation === 'string' ? parsed.explanation.trim().slice(0, 600) : '';
+  if (!title && !explanation) return null;
+
+  const rawDate = typeof parsed.date === 'string' ? parsed.date.trim() : '';
+  const date = MMDD_RE.test(rawDate) ? rawDate : null;
+  if (rawDate && !date) console.warn('[name-celebration-research] custom_assist dropped a malformed date:', rawDate.slice(0, 40));
+
+  // If there is no date there must be a reason the family can act on, or the
+  // form just sits there half-filled with nothing said about why.
+  const rawMissing = typeof parsed.missing === 'string' ? parsed.missing.trim().slice(0, 300) : '';
+  const missing = date ? null : (rawMissing || 'Which day of the year does this fall on?');
+
+  return {
+    title: title || `${who}'s Name Celebration`,
+    explanation,
+    date,
+    missing,
+  };
+}
 
 function sanitizeNameMeaning(raw, { allowedTokens }) {
   if (!raw || typeof raw !== 'object') return null;
@@ -3104,6 +3215,62 @@ app.post('/api/name-celebration-research', async (req, res) => {
       // etymology), so it is metered like any other.
       await recordAiUsage(caller.familyId);
       return res.json({ entries });
+    }
+
+    // ── Custom-date assist ────────────────────────────────────────────────
+    // The custom form says "a date the family chooses — not looked up
+    // anywhere", and it asks for a title, a reason and a date up front. That
+    // is three blank boxes and no help, when what the family actually has is
+    // a feeling that some day matters. So: ask two or three questions, then
+    // write the title and the reason FROM THE ANSWERS and pin the date.
+    //
+    // The hard line, and the reason this is a separate mode rather than part
+    // of the research flow: this must NEVER produce a date the family did not
+    // give. Researched celebrations come with a tradition behind them and can
+    // be checked; a custom date's only authority is that the family chose it.
+    // A model that helpfully picks a plausible day here is inventing a family
+    // tradition and handing it back as though they had said it.
+    if (mode === 'custom_assist') {
+      const { name, answers } = req.body || {};
+      const who = typeof name === 'string' ? name.trim().slice(0, 120) : '';
+      if (!who) return res.status(400).json({ error: 'name is required.' });
+
+      const hasAnswers = Array.isArray(answers) && answers.length > 0;
+
+      // Step 1 — the questions.
+      if (!hasAnswers) {
+        console.log('[name-celebration-research] custom_assist questions for', who, 'from', caller.email);
+        const qRes = await generateContent(MODEL_SMART, {
+          systemInstruction: { parts: [{ text: CUSTOM_ASSIST_QUESTIONS_SYSTEM }] },
+          contents: [{ role: 'user', parts: [{ text: `The family is choosing a day to celebrate ${who}'s name. Ask your questions.` }] }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0.4 },
+        });
+        const questions = sanitizeAssistQuestions(await readJsonCandidate(qRes, 'custom_assist questions'));
+        if (!questions) return res.status(502).json({ error: 'Could not start that just now — please try again.' });
+        await recordAiUsage(caller.familyId);
+        return res.json({ questions });
+      }
+
+      // Step 2 — the proposal, built only from what they answered.
+      const pairs = answers
+        .filter((a) => a && typeof a.question === 'string' && typeof a.answer === 'string')
+        .slice(0, 4)
+        .map((a) => ({ question: a.question.trim().slice(0, 300), answer: a.answer.trim().slice(0, 800) }))
+        .filter((a) => a.answer);
+      if (!pairs.length) return res.status(400).json({ error: 'answers are required.' });
+
+      console.log('[name-celebration-research] custom_assist proposal for', who, 'from', caller.email);
+      const pRes = await generateContent(MODEL_SMART, {
+        systemInstruction: { parts: [{ text: CUSTOM_ASSIST_PROPOSAL_SYSTEM }] },
+        contents: [{ role: 'user', parts: [{ text:
+          `Whose name: ${who}\nToday: ${new Date().toISOString().slice(0, 10)}\n\n` +
+          pairs.map((p, i) => `Q${i + 1}: ${p.question}\nA${i + 1}: ${p.answer}`).join('\n\n') }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.3 },
+      });
+      const proposal = sanitizeAssistProposal(await readJsonCandidate(pRes, 'custom_assist proposal'), who);
+      if (!proposal) return res.status(502).json({ error: 'Could not work that out just now — please try again.' });
+      await recordAiUsage(caller.familyId);
+      return res.json({ proposal });
     }
 
     if (mode !== 'suggest') return res.status(400).json({ error: 'Unknown mode.' });
