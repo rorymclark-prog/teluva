@@ -2,7 +2,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MIN_WORKING_AGE, minWorkingAge, ageInYears, hideWorkFields, workingAgeNote } from './workingAge';
+import { MIN_WORKING_AGE, minWorkingAge, ageInYears, hideWorkFields, workingAgeNote, ADULT_AGE, hideSpouseField, spouseAgeNote } from './ageGates';
 import { IdCountry } from '../types';
 
 const here = path.dirname(fileURLToPath(import.meta.url));   // never .pathname — a space in the path silently no-ops
@@ -111,4 +111,68 @@ for (const [country, age, where] of [['AT', '15', 'Austria'], ['ZA', '15', 'Sout
   assert.ok(editor.includes('workingAgeNote(country)'), 'the hidden state must render the explanation');
 }
 
-console.log('workingAge.test.ts: all assertions passed');
+// --- the spouse gate --------------------------------------------------------
+
+assert.strictEqual(ADULT_AGE, 18);
+
+// Deliberately country-blind, unlike the working-age gate above. If someone
+// later "fixes" this by threading a country through, these four must still
+// agree — the moment they don't, the comment in ageGates.ts explaining why
+// there is no table has become false.
+for (const c of ['AT', 'ZA', 'UK', 'US'] as const) {
+  assert.strictEqual(
+    hideSpouseField({ birthdate: bornYearsAgo(17), now: NOW }), true,
+    `a 17-year-old is under the gate regardless of country (checked while ${c} was in mind)`,
+  );
+}
+
+// The boundary, inclusive on the birthday itself.
+assert.strictEqual(hideSpouseField({ birthdate: bornYearsAgo(18), now: NOW }), false);
+assert.strictEqual(hideSpouseField({ birthdate: bornYearsAgo(17, 1), now: NOW }), true);
+assert.strictEqual(hideSpouseField({ birthdate: bornYearsAgo(6), now: NOW }), true);
+
+// The same two refusals as the work gate.
+assert.strictEqual(hideSpouseField({ now: NOW }), false, 'no birthdate, no hiding');
+assert.strictEqual(
+  hideSpouseField({ birthdate: bornYearsAgo(15), hasSpouse: true, now: NOW }), false,
+  'a spouse already on file must stay visible — it names a living person, and a name nobody can see is a name nobody can correct',
+);
+
+assert.ok(spouseAgeNote().includes('18'), 'the note must name the age it gates on');
+
+// --- spouse wiring ----------------------------------------------------------
+{
+  const editor = fs.readFileSync(path.join(root, 'src/components/EditMemberModal.tsx'), 'utf8');
+  const call = editor.slice(editor.indexOf('hideSpouseField({'), editor.indexOf('hideSpouseField({') + 120);
+  assert.ok(/birthdate,/.test(call), 'the gate must read the edited birthdate, not the saved member');
+  assert.ok(/hasSpouse:\s*!!spouse/.test(call), 'a spouse already typed or loaded must keep the field visible');
+  assert.ok(editor.includes('spouseAgeNote()'), 'the hidden state must explain itself');
+
+  // ...but not on top of the work note. Both gates fail together on any child
+  // young enough, and these notes exist to explain a disappearance — the work
+  // fields used to be on every profile; a spouse field never was. Two grey
+  // apologies stacked on a six-year-old read worse than one.
+  const spouseBranch = editor.slice(editor.indexOf('hideSpouseField({'), editor.indexOf('Employer / workplace'));
+  assert.ok(/hideWorkFields\(\{[\s\S]*?\)\s*\n?\s*\? null/.test(spouseBranch),
+    'the spouse note must yield to the work note when both gates are closed');
+  // Saved, not merely rendered — a field that renders and never commits is
+  // the failure this modal's Save path makes easy to miss.
+  assert.ok(/spouse: spouse\.trim\(\) \|\| undefined,/.test(editor), 'spouse must be written on Save');
+  assert.ok(/setSpouse\(member\.spouse \|\| ''\)/.test(editor), 'spouse must be loaded when the modal opens');
+}
+
+// The server must be told never to infer a marriage. Two adults in one family
+// space, sharing a surname and an address, are not evidence of anything — and
+// a relationship the assistant assumed and filed is invisible to the people it
+// is wrong about.
+{
+  const serverSrc = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  const at = serverSrc.indexOf('  spouse is who an adult member');
+  assert.ok(at > 0, 'server.js must document the spouse field key');
+  const note = serverSrc.slice(at, serverSrc.indexOf('\n', at));
+  assert.ok(/NEVER INFER IT/.test(note), 'the prompt must forbid inferring a spouse');
+  assert.ok(/sharing a surname/.test(note), 'the prompt must name the specific wrong inferences');
+  assert.ok(/clear_field/.test(note), 'a separation must clear the field, not be written into it');
+}
+
+console.log('ageGates.test.ts: all assertions passed');

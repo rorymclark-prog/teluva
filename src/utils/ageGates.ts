@@ -1,6 +1,19 @@
 import { IdCountry } from '../types';
 
 // ---------------------------------------------------------------------------
+// Age gates for member profile fields.
+//
+// Some fields on a profile only make sense past a certain age. This module
+// holds those thresholds and the one piece of arithmetic they share, so the
+// rule for each is stated once, in a place you can read, rather than inlined
+// as a bare number in a component.
+//
+// Every gate here follows the same two refusals — see hideWorkFields for the
+// long version. In short: an unknown birthdate shows the field, and a field
+// that already holds a value shows the field, always.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Minimum working age, by the family's country of residence.
 //
 // WHY THIS EXISTS: a six-year-old's profile was drawing "Employer", "Job
@@ -95,4 +108,49 @@ export function workingAgeNote(country?: IdCountry): string {
     : country === 'other' ? 'most countries'
     : 'Austria';
   return `Work details appear from age ${age}, the youngest anyone can be employed in ${where}.`;
+}
+
+// ---------------------------------------------------------------------------
+// Spouse or partner — an adult's field.
+//
+// Deliberately NOT a country table, unlike working age above. 18 is the age of
+// majority in all four countries the app knows about, and while each of them
+// permits marriage below it in some circumstance — court permission in Austria,
+// ministerial consent in South Africa, 16 in Scotland, a patchwork of state
+// rules in the US — those are exceptions granted case by case, not a different
+// ordinary age. Four entries all reading 18 would dress a single fact up as
+// research it isn't.
+//
+// The gate is adulthood rather than marriageable age, which is also why the
+// field is labelled "Spouse or partner": plenty of adults have a life partner
+// they never married, and a vault that can only record a marriage records the
+// wrong thing for them.
+// ---------------------------------------------------------------------------
+
+export const ADULT_AGE = 18;
+
+/**
+ * Whether the spouse/partner field should be hidden for this person.
+ *
+ * Same two refusals as hideWorkFields: no birthdate shows the field, and a
+ * spouse already on file shows the field whatever the age. The second matters
+ * more here than it does for work details — this field can hold the name of a
+ * living person, and a name nobody can see is a name nobody can correct when
+ * the relationship changes.
+ */
+export function hideSpouseField(args: {
+  birthdate?: string;
+  /** A spouse already stored on the member. */
+  hasSpouse?: boolean;
+  now?: Date;
+}): boolean {
+  if (args.hasSpouse) return false;
+  const age = ageInYears(args.birthdate, args.now);
+  if (age === null) return false;
+  return age < ADULT_AGE;
+}
+
+/** The one-line explanation shown in place of the field. */
+export function spouseAgeNote(): string {
+  return `A spouse or partner can be added from age ${ADULT_AGE}.`;
 }

@@ -1,5 +1,6 @@
 import {
   AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Lock, Stethoscope, Dices, RefreshCw,
+  Heart,
 } from 'lucide-react';
 import { useState, useEffect, type ElementType, useMemo } from 'react';
 import { FamilyMember, FamilyDocument, SurnameMeaning } from '../types';
@@ -144,6 +145,7 @@ export default function MemberOverview({
   if (med.allergies) rows.push({ icon: AlertTriangle, label: 'Allergies', value: med.allergies, warn: true });
   const hasPrivateMedical = !!(med.conditions || med.emergencyMedication || med.medications || med.surgeries);
   if (member.role === 'Child' && member.education?.schoolName) rows.push({ icon: GraduationCap, label: 'School', value: member.education.schoolName });
+  if (member.spouse) rows.push({ icon: Heart, label: 'Spouse or partner', value: member.spouse });
   if (member.phone) rows.push({ icon: Phone, label: 'Phone', value: member.phone });
   if (member.email) rows.push({ icon: Mail, label: 'Email', value: member.email });
   if (member.address) rows.push({ icon: MapPin, label: 'Address', value: member.address, viewSrc: findAddressScan(member)?.fileData });

@@ -60,6 +60,7 @@ const MEMBER_FIELD_MAP: Record<string, (m: FamilyMember, v: string) => FamilyMem
   nationality: (m, v) => ({ ...m, nationality: v }),
   languages: (m, v) => ({ ...m, languages: v }),
   gender: (m, v) => ({ ...m, gender: v }),
+  spouse: (m, v) => ({ ...m, spouse: v }),
 
   address: (m, v) => ({ ...m, address: v }),
   phone: (m, v) => ({ ...m, phone: v }),

@@ -296,6 +296,13 @@ export interface FamilyMember {
   address?: string;
   phone?: string;
   email?: string;
+  // Who this adult is married to or partnered with, written as a name. Free
+  // text rather than a link to another member, because the spouse is very often
+  // NOT in the vault — an adult child's husband, a grandparent's late wife —
+  // and a field that can only hold people already on file would be empty in
+  // exactly the cases worth recording. Age-gated in the editor: see
+  // utils/ageGates.ts.
+  spouse?: string;
   // Employer/workplace details — useful in an emergency (who to call, where someone works).
   employer?: string;
   jobTitle?: string;

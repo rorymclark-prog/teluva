@@ -1,9 +1,9 @@
 {
-  "label": "v243",
+  "label": "v245",
   "changes": [
-    "Employer, job title and work details no longer appear on a young child's profile. They show from the age someone can actually be employed where you live — 15 in Austria and South Africa, 13 in the UK, 14 in the US.",
-    "Choosing your own celebration date now has a \"Help me work it out\" option: it asks you two or three questions about what the day is attached to, then writes the title and the reason from your answers.",
-    "It will not invent a date. If your answers don't pin down a day, it says exactly what it still needs instead of quietly picking one that looks plausible — a date it chose would be indistinguishable from one you chose.",
-    "Everything it fills in stays editable, and nothing is saved until you press Save."
+    "An adult's profile now has a \"Spouse or partner\" field, sitting just above the work details. It takes a name, whether or not that person is in your vault — an adult child's husband or a grandparent's late wife belong there just as much as someone already on file.",
+    "It says \"or partner\" on purpose. Plenty of people have a life partner they never married, and a vault that can only record a marriage records the wrong thing for them.",
+    "Like the work details, it appears from 18 and not before.",
+    "The assistant can fill it in when you tell it (\"my wife Maria\"), and it is told in as many words never to work one out for itself. Two adults sharing a surname, an address, or a family space are not evidence of a marriage, and a relationship it assumed and filed would be invisible to the people it was wrong about."
   ]
 }

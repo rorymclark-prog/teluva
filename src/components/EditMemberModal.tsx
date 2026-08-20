@@ -18,7 +18,7 @@ import { resolveCelebrations, suggestLocal, LEGACY_NAME_DAY_ID } from '../utils/
 import NameCelebrationModal from './NameCelebrationModal';
 import NameMeaningModal from './NameMeaningModal';
 import { meaningsFor, foldMeanings, surnameKey, roleLabel, confidenceLabel } from '../utils/nameMeanings';
-import { hideWorkFields, workingAgeNote } from '../utils/workingAge';
+import { hideWorkFields, workingAgeNote, hideSpouseField, spouseAgeNote } from '../utils/ageGates';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 
 interface EditMemberModalProps {
@@ -112,6 +112,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [address, setAddress] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [spouse, setSpouse] = useState('');
   const [employer, setEmployer] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [workPhone, setWorkPhone] = useState('');
@@ -174,6 +175,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setAddress(member.address || '');
       setPhone(member.phone || '');
       setEmail(member.email || '');
+      setSpouse(member.spouse || '');
       setEmployer(member.employer || '');
       setJobTitle(member.jobTitle || '');
       setWorkPhone(member.workPhone || '');
@@ -505,6 +507,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       address: address.trim() || undefined,
       phone: phone.trim() || undefined,
       email: email.trim() || undefined,
+      spouse: spouse.trim() || undefined,
       employer: employer.trim() || undefined,
       jobTitle: jobTitle.trim() || undefined,
       workPhone: workPhone.trim() || undefined,
@@ -1028,12 +1031,41 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                 </div>
               </div>
 
+              {/* Spouse or partner — the adult counterpart of the gate below.
+                  Same birthdate-as-typed keying, same refusal to hide a value
+                  already on file.
+
+                  The note is suppressed when the work note is already showing,
+                  which is any profile young enough to fail both gates. These
+                  notes exist to explain a DISAPPEARANCE — the work fields used
+                  to be on every profile, so a parent who fills in a birthdate
+                  and watches four fields vanish is owed a reason. Nobody is
+                  owed a reason for the absence of a spouse field on a
+                  six-year-old, and two grey apologies stacked on a child's
+                  profile read worse than one. */}
+              {hideSpouseField({ birthdate, hasSpouse: !!spouse }) ? (
+                hideWorkFields({ birthdate, country, hasWorkDetails: !!(employer || jobTitle || workPhone || workAddress) })
+                  ? null
+                  : <p className="text-[12px] text-ink-400 leading-snug">{spouseAgeNote()}</p>
+              ) : (
+                <div>
+                  <label className="field-label">Spouse or partner</label>
+                  <input
+                    type="text"
+                    placeholder="Their name"
+                    value={spouse}
+                    onChange={(e) => setSpouse(e.target.value)}
+                    className="field"
+                  />
+                </div>
+              )}
+
               {/* Employer / workplace — useful in an emergency (who to call,
                   where someone works), and absurd on a six-year-old, which is
                   what this gate is for. Keyed on the birthdate as CURRENTLY
                   TYPED, so filling one in makes the fields appear or disappear
                   as you'd expect rather than on the next open. See
-                  utils/workingAge.ts for the two cases it deliberately refuses
+                  utils/ageGates.ts for the two cases it deliberately refuses
                   to guess at — unknown birthdate, and work details already on
                   file, both of which keep the fields visible. */}
               {hideWorkFields({ birthdate, country, hasWorkDetails: !!(employer || jobTitle || workPhone || workAddress) }) ? (

@@ -478,6 +478,67 @@ for (const [field, entry] of Object.entries(COVERAGE_MAP)) {
   console.log(`  household_set fields (${setFields.length}): ${setFields.join(', ')}`);
 }
 
+// --- Flat member fields: the map and the prompt must name the same keys -----
+//
+// A scalar member field is AI-writable only if BOTH agree: MEMBER_FIELD_MAP in
+// aiApply.ts has a setter for the key, and server.js's "Canonical member field
+// keys" block offers it to the model. Either one alone fails silently, in
+// opposite directions:
+//
+//   in the map, not in the prompt  → the model never emits the key, so the
+//                                    field is invisible to the assistant and
+//                                    nobody can tell it apart from a field the
+//                                    AI is simply bad at filling.
+//   in the prompt, not in the map  → the model emits it, the Apply card shows
+//                                    it, the user taps Apply, and MEMBER_FIELD_MAP
+//                                    has no setter — the exact "rejected write
+//                                    that reports success" aiApply.ts:48 was
+//                                    written to stop.
+//
+// Neither shows up in the coverage map above, which tracks list-shaped
+// sections rather than scalars.
+{
+  const applySrc = fs.readFileSync(path.join(repoRoot, 'src/utils/aiApply.ts'), 'utf8');
+  const serverSrc = fs.readFileSync(path.join(repoRoot, 'server.js'), 'utf8');
+
+  const mapBlock = /const MEMBER_FIELD_MAP[\s\S]*?\n\};/.exec(applySrc);
+  assert.ok(mapBlock, "couldn't find MEMBER_FIELD_MAP in aiApply.ts");
+  const mapKeys = new Set(
+    [...mapBlock[0].matchAll(/^\s{2}([a-z][a-z0-9_]*):\s*\(m,/gm)].map((m) => m[1]),
+  );
+
+  // The prompt block runs from its heading to the blank line after the last
+  // category. Sub-notes are indented prose, so only the "category: a, b, c"
+  // lines count.
+  const at = serverSrc.indexOf('Canonical member field keys (use ONLY these):');
+  assert.ok(at > 0, "couldn't find the canonical member field key block in server.js");
+  const promptBlock = serverSrc.slice(at, serverSrc.indexOf('\n\n', at));
+  const promptKeys = new Set<string>();
+  for (const line of promptBlock.split('\n').slice(1)) {
+    if (/^\s/.test(line)) continue;                       // an indented sub-note, not a category line
+    const rhs = line.slice(line.indexOf(':') + 1);
+    for (const k of rhs.split(',')) {
+      const t = k.trim();
+      if (/^[a-z][a-z0-9_]*$/.test(t)) promptKeys.add(t);
+    }
+  }
+
+  assert.ok(mapKeys.size > 20 && promptKeys.size > 20, 'both lists must be non-empty and plausibly complete');
+
+  const onlyInMap = [...mapKeys].filter((k) => !promptKeys.has(k)).sort();
+  const onlyInPrompt = [...promptKeys].filter((k) => !mapKeys.has(k)).sort();
+  assert.deepStrictEqual(onlyInMap, [],
+    `these member fields have a setter but are never offered to the model, so the AI can never write them: ${onlyInMap.join(', ')}`);
+  assert.deepStrictEqual(onlyInPrompt, [],
+    `the model is told it may write these, but MEMBER_FIELD_MAP has no setter — Apply would silently do nothing: ${onlyInPrompt.join(', ')}`);
+
+  // `spouse` names a living person and is the newest of these; keeping it
+  // asserted by name means the parity check above cannot pass by both lists
+  // being empty.
+  assert.ok(mapKeys.has('spouse') && promptKeys.has('spouse'), 'spouse must be AI-writable on both sides');
+  console.log(`  member field keys (${mapKeys.size}): map and prompt agree`);
+}
+
 // --- Report -----------------------------------------------------------------
 
 const coveredFields = Object.entries(COVERAGE_MAP).filter(([, e]) => e.status === 'covered').map(([f]) => f).sort();
