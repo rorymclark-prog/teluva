@@ -1,8 +1,8 @@
 {
-  "label": "v239",
+  "label": "v240",
   "changes": [
-    "The welcome and sign-off screens of the app tour now get the same bold black card as the guided setup, so the two introductions finally look like they came from the same app.",
-    "The middle of the tour is untouched on purpose — those steps point at a real button on your screen, and a heavy card next to the highlight pulls your eye away from the very thing it's pointing at.",
-    "Both of those screens can now scroll if your phone is small enough that the text runs past the bottom, so the Next button is always reachable."
+    "Fixed: changes made in Members & roles — the Calendar panels switches and the country setting — didn't show up until you fully closed and reopened the app. They saved correctly, they just weren't being read again. Turning on “Name days & celebrations” now puts the panel on the calendar straight away.",
+    "Two calendar panels had no switch at all: “Birthdays beyond the family” and “Holidays & time away” could never be turned off, even though that section says you can choose which panels show. Both have a switch now.",
+    "The empty Name days panel now tells you where to actually set one — open a family member, tap Edit, then “Find a name day or celebration”. It used to point at the profile page, which shows nothing at all unless your name happens to be in a European name-day calendar."
   ]
 }

@@ -29,6 +29,13 @@ function localToday(): string {
 
 interface FamilySettingsProps {
   onClose: () => void;
+  /**
+   * Call after any successful write to the SHARED settings doc. This panel is a
+   * sibling of Dashboard and saves straight to the store, so without this the
+   * Dashboard tree keeps rendering the copy of HubSettings it loaded at
+   * start-up and the change looks like it did nothing. See App.tsx.
+   */
+  onSettingsChanged?: () => void;
 }
 
 const ROLE_OPTIONS: FamilyRole[] = ['admin', 'member', 'child'];
@@ -44,7 +51,7 @@ function initials(displayName: string, email: string): string {
  * Admin-only panel: shows the family join code and lets the admin manage member roles.
  * Rendered as a slide-in modal — parent component gates rendering to isAdmin only.
  */
-export default function FamilySettings({ onClose }: FamilySettingsProps) {
+export default function FamilySettings({ onClose, onSettingsChanged }: FamilySettingsProps) {
   // Always mounted only while open — parent (App.tsx) gates rendering, so
   // the lock is unconditional for this component's whole lifetime.
   useBodyScrollLock(true);
@@ -65,6 +72,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
     try {
       const current = (await loadSettings()) || {};
       await saveSettings({ ...current, country: value });
+      onSettingsChanged?.();
     } finally {
       setCountrySaving(false);
     }
@@ -98,7 +106,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
   };
 
   // --- Calendar panels — per-division show/hide for the Family Calendar's
-  // six "at a glance" panels (HubSettings.calendarDivisions). Applies to
+  // eight "at a glance" panels (HubSettings.calendarDivisions). Applies to
   // both space types (the Calendar tab itself isn't business-hidden, unlike
   // the standalone Anniversaries view). This component doesn't receive
   // settings/onSaveSettings as a prop the way FamilyCalendar/Dashboard do,
@@ -108,14 +116,20 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
   const CALENDAR_DIVISIONS: { key: CalendarDivisionKey; label: string; sublabel?: string }[] = [
     { key: 'travelDocuments', label: 'Travel document watch' },
     { key: 'birthdays', label: 'Birthdays' },
+    // extendedBirthdays and vacations shipped a key and a gated division but
+    // never a switch, so two of the panels this section says you can choose
+    // couldn't be turned off. calendarDivisions.test.ts now fails if a key is
+    // added without a row here.
+    { key: 'extendedBirthdays', label: 'Birthdays beyond the family' },
     {
       key: 'nameCelebrations',
       label: 'Name days & celebrations',
-      sublabel: 'Shows automatically once your family confirms a name day — turn on to always show it, even before you have.',
+      sublabel: 'Shows automatically once your family confirms a name day — turn on to always show it, even before you have. Confirm one on a member’s Edit screen, under “Find a name day or celebration”.',
     },
     { key: 'medicalChecks', label: 'Medical checks' },
     { key: 'anniversaries', label: 'Anniversaries & special days' },
     { key: 'schoolDates', label: 'School dates' },
+    { key: 'vacations', label: 'Holidays & time away' },
   ];
   const [calendarDivisions, setCalendarDivisions] = useState<NonNullable<HubSettings['calendarDivisions']>>({});
   const [calendarDivisionsSavingKey, setCalendarDivisionsSavingKey] = useState<CalendarDivisionKey | null>(null);
@@ -148,6 +162,9 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
     try {
       const current = (await loadSettings()) || {};
       await saveSettings({ ...current, calendarDivisions: next });
+      // Only AFTER the write lands: the Dashboard re-read this triggers would
+      // otherwise race a failed save and paint the reverted value back.
+      onSettingsChanged?.();
     } catch (err: any) {
       setCalendarDivisions(prev);
       setCalendarDivisionsError(err?.message ?? 'Could not save the preference');
@@ -511,7 +528,7 @@ export default function FamilySettings({ onClose }: FamilySettingsProps) {
           )}
 
           {/* Section 0a-ii: Calendar panels — per-division show/hide for the
-              Family Calendar's six "at a glance" panels. Not business-gated:
+              Family Calendar's eight "at a glance" panels. Not business-gated:
               the Calendar tab itself renders in both space types. Off just
               stops a panel rendering — it never touches the underlying data. */}
           <div className="card p-5 space-y-3">

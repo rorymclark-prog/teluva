@@ -21,6 +21,16 @@ import GlobalCopyScan from './components/GlobalCopyScan';
 function AppInner() {
   const { loading, uid, familyId, isAdmin, loadError } = useFamilyCtx();
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+  // FamilySettings is a SIBLING of Dashboard, and it writes the shared
+  // HubSettings doc directly rather than through Dashboard's own save path.
+  // Dashboard loads that doc ONCE, in an effect keyed on the signed-in user and
+  // the active space — neither of which changes when a switch is flipped in
+  // here. So every preference on that screen that the Dashboard tree renders
+  // from (the Calendar panels section in particular) was written correctly and
+  // then stayed invisible until the app was fully reloaded — which on an
+  // installed PWA can be days. This counter is the nudge: FamilySettings bumps
+  // it after a successful write, Dashboard re-reads on it.
+  const [settingsVersion, setSettingsVersion] = React.useState(0);
 
   // 1. Auth/family resolution still in flight
   if (loading) {
@@ -72,9 +82,12 @@ function AppInner() {
 
   return (
     <>
-      <Dashboard familySettingsButton={familySettingsButton} />
+      <Dashboard familySettingsButton={familySettingsButton} settingsVersion={settingsVersion} />
       {isAdmin && isSettingsOpen && (
-        <FamilySettings onClose={() => setIsSettingsOpen(false)} />
+        <FamilySettings
+          onClose={() => setIsSettingsOpen(false)}
+          onSettingsChanged={() => setSettingsVersion((v) => v + 1)}
+        />
       )}
     </>
   );

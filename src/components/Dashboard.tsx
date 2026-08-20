@@ -344,9 +344,17 @@ const DraggableRow: React.FC<DraggableRowProps> = ({ member, className, onSelect
 interface DashboardProps {
   /** Admin-only gear button injected by AppInner; null when not admin or not signed in */
   familySettingsButton?: React.ReactNode;
+  /**
+   * Bumped by App.tsx whenever the sibling FamilySettings panel writes the
+   * shared HubSettings doc. That panel saves directly to the store, and the
+   * settings load below is keyed on the user and the active space — so without
+   * this, a preference changed there (the Calendar panels switches especially)
+   * was saved correctly and stayed invisible in here until a full reload.
+   */
+  settingsVersion?: number;
 }
 
-export default function Dashboard({ familySettingsButton }: DashboardProps = {}) {
+export default function Dashboard({ familySettingsButton, settingsVersion = 0 }: DashboardProps = {}) {
   const demo = isDemoMode();
   const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId, loading: ctxLoading } = useFamilyCtx();
   // Wills & Estate has its own access answer, separate from role — see
@@ -668,6 +676,23 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
     }
     init();
   }, [currentUser, ctxLoading, activeSpaceId]);
+
+  /* Re-read the shared settings doc after the sibling FamilySettings panel
+   * writes it — see DashboardProps.settingsVersion. Deliberately its own
+   * effect rather than another dep on init() above: that one reloads members,
+   * events, contacts and birthdays too, and flipping one switch should not
+   * refetch the whole vault. Skips the initial 0 so this never double-loads
+   * on mount, and merges rather than replaces so anything Dashboard itself has
+   * saved since (and the store has, therefore, already merged) isn't dropped
+   * by a slow read landing late. */
+  useEffect(() => {
+    if (!settingsVersion) return;
+    let cancelled = false;
+    loadSettings().then((hub) => {
+      if (!cancelled && hub) setSettings((prev) => ({ ...prev, ...hub }));
+    }).catch(() => { /* a failed re-read just leaves the old view — the write itself already succeeded */ });
+    return () => { cancelled = true; };
+  }, [settingsVersion]);
 
   /* The one list of non-member birthdays the home screen works from: the
    * dedicated records, plus any birthday still sitting on a contact from
@@ -2255,7 +2280,7 @@ export default function Dashboard({ familySettingsButton }: DashboardProps = {})
             members={members}
             events={events}
             onSaveEvents={handleSaveEvents}
-            // Per-division show/hide for the six "at a glance" panels
+            // Per-division show/hide for the eight "at a glance" panels
             // (HubSettings.calendarDivisions) — same shared settings doc as
             // every toggle on this screen; FamilySettings writes it, this
             // is just the read side.

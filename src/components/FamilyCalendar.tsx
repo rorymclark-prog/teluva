@@ -153,7 +153,7 @@ interface FamilyCalendarProps {
   /** Subscribed external calendars (HubSettings.calendarFeeds), owned by Dashboard. */
   calendarFeeds: CalendarFeed[];
   onSaveCalendarFeeds: (feeds: CalendarFeed[]) => void;
-  /** Per-division show/hide for the six "at a glance" panels below (HubSettings.calendarDivisions), owned by Dashboard. */
+  /** Per-division show/hide for the eight "at a glance" panels below (HubSettings.calendarDivisions), owned by Dashboard. */
   settings: HubSettings;
 }
 
@@ -1645,9 +1645,22 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           // to `true` on a family with zero confirmed entries — the
           // vanish-when-empty gate above means this branch never shows for
           // the default/undefined setting.
-          <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
-            <PartyPopper className="w-4 h-4 text-dusk-600 shrink-0" />
-            Confirm a name day or name celebration on a family member’s profile and it will appear here.
+          //
+          // Which makes this the ONE screen a family sees after deliberately
+          // switching the feature on, so it has to name the actual path. It
+          // used to say "on a family member's profile", but the profile draws
+          // nothing at all unless the local name table happens to match — and
+          // for a family whose names aren't in a European Namenskalender
+          // (which is most of them, and exactly the families who turn this on
+          // to find the feature) that is a dead end. The entry point is in
+          // Edit, so say Edit.
+          <div className="px-5 py-4 flex items-start gap-2.5 text-[13px] text-ink-500">
+            <PartyPopper className="w-4 h-4 text-dusk-600 shrink-0 mt-0.5" />
+            <span>
+              Open a family member, tap <b className="font-semibold text-ink-700">Edit</b>, and choose{' '}
+              <b className="font-semibold text-ink-700">Find a name day or celebration</b> — it works for names outside the
+              European calendars too.
+            </span>
           </div>
         ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-dusk-200/60">
