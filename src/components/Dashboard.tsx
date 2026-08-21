@@ -121,6 +121,7 @@ import AppearanceControls from './AppearanceControls';
 import EmberNavigation, { EmberDestination } from './EmberNavigation';
 import FamilyPulse, { PulseExpiryWarning } from './FamilyPulse';
 import CaptureMenu from './CaptureMenu';
+import EmberViewHeader from './EmberViewHeader';
 import { useAppearance } from '../contexts/AppearanceContext';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
@@ -239,6 +240,18 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'secrets', label: 'Secrets', icon: Key },
   { id: 'cv', label: 'CV', icon: Briefcase },
 ];
+
+type ProfileLens = 'essentials' | 'health' | 'life' | 'story';
+const PROFILE_LENSES: { id: ProfileLens; label: string; note: string; tabs: TabId[] }[] = [
+  { id: 'essentials', label: 'Essentials', note: 'Identity, access and records', tabs: ['overview', 'ids', 'guardians', 'documents', 'secrets'] },
+  { id: 'health', label: 'Health', note: 'Care, check-ups and growth', tabs: ['medical', 'care', 'growth', 'timelapse'] },
+  { id: 'life', label: 'Life', note: 'Daily needs, travel and wishes', tabs: ['sizes', 'favorites', 'travel', 'preferences', 'cv'] },
+  { id: 'story', label: 'Story', note: 'Words and moments worth keeping', tabs: ['sayings'] },
+];
+
+function profileLensFor(tab: TabId): ProfileLens {
+  return PROFILE_LENSES.find((lens) => lens.tabs.includes(tab))?.id || 'essentials';
+}
 
 // Kid/family-specific tabs that make no sense for an employee in a business space.
 // 'guardians' joins this list for the same reason: a non-resident PARENT is a
@@ -471,7 +484,17 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [selectedDocumentMemberName, setSelectedDocumentMemberName] = useState<string>('');
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
 
-  const [mainView, setMainView] = useState<ViewId>(() => emberInterface ? 'pulse' : 'profiles');
+  const [mainView, setMainView] = useState<ViewId>(() => {
+    if (!emberInterface) return 'profiles';
+    try {
+      const firstJob = localStorage.getItem('teluva.firstJob');
+      if (firstJob) localStorage.removeItem('teluva.firstJob');
+      if (firstJob === 'week') return 'calendar';
+      if (firstJob === 'vault') return 'vault';
+      if (firstJob === 'story') return 'timeline';
+    } catch { /* private browsing */ }
+    return 'pulse';
+  });
 
   // Switching presentation systems never reloads or rewrites family data.
   // It only chooses which already-mounted entry surface is visible.
@@ -774,7 +797,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   };
 
   const cardClass = (member: FamilyMember) =>
-    `w-full text-left rounded-2xl border transition-all flex items-center justify-between ${
+    `w-full text-left rounded-2xl border transition-all flex items-center justify-between ${emberInterface ? 'ember-person-card ' : ''}${
       selectedMemberId === member.id ? 'p-3.5' : 'py-2 px-3'
     } ${
       selectedMemberId === member.id
@@ -2255,6 +2278,20 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     </>
   ) : null;
 
+  const availableViewItems = VIEWS
+    .filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin))
+    .filter(view => !(view.id === 'willsEstate' && !mayReadWills))
+    .filter(view => !(isBusinessSpace && HIDDEN_VIEWS_IN_BUSINESS.includes(view.id)))
+    .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t, isBusinessSpace) }));
+
+  const visibleProfileTabs = selectedMember ? TABS.filter(tab =>
+    (tab.id !== 'growth' || selectedMember.role === 'Child')
+    && !(tab.id === 'secrets' && !isAdmin)
+    && !(isBusinessSpace && HIDDEN_IN_BUSINESS.includes(tab.id))
+    && !(!isBusinessSpace && HIDDEN_IN_FAMILY.includes(tab.id))
+  ) : [];
+  const activeProfileLens = profileLensFor(activeTab);
+
   return (
     <div className={`min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans ${emberInterface ? 'ember-app' : ''}`}>
       {emberInterface && (
@@ -2263,6 +2300,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           onSelect={(destination: EmberDestination) => setMainView(destination as ViewId)}
           onAsk={() => setAssistantOpenSignal((n) => n + 1)}
           onCapture={() => setIsCaptureOpen(true)}
+          onSettings={() => setIsSettingsOpen(true)}
         />
       )}
       {/* Header */}
@@ -2316,14 +2354,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
               button itself, it doesn't need to open the menu. */}
           <div data-tour="section-menu" className="contents">
             <SectionMenu
-              views={VIEWS
-                .filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin))
-                // Wills & Estate: admins plus anyone an admin has named (v230).
-                // Same shape as the passwords gate above — the rule is the real
-                // boundary, this just stops offering a door that won't open.
-                .filter(view => !(view.id === 'willsEstate' && !mayReadWills))
-                .filter(view => !(isBusinessSpace && HIDDEN_VIEWS_IN_BUSINESS.includes(view.id)))
-                .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t, isBusinessSpace) }))}
+              views={availableViewItems}
               current={mainView}
               onSelect={(id) => setMainView(id as ViewId)}
             />
@@ -2342,7 +2373,17 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         </div>
       </header>
 
-      <main className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6 ${emberInterface ? 'ember-main' : ''}`}>
+      <main
+        className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6 ${emberInterface ? 'ember-main' : ''}`}
+        data-view={emberInterface ? mainView : undefined}
+      >
+        {emberInterface && mainView !== 'pulse' && (
+          <EmberViewHeader
+            current={mainView}
+            views={availableViewItems}
+            onSelect={(id) => setMainView(id as ViewId)}
+          />
+        )}
         {/* Suspense wraps every lazy-loaded mainView branch below — see the
             React.lazy declarations near the top of this file for why. It also
             wraps 'profiles' further down, harmlessly: nothing inside that
@@ -2352,6 +2393,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           <FamilyCalendar
             members={members}
             events={events}
+            emberMode={emberInterface}
             onSaveEvents={handleSaveEvents}
             // Per-division show/hide for the nine "at a glance" panels
             // (HubSettings.calendarDivisions) — same shared settings doc as
@@ -2424,7 +2466,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           // onMembersChange lets a vault delete also strip the per-member copy
           // of the same document — the vault component has no other way to
           // persist member records (Dashboard owns that write).
-          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} onMembersChange={persistChanges} />
+          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} onMembersChange={persistChanges} emberMode={emberInterface} />
         )}
 
         {mainView === 'shopping' && (
@@ -2607,9 +2649,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                 )}
               </div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 items-start ${emberInterface ? 'ember-people-layout' : ''}`}>
                 {/* Family directory */}
-                <section className="lg:col-span-4 space-y-5">
+                <section className={`lg:col-span-4 space-y-5 ${emberInterface ? 'ember-people-directory' : ''}`}>
                   <div data-tour="family-list" className="card p-5 space-y-4">
                     <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
                       <h4 className="section-label flex-1">{isBusinessSpace ? 'Your team' : 'Your family'}</h4>
@@ -2684,10 +2726,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                 </section>
 
                 {/* Selected member detail */}
-                <section ref={memberPanelRef} className="lg:col-span-8 space-y-5 scroll-mt-24">
+                <section ref={memberPanelRef} className={`lg:col-span-8 space-y-5 scroll-mt-24 ${emberInterface ? 'ember-living-profile' : ''}`}>
                   {selectedMember ? (
                     <div className="card overflow-hidden min-h-[500px] flex flex-col">
-                      <div className="p-5 sm:p-6 border-b border-cream-200 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                      <div className={`p-5 sm:p-6 border-b border-cream-200 flex flex-col gap-5 ${emberInterface ? 'ember-profile-hero' : 'xl:flex-row xl:items-center justify-between gap-4'}`}>
                         <div className="flex items-center gap-4 min-w-0">
                           <div className="relative shrink-0">
                             {selectedMember.avatarUrl ? (
@@ -2806,6 +2848,41 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                           </div>
                         </div>
 
+                        {emberInterface ? (
+                          <div className="ember-profile-navigation">
+                            <div className="ember-profile-lenses" role="tablist" aria-label="Profile lenses">
+                              {PROFILE_LENSES.map((lens) => {
+                                const lensTabs = visibleProfileTabs.filter((tab) => lens.tabs.includes(tab.id));
+                                if (!lensTabs.length) return null;
+                                return (
+                                  <button
+                                    key={lens.id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={activeProfileLens === lens.id}
+                                    className={activeProfileLens === lens.id ? 'is-active' : ''}
+                                    onClick={() => setActiveTab(lensTabs[0].id)}
+                                  >
+                                    <b>{lens.label}</b><small>{lens.note}</small>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div className="ember-profile-subtabs" aria-label={`${PROFILE_LENSES.find((lens) => lens.id === activeProfileLens)?.label || 'Profile'} sections`}>
+                              {visibleProfileTabs.filter((tab) => profileLensFor(tab.id) === activeProfileLens).map((tab) => (
+                                <button
+                                  key={tab.id}
+                                  type="button"
+                                  onClick={() => setActiveTab(tab.id)}
+                                  aria-current={activeTab === tab.id ? 'page' : undefined}
+                                  className={activeTab === tab.id ? 'is-active' : ''}
+                                >
+                                  <tab.icon className="h-3.5 w-3.5" /><span>{tab.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
                         <div className="flex flex-wrap gap-1 bg-cream-200 p-1 rounded-2xl w-fit self-start md:self-auto select-none">
                           {/* 'secrets' is admin-only — it holds this person's saved
                               logins (digitalAccounts[].passwordPlain). Same gate as
@@ -2813,7 +2890,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                               above). The real enforcement is server-side in
                               /api/vault/reveal; this just stops showing a tab that
                               can no longer decrypt anything. */}
-                          {TABS.filter(tab => (tab.id !== 'growth' || selectedMember.role === 'Child') && !(tab.id === 'secrets' && !isAdmin) && !(isBusinessSpace && HIDDEN_IN_BUSINESS.includes(tab.id)) && !(!isBusinessSpace && HIDDEN_IN_FAMILY.includes(tab.id))).map(tab => (
+                          {visibleProfileTabs.map(tab => (
                             <button
                               key={tab.id}
                               type="button"
@@ -2833,6 +2910,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                             </button>
                           ))}
                         </div>
+                        )}
                       </div>
 
                       <div className="p-5 sm:p-6 flex-1">
@@ -3037,6 +3115,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           onAddPerson={() => setIsAddModalOpen(true)}
           onPlan={() => setMainView('calendar')}
           onOpenVault={() => setMainView('vault')}
+          onOpenStory={() => setMainView('timeline')}
+          onOpenHouse={() => setMainView('household')}
         />
       )}
 
@@ -3204,9 +3284,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
 function DemoUnavailable({ label }: { label: string }) {
   return (
-    <div className="card text-center py-20 px-6">
-      <h3 className="font-display text-xl font-semibold text-ink-900 mb-2">{label} isn&apos;t part of the demo</h3>
-      <p className="text-[13px] text-ink-500">Sign in with Google to use it with your own family.</p>
+    <div className="card ember-honest-state text-center py-20 px-6">
+      <p className="ember-kicker">Private by design</p>
+      <h3 className="font-display text-xl font-semibold text-ink-900 mt-2 mb-2">{label} stays out of the public demo</h3>
+      <p className="text-[13px] text-ink-500 max-w-sm mx-auto leading-relaxed">
+        Sign in with Google to use this space with your own family. Teluva won&apos;t invent example records for sensitive information.
+      </p>
     </div>
   );
 }

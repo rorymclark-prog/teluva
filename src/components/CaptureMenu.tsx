@@ -1,4 +1,4 @@
-import { CalendarPlus, FileUp, UserPlus, X } from 'lucide-react';
+import { CalendarPlus, FileUp, Home, ImagePlus, UserPlus, X } from 'lucide-react';
 
 interface CaptureMenuProps {
   open: boolean;
@@ -6,18 +6,22 @@ interface CaptureMenuProps {
   onAddPerson: () => void;
   onPlan: () => void;
   onOpenVault: () => void;
+  onOpenStory: () => void;
+  onOpenHouse: () => void;
 }
 
 const choices = [
-  { id: 'person', title: 'Add a person', note: 'Start or extend the family circle', icon: UserPlus },
+  { id: 'document', title: 'Photo, scan or file', note: 'Send evidence into the family vault', icon: FileUp },
+  { id: 'moment', title: 'Keep a moment', note: 'Add a photograph, saying or family story', icon: ImagePlus },
   { id: 'plan', title: 'Plan something', note: 'Add the next family date or appointment', icon: CalendarPlus },
-  { id: 'document', title: 'Save a document', note: 'Open the family vault', icon: FileUp },
+  { id: 'person', title: 'Add a person', note: 'Start or extend the family circle', icon: UserPlus },
+  { id: 'home', title: 'Home knowledge', note: 'Keep a provider, object or household detail', icon: Home },
 ] as const;
 
-export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpenVault }: CaptureMenuProps) {
+export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpenVault, onOpenStory, onOpenHouse }: CaptureMenuProps) {
   if (!open) return null;
 
-  const actions = { person: onAddPerson, plan: onPlan, document: onOpenVault };
+  const actions = { person: onAddPerson, plan: onPlan, document: onOpenVault, moment: onOpenStory, home: onOpenHouse };
 
   return (
     <div className="capture-backdrop" role="presentation" onMouseDown={onClose}>
@@ -29,7 +33,7 @@ export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpen
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header>
-          <div><span className="pulse-eyebrow">Quick capture</span><h2 id="capture-title">What would you like to keep?</h2></div>
+          <div><span className="pulse-eyebrow">Quick capture · Private</span><h2 id="capture-title">What do you want to keep?</h2><p>Choose the shape. Teluva will take you to the right place without making you learn the filing system.</p></div>
           <button type="button" onClick={onClose} aria-label="Close Capture"><X className="h-5 w-5" /></button>
         </header>
         <div className="capture-choices">

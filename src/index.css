@@ -780,7 +780,9 @@ html[data-interface="ember"] body {
 }
 .ember-capture { margin-top: 1.2rem; color: #151316; background: var(--ember-action); border-color: transparent; }
 .ember-capture:hover { background: #FF766D; }
-.ember-capture + .ember-ask { margin-top: auto; }
+.ember-utility { min-height: 2.6rem; margin-top: auto; padding: .55rem .75rem; display: flex; align-items: center; gap: .55rem; color: rgba(255,249,246,.48); font-size: .68rem; font-weight: 750; border-radius: .8rem; }
+.ember-utility:hover { color: #FFF9F6; background: rgba(255,255,255,.05); }
+.ember-utility + .ember-ask { margin-top: .45rem; }
 .ember-ask kbd { margin-left: auto; color: rgba(255, 249, 246, .35); font: inherit; }
 
 .ember-capture-mobile {
@@ -991,13 +993,219 @@ html[data-interface="ember"] body {
 .capture-sheet { width: min(42rem, 100%); padding: 1.4rem; color: var(--ember-text); background: var(--ember-raised); border: 1px solid var(--ember-line); border-radius: 1.6rem; box-shadow: 0 32px 90px rgba(0, 0, 0, .35); }
 .capture-sheet > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .capture-sheet h2 { margin-top: .35rem; font-size: clamp(1.45rem, 4vw, 2.1rem); font-weight: 800; letter-spacing: -.05em; }
+.capture-sheet > header p { max-width: 34rem; margin-top: .45rem; color: var(--ember-muted); font-size: .72rem; line-height: 1.5; }
 .capture-sheet > header > button { width: 2.5rem; height: 2.5rem; display: grid; place-items: center; color: var(--ember-muted); background: var(--ember-canvas); border-radius: 50%; }
-.capture-choices { margin-top: 1.3rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: .7rem; }
+.capture-choices { margin-top: 1.3rem; display: grid; grid-template-columns: repeat(6, 1fr); gap: .7rem; }
 .capture-choice { min-height: 10rem; padding: 1rem; display: flex; flex-direction: column; align-items: flex-start; text-align: left; background: var(--ember-canvas); border: 1px solid var(--ember-line); border-radius: 1.2rem; }
+.capture-choice { grid-column: span 2; }
+.capture-choice:nth-child(n+4) { grid-column: span 3; }
 .capture-choice:hover { border-color: color-mix(in srgb, var(--ember-action) 45%, transparent); transform: translateY(-2px); }
 .capture-choice > span { width: 2.8rem; height: 2.8rem; margin-bottom: auto; display: grid; place-items: center; color: var(--ember-action); background: color-mix(in srgb, var(--ember-action) 10%, transparent); border-radius: .9rem; }
 .capture-choice b { margin-top: 1.2rem; font-size: .82rem; }
 .capture-choice small { margin-top: .3rem; color: var(--ember-muted); font-size: .65rem; line-height: 1.4; }
+
+/* --------------------------------------------------------------------------
+   Complete Ember Thread information architecture
+   -------------------------------------------------------------------------- */
+.ember-view-heading {
+  min-height: 16rem;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 1.5rem;
+  color: #FFF9F6;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(255,255,255,.11), transparent 21%),
+    linear-gradient(145deg, #151316, #09090B 74%);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 1.8rem;
+  box-shadow: 0 30px 75px -45px rgba(15, 10, 12, .8);
+}
+.ember-view-heading::before {
+  content: "";
+  width: 22rem;
+  height: 22rem;
+  position: absolute;
+  right: -7rem;
+  top: -10rem;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 44% 56% 61% 39%;
+  transform: rotate(14deg);
+}
+.ember-view-heading-people { background: radial-gradient(circle at 88% 20%, rgba(255,215,210,.18), transparent 24%), linear-gradient(145deg, #151316, #35171E); }
+.ember-view-heading-plan { background: radial-gradient(circle at 86% 18%, rgba(240,193,121,.2), transparent 24%), linear-gradient(145deg, #151316, #382118); }
+.ember-view-heading-house { background: radial-gradient(circle at 86% 18%, rgba(119,163,132,.2), transparent 24%), linear-gradient(145deg, #151316, #17291F); }
+.ember-view-heading-vault { background: radial-gradient(circle at 86% 18%, rgba(104,128,181,.2), transparent 24%), linear-gradient(145deg, #151316, #171D30); }
+.ember-view-heading-copy { position: relative; z-index: 2; }
+.ember-view-destination { display: flex; align-items: center; gap: .45rem; color: #FFD7D2; font-size: .64rem; font-weight: 850; letter-spacing: .14em; text-transform: uppercase; }
+.ember-view-heading h1 { max-width: 48rem; margin-top: .85rem; font-size: clamp(2.3rem, 5vw, 4.8rem); font-weight: 820; line-height: .92; letter-spacing: -.067em; }
+.ember-view-heading p { max-width: 40rem; margin-top: .85rem; color: rgba(255,249,246,.62); font-size: clamp(.83rem, 1.8vw, 1rem); line-height: 1.55; }
+.ember-view-mark { width: 6.5rem; height: 6.5rem; position: relative; z-index: 2; display: grid; place-items: center; color: #151316; background: #FFF9F6; border-radius: 50%; transform: rotate(5deg); box-shadow: 0 20px 45px rgba(0,0,0,.25); }
+.ember-view-mark svg { width: 2rem; height: 2rem; color: var(--ember-action); }
+.ember-subnav { grid-column: 1 / -1; position: relative; z-index: 3; display: flex; gap: .45rem; overflow-x: auto; scrollbar-width: none; }
+.ember-subnav::-webkit-scrollbar { display: none; }
+.ember-subnav button { min-height: 2.4rem; padding: .55rem .75rem; flex: 0 0 auto; display: flex; align-items: center; gap: .4rem; color: rgba(255,249,246,.52); font-size: .66rem; font-weight: 750; border: 1px solid rgba(255,255,255,.08); border-radius: 999px; }
+.ember-subnav button:hover { color: #FFF9F6; background: rgba(255,255,255,.06); }
+.ember-subnav button.is-active { color: #151316; background: #FFF9F6; border-color: #FFF9F6; }
+.ember-subnav button.is-active svg:first-child { color: var(--ember-action); }
+.ember-subnav button.is-active svg:last-child { margin-left: .15rem; }
+
+[data-interface="ember"] .ember-main .card { border-radius: 1.35rem; }
+[data-interface="ember"] .ember-main > .ember-view-heading + * { position: relative; }
+[data-interface="ember"] .ember-main h2,
+[data-interface="ember"] .ember-main h3 { letter-spacing: -.035em; }
+
+/* Destination bodies should feel composed, not like the old dashboard was
+   placed underneath a new masthead. Only title-only cards are suppressed;
+   cards that carry add/import controls remain visible as compact toolbars. */
+[data-interface="ember"] .ember-main[data-view="timeline"] > .space-y-6.font-sans > .card:first-child,
+[data-interface="ember"] .ember-main[data-view="household"] > .space-y-6.font-sans > .card:first-child,
+[data-interface="ember"] .ember-main[data-view="finances"] > .space-y-6.font-sans > .card:first-child,
+[data-interface="ember"] .ember-main[data-view="pets"] > .space-y-6.font-sans > .card:first-child { display: none; }
+
+[data-interface="ember"] .ember-main[data-view="vehicles"] > .max-w-lg,
+[data-interface="ember"] .ember-main[data-view="insurance"] > .max-w-lg,
+[data-interface="ember"] .ember-main[data-view="willsEstate"] > .max-w-lg { max-width: none; }
+
+[data-interface="ember"] .ember-main[data-view="vehicles"] > .max-w-lg > .card:first-of-type,
+[data-interface="ember"] .ember-main[data-view="insurance"] > .max-w-lg > .card:first-of-type {
+  min-height: 5rem;
+  align-items: center;
+  background: color-mix(in srgb, var(--ember-raised) 92%, var(--ember-action));
+  border-color: var(--ember-line);
+  box-shadow: none;
+}
+
+[data-interface="ember"] .ember-main[data-view="timeline"] > .space-y-6.font-sans > .card:nth-child(2) {
+  padding: clamp(1.25rem, 3vw, 2.4rem);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--ember-action) 8%, transparent) 1px, transparent 1px) 2.2rem 0 / 2px 100% no-repeat,
+    var(--ember-raised);
+  border-color: var(--ember-line);
+}
+
+[data-interface="ember"] .ember-main[data-view="emergency"] .card {
+  border-color: color-mix(in srgb, var(--ember-action) 28%, var(--ember-line));
+}
+
+[data-interface="ember"] .ember-main[data-view="emergency"] .btn-primary {
+  min-height: 3rem;
+  font-weight: 850;
+}
+
+[data-interface="ember"] .ember-main[data-view="inMemory"] > * > .card,
+[data-interface="ember"] .ember-main[data-view="willsEstate"] > * > .card {
+  border-color: color-mix(in srgb, var(--ember-rose) 35%, var(--ember-line));
+}
+
+.ember-honest-state {
+  background:
+    radial-gradient(circle at 50% 10%, color-mix(in srgb, var(--ember-action) 10%, transparent), transparent 35%),
+    var(--ember-raised) !important;
+  border-color: var(--ember-line) !important;
+}
+
+.ember-people-layout { gap: 1rem; }
+.ember-people-directory > .card { background: var(--ember-raised); border-color: var(--ember-line); }
+.ember-person-card { min-height: 4.5rem; color: var(--ember-text); background: var(--ember-canvas) !important; border-color: transparent !important; }
+.ember-person-card:hover { border-color: color-mix(in srgb, var(--ember-action) 28%, transparent) !important; transform: translateY(-1px); }
+.ember-person-card.ring-1 { background: color-mix(in srgb, var(--ember-action) 9%, var(--ember-raised)) !important; border-color: color-mix(in srgb, var(--ember-action) 32%, transparent) !important; }
+.ember-person-card .avatar-ring { box-shadow: 0 8px 20px -12px rgba(0,0,0,.45); }
+.ember-person-card .w-9.h-9 { width: 3rem; height: 3rem; }
+.ember-living-profile > .card { overflow: hidden; background: var(--ember-raised); border-color: var(--ember-line); }
+.ember-profile-hero {
+  padding: clamp(1.25rem, 3vw, 2.1rem);
+  color: #FFF9F6;
+  background:
+    radial-gradient(circle at 88% 16%, rgba(255,91,80,.18), transparent 25%),
+    linear-gradient(145deg, #151316, #09090B);
+  border-color: rgba(255,255,255,.08) !important;
+}
+.ember-profile-hero .text-ink-900,
+.ember-profile-hero .text-ink-800,
+.ember-profile-hero .text-ink-700,
+.ember-profile-hero .text-ink-600 { color: #FFF9F6 !important; }
+.ember-profile-hero .text-ink-500,
+.ember-profile-hero .text-ink-400 { color: rgba(255,249,246,.55) !important; }
+.ember-profile-hero .bg-cream-200 { color: rgba(255,249,246,.76) !important; background: rgba(255,255,255,.08) !important; }
+.ember-profile-hero .border-white { border-color: #151316 !important; }
+.ember-profile-hero .avatar-ring { padding: 3px; background: linear-gradient(135deg, #F0C179, #F07859 48%, #CE2948); }
+.ember-profile-navigation { width: 100%; display: grid; gap: .65rem; }
+.ember-profile-lenses { display: grid; grid-template-columns: repeat(4, 1fr); gap: .45rem; }
+.ember-profile-lenses button { min-height: 4.6rem; padding: .7rem .8rem; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; text-align: left; color: rgba(255,249,246,.48); border: 1px solid rgba(255,255,255,.08); border-radius: 1rem; }
+.ember-profile-lenses button b { font-size: .78rem; }
+.ember-profile-lenses button small { margin-top: .2rem; font-size: .58rem; line-height: 1.3; }
+.ember-profile-lenses button:hover { color: #FFF9F6; background: rgba(255,255,255,.05); }
+.ember-profile-lenses button.is-active { color: #151316; background: #FFF9F6; border-color: #FFF9F6; }
+.ember-profile-lenses button.is-active small { color: #766E70; }
+.ember-profile-subtabs { display: flex; gap: .35rem; overflow-x: auto; scrollbar-width: none; }
+.ember-profile-subtabs::-webkit-scrollbar { display: none; }
+.ember-profile-subtabs button { min-height: 2.35rem; padding: .5rem .7rem; flex: 0 0 auto; display: flex; align-items: center; gap: .35rem; color: rgba(255,249,246,.5); font-size: .64rem; font-weight: 750; border-radius: 999px; }
+.ember-profile-subtabs button:hover { color: #FFF9F6; background: rgba(255,255,255,.05); }
+.ember-profile-subtabs button.is-active { color: #FFF9F6; background: rgba(255,91,80,.16); }
+.ember-profile-subtabs button.is-active svg { color: var(--ember-action); }
+
+.ember-week-horizon { overflow: hidden; color: var(--ember-text); background: var(--ember-raised); border: 1px solid var(--ember-line); border-radius: 1.6rem; box-shadow: var(--shadow-card); }
+.ember-week-horizon > header { min-height: 5.5rem; padding: 1.15rem 1.35rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--ember-line); }
+.ember-week-horizon h3 { margin-top: .3rem; font-size: 1.45rem; font-weight: 800; letter-spacing: -.045em; }
+.ember-week-horizon > header > span { color: var(--ember-muted); font-size: .66rem; font-weight: 800; }
+.ember-week-days { padding: .65rem; display: grid; grid-template-columns: repeat(7, minmax(8.5rem, 1fr)); gap: .45rem; overflow-x: auto; }
+.ember-week-days > button { min-height: 10.5rem; padding: .85rem; display: flex; flex-direction: column; align-items: flex-start; text-align: left; color: var(--ember-muted); background: var(--ember-canvas); border: 1px solid transparent; border-radius: 1.05rem; }
+.ember-week-days > button:hover { border-color: color-mix(in srgb, var(--ember-action) 30%, transparent); }
+.ember-week-days > button.is-active { color: #FFF9F6; background: linear-gradient(155deg, var(--ember-action), var(--ember-oxblood)); }
+.ember-week-days span { font-size: .6rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.ember-week-days b { margin-top: .4rem; color: var(--ember-text); font-size: 2rem; line-height: 1; letter-spacing: -.06em; }
+.ember-week-days .is-active b { color: #FFF9F6; }
+.ember-week-days small { margin-top: .15rem; font-size: .58rem; font-weight: 700; text-transform: uppercase; }
+.ember-week-days i { margin-top: .7rem; color: var(--ember-action); font-size: .58rem; font-style: normal; font-weight: 800; }
+.ember-week-days .is-active i { color: #FFD7D2; }
+.ember-week-days em { width: 100%; margin-top: .35rem; overflow: hidden; color: currentColor; font-size: .58rem; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+
+.ember-vault-search { min-height: 20rem; padding: clamp(1.5rem, 4vw, 2.8rem); display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: end; gap: 1.2rem; color: #FFF9F6; background: radial-gradient(circle at 82% 14%, rgba(104,128,181,.22), transparent 26%), linear-gradient(145deg, #17171B, #09090B); border: 1px solid rgba(255,255,255,.08); border-radius: 1.7rem; box-shadow: 0 30px 75px -42px rgba(0,0,0,.8); }
+.ember-vault-search-copy { grid-column: 1 / -1; }
+.ember-vault-search h2 { margin-top: .7rem; font-size: clamp(2rem, 5vw, 4.2rem); font-weight: 820; line-height: .95; letter-spacing: -.065em; }
+.ember-vault-search p { max-width: 38rem; margin-top: .7rem; color: rgba(255,249,246,.58); font-size: .75rem; line-height: 1.55; }
+.ember-vault-search-field { min-height: 4.25rem; padding: 0 1.2rem; display: flex; align-items: center; gap: .8rem; color: rgba(255,249,246,.45); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 1.2rem; }
+.ember-vault-search-field:focus-within { border-color: rgba(255,91,80,.58); box-shadow: 0 0 0 4px rgba(255,91,80,.1); }
+.ember-vault-search-field input { width: 100%; min-width: 0; color: #FFF9F6; background: transparent; font-size: .9rem; outline: 0; }
+.ember-vault-search-field input::placeholder { color: rgba(255,249,246,.38); }
+.ember-vault-actions { display: flex; align-items: center; gap: .5rem; }
+.ember-vault-actions .btn-quiet { color: #FFF9F6; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.12); }
+
+.ember-onboarding { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(24rem, .92fr); gap: 1rem; background: #0B0B0D; }
+.ember-onboarding-story { min-height: calc(100vh - 2rem); padding: clamp(2rem, 6vw, 5rem); position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; color: #FFF9F6; background: radial-gradient(circle at 72% 25%, rgba(255,91,80,.2), transparent 24%), linear-gradient(150deg, #151316, #08080A); border: 1px solid rgba(255,255,255,.08); border-radius: 2rem; }
+.ember-onboarding-brand { position: absolute; left: clamp(2rem, 6vw, 5rem); top: clamp(2rem, 6vw, 4rem); display: flex; align-items: center; gap: .7rem; font-size: 1rem; }
+.ember-onboarding-brand span { width: 2.2rem; height: 2.2rem; display: grid; place-items: center; color: #151316; background: var(--ember-action, #E9433B); border-radius: .8rem; font-weight: 900; }
+.ember-onboarding-orbit { width: 9rem; height: 9rem; position: relative; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.18); border-radius: 48% 52% 54% 46%; transform: rotate(-8deg); }
+.ember-onboarding-orbit::after { content: ""; width: 5.7rem; height: 5.7rem; position: absolute; border: 1px solid rgba(255,91,80,.4); border-radius: 53% 47% 42% 58%; transform: rotate(24deg); }
+.ember-onboarding-orbit span { width: 3.2rem; height: 3.2rem; position: relative; z-index: 2; display: grid; place-items: center; color: #151316; background: #FFD7D2; border-radius: 50%; }
+.ember-onboarding-story h1 { margin-top: 2.2rem; font-size: clamp(3rem, 7vw, 6.4rem); font-weight: 820; line-height: .86; letter-spacing: -.078em; }
+.ember-onboarding-story h1 em { font-family: Georgia, serif; font-weight: 400; }
+.ember-onboarding-story > p { max-width: 34rem; margin-top: 1.2rem; color: rgba(255,249,246,.58); font-size: 1rem; line-height: 1.55; }
+.ember-onboarding-proof { margin-top: 2.4rem; display: flex; align-items: center; gap: .7rem; color: #FFD7D2; }
+.ember-onboarding-proof span { display: grid; }
+.ember-onboarding-proof b { font-size: .72rem; }
+.ember-onboarding-proof small { margin-top: .15rem; color: rgba(255,249,246,.4); font-size: .6rem; }
+.ember-onboarding-card { max-width: none; align-self: center; color: var(--ember-text, #151316); background: var(--ember-raised, #FFFDF9); border-radius: 2rem; }
+.ember-first-job { display: grid; gap: .55rem; }
+.ember-first-job h2 { margin-top: .2rem; font-size: 1.45rem; font-weight: 800; letter-spacing: -.045em; }
+.ember-first-job > p { margin-bottom: .3rem; color: var(--ember-muted, #766E70); font-size: .72rem; line-height: 1.45; }
+.ember-first-job > button { min-height: 4.5rem; padding: .75rem; display: grid; grid-template-columns: 2.25rem minmax(0, 1fr) auto; align-items: center; gap: .65rem; text-align: left; color: var(--ember-muted, #766E70); background: var(--ember-canvas, #F7F3ED); border: 1px solid var(--ember-line, rgba(21,19,22,.11)); border-radius: 1rem; }
+.ember-first-job > button > svg { color: var(--ember-action, #E9433B); }
+.ember-first-job > button span { display: grid; }
+.ember-first-job > button b { color: var(--ember-text, #151316); font-size: .75rem; }
+.ember-first-job > button small { margin-top: .15rem; font-size: .6rem; }
+.ember-first-job > button strong { font-size: .72rem; }
+.ember-first-job > button.is-selected { color: #8F1724; background: #FFD7D2; border-color: rgba(143,23,36,.18); }
+
+@media (min-width: 1024px) {
+  .ember-people-directory { grid-column: span 3 / span 3; }
+  .ember-living-profile { grid-column: span 9 / span 9; }
+  .ember-people-directory > .card { position: sticky; top: 5.5rem; }
+}
 
 @media (min-width: 1024px) {
   .ember-sidebar { display: flex; }
@@ -1010,6 +1218,20 @@ html[data-interface="ember"] body {
 }
 
 @media (max-width: 767px) {
+  .ember-onboarding { grid-template-columns: 1fr; padding: .65rem; }
+  .ember-onboarding-story { min-height: 32rem; padding: 2rem 1.5rem; }
+  .ember-onboarding-brand { left: 1.5rem; top: 1.5rem; }
+  .ember-onboarding-story h1 { font-size: clamp(3rem, 16vw, 4.4rem); }
+  .ember-onboarding-card { border-radius: 1.5rem; }
+  .ember-vault-search { min-height: 24rem; padding: 1.35rem; grid-template-columns: 1fr; }
+  .ember-vault-actions { flex-wrap: wrap; }
+  .ember-view-heading { min-height: 22rem; padding: 1.35rem; grid-template-columns: 1fr; align-items: end; }
+  .ember-view-heading h1 { max-width: 19rem; font-size: clamp(2.35rem, 12vw, 3.55rem); }
+  .ember-view-mark { width: 4.8rem; height: 4.8rem; position: absolute; right: 1.2rem; top: 1.2rem; }
+  .ember-view-mark svg { width: 1.5rem; height: 1.5rem; }
+  .ember-subnav { margin-inline: -.15rem; padding-bottom: .1rem; }
+  .ember-profile-lenses { grid-template-columns: repeat(2, 1fr); }
+  .ember-profile-lenses button { min-height: 4.2rem; }
   .pulse-hero { min-height: 35rem; grid-template-columns: 1fr; }
   .pulse-family-scene { width: 100%; min-height: 12rem; }
   .pulse-family-scene.has-photo { min-height: 14rem; }
@@ -1021,7 +1243,8 @@ html[data-interface="ember"] body {
   .pulse-decision-row { padding-inline: 1rem; grid-template-columns: 1.7rem minmax(0, 1fr) auto; }
   .pulse-decision-row > svg:first-of-type { display: none; }
   .capture-choices { grid-template-columns: 1fr; }
-  .capture-choice { min-height: 6.5rem; display: grid; grid-template-columns: 2.8rem minmax(0, 1fr); grid-template-rows: auto auto; column-gap: .8rem; align-items: center; }
+  .capture-choice,
+  .capture-choice:nth-child(n+4) { min-height: 6.5rem; grid-column: auto; display: grid; grid-template-columns: 2.8rem minmax(0, 1fr); grid-template-rows: auto auto; column-gap: .8rem; align-items: center; }
   .capture-choice > span { grid-row: 1 / 3; margin: 0; }
   .capture-choice b { margin: 0; }
   .capture-choice small { margin-top: .15rem; }

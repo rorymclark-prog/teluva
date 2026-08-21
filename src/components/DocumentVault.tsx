@@ -555,7 +555,7 @@ function FilterBar({ active, counts, categories, onChange }: FilterBarProps) {
 /* Main component                                                       */
 /* ------------------------------------------------------------------ */
 
-export default function DocumentVault({ members, isBusinessSpace, onMembersChange }: { members: FamilyMember[]; isBusinessSpace?: boolean; onMembersChange?: (members: FamilyMember[]) => Promise<void> | void }) {
+export default function DocumentVault({ members, isBusinessSpace, onMembersChange, emberMode = false }: { members: FamilyMember[]; isBusinessSpace?: boolean; onMembersChange?: (members: FamilyMember[]) => Promise<void> | void; emberMode?: boolean }) {
   const [docs, setDocs] = useState<VaultDocument[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -733,7 +733,24 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   return (
     <div className="space-y-6 font-sans">
 
-      {/* Header card */}
+      {/* Search is the Ember front door; Classic keeps the compact header. */}
+      {emberMode ? (
+        <section className="ember-vault-search">
+          <div className="ember-vault-search-copy">
+            <span className="pulse-eyebrow">Ask · Find · Prove</span>
+            <h2>What are you looking for?</h2>
+            <p>Search names, filenames and document types. Every answer stays connected to the original evidence.</p>
+          </div>
+          <label className="ember-vault-search-field">
+            <Search className="h-5 w-5" />
+            <input type="search" placeholder="Try “Ben passport” or “school report”…" value={search} onChange={event => setSearch(event.target.value)} />
+          </label>
+          <div className="ember-vault-actions">
+            <button onClick={() => { setShowBulkImport(v => !v); setShowUpload(false); setSelectMode(false); }} className="btn-quiet"><ImagePlus className="h-4 w-4" />Import photos</button>
+            <button onClick={() => { setShowUpload(v => !v); setShowBulkImport(false); setSelectMode(false); }} className="btn-primary"><Plus className="h-4 w-4" />Upload document</button>
+          </div>
+        </section>
+      ) : (
       <div className="card p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -775,6 +792,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
           </div>
         </div>
       </div>
+      )}
 
       {/* Selection bar — appears once "Select" is toggled on */}
       {selectMode && (
@@ -843,7 +861,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
       <div className="card p-4 sm:p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <FilterBar active={filterCat} counts={counts} categories={categories} onChange={setFilterCat} />
-          <div className="relative w-full sm:w-60">
+          {!emberMode && <div className="relative w-full sm:w-60">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-400" />
             <input
               type="text"
@@ -852,7 +870,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
               onChange={e => setSearch(e.target.value)}
               className="field pl-10"
             />
-          </div>
+          </div>}
         </div>
       </div>
 

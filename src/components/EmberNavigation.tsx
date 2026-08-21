@@ -1,4 +1,4 @@
-import { CalendarDays, FolderArchive, Home, MessageCircle, Plus, Sparkles, Users } from 'lucide-react';
+import { CalendarDays, FolderArchive, Home, MessageCircle, Plus, Settings, Sparkles, Users } from 'lucide-react';
 import AppearanceControls from './AppearanceControls';
 
 export type EmberDestination = 'pulse' | 'profiles' | 'calendar' | 'household' | 'vault';
@@ -16,9 +16,10 @@ interface EmberNavigationProps {
   onSelect: (destination: EmberDestination) => void;
   onAsk: () => void;
   onCapture: () => void;
+  onSettings: () => void;
 }
 
-export default function EmberNavigation({ current, onSelect, onAsk, onCapture }: EmberNavigationProps) {
+export default function EmberNavigation({ current, onSelect, onAsk, onCapture, onSettings }: EmberNavigationProps) {
   return (
     <>
       <aside className="ember-sidebar" aria-label="Primary navigation">
@@ -32,6 +33,9 @@ export default function EmberNavigation({ current, onSelect, onAsk, onCapture }:
         </nav>
         <button type="button" onClick={onCapture} className="ember-capture">
           <Plus className="h-4 w-4" /><span>Capture</span>
+        </button>
+        <button type="button" onClick={onSettings} className="ember-utility">
+          <Settings className="h-4 w-4" /><span>Settings</span>
         </button>
         <button type="button" onClick={onAsk} className="ember-ask">
           <MessageCircle className="h-4 w-4" /><span>Ask Teluva</span><kbd>⌘ K</kbd>

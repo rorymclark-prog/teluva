@@ -1,8 +1,10 @@
 {
   "label": "v252",
   "changes": [
-    "The new Family Pulse opens with the few things that matter now, one real family moment, and the next date on your calendar — all drawn from information already in your vault.",
-    "Pulse, People, Plan, House and Vault are now the five clear everyday destinations. Every existing feature is still available from the full section menu.",
+    "Ember Thread now runs through the full app: every existing tool sits inside one of five clear destinations — Pulse, People, Plan, House and Vault — with a focused local section menu.",
+    "Family Pulse opens with the few things that matter now, one real family moment and the next date on your calendar — all drawn from information already in your vault.",
+    "Living Profiles use four human lenses instead of a wall of tabs; Plan opens on a seven-day family horizon; and Vault begins with search and evidence rather than folders.",
+    "Quick Capture now understands documents, moments, plans, people and home knowledge, while first-time setup starts with one useful family job instead of a long configuration exercise.",
     "Choose System, Light or Dark from Appearance. Your choice stays on this device and is applied before the first frame, so dark mode never flashes bright while the app starts.",
     "Ember Thread is fully reversible: choose Use classic Teluva at any time to return to the previous dashboard without changing or moving any family data."
   ]

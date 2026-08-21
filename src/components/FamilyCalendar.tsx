@@ -160,9 +160,11 @@ interface FamilyCalendarProps {
   onSaveCalendarFeeds: (feeds: CalendarFeed[]) => void;
   /** Per-division show/hide for the nine "at a glance" panels below (HubSettings.calendarDivisions), owned by Dashboard. */
   settings: HubSettings;
+  /** Enables the Ember Thread week-first composition without changing Classic. */
+  emberMode?: boolean;
 }
 
-export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings }: FamilyCalendarProps) {
+export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings, emberMode = false }: FamilyCalendarProps) {
   const { isAdmin, canWrite, aiEligible, aiConsent } = useFamilyCtx();
   const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
   // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
@@ -1143,6 +1145,19 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       const diffDays = (evTime - todayTime) / (1000 * 60 * 60 * 24);
       return diffDays >= 0 && diffDays <= 180;
     });
+  const nextSevenDays = Array.from({ length: 7 }, (_, offset) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + offset);
+    const iso = date.toLocaleDateString('en-CA');
+    return {
+      iso,
+      day: date.toLocaleDateString('en-GB', { weekday: 'short' }),
+      date: date.getDate(),
+      month: date.toLocaleDateString('en-GB', { month: 'short' }),
+      events: sortByRelevance(events.filter((event) => event.date === iso), event => event.time || '00:00'),
+    };
+  });
   const upcomingReminderGroups = Array.from(
     upcomingReminders.reduce((groups, event) => {
       const monthKey = event.date.slice(0, 7);
@@ -1350,6 +1365,26 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           </div>
         </div>
       </section>
+
+      {emberMode && (
+        <section className="ember-week-horizon" aria-labelledby="week-horizon-title">
+          <header>
+            <div><span className="pulse-eyebrow">Family horizon</span><h3 id="week-horizon-title">The next seven days</h3></div>
+            <span>{nextSevenDays.reduce((total, day) => total + day.events.length, 0)} planned</span>
+          </header>
+          <div className="ember-week-days">
+            {nextSevenDays.map((day, index) => (
+              <button key={day.iso} type="button" onClick={() => { setSelectedDateStr(day.iso); setCurrentYear(Number(day.iso.slice(0, 4))); setCurrentMonth(Number(day.iso.slice(5, 7)) - 1); }} className={day.iso === selectedDateStr ? 'is-active' : ''}>
+                <span>{index === 0 ? 'Today' : day.day}</span>
+                <b>{day.date}</b>
+                <small>{day.month}</small>
+                <i>{day.events.length ? `${day.events.length} ${day.events.length === 1 ? 'plan' : 'plans'}` : 'Clear'}</i>
+                {day.events.slice(0, 2).map((event) => <em key={event.id}>{event.time ? `${event.time} · ` : ''}{event.title}</em>)}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Scan error */}
       {noticeError && (

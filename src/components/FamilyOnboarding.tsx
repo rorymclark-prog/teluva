@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Home, Key, Loader2 } from 'lucide-react';
+import { CalendarDays, Heart, Home, Key, Loader2, ShieldCheck } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { createFamily, joinFamily } from '../utils/db';
 import { auth, logout } from '../lib/firebase';
 import LanguageSelector from './LanguageSelector';
 
 type Mode = 'idle' | 'create' | 'join';
+type FirstJob = 'week' | 'vault' | 'story';
 
 // Extract join code from URL: /join/{code}
 function codeFromUrl(): string {
@@ -29,6 +30,7 @@ export default function FamilyOnboarding() {
   const [joinCode, setJoinCode] = useState(urlCode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [firstJob, setFirstJob] = useState<FirstJob>('week');
 
   // Auto-submit if we landed here via a /join/{code} link
   useEffect(() => {
@@ -60,6 +62,7 @@ export default function FamilyOnboarding() {
     setError(null);
     try {
       await createFamily(name);
+      try { localStorage.setItem('teluva.firstJob', firstJob); } catch { /* private browsing */ }
       window.location.reload();
     } catch (err: any) {
       setError(err?.message ?? 'Something went wrong. Please try again.');
@@ -83,8 +86,15 @@ export default function FamilyOnboarding() {
   }
 
   return (
-    <div className="min-h-screen bg-cream-50 flex items-center justify-center p-4">
-      <div className="card max-w-md w-full p-5 sm:p-8 space-y-6">
+    <div className="min-h-screen bg-cream-50 flex items-center justify-center p-4 ember-onboarding">
+      <aside className="ember-onboarding-story">
+        <div className="ember-onboarding-brand"><span>T</span><b>Teluva</b></div>
+        <div className="ember-onboarding-orbit" aria-hidden="true"><i /><i /><span>♥</span></div>
+        <h1>Keep the family<br /><em>close to hand.</em></h1>
+        <p>A private place for what matters now—and what should never be lost.</p>
+        <div className="ember-onboarding-proof"><ShieldCheck className="h-4 w-4" /><span><b>Private by design</b><small>Exportable · permission-aware · no ads</small></span></div>
+      </aside>
+      <div className="card max-w-md w-full p-5 sm:p-8 space-y-6 ember-onboarding-card">
         {/* Pick app language up front (also lives in Settings later) */}
         <div className="flex justify-center">
           <LanguageSelector />
@@ -102,14 +112,28 @@ export default function FamilyOnboarding() {
         {/* Idle: two options */}
         {mode === 'idle' && (
           <div className="space-y-3">
+            <div className="ember-first-job">
+              <span className="pulse-eyebrow">Let’s begin with this week</span>
+              <h2>What would feel useful first?</h2>
+              <p>Choose one family job. Teluva will grow from that first useful place.</p>
+              {([
+                { id: 'week', label: 'See our week clearly', note: 'Bring together people, plans and preparation', icon: CalendarDays },
+                { id: 'vault', label: 'Protect important records', note: 'Start a private family vault', icon: ShieldCheck },
+                { id: 'story', label: 'Keep our story', note: 'Save a memory worth returning to', icon: Heart },
+              ] as const).map(({ id, label, note, icon: Icon }) => (
+                <button key={id} type="button" onClick={() => setFirstJob(id)} className={firstJob === id ? 'is-selected' : ''}>
+                  <Icon className="h-4 w-4" /><span><b>{label}</b><small>{note}</small></span><strong>{firstJob === id ? '✓' : '→'}</strong>
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => { setMode('create'); resetError(); }}
               className="w-full flex items-center gap-3 bg-clay-500 text-white rounded-2xl px-5 py-4 text-left hover:opacity-90 transition-opacity"
             >
               <Home size={20} className="shrink-0" />
               <div>
-                <div className="font-semibold">Start a new family</div>
-                <div className="text-sm opacity-80">Create your vault — you'll be the admin</div>
+                <div className="font-semibold">Make my first family pulse</div>
+                <div className="text-sm opacity-80">No giant setup · about three minutes</div>
               </div>
             </button>
 
