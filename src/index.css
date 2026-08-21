@@ -1053,6 +1053,21 @@ html[data-interface="ember"] body {
 .ember-subnav button.is-active svg:first-child { color: var(--ember-action); }
 .ember-subnav button.is-active svg:last-child { margin-left: .15rem; }
 
+:where(
+  .ember-sidebar button,
+  .ember-mobile-nav button,
+  .ember-capture-mobile,
+  .ember-subnav button,
+  .ember-profile-lenses button,
+  .ember-profile-subtabs button,
+  .ember-week-days > button,
+  .capture-sheet button,
+  .ember-first-job > button
+):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--ember-action) 72%, white);
+  outline-offset: 3px;
+}
+
 [data-interface="ember"] .ember-main .card { border-radius: 1.35rem; }
 [data-interface="ember"] .ember-main > .ember-view-heading + * { position: relative; }
 [data-interface="ember"] .ember-main h2,

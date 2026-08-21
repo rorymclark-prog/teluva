@@ -1,3 +1,4 @@
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { CalendarPlus, FileUp, Home, ImagePlus, UserPlus, X } from 'lucide-react';
 
 interface CaptureMenuProps {
@@ -19,17 +20,54 @@ const choices = [
 ] as const;
 
 export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpenVault, onOpenStory, onOpenHouse }: CaptureMenuProps) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.querySelector<HTMLElement>('[data-capture-choice]')?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      previouslyFocused?.focus();
+    };
+  }, [open]);
+
   if (!open) return null;
 
   const actions = { person: onAddPerson, plan: onPlan, document: onOpenVault, moment: onOpenStory, home: onOpenHouse };
 
+  const keepFocusInside = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') return;
+    const controls = dialogRef.current
+      ? [...dialogRef.current.querySelectorAll<HTMLButtonElement>('button')]
+      : [];
+    if (!controls.length) return;
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
     <div className="capture-backdrop" role="presentation" onMouseDown={onClose}>
       <section
+        ref={dialogRef}
         className="capture-sheet"
         role="dialog"
         aria-modal="true"
         aria-labelledby="capture-title"
+        onKeyDown={keepFocusInside}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header>
@@ -40,6 +78,7 @@ export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpen
           {choices.map(({ id, title, note, icon: Icon }) => (
             <button
               key={id}
+              data-capture-choice
               type="button"
               onClick={() => { onClose(); actions[id](); }}
               className="capture-choice"
