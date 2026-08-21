@@ -1,51 +1,82 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
+/* ==========================================================================
+   EMBER THREAD — the 2027 design language, expressed as token VALUES.
+
+   Every token name that existed before still exists. That is deliberate and
+   load-bearing: Tailwind v4 emits NO rule for an undefined token, so a
+   renamed ramp does not fail loudly — `text-rosa-800` on an EXPIRED passport
+   simply inherits its parent's colour and the warning quietly disappears.
+   That bug class is documented all over this file's history; renaming ramps
+   would re-open it in 104 components at once. So the ramps keep their names
+   and only their VALUES move.
+
+   What moved: cream (paper), ink (neutral), clay (the ember accent), and the
+   signature gradients. What did NOT move: sage / honey / dusk / rosa. Those
+   are status, not brand. Ember and danger-red are both red — repainting rosa
+   in the accent's hue would make "this is expired" and "this is the primary
+   action" the same colour. The design language's own rule is that colour is
+   never the only carrier of status, which only holds if status keeps a hue
+   of its own.
+
+   Utilities reference these as var(--color-*), so the dark block at the
+   bottom re-points the same custom properties and the whole app follows.
+   ========================================================================== */
+
 @theme {
-  /* One geometric sans does display + body duty (Instagram-modern). */
+  /* One geometric sans does display + body duty. The serif is not a loaded
+     face — it is the system Georgia stack, used only for the editorial
+     accent word the design language sets against the sans. */
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  /* Warm-neutral surface scale (near-white greys with a hint of brown, not yellow) */
-  --color-cream-50: #FBFAF8;   /* header / raised bg */
-  --color-cream-100: #F6F5F1;  /* app background */
-  --color-cream-200: #EEECE6;  /* inset / hover bg */
-  --color-cream-300: #E5E2DB;  /* hairline border */
-  --color-cream-400: #D6D2C8;  /* strong border */
+  /* Paper — the warm ground. 50 is the raised/header surface, 100 the app
+     background, 200 inset/hover, 300 the hairline, 400 a strong border. */
+  --color-cream-50: #FFFDF9;
+  --color-cream-100: #F7F3ED;
+  --color-cream-200: #EEE7DD;
+  --color-cream-300: #E3DBD0;
+  --color-cream-400: #D2C7B8;
 
-  /* Ink (warm near-black text).
-     The light end of this ramp (50-300) was missing while ~50 places in the app
-     already used it — Tailwind v4 silently emits NO rule for an undefined token,
-     so `text-ink-300` on a faint icon just inherited its parent's dark colour and
-     looked wrong with nothing failing. Same warm-grey ramp continued upward. */
-  --color-ink-50: #FAFAF9;     /* barely-there tint */
-  --color-ink-100: #F5F5F4;    /* subtle fill */
-  --color-ink-200: #E7E5E4;    /* light divider */
-  --color-ink-300: #D6D3D1;    /* faint icon / disabled */
-  --color-ink-400: #A8A29E;    /* faint / placeholder */
-  --color-ink-500: #78716C;    /* muted */
-  --color-ink-600: #57534E;    /* secondary */
-  --color-ink-700: #44403C;    /* body */
-  --color-ink-800: #292524;    /* heading-2 */
-  --color-ink-900: #1C1917;    /* primary text */
+  /* Ink — text. Shifted off the old warm-brown greys onto the design's own
+     near-neutral, which is very slightly cool so it sits against the warm
+     paper rather than melting into it. 500 is the spec's muted (#74747D),
+     900 the spec's ink (#111114); the rest interpolate along that line.
+     The 50-300 light end must stay defined — ~50 places use it on faint
+     icons and dividers. */
+  --color-ink-50: #FAFAFB;
+  --color-ink-100: #F3F3F5;
+  --color-ink-200: #E5E5E9;
+  --color-ink-300: #D1D1D8;
+  --color-ink-400: #A2A2AC;
+  --color-ink-500: #74747D;
+  --color-ink-600: #55555D;
+  --color-ink-700: #3C3C44;
+  --color-ink-800: #232328;
+  --color-ink-900: #111114;
 
-  /* Clay → "Ember" — the one vivid accent (call-to-action) */
-  --color-clay-50: #FDF0EA;
-  --color-clay-100: #FCE1D3;
-  --color-clay-200: #F9C3AC;
-  --color-clay-300: #F59B7A;
-  --color-clay-400: #F0764F;
-  --color-clay-500: #EA5A3B;
-  --color-clay-600: #D64A2E;
-  --color-clay-700: #B93E24;
-  /* 800/900 were used as deep-ember TEXT (MemberIDs, DocumentVault,
-     MemberDocuments) but never defined, so those labels silently inherited
-     their parent's colour. Continues the ramp's own darkening step past 700. */
-  --color-clay-800: #9C341F;
-  --color-clay-900: #7F2B1A;
+  /* Clay — THE ember accent, and the one vivid colour in the system.
+     Anchored on the design's three reds: ember #FF4B3E at 500, ember-deep
+     #D72D25 at 700, oxblood #8F1724 at 900. 800/900 are read as deep-ember
+     TEXT in several files, so the ramp has to keep darkening past 700
+     rather than stopping there. */
+  --color-clay-50: #FFF2EF;
+  --color-clay-100: #FFE0DB;
+  --color-clay-200: #FFC0B8;
+  --color-clay-300: #FF9A8E;
+  --color-clay-400: #FF6E5E;
+  --color-clay-500: #FF4B3E;
+  --color-clay-600: #EC3A2D;
+  --color-clay-700: #D72D25;
+  --color-clay-800: #B02023;
+  --color-clay-900: #8F1724;
 
-  /* Sage → "Fern" — secondary accent */
+  /* --- status: deliberately unchanged (see the header note) --------------- */
+
+  /* Sage → "Fern" — success */
   --color-sage-50: #EAF4EF;
   --color-sage-100: #D8EAE0;
   --color-sage-200: #B5D6C4;
@@ -54,28 +85,20 @@
   --color-sage-500: #2E7D5B;
   --color-sage-600: #256A4C;
   --color-sage-700: #1D543C;
-  /* 800: darkest fern, used for quiz result text (FamilyQuiz). */
   --color-sage-800: #17422F;
 
-  /* Honey — warning amber (now actually reads as a warning) */
+  /* Honey — warning amber (no 600 step; none is used) */
   --color-honey-50: #FCF4E6;
   --color-honey-100: #F8E4C0;
   --color-honey-200: #EFC97E;
-  /* 300/400 fill the gap between the pale 200 and the saturated 500 — used for
-     amber icons and borders (MemberMedical, MemberSayings, ImportantInfo). */
   --color-honey-300: #E9B35E;
   --color-honey-400: #E39D3D;
   --color-honey-500: #D97706;
   --color-honey-700: #A85A05;
-  /* 800 sits between 700 and 900; it is the warning TEXT colour on honey-50
-     chips in five files (AIChatbot, DocumentVault, FamilyWordsView, …). */
   --color-honey-800: #8B4A04;
   --color-honey-900: #6E3B03;
 
-  /* Dusk — info blue.
-     Only 50/100/500/700 existed; 200/300/400/600 were used across 9 files
-     (chip borders, hover states, the 600 text on info panels) and emitted
-     nothing. Interpolated along this ramp's own 100 → 500 curve. */
+  /* Dusk — info blue */
   --color-dusk-50: #EFF4FE;
   --color-dusk-100: #DBE7FD;
   --color-dusk-200: #BBD0FA;
@@ -85,62 +108,186 @@
   --color-dusk-600: #2158E2;
   --color-dusk-700: #1D4ED8;
 
-  /* Rosa — danger rose */
+  /* Rosa — danger rose. Kept pink-side-of-red so it stays legible AS danger
+     next to an accent that is now a hotter red than it used to be.
+     rosa-600 is ~50 delete/danger hover states; rosa-800 is the "EXPIRED"
+     colour in TravelPack and MemberOverview. Both must stay defined. */
   --color-rosa-50: #FDEDF1;
   --color-rosa-100: #FBDCE4;
-  /* 200/300/400: the light half of the ramp (BabysitterMode, FamilyQuiz,
-     FamilyCalendar) — same interpolation as dusk above. */
   --color-rosa-200: #F7C1CE;
   --color-rosa-300: #F192A7;
   --color-rosa-400: #E95777;
   --color-rosa-500: #E11D48;
-  /* rosa-600 was used in ~50 places (mostly hover:text-rosa-600 on delete/danger
-     controls) but never defined, so those controls never actually turned red.
-     Sits between 500 and 700 so a 700-resting / 600-hover pair lightens on hover. */
   --color-rosa-600: #CF1740;
   --color-rosa-700: #BE123C;
-  /* rosa-800 is the worst instance of this whole class of bug: it is the
-     "this document has EXPIRED" colour in TravelPack.tsx and
-     MemberOverview.tsx. Undefined, it emitted no rule, so the single visual
-     cue that a passport is out of date was not red — it was whatever colour
-     the surrounding text happened to be. Darkest step of the ramp. */
   --color-rosa-800: #9F1239;
 
-  /* Signature avatar ring: amber → ember → rose, all in-palette (honey-300 →
-     clay-500 → rosa-600). Used to render #FFC24B → #EA5A3B → #C13584, which is
-     Instagram's story-ring gradient verbatim, including their exact magenta —
-     someone else's brand identity, not ours. This stays warm end-to-end
-     instead of rotating into purple/magenta. */
-  --gradient-ring: linear-gradient(45deg, #EFC97E 0%, #EA5A3B 45%, #CF1740 100%);
-  /* The same ramp for painting TEXT ON A DARK CARD (see .step-eyebrow). Two
-     deliberate differences from --gradient-ring, both forced by the fact that
-     this one has to be READ rather than looked at:
+  /* Signature gradient: amber → ember → oxblood, the design language's own
+     three stops. Warm end-to-end; it never rotates into magenta. */
+  --gradient-ring: linear-gradient(45deg, #F0C179 0%, #F07859 45%, #CE2948 100%);
+  /* The same ramp for painting TEXT ON A DARK CARD (.step-eyebrow). Two
+     deliberate differences, both because this one has to be READ:
 
-     HORIZONTAL. A 45° gradient on a one-line text box is a diagonal across a
-     box whose width changes with the label — "ALL SET" would show a squeezed
-     corner of the ramp while "IDENTITY & DOCUMENTS" showed all of it.
+     HORIZONTAL — a 45° gradient across a one-line box means the label's
+     width decides which slice of the ramp you see; "ALL SET" would show a
+     squeezed corner while "IDENTITY & DOCUMENTS" showed the whole thing.
 
-     LIGHTER AT THE ROSE END. --gradient-ring finishes on rosa-600 (#CF1740),
-     which is ~3.1:1 against ink-900 — under AA for 13px text, and the last
-     word of every eyebrow would have landed in it. These are the 200/400
-     steps of the same three families (honey → clay → rosa), i.e. the same
-     ramp drawn for a dark ground, exactly as the per-step tone classes on
-     this card already use the 300 steps rather than the 500s. Measured
-     against ink-900: 10.9:1, 6.0:1, 5.0:1. Do not "restore" the darker
-     stops — it is the same gradient, corrected for where it is used. */
-  --gradient-ring-text: linear-gradient(90deg, #EFC97E 0%, #F0764F 50%, #E95777 100%);
+     LIGHTER AT THE ROSE END — the ring finishes on #CE2948, which is about
+     3:1 on a dark card and under AA for 13px text, and the last word of
+     every eyebrow lands there. Measured on ink-900: 11.2:1, 7.4:1, 6.1:1.
+     Do not "restore" the darker stop — same gradient, corrected for use. */
+  --gradient-ring-text: linear-gradient(90deg, #F0C179 0%, #F49070 50%, #EE7A8E 100%);
 
-  --shadow-soft: 0 1px 2px rgba(28, 25, 23, 0.05);
-  --shadow-lift: 0 4px 12px rgba(28, 25, 23, 0.07), 0 12px 32px rgba(28, 25, 23, 0.07);
+  --shadow-soft: 0 1px 2px rgba(11, 11, 13, 0.05);
+  --shadow-lift: 0 4px 12px rgba(11, 11, 13, 0.07), 0 12px 32px rgba(11, 11, 13, 0.07);
 
-  /* 2026 surface shadow: top-highlight + short contact + long soft throw (warm ink tint) */
+  /* Surface shadow: top-highlight + short contact + long soft throw */
   --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    0 1px 2px rgba(28, 25, 23, 0.04), 0 12px 32px -16px rgba(28, 25, 23, 0.14);
-  --shadow-glow: 0 0 0 6px rgba(234, 90, 59, 0.12), 0 8px 24px rgba(234, 90, 59, 0.35);
+    0 1px 2px rgba(11, 11, 13, 0.04), 0 12px 32px -16px rgba(11, 11, 13, 0.14);
+  --shadow-glow: 0 0 0 6px rgba(255, 75, 62, 0.12), 0 8px 24px rgba(255, 75, 62, 0.35);
 
   /* Motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+}
+
+/* ==========================================================================
+   DARK — night, raised, raised-2.
+
+   Written once, at token level. Because every Tailwind utility resolves
+   through var(--color-*), re-pointing these same properties re-themes all
+   104 components without touching one of them.
+
+   Two ramps invert and must invert TOGETHER or the app becomes unreadable:
+   cream carries surfaces (light -> dark) and ink carries text (dark ->
+   light). The status ramps do not invert; only their darkest steps lift,
+   because those steps are used as TEXT and a 700-on-night is not legible.
+
+   Three states, as the platform actually reports them: an explicit choice
+   stamps data-theme, and the default "system" setting stamps nothing at all
+   — so the media query is guarded against an explicit light choice, and the
+   data-theme rule is repeated after it so the toggle wins in both
+   directions. Neither block may be the ONLY definition of a colour.
+   ========================================================================== */
+
+@layer base {
+  :root { color-scheme: light; }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+
+      --color-cream-50: #151519;
+      --color-cream-100: #0B0B0D;
+      --color-cream-200: #202026;
+      --color-cream-300: #2C2C34;
+      --color-cream-400: #3A3A44;
+
+      --color-ink-50: #1A1A1F;
+      --color-ink-100: #232329;
+      --color-ink-200: #33333B;
+      --color-ink-300: #4A4A54;
+      --color-ink-400: #6E6E78;
+      --color-ink-500: #8E8E97;
+      --color-ink-600: #B8B2A9;
+      --color-ink-700: #DED8CD;
+      --color-ink-800: #EFEAE1;
+      --color-ink-900: #F7F3ED;
+
+      /* Ember lifts on night — #FF5B50 is the design's own dark-ground red. */
+      --color-clay-50: #2A1512;
+      --color-clay-100: #3A1B17;
+      --color-clay-200: #5C2620;
+      --color-clay-300: #8F3229;
+      --color-clay-400: #C94136;
+      --color-clay-500: #FF5B50;
+      --color-clay-600: #FF7268;
+      --color-clay-700: #FF8C83;
+      --color-clay-800: #FFA79F;
+      --color-clay-900: #FFC2BC;
+
+      /* Status: only the steps used as text lift off the floor. */
+      --color-sage-50: #12241B;
+      --color-sage-100: #17342563;
+      --color-sage-700: #8FD3B0;
+      --color-sage-800: #A9DFC3;
+      --color-honey-50: #2A1F0C;
+      --color-honey-100: #3A2B10;
+      --color-honey-700: #E9B35E;
+      --color-honey-800: #F0C179;
+      --color-honey-900: #F5D19B;
+      --color-dusk-50: #101B31;
+      --color-dusk-100: #16274A;
+      --color-dusk-600: #8DB2F7;
+      --color-dusk-700: #A8C5F9;
+      --color-rosa-50: #2B1119;
+      --color-rosa-100: #3D1723;
+      --color-rosa-600: #F58AA1;
+      --color-rosa-700: #F7A0B3;
+      --color-rosa-800: #F9B6C5;
+
+      --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.7);
+      --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+      --shadow-lift: 0 4px 12px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --color-cream-50: #151519;
+    --color-cream-100: #0B0B0D;
+    --color-cream-200: #202026;
+    --color-cream-300: #2C2C34;
+    --color-cream-400: #3A3A44;
+
+    --color-ink-50: #1A1A1F;
+    --color-ink-100: #232329;
+    --color-ink-200: #33333B;
+    --color-ink-300: #4A4A54;
+    --color-ink-400: #6E6E78;
+    --color-ink-500: #8E8E97;
+    --color-ink-600: #B8B2A9;
+    --color-ink-700: #DED8CD;
+    --color-ink-800: #EFEAE1;
+    --color-ink-900: #F7F3ED;
+
+    --color-clay-50: #2A1512;
+    --color-clay-100: #3A1B17;
+    --color-clay-200: #5C2620;
+    --color-clay-300: #8F3229;
+    --color-clay-400: #C94136;
+    --color-clay-500: #FF5B50;
+    --color-clay-600: #FF7268;
+    --color-clay-700: #FF8C83;
+    --color-clay-800: #FFA79F;
+    --color-clay-900: #FFC2BC;
+
+    --color-sage-50: #12241B;
+    --color-sage-100: #173425;
+    --color-sage-700: #8FD3B0;
+    --color-sage-800: #A9DFC3;
+    --color-honey-50: #2A1F0C;
+    --color-honey-100: #3A2B10;
+    --color-honey-700: #E9B35E;
+    --color-honey-800: #F0C179;
+    --color-honey-900: #F5D19B;
+    --color-dusk-50: #101B31;
+    --color-dusk-100: #16274A;
+    --color-dusk-600: #8DB2F7;
+    --color-dusk-700: #A8C5F9;
+    --color-rosa-50: #2B1119;
+    --color-rosa-100: #3D1723;
+    --color-rosa-600: #F58AA1;
+    --color-rosa-700: #F7A0B3;
+    --color-rosa-800: #F9B6C5;
+
+    --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.7);
+    --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-lift: 0 4px 12px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.4);
+  }
 }
 
 @layer base {
