@@ -469,10 +469,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     if (!emberInterface) return null;
     try {
       const firstJob = localStorage.getItem('teluva.firstJob');
-      if (firstJob) localStorage.removeItem('teluva.firstJob');
       return firstJob === 'week' || firstJob === 'vault' || firstJob === 'story' ? firstJob : null;
     } catch { return null; }
   });
+  useEffect(() => {
+    if (!initialFirstJob) return;
+    try { localStorage.removeItem('teluva.firstJob'); } catch { /* private browsing */ }
+  }, [initialFirstJob]);
   const toggleListCollapsed = () => {
     // Written outside the state updater: React may invoke an updater twice, and
     // a setState callback is not the place for a side effect.
