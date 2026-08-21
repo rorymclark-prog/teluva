@@ -182,7 +182,7 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
         aria-expanded={open}
         title={currentView?.label ? `Sections — you're in ${currentView.label}` : 'Sections'}
         aria-label={currentView?.label ? `Sections. Current: ${currentView.label}` : 'Sections'}
-        className="flex items-center justify-center min-w-[44px] min-h-[44px] bg-cream-200 hover:bg-cream-300 text-ink-800 rounded-2xl transition-colors cursor-pointer"
+        className="flex items-center justify-center min-w-[44px] min-h-[44px] bg-white/10 hover:bg-white/20 text-white rounded-2xl transition-colors cursor-pointer"
       >
         <Menu className="w-5 h-5 shrink-0" />
       </button>

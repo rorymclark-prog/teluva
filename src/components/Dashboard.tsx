@@ -2236,7 +2236,14 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   return (
     <div className="min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans">
       {/* Header */}
-      <header className="bg-cream-50/90 backdrop-blur border-b border-cream-200 sticky top-0 z-40">
+      {/* Ember Thread: the top bar is a deliberately FIXED dark surface, not a
+          themed one — it does not flip with light/dark mode. Same "black
+          card" move as StepHeader's v224 redesign, now the app's one
+          constant landmark instead of a surface that blends into whichever
+          theme is active. Everything inside therefore uses literal dark-
+          surface colours rather than the cream/ink tokens (which invert
+          under dark mode and would fight this bar's own fixed intent). */}
+      <header className="bg-[#0b0b0d] backdrop-blur border-b border-white/10 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
           {/* One control, not seven. The hub name IS the menu: spaces, settings,
               backup and sign-out all live behind it, the way a workspace name
@@ -2246,7 +2253,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           <div className="flex items-center gap-3 min-w-0">
             {hubAvatar}
             {demo ? (
-              <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight truncate">{hubName}</h1>
+              <h1 className="font-display text-lg font-semibold text-white leading-tight truncate">{hubName}</h1>
             ) : (
               <SpaceSwitcher
                 spaces={spaces}

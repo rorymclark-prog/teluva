@@ -181,17 +181,17 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
         disabled={busy}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex min-w-0 items-center gap-2.5 rounded-2xl -m-1 p-1 pr-2 transition-colors hover:bg-cream-200/70 cursor-pointer disabled:opacity-60"
+        className="flex min-w-0 items-center gap-2.5 rounded-2xl -m-1 p-1 pr-2 transition-colors hover:bg-white/10 cursor-pointer disabled:opacity-60 text-white"
         title="Spaces, settings and account"
       >
         {avatar ?? (busy
           ? <Loader2 className="w-4 h-4 animate-spin" />
           : <ActiveIcon className="w-4 h-4 shrink-0" />)}
-        <h1 className="font-display text-lg font-semibold text-ink-900 leading-tight truncate">
+        <h1 className="font-display text-lg font-semibold text-white leading-tight truncate">
           {title || active?.name || TYPE_LABEL[active?.type || 'family']}
         </h1>
-        {busy && avatar && <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-ink-400" />}
-        <ChevronDown className={`w-4 h-4 shrink-0 text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        {busy && avatar && <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-white/50" />}
+        <ChevronDown className={`w-4 h-4 shrink-0 text-white/50 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
