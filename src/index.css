@@ -87,13 +87,19 @@
   --color-sage-700: #1D543C;
   --color-sage-800: #17422F;
 
-  /* Honey — warning amber (no 600 step; none is used) */
+  /* Honey — warning amber.
+     600 was missing (this comment used to say "none is used") until
+     WillsEstateView's warning icon started reaching for text-honey-600 —
+     the check-colors gate is what catches that now, this ramp is exactly
+     the bug class the rest of this file's history is full of. Interpolated
+     between the existing 500/700 steps. */
   --color-honey-50: #FCF4E6;
   --color-honey-100: #F8E4C0;
   --color-honey-200: #EFC97E;
   --color-honey-300: #E9B35E;
   --color-honey-400: #E39D3D;
   --color-honey-500: #D97706;
+  --color-honey-600: #C16906;
   --color-honey-700: #A85A05;
   --color-honey-800: #8B4A04;
   --color-honey-900: #6E3B03;
