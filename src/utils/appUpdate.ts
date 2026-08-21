@@ -124,8 +124,9 @@ export function retiredAddress(host: string = window.location.host): string | nu
  * rather than assign() keeps it out of the back history.
  *
  * Caches are cleared first as a belt-and-braces measure. Today the service
- * worker deliberately caches nothing (see public/sw.js — push handlers only, no
- * fetch handler), but this is where someone will come when a future one does.
+ * worker now caches a versioned emergency shell (see public/sw.js), so clearing
+ * it here also guarantees the reload cannot revive an older shell. A family
+ * can re-verify its saved pack from Emergency after the new build opens.
  */
 export async function applyUpdate(): Promise<void> {
   try {

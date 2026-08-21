@@ -1,7 +1,7 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import {
   Flower2, Plus, Pencil, Trash2, X, Loader2, Camera, FileText,
-  Upload, ChevronRight, ImageOff,
+  Upload, ChevronRight, ImageOff, Download, Mic,
 } from 'lucide-react';
 import { DepartedRelative, DepartedDocument, DepartedDocCategory, RememberedNote, FamilyDocument } from '../types';
 import {
@@ -99,7 +99,7 @@ function toForm(p: DepartedRelative): PersonForm {
 }
 
 export default function InMemoryView({ emberMode = false }: { emberMode?: boolean }) {
-  const { canWrite } = useFamilyCtx();
+  const { canWrite, email } = useFamilyCtx();
   const [people, setPeople] = useState<DepartedRelative[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewingId, setViewingId] = useState<string | null>(null);
@@ -109,6 +109,7 @@ export default function InMemoryView({ emberMode = false }: { emberMode?: boolea
   const [photoUploading, setPhotoUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
 
   // Document add flow, used from inside the detail view.
@@ -344,6 +345,47 @@ export default function InMemoryView({ emberMode = false }: { emberMode?: boolea
     return null;
   };
 
+  const exportMemory = (person: DepartedRelative) => {
+    const lines = [
+      person.name,
+      [person.relation, bornDied(person)].filter(Boolean).join(' · '),
+      '',
+      'Remembered by the family',
+      ...person.notes.map(note => `• ${note.text}`),
+      '',
+      'Documents on file',
+      ...person.documents.map(document => `• ${document.name} (${document.category})`),
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${person.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'memory'}-keepsake.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const dictateMemory = (person: DepartedRelative) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setViewingId(person.id);
+    if (!SpeechRecognition) {
+      setVoiceNotice('Voice capture is not supported here. Type the memory in the story panel instead.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = document.documentElement.lang || navigator.language || 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    setVoiceNotice('Listening…');
+    recognition.onresult = (event: any) => {
+      setNoteDraft(event.results?.[0]?.[0]?.transcript || '');
+      setVoiceNotice('Voice captured as a draft. Review it, then choose Add.');
+    };
+    recognition.onerror = () => setVoiceNotice('Voice capture did not complete. You can type the memory instead.');
+    recognition.onend = () => setVoiceNotice(current => current === 'Listening…' ? 'No words were captured. You can type the memory instead.' : current);
+    recognition.start();
+  };
+
   const sorted = [...people].sort((a, b) => a.name.localeCompare(b.name));
   const featuredMemory = sorted[0];
 
@@ -371,7 +413,12 @@ export default function InMemoryView({ emberMode = false }: { emberMode?: boolea
             <span className="pulse-eyebrow">{bornDied(featuredMemory) || featuredMemory.relation}</span>
             <h2>{featuredMemory.name}</h2>
             <p>{featuredMemory.notes[0]?.text || `${featuredMemory.relation}, remembered in the family's own words.`}</p>
-            <button type="button" onClick={() => setViewingId(featuredMemory.id)} className="btn-primary">Open their story <ChevronRight className="h-4 w-4" /></button>
+            <div className="ember-memory-primary-actions">
+              <button type="button" onClick={() => setViewingId(featuredMemory.id)} className="btn-primary">Open their story <ChevronRight className="h-4 w-4" /></button>
+              {canWrite && <button type="button" onClick={() => dictateMemory(featuredMemory)}><Mic className="h-4 w-4" /> Tell a memory</button>}
+              <button type="button" onClick={() => exportMemory(featuredMemory)}><Download className="h-4 w-4" /> Export keepsake</button>
+            </div>
+            {voiceNotice && <small className="ember-memory-voice-status" role="status">{voiceNotice}</small>}
           </div>
           {featuredMemory.notes[1] && <blockquote>“{featuredMemory.notes[1].text}”</blockquote>}
           <div className="ember-memory-chapters">
@@ -381,7 +428,7 @@ export default function InMemoryView({ emberMode = false }: { emberMode?: boolea
               </button>
             ))}
           </div>
-          <footer><span>Stewarded by your family</span>{canWrite && <button type="button" onClick={openNewForm}>Add another life <Plus className="h-4 w-4" /></button>}</footer>
+          <footer><span>Stewarded by {email?.split('@')[0] || 'your family'}</span>{canWrite && <button type="button" onClick={openNewForm}>Add another life <Plus className="h-4 w-4" /></button>}</footer>
         </section>
       )}
 
@@ -495,6 +542,7 @@ export default function InMemoryView({ emberMode = false }: { emberMode?: boolea
               {/* Remembered things */}
               <div>
                 <p className="section-label mb-2">A few things we remember</p>
+                {voiceNotice && <p className="text-[12px] text-clay-600 mb-2" role="status">{voiceNotice}</p>}
                 {viewing.notes.length === 0 && (
                   <p className="text-[13px] text-ink-400 mb-2">Nothing recorded yet.</p>
                 )}

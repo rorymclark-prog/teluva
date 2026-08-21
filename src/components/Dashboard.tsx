@@ -383,7 +383,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const demo = isDemoMode();
   const { interfacePreference } = useAppearance();
   const emberInterface = interfacePreference === 'ember';
-  const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId, loading: ctxLoading } = useFamilyCtx();
+  const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId, uid: accountUid, loading: ctxLoading } = useFamilyCtx();
   // Wills & Estate has its own access answer, separate from role — see
   // hooks/useWillsAccess.ts and the carve-out in firestore.rules.
   const { mayRead: mayReadWills, mayWrite: mayWriteWills } = useWillsAccess();
@@ -763,6 +763,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   );
 
   const hubName = settings.hubName || (isBusinessSpace ? 'Business Hub' : 'Family Hub');
+  const emergencyPackScope = {
+    ownerUid: accountUid || (demo ? 'demo' : 'unknown-account'),
+    spaceId: activeSpaceId || (demo ? 'demo-family' : 'unknown-space'),
+    spaceName: hubName,
+  };
 
   // How to render a member's name (fun display preference)
   const memberName = (m: FamilyMember) => {
@@ -2473,7 +2478,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             moment you looked at the Info tab. */}
         {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onContactsChange={demo ? undefined : setContacts} />}
 
-        {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} emberMode={emberInterface} onExit={emberInterface ? () => setMainView('profiles') : undefined} />}
+        {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} emberMode={emberInterface} packScope={emergencyPackScope} onExit={emberInterface ? () => setMainView('profiles') : undefined} />}
 
         {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} openAddSignal={captureHouseSignal} emberMode={emberInterface} />}
 

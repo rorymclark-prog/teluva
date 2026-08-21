@@ -9,20 +9,33 @@ import {
   Phone, Heart, AlertTriangle, Pill, Activity,
   CreditCard, Leaf, Users, Briefcase, WifiOff, ArrowLeft, Download, ExternalLink, Share2, ShieldCheck
 } from 'lucide-react';
-import { loadEmergencyPack, removeEmergencyPack, saveEmergencyPack } from '../utils/emergencyPack';
+import {
+  activateEmergencyPackScope,
+  EmergencyPack,
+  EmergencyPackScope,
+  isEmergencyPackOfflineReady,
+  loadEmergencyPack,
+  markEmergencyPackVerified,
+  prepareEmergencyShell,
+  removeEmergencyPack,
+  saveEmergencyPack,
+} from '../utils/emergencyPack';
 
 interface EmergencyViewProps {
   members: FamilyMember[];
   country?: IdCountry;
   emberMode?: boolean;
   packMode?: boolean;
+  packScope?: EmergencyPackScope;
+  savedPack?: EmergencyPack;
   onExit?: () => void;
 }
 
-export default function EmergencyView({ members, country = 'AT', emberMode = false, packMode = false, onExit }: EmergencyViewProps) {
+export default function EmergencyView({ members, country = 'AT', emberMode = false, packMode = false, packScope, savedPack, onExit }: EmergencyViewProps) {
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
-  const [packSavedAt, setPackSavedAt] = useState(() => loadEmergencyPack()?.savedAt || null);
+  const [pack, setPack] = useState<EmergencyPack | null>(() => savedPack || (packScope ? loadEmergencyPack(packScope) : null));
   const [packNotice, setPackNotice] = useState<string | null>(null);
+  const [preparingPack, setPreparingPack] = useState(false);
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener('online', update);
@@ -33,6 +46,14 @@ export default function EmergencyView({ members, country = 'AT', emberMode = fal
     };
   }, []);
 
+  useEffect(() => {
+    if (!packScope || packMode) return;
+    activateEmergencyPackScope(packScope);
+    setPack(loadEmergencyPack(packScope));
+  }, [packMode, packScope?.ownerUid, packScope?.spaceId, packScope?.spaceName]);
+
+  const packReady = isEmergencyPackOfflineReady(pack);
+
   const offlineNotice = !online && (emberMode || packMode) && (
     <div className="ember-offline-emergency" role="status">
       <WifiOff className="h-4 w-4" />
@@ -40,19 +61,32 @@ export default function EmergencyView({ members, country = 'AT', emberMode = fal
     </div>
   );
 
-  const savePack = () => {
+  const savePack = async () => {
+    if (!packScope) return;
+    setPreparingPack(true);
     try {
-      const pack = saveEmergencyPack(members, country);
-      setPackSavedAt(pack.savedAt);
-      setPackNotice('Offline pack saved on this device.');
+      const saved = saveEmergencyPack(members, country, packScope);
+      setPack(saved);
+      setPackNotice('Emergency facts saved. Verifying cold-offline opening…');
+      try {
+        await prepareEmergencyShell();
+        const verified = markEmergencyPackVerified(packScope);
+        setPack(verified);
+        setPackNotice('Offline pack verified. Test it before relying on it.');
+      } catch {
+        setPackNotice('Emergency facts are saved, but cold-offline opening could not be verified. Reconnect and try again.');
+      }
     } catch {
       setPackNotice('This browser would not allow the offline pack to be saved.');
+    } finally {
+      setPreparingPack(false);
     }
   };
 
   const deletePack = () => {
-    try { removeEmergencyPack(); } catch { /* storage unavailable */ }
-    setPackSavedAt(null);
+    if (!packScope) return;
+    try { removeEmergencyPack(packScope); } catch { /* storage unavailable */ }
+    setPack(null);
     setPackNotice('Offline pack removed from this device.');
   };
 
@@ -76,7 +110,7 @@ export default function EmergencyView({ members, country = 'AT', emberMode = fal
         ? <button type="button" onClick={onExit}><ArrowLeft className="h-4 w-4" /> Back to People</button>
         : <a href="/"><ArrowLeft className="h-4 w-4" /> Back to Teluva</a>}
       <b>Teluva emergency</b>
-      <span><ShieldCheck className="h-4 w-4" />{packMode ? 'Saved pack' : packSavedAt ? 'Ready offline' : 'Live view'}</span>
+      <span><ShieldCheck className="h-4 w-4" />{packMode ? `Saved for ${savedPack?.spaceName || 'this family'}` : packReady ? `Ready offline · ${pack?.spaceName}` : pack ? 'Facts saved · verification needed' : 'Live view'}</span>
     </header>
   );
 
@@ -119,19 +153,19 @@ export default function EmergencyView({ members, country = 'AT', emberMode = fal
         <section className="ember-emergency-pack-controls">
           <div>
             <span className="pulse-eyebrow">Emergency pack · This device only</span>
-            <h2>{packSavedAt ? 'Ready to open without a signal.' : 'Make this screen available offline.'}</h2>
-            <p>Stores only the emergency facts shown here—no documents or remote photos. Anyone who can unlock this device can open the pack.</p>
+            <h2>{packReady ? 'Cold-offline opening is verified.' : pack ? 'Emergency facts saved; offline opening still needs verification.' : 'Make this screen available offline.'}</h2>
+            <p>For {packScope?.spaceName || 'this family'}, this stores only the emergency facts shown here—no documents, remote photos or hidden profile fields. Anyone who can unlock this device can open the pack.</p>
             {packNotice && <small role="status">{packNotice}</small>}
           </div>
           <div>
-            <button type="button" onClick={savePack} className="btn-primary"><Download className="h-4 w-4" />{packSavedAt ? 'Update pack' : 'Save offline pack'}</button>
-            {packSavedAt && <a href="/emergency-pack?test=1" target="_blank" rel="noreferrer" className="btn-quiet"><ExternalLink className="h-4 w-4" />Test saved pack</a>}
-            {packSavedAt && <button type="button" onClick={deletePack} className="btn-quiet">Remove</button>}
+            <button type="button" onClick={savePack} disabled={preparingPack} className="btn-primary"><Download className="h-4 w-4" />{preparingPack ? 'Verifying…' : pack ? 'Update & verify' : 'Save & verify offline pack'}</button>
+            {pack && <a href="/emergency-pack?test=1" target="_blank" rel="noreferrer" className="btn-quiet"><ExternalLink className="h-4 w-4" />Open saved pack</a>}
+            {pack && <button type="button" onClick={deletePack} className="btn-quiet">Remove</button>}
           </div>
         </section>
       )}
 
-      {packMode && <p className="ember-emergency-pack-stamp">Saved {packSavedAt ? new Date(packSavedAt).toLocaleString() : 'on this device'} · check the live app when a connection returns</p>}
+      {packMode && <p className="ember-emergency-pack-stamp">Saved for {savedPack?.spaceName || 'this family'} · {savedPack?.savedAt ? new Date(savedPack.savedAt).toLocaleString() : 'on this device'} · check the live app when a connection returns</p>}
 
       {/* Classic keeps its compact page title; Ember has the dedicated top bar. */}
       {!emberMode && !packMode && <div className="card p-5 sm:p-6">

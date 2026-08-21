@@ -15,13 +15,14 @@ import UpdateBanner from './components/UpdateBanner';
 import GlobalCopyScan from './components/GlobalCopyScan';
 import { AppearanceProvider } from './contexts/AppearanceContext';
 import EmergencyOfflinePack from './components/EmergencyOfflinePack';
+import { activateEmergencyPackScope } from './utils/emergencyPack';
 
 // ---------------------------------------------------------------------------
 // AppInner — reads FamilyContext and gates which screen to show
 // ---------------------------------------------------------------------------
 
 function AppInner() {
-  const { loading, uid, familyId, isAdmin, loadError } = useFamilyCtx();
+  const { loading, uid, familyId, isAdmin, loadError, spaces } = useFamilyCtx();
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   // FamilySettings is a SIBLING of Dashboard, and it writes the shared
   // HubSettings doc directly rather than through Dashboard's own save path.
@@ -34,12 +35,15 @@ function AppInner() {
   // it after a successful write, Dashboard re-reads on it.
   const [settingsVersion, setSettingsVersion] = React.useState(0);
 
-  // The emergency pack is explicitly saved to this device and must be able to
-  // open before auth/family networking resolves. It renders no app navigation
-  // and reads no live family data.
-  if (window.location.pathname === '/emergency-pack') {
-    return <EmergencyOfflinePack />;
-  }
+  // Point the device's pack route at the account's active space as soon as the
+  // normal app resolves it. This prevents a space/account switch from treating
+  // another family's saved pack as current. EmergencyView later refreshes the
+  // label with the live hub name when that document loads.
+  React.useEffect(() => {
+    if (loading || !uid || !familyId) return;
+    const space = spaces.find(item => item.id === familyId);
+    activateEmergencyPackScope({ ownerUid: uid, spaceId: familyId, spaceName: space?.name || 'This family' });
+  }, [loading, uid, familyId, spaces]);
 
   // 1. Auth/family resolution still in flight
   if (loading) {
@@ -107,6 +111,19 @@ function AppInner() {
 // ---------------------------------------------------------------------------
 
 export default function App() {
+  // The saved emergency route is deliberately outside auth, chat, copy-scan
+  // and update-banner facilities. It reads one explicit device pack and stays
+  // usable while those network-backed systems are unavailable.
+  if (window.location.pathname === '/emergency-pack') {
+    return (
+      <AppearanceProvider>
+        <LangProvider>
+          <EmergencyOfflinePack />
+        </LangProvider>
+      </AppearanceProvider>
+    );
+  }
+
   return (
     <AppearanceProvider>
       <LangProvider>

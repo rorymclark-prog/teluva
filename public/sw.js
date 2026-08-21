@@ -13,21 +13,29 @@
 // Activate a new SW immediately rather than waiting for every tab to close,
 // so a push-handler fix reaches devices on the next visit.
 const SHELL_CACHE = 'teluva-emergency-shell-v252';
+const SHELL_VERSION = 'v252';
+
+async function prepareEmergencyShell() {
+  const cache = await caches.open(SHELL_CACHE);
+  const response = await fetch('/', { cache: 'no-store' });
+  if (!response.ok) throw new Error(`App shell returned ${response.status}`);
+  const html = await response.clone().text();
+  const paths = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+    .map((match) => match[1])
+    .filter((path) => path.startsWith('/assets/') || path.startsWith('/icons/') || path === '/manifest.webmanifest');
+  const coreAssets = paths.filter((path) => path.startsWith('/assets/'));
+  if (!coreAssets.some((path) => path.endsWith('.js')) || !coreAssets.some((path) => path.endsWith('.css'))) {
+    throw new Error('Built app assets were not discoverable');
+  }
+  await cache.put('/', response);
+  await Promise.all([...new Set(paths)].map((path) => cache.add(path)));
+  const cached = await Promise.all(['/', ...coreAssets].map((path) => cache.match(path)));
+  if (cached.some((entry) => !entry)) throw new Error('Required app assets were not cached');
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    const cache = await caches.open(SHELL_CACHE);
-    try {
-      const response = await fetch('/');
-      if (response.ok) {
-        const html = await response.clone().text();
-        await cache.put('/', response);
-        const paths = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
-          .map((match) => match[1])
-          .filter((path) => path.startsWith('/assets/') || path.startsWith('/icons/') || path === '/manifest.webmanifest');
-        await Promise.all([...new Set(paths)].map((path) => cache.add(path).catch(() => undefined)));
-      }
-    } catch { /* online install will retry on the next service-worker update */ }
+    try { await prepareEmergencyShell(); } catch { /* explicit Save will retry and report failure */ }
     await self.skipWaiting();
   })());
 });
@@ -37,6 +45,19 @@ self.addEventListener('activate', (event) => {
     const names = await caches.keys();
     await Promise.all(names.filter((name) => name.startsWith('teluva-emergency-shell-') && name !== SHELL_CACHE).map((name) => caches.delete(name)));
     await self.clients.claim();
+  })());
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type !== 'PREPARE_EMERGENCY_SHELL') return;
+  const reply = event.ports?.[0];
+  event.waitUntil((async () => {
+    try {
+      await prepareEmergencyShell();
+      reply?.postMessage({ ok: true, version: SHELL_VERSION });
+    } catch (error) {
+      reply?.postMessage({ ok: false, version: SHELL_VERSION, error: error instanceof Error ? error.message : 'Offline preparation failed' });
+    }
   })());
 });
 

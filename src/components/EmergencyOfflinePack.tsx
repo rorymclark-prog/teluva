@@ -19,7 +19,7 @@ export default function EmergencyOfflinePack() {
 
   return (
     <main className="min-h-screen bg-cream-100 p-3 sm:p-6 font-sans ember-emergency-pack-page">
-      <EmergencyView members={pack.members} country={pack.country} emberMode packMode />
+      <EmergencyView members={pack.members} country={pack.country} emberMode packMode savedPack={pack} />
     </main>
   );
 }
