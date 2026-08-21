@@ -29,6 +29,7 @@ set -euo pipefail
 PROJECT="gen-lang-client-0384516171"
 REGION="europe-west2"
 SERVICE="teluva"
+LEGACY_SERVICE="family-info-organizer"
 REPO="europe-west2-docker.pkg.dev/${PROJECT}/cloud-run-source-deploy/${SERVICE}"
 
 # Run from the project root no matter where this was invoked from — the whole
@@ -54,6 +55,12 @@ if gcloud artifacts docker images list "$REPO" --include-tags --format='value(ta
 fi
 
 say "Shipping ${TAG}"
+
+# Keep both public service names on the same image. The rename left the legacy
+# service alive, and verifying only each service's own /version.json cannot
+# detect drift because stale code reports its own stale version consistently.
+OLD_PRIMARY_REV=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT" --format='value(status.latestReadyRevisionName)')
+OLD_LEGACY_REV=$(gcloud run services describe "$LEGACY_SERVICE" --region "$REGION" --project "$PROJECT" --format='value(status.latestReadyRevisionName)')
 
 # --- 2. Don't ship something broken ---------------------------------------
 if [ "${SKIP_CHECKS:-}" = "1" ]; then
@@ -94,25 +101,40 @@ trap 'rm -f "$TMP_YAML"' EXIT
 sed "s|${REPO}:${TAG}\$|${REPO}@${DIGEST}|" run-service.yaml > "$TMP_YAML"
 grep -q "$DIGEST" "$TMP_YAML" || die "failed to pin the image to its digest — not deploying a config I can't verify"
 
-say "Deploying to Cloud Run"
+say "Deploying ${SERVICE} to Cloud Run"
 gcloud run services replace "$TMP_YAML" --region "$REGION" --project "$PROJECT"
+
+say "Repointing ${LEGACY_SERVICE} to the same digest"
+gcloud run services update "$LEGACY_SERVICE" \
+  --image "${REPO}@${DIGEST}" \
+  --region "$REGION" \
+  --project "$PROJECT"
 
 # --- 5. Prove it ----------------------------------------------------------
 # A successful `replace` only means Cloud Run accepted the config. Ask the
 # live service what it is serving. Cloud Run can take a moment to finish
 # routing traffic to the new revision, so poll rather than checking once.
-URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT" \
-        --format='value(status.url)')
+verify_service() {
+  local target="$1"
+  local url live=""
+  url=$(gcloud run services describe "$target" --region "$REGION" --project "$PROJECT" --format='value(status.url)')
+  say "Verifying ${target} at ${url}"
+  for _ in $(seq 1 30); do
+    live=$(curl -fsS "${url}/version.json" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).label" 2>/dev/null || true)
+    if [ "$live" = "$TAG" ]; then
+      printf '\033[32m%s is live on %s\033[0m\n' "$TAG" "$target"
+      return 0
+    fi
+    sleep 5
+  done
+  die "deployed, but ${target} still reports '${live:-unknown}' rather than ${TAG}."
+}
 
-say "Verifying ${URL}"
-for _ in $(seq 1 30); do
-  LIVE=$(curl -fsS "${URL}/version.json" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).label" 2>/dev/null || true)
-  if [ "$LIVE" = "$TAG" ]; then
-    printf '\n\033[32m%s is live at %s\033[0m\n\n' "$TAG" "$URL"
-    printf 'Close the app fully on your phone and reopen it to pick it up.\n\n'
-    exit 0
-  fi
-  sleep 5
-done
+verify_service "$SERVICE"
+verify_service "$LEGACY_SERVICE"
 
-die "deployed, but ${URL} still reports '${LIVE:-unknown}' rather than ${TAG}. Check the revision in the Cloud Run console."
+printf '\nBoth Cloud Run services are on the same verified image.\n'
+printf 'If a service-level rollback is needed, route traffic back independently:\n'
+printf '  gcloud run services update-traffic %s --to-revisions=%s=100 --region %s --project %s\n' "$SERVICE" "$OLD_PRIMARY_REV" "$REGION" "$PROJECT"
+printf '  gcloud run services update-traffic %s --to-revisions=%s=100 --region %s --project %s\n' "$LEGACY_SERVICE" "$OLD_LEGACY_REV" "$REGION" "$PROJECT"
+printf '\nClose the app fully on your phone and reopen it to pick it up.\n\n'
