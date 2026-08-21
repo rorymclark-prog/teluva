@@ -186,6 +186,7 @@ export type AiEdit =
   // so the record survives that vendor being deleted. Store-and-recall only:
   // what the invoice or the user said, never a verdict ("that's overdue").
   | { kind: 'home_service'; records: { date: string; work: string; by?: string; trade?: string; area?: string; cost?: string; warrantyUntil?: string; notes?: string }[] }
+  | { kind: 'pet_health'; records: { pet?: string; date: string; what: string; type?: string; vet?: string; cost?: string; nextDue?: string; notes?: string }[] }
   // The one-line family status — the fridge whiteboard (HubSettings.status).
   // REPLACES the existing line, exactly like household_set; never appends.
   | { kind: 'hub_status'; text: string }
@@ -2986,6 +2987,15 @@ function describeEdit(e: AiEdit): string {
     const one = n === 1 ? e.records[0] : null;
     if (one) return `Log house work: ${one.work}${one.by ? ` — ${one.by}` : ''}${one.date ? ` (${one.date})` : ''}`;
     return `Add ${n} entries to the house work log`;
+  }
+  if (e.kind === 'pet_health') {
+    const n = e.records?.length || 0;
+    // Same reasoning as home_service above: "Add 1 pet record" is not something
+    // anyone can meaningfully agree to. Name the animal, because a family with
+    // two dogs is exactly who needs to check before tapping Apply.
+    const one = n === 1 ? e.records[0] : null;
+    if (one) return `${one.pet ? `${one.pet}: log` : 'Log'} ${one.what}${one.date ? ` (${one.date})` : ''}${one.nextDue ? ` · next due ${one.nextDue}` : ''}`;
+    return `Add ${n} entries to your pets’ medical history`;
   }
   if (e.kind === 'hub_status') return `Update the family status: “${e.text}”`;
   // EDIT/DELETE existing records: clear_field describes itself directly; delete/

@@ -46,6 +46,10 @@ const GROUPS: { title: string; ids: string[] }[] = [
   { title: 'Documents & IDs', ids: ['vault', 'info', 'passwords', 'drive'] },
   { title: 'Money & cover', ids: ['finances', 'insurance', 'slips', 'willsEstate'] },
   { title: 'Home & things', ids: ['household', 'vehicles', 'assets'] },
+  // Pets sit with the family, not with the boiler and the car. They were
+  // reachable only from inside Household until Rory pointed out that nobody
+  // looks for the dog under "property details".
+  { title: 'Family', ids: ['pets', 'extendedBirthdays', 'familyTree'] },
   { title: 'Memories', ids: ['timeline', 'travelTimeline', 'familyWords', 'anniversaries', 'inMemory'] },
 ];
 

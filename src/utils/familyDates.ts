@@ -9,7 +9,8 @@
 // birthdate, confirming a celebration, updating a care schedule item, adding
 // an anniversary, or tagging an event School updates the calendar
 // immediately with no second write path to keep in sync.
-import type { AnniversaryKind, AnniversaryRecord, CalendarEvent, ExtendedBirthday, FamilyMember, NameCelebration } from '../types';
+import type { AnniversaryKind, AnniversaryRecord, CalendarEvent, ExtendedBirthday, FamilyMember, NameCelebration, Pet } from '../types';
+import { isDeceased, petLabel } from './pet';
 import { daysUntilNameDay, formatNameDay } from './nameDay';
 import { resolveCelebrations, daysUntilCelebration } from './nameCelebrations';
 import { careNextDue, careDueLabel, CareStatus } from './care';
@@ -141,6 +142,71 @@ export function buildCalendarExtendedBirthdays(
   }
 
   return out.sort((a, b) => a.daysUntil - b.daysUntil || a.name.localeCompare(b.name));
+}
+
+// ---------------------------------------------------------------------------
+// Pets' birthdays
+// ---------------------------------------------------------------------------
+// Rory: "pets to alot of families are just as important as children!" A child's
+// birthday has been on this calendar since it shipped; the dog's was six flat
+// strings on the Household screen. Same next-occurrence math as the two
+// builders above, reading the household's pets instead.
+//
+// TWO THINGS THIS DOES THAT THE OTHERS DON'T:
+//   - A deceased pet produces nothing. Enforced by utils/pet.ts's isDeceased,
+//     the same gate the nudges and deadlines go through, so there is one
+//     answer to "is this animal still with us" and not three.
+//   - `estimated` is carried through, because a rescue's birthday is a vet's
+//     guess. Every surface that renders one of these must say "about 7", not
+//     "turns 7" (see petAgeLabel for the same rule stated in full).
+
+export interface CalendarPetBirthday {
+  id: string;
+  petId: string;
+  petName: string;
+  species?: string;
+  /** 'MM-DD' */
+  monthDay: string;
+  /** Next occurrence, YYYY-MM-DD — same today+daysUntil derivation as CalendarBirthday.date. */
+  date: string;
+  daysUntil: number;
+  /** The age they turn ON that occurrence. */
+  turningAge: number;
+  /** True when the birthdate is a guess, so no surface prints it as fact. */
+  estimated: boolean;
+}
+
+export function buildCalendarPetBirthdays(
+  pets: readonly Pet[],
+  now: Date = new Date(),
+): CalendarPetBirthday[] {
+  const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const out: CalendarPetBirthday[] = [];
+
+  for (const pet of pets) {
+    if (isDeceased(pet)) continue;
+    const monthDay = monthDayFromBirthdate(pet.birthdate);
+    if (!monthDay) continue;
+    const daysUntil = daysUntilNameDay(monthDay, now);
+    if (daysUntil == null) continue;
+
+    const occurrence = new Date(t0.getTime() + daysUntil * DAY_MS);
+    const birthYear = parseDateOnly(pet.birthdate)!.getFullYear();
+
+    out.push({
+      id: `pet-birthday-${pet.id}`,
+      petId: pet.id,
+      petName: petLabel(pet),
+      species: pet.species,
+      monthDay,
+      date: isoFromDate(occurrence),
+      daysUntil,
+      turningAge: occurrence.getFullYear() - birthYear,
+      estimated: !!pet.birthdateEstimated,
+    });
+  }
+
+  return out.sort((a, b) => a.daysUntil - b.daysUntil || a.petName.localeCompare(b.petName));
 }
 
 // ---------------------------------------------------------------------------

@@ -106,7 +106,7 @@ export default function FamilySettings({ onClose, onSettingsChanged }: FamilySet
   };
 
   // --- Calendar panels — per-division show/hide for the Family Calendar's
-  // eight "at a glance" panels (HubSettings.calendarDivisions). Applies to
+  // nine "at a glance" panels (HubSettings.calendarDivisions). Applies to
   // both space types (the Calendar tab itself isn't business-hidden, unlike
   // the standalone Anniversaries view). This component doesn't receive
   // settings/onSaveSettings as a prop the way FamilyCalendar/Dashboard do,
@@ -130,6 +130,7 @@ export default function FamilySettings({ onClose, onSettingsChanged }: FamilySet
     { key: 'anniversaries', label: 'Anniversaries & special days' },
     { key: 'schoolDates', label: 'School dates' },
     { key: 'vacations', label: 'Holidays & time away' },
+    { key: 'petBirthdays', label: 'Pets\u2019 birthdays', sublabel: 'Shows only once a pet on the Household screen has a birthday on file.' },
   ];
   const [calendarDivisions, setCalendarDivisions] = useState<NonNullable<HubSettings['calendarDivisions']>>({});
   const [calendarDivisionsSavingKey, setCalendarDivisionsSavingKey] = useState<CalendarDivisionKey | null>(null);
@@ -528,7 +529,7 @@ export default function FamilySettings({ onClose, onSettingsChanged }: FamilySet
           )}
 
           {/* Section 0a-ii: Calendar panels — per-division show/hide for the
-              Family Calendar's eight "at a glance" panels. Not business-gated:
+              Family Calendar's nine "at a glance" panels. Not business-gated:
               the Calendar tab itself renders in both space types. Off just
               stops a panel rendering — it never touches the underlying data. */}
           <div className="card p-5 space-y-3">

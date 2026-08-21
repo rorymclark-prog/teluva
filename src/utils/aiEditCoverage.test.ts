@@ -142,7 +142,20 @@ const MANUALLY_INCLUDED_FIELDS = ['cv'];
 // this case — could have shipped unreachable by the assistant and no test
 // would have said a word. Adding it also forces `locations` to declare itself,
 // which is how the known_gap below got written down instead of forgotten.
-const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc', 'ExtendedBirthdaysDoc', 'FamilyInfo', 'HouseholdInfo'];
+//
+// 'Pet' added 2026-08-20 while giving pets a medical history. It is not itself
+// a shared document — it is a ROW inside HouseholdInfo.pets — and that is the
+// point: scanning HouseholdInfo only proves the pets LIST is AI-writable, and
+// says nothing about the fields inside a pet. A collection one level down is
+// exactly as invisible to the assistant as a top-level one, and the scan had
+// no way to see it. `Vehicle.serviceLog` sat in that same blind spot until it
+// was given the 'service_record' kind for unrelated reasons; nothing was
+// checking. Both are declared below now.
+//
+// 'FamilyTreeDoc' added 2026-08-21 with the family tree. Listed on the day the
+// document was created rather than months later, precisely because the two
+// entries above are both records of a blind spot that was found by accident.
+const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc', 'ExtendedBirthdaysDoc', 'FamilyInfo', 'HouseholdInfo', 'Pet', 'Vehicle', 'FamilyTreeDoc'];
 
 function extractRecordFields(body: string): string[] {
   const out: string[] = [];
@@ -289,6 +302,17 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // here — this just closes the blind spot in the GUARD itself, so a future
   // field added to either doc without an edit kind gets caught the same way
   // travel.visas was.
+  // The family tree (2026-08-21). A DELIBERATE gap, not an oversight: a kin
+  // link is a claim about two people, and the two failure modes — filing a
+  // relationship against the wrong person of the same name, and a reversed
+  // parent link, which makes someone their own ancestor — are both silent and
+  // both hard to spot once saved. kinLinkProblem() refuses the reversal, but
+  // nothing can refuse "wrong Maria". Six taps in the tree screen is cheap;
+  // an assistant confidently rewriting who someone's mother is, is not.
+  'FamilyTreeDoc.links': knownGap(
+    'Kin links are entered by hand only. Matching a person by name is exactly the ambiguity a family tree cannot absorb, and a wrong parent edge is silent once saved.',
+  ),
+
   'FamilyWordsDoc.words': covered('family_word'),
   'RecipeBookDoc.recipes': covered('recipe'),
 
@@ -336,6 +360,16 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   'HouseholdInfo.vehicles': covered('list_add', 'list "vehicles"'),
   'HouseholdInfo.pets': covered('list_add', 'list "pets"'),
   'HouseholdInfo.homeServiceLog': covered('home_service'),
+
+  // Collections INSIDE a household row, one level below the lists above. Both
+  // are append-onto-an-existing-parent, which is why neither could be a
+  // list_add: the edit has to say WHICH pet or WHICH vehicle, and matching is
+  // by name (pets) or plate/VIN (vehicles). See applyPetHealthEdits for why an
+  // unmatched pet is reported rather than filed against whichever animal comes
+  // first — a vet bill on the wrong dog is worse than one that didn't save,
+  // because nobody goes looking for it.
+  'Pet.healthLog': covered('pet_health'),
+  'Vehicle.serviceLog': covered('service_record'),
   'HouseholdInfo.locations': knownGap(
     'Business-space only: the extra premises of a multi-site business, shown '
     + 'in HouseholdView behind isBusinessSpace. The assistant has no business-'

@@ -1,4 +1,4 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, WillsAccessDoc, PendingWillReader } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, KinLink, FamilyTreeDoc, WillsAccessDoc, PendingWillReader } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
@@ -1216,6 +1216,17 @@ export const saveExtendedBirthdays = (extendedBirthdays: ExtendedBirthday[], bas
 export async function loadExtendedBirthdays(): Promise<ExtendedBirthday[]> {
   const data = await loadReferenceDoc<ExtendedBirthdaysDoc>('extendedBirthdays', 'family_extended_birthdays');
   return data?.extendedBirthdays || [];
+}
+
+// --- Family tree: the kin edges. One shared doc holding a flat list of links,
+// same shape/convention as the two above. The PEOPLE are not stored here —
+// they already live in members / extendedBirthdays / inMemory, and this
+// document holds only the edges between them (see types.ts KinLink). ---
+export const saveFamilyTree = (links: KinLink[], base?: KinLink[]) =>
+  saveReferenceDoc('familyTree', { links }, 'family_tree', base ? { links: base } : undefined);
+export async function loadFamilyTree(): Promise<KinLink[]> {
+  const data = await loadReferenceDoc<FamilyTreeDoc>('familyTree', 'family_tree');
+  return data?.links || [];
 }
 
 // --- Slips ("Keep the slip"): one shared doc for the whole household, same

@@ -606,13 +606,106 @@ export interface ServiceRecord {
   notes?: string;
 }
 
+// One animal in the family.
+//
+// Rory, 2026-08-20: "pets!!!!!! yo we forgot abou pets!!!!!! name, birthday,
+// medical history so on and so on" and, when asked how far to take it, "yeah
+// pets to alot of families are just as important as children!"
+//
+// That last sentence is the specification. A pet used to hold six flat strings
+// at the bottom of the Household screen — name, species, vet, vaccinations,
+// microchip, notes — which is roughly what a rental agreement records about an
+// animal, not what a family knows about one. A child on this app gets a
+// birthday the calendar knows about, a medical history, documents, an insurer
+// and a set of reminders. A pet now gets the same shape of record.
+//
+// FIELD CHOICES, and why each earns its place rather than being "and so on":
+//   - birthdate DOES SOMETHING. It drives the age shown here and a birthday on
+//     the family calendar (utils/familyDates.ts → buildCalendarPetBirthdays),
+//     which is the whole point of "as important as children".
+//   - birthdateEstimated exists because a very large share of pets are rescues
+//     with a vet's guess for a birthday. Printing "turns 7" over a guess is the
+//     app asserting a fact nobody has. Set it and every surface says "about 7".
+//   - deceasedDate rather than deletion. Pets die and the record should not
+//     have to be destroyed to stop the reminders. A deceased pet emits NO
+//     deadlines and NO calendar birthday (see utils/pet.ts), and the family
+//     keeps the microchip number, the photos and the years.
+//   - chipRegistry, because a microchip number is useless on its own: it is a
+//     lookup key into ONE of several national databases, and the finder needs
+//     to know which. Storing the number without the registry is the same shape
+//     of half-answer as storing a policy number with no insurer.
+//   - colour is what goes on a lost-pet poster, alongside breed and the chip.
+//   - licenceExpiry / licenceNumber: dog registration (Hundeabgabe in Vienna,
+//     the dog licence elsewhere) is an annual deadline families forget exactly
+//     like a Pickerl, and it is the same reminder machinery.
+//
+// `vaccinations` is kept as LEGACY free text. It predates healthLog, existing
+// records have prose in it, and silently dropping a field that already holds a
+// family's data would delete it. New detail belongs in healthLog; the UI shows
+// the old field only when it has something in it.
 export interface Pet {
   id: string;
   name: string;
   species?: string;
-  vet?: string;
-  vaccinations?: string;
+  breed?: string;
+  sex?: string;                  // free text, not an enum — "Male (neutered)" is what people write
+  colour?: string;               // colour and markings
+  birthdate?: string;            // YYYY-MM-DD
+  birthdateEstimated?: boolean;  // rescues: a vet's guess, so never printed as fact
+  adoptedDate?: string;          // YYYY-MM-DD — the day they came home
+  deceasedDate?: string;         // YYYY-MM-DD — silences reminders, keeps the record
+
+  // --- Identification (what a vet, a shelter or a finder asks for) ---
   microchip?: string;
+  chipRegistry?: string;         // WHICH database the chip number is registered in
+  passportNumber?: string;       // EU pet passport / Heimtierausweis
+  licenceNumber?: string;        // dog registration / Hundeabgabe reference
+  licenceExpiry?: string;        // YYYY-MM-DD → renewal reminder
+
+  // --- Vet & health ---
+  vet?: string;                  // practice or vet's name
+  vetPhone?: string;
+  vetAddress?: string;
+  weight?: string;               // dosages are by weight, so this is a clinical field
+  allergies?: string;
+  conditions?: string;           // ongoing diagnoses
+  medications?: string;
+  diet?: string;                 // what and how much they are fed
+  vaccinations?: string;         // LEGACY free text — superseded by healthLog
+  nextVaccinationDue?: string;   // YYYY-MM-DD, explicit override — see nextVaccinationDate()
+  nextTreatmentDue?: string;     // YYYY-MM-DD — flea / tick / worming
+
+  // --- Insurance ---
+  insurer?: string;
+  policyNumber?: string;
+  insuranceRenewal?: string;     // YYYY-MM-DD → renewal reminder
+
+  notes?: string;
+  healthLog?: PetHealthRecord[]; // the medical history Rory asked for
+}
+
+// One dated entry in a pet's medical history — the jab, the limp, the
+// operation, the dental. Deliberately the same shape as ServiceRecord and
+// HomeServiceRecord: a family that has kept a vehicle service log already
+// knows how to read this one.
+//
+// `vet` is DENORMALISED ON PURPOSE, for the reason HomeServiceRecord.by gives:
+// "Tierklinik Hofer removed a grass seed from Buddy's paw in June 2023" stays
+// true after the family changes vet, and work done by an emergency clinic they
+// will never visit again still has to land somewhere.
+//
+// `nextDue` is the half of a vaccination card that actually matters. The card
+// says what was given AND when the next one is owed, and recording only the
+// first is why "when is the booster due?" is a question families answer by
+// hunting for a paper booklet.
+export interface PetHealthRecord {
+  id: string;
+  date: string;        // YYYY-MM-DD — when it happened
+  what: string;        // required: "Rabies booster", "limping on left hind leg"
+  type?: string;       // Vaccination | Check-up | Illness | Injury | Surgery | Dental | Parasite treatment | Other
+  vet?: string;        // who did it — denormalised, see above
+  cost?: string;
+  nextDue?: string;    // YYYY-MM-DD — when this same thing is owed again
   notes?: string;
 }
 
@@ -896,6 +989,7 @@ export interface HubSettings {
     anniversaries?: boolean;
     schoolDates?: boolean;
     vacations?: boolean;
+    petBirthdays?: boolean;
   };
 
   /**
@@ -1483,7 +1577,12 @@ export interface ExtendedBirthday {
   id: string;
   name: string;                // e.g. "Grandma Sue" or "Auntie Jo" — the family's own words
   relationship?: string;       // free text, e.g. "Grandmother", "Godfather", "Family friend"
-  date: string;                // 'MM-DD' — recurring, no year required
+  date: string;                // 'MM-DD' — recurring, no year required. May be '' for a relative
+                               // imported from a GEDCOM whose birthday nobody recorded: every
+                               // reader here goes through isValidNameDay and simply produces no
+                               // birthday, and losing the person from the family tree to satisfy
+                               // a required field would be the worse trade. The form still
+                               // insists on one — this is an import-only state.
   originalYear?: number;       // optional birth year — powers an age count, same idea as FamilyMember.birthdate/AnniversaryRecord.originalYear. Omit if not known.
   notes?: string;
   createdAt: string;           // ISO date this record was added
@@ -1491,6 +1590,65 @@ export interface ExtendedBirthday {
 
 export interface ExtendedBirthdaysDoc {
   extendedBirthdays: ExtendedBirthday[];
+}
+
+// --- Family tree ------------------------------------------------------------
+// Rory (2026-08-20): "perhaps we should have a family tree as well??"
+//
+// THE REASON THIS IS A NEW MODEL AND NOT A DERIVED VIEW: nothing already in
+// this app records who someone's parent is. `MemberRole` ('Parent' | 'Child' |
+// 'Grandparent') is a HOUSEHOLD role — it gates Babysitter Mode, clothing
+// sizes and the growth nudges — and says nothing about WHOSE parent. In a
+// house with two children, "Child" is true of both and connects neither to
+// anyone. `ExtendedBirthday.relationship` and `DepartedRelative.relation` are
+// free text written from the point of view of whoever typed them ("Oma"). None
+// of that is an edge, so a tree cannot be computed from it.
+//
+// PEOPLE COME FROM THREE STORES, and that is the whole point. A family tree
+// containing only the people currently living in this house is the opposite of
+// what a family tree is for: the grandparents are in Extended Birthdays, and
+// the great-grandparents are in In Memory. So a person is addressed by a
+// namespaced ref rather than a bare id, since ids are only unique within their
+// own store.
+export type KinPersonKind = 'member' | 'extended' | 'memory';
+
+/** `member:abc123` | `extended:abc123` | `memory:abc123` — see kinRef(). */
+export type KinRef = string;
+
+/**
+ * One edge between two people.
+ *
+ * ONLY TWO KINDS ARE STORED, and everything else is derived. Siblings are
+ * people who share a parent; grandparents are a parent's parents; cousins,
+ * aunts and generations all fall out of the same walk (see utils/kin.ts).
+ * Storing them instead would mean four ways for the same fact to disagree with
+ * itself — add a parent and the sibling list you stored last year is quietly
+ * wrong, with nothing to flag it.
+ *
+ * The edge document is deliberately NOT a field on either person. An edge is a
+ * fact about a PAIR, and these pairs routinely span two different stores (a
+ * living member and a departed grandmother); putting it on one side would make
+ * the other side's copy the stale one. This is the same reasoning as
+ * AnniversaryRecord.memberIds living on the anniversary rather than on each
+ * spouse.
+ */
+export interface KinLink {
+  id: string;
+  kind: 'parent' | 'partner';
+  /** 'parent': the PARENT. 'partner': either side — the edge is undirected. */
+  from: KinRef;
+  /** 'parent': the CHILD. 'partner': the other side. */
+  to: KinRef;
+  /** 'parent' only. Absent means birth — the ordinary case, not worth storing. */
+  via?: 'birth' | 'adoptive' | 'step' | 'foster';
+  /** 'partner' only. Absent means unstated. */
+  status?: 'married' | 'partner' | 'divorced' | 'widowed';
+  note?: string;
+  createdAt?: string;
+}
+
+export interface FamilyTreeDoc {
+  links: KinLink[];
 }
 
 // --- CV / résumé (business spaces only): the structured half of a team

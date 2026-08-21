@@ -193,7 +193,9 @@ export default function ExtendedBirthdaysView({ onChange }: { onChange?: (list: 
     const iso = nextOccurrenceIso(b.date);
     const rel = iso ? relativeDayLabel(iso, todayIso) : '';
     const age = ageLabel(b.date, b.originalYear);
-    return [formatNameDay(b.date), rel, age].filter(Boolean).join(' · ');
+    // A relative imported from a family tree may have no birthday on record.
+    // Say so, rather than leaving a blank line that reads like a broken row.
+    return [formatNameDay(b.date), rel, age].filter(Boolean).join(' · ') || 'Birthday not recorded';
   };
 
   if (loading) {

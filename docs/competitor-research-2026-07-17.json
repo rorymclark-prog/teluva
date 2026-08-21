@@ -1,0 +1,83 @@
+{
+ "missing_features": [
+  {
+   "feature": "Push notifications + reminder delivery (web push/FCM with email fallback) for expiring IDs, calendar events, chat messages, and shopping-list changes",
+   "seen_in": "Every competitor: Cozi, FamilyWall, TimeTree, Maple, OurHome, Trustworthy ('automated Reminders' is a headline feature)",
+   "why_it_matters": "This is the #1 thing reviewers will miss. Family Hub's expiry warnings and family chat only work if you happen to open the app \u2014 a chat nobody is notified about is dead on arrival, and 'we remind you before your passport expires' is only true if the reminder reaches the user. Firestore + Cloud Run makes FCM web push plus a daily email digest very feasible.",
+   "effort": "medium"
+  },
+  {
+   "feature": "Recurring events on the calendar (weekly/monthly/annual with end dates and exceptions)",
+   "seen_in": "Cozi, TimeTree, FamilyWall, Google Calendar \u2014 universal table stakes in any calendar UI",
+   "why_it_matters": "The first real event a family adds is 'soccer practice every Tuesday.' If they must re-enter it weekly, the calendar is abandoned in week two. Birthdays already imply annual recurrence, so the model is half-built.",
+   "effort": "medium"
+  },
+  {
+   "feature": "External calendar sync: subscribe-to iCal feed out, Google Calendar import/2-way sync in",
+   "seen_in": "TimeTree, Cozi, Maple, FamilyWall all import/sync external calendars; 2026 comparison articles use cross-calendar sync as a scoring criterion",
+   "why_it_matters": "Families already live in Google/Apple calendars; nobody re-types their life into a new app. A read-only iCal export URL per family is cheap and makes Family Hub's calendar visible where people already look. Without it the calendar competes with, rather than complements, their existing one.",
+   "effort": "medium"
+  },
+  {
+   "feature": "Polished invite + onboarding flow: invite by link/email with role pre-assigned, guided first-run (add members, scan first document), empty states that teach",
+   "seen_in": "All consumer family apps; Trustworthy's onboarding walks you through categories; FamilyWall/Cozi have one-tap join links",
+   "why_it_matters": "Multi-family with roles already exists in the data model, but launch success hinges on the second family member actually joining. If the admin can't send a link that lands the spouse in the right family with the right role in under a minute, retention dies at day one. Also the moment to showcase the AI scan flow.",
+   "effort": "medium"
+  },
+  {
+   "feature": "Security trust package: 2FA option, biometric/passcode re-lock before opening the passwords vault and ID documents, session re-auth, and a plain-language security/encryption statement page",
+   "seen_in": "Trustworthy (advertises 'advanced security & privacy'), 1Password, Dossier (FaceID vault lock), NordPass; digital-vault buying guides list MFA + AES-256 + access logs as must-haves",
+   "why_it_matters": "Family Hub stores passports, medical data, and passwords \u2014 the exact categories where reviewers ask 'is it encrypted, and what happens if my phone is grabbed while unlocked?' Google sign-in alone leaves the vault open behind an unlocked screen. A re-auth gate on the vault plus a credible security page is the minimum bar to be trusted with this data class; client-side encryption of the passwords vault is the stretch goal.",
+   "effort": "large"
+  },
+  {
+   "feature": "Data export / takeout: full-family ZIP+JSON export and a printable 'emergency dossier' PDF (per-member medical + contacts + IDs)",
+   "seen_in": "Trustworthy ('Download your information' on every plan), Dossier's emergency PDF export, Travel Document Vault; AARP/vault guides list export as a must-have",
+   "why_it_matters": "Two wins in one: it defuses the lock-in objection that kills trust in new vault apps ('what if this app disappears?'), and the printable emergency PDF extends the existing Emergency view to the offline, hand-it-to-the-babysitter/paramedic scenario. Cheap to build off data that is already structured.",
+   "effort": "small"
+  },
+  {
+   "feature": "Offline access to the Emergency view + PWA installability (manifest, service worker, cached emergency card)",
+   "seen_in": "Trustworthy ('mobile offline mode' on all plans), Medical ID / ICE apps (lock-screen and offline access is their whole category)",
+   "why_it_matters": "Emergency info that requires a network connection and a login fails precisely when it's needed. Caching the emergency card in a service worker and making the app installable to the home screen closes the biggest credibility gap of the Emergency feature and gets an app-like icon without app-store cost.",
+   "effort": "medium"
+  },
+  {
+   "feature": "Expiring secure share links for a single document or the emergency card (share with school, babysitter, accountant \u2014 outside the family account)",
+   "seen_in": "Trustworthy SecureLinks\u2122 (a flagship, trademarked feature); Travel Document Vault share/export",
+   "why_it_matters": "The real-world job is often 'send the insurance card to the school office' \u2014 recipients won't create accounts. Time-limited signed URLs (Firebase Storage already supports them) replicate Trustworthy's marquee premium feature at low cost and create a viral surface: every shared link advertises the app.",
+   "effort": "medium"
+  },
+  {
+   "feature": "General to-dos/chores with assignment to members (beyond the shopping list), optionally with kid-friendly points/rewards",
+   "seen_in": "OurHome (points + rewards core loop), Maple (task manager + chore tracker), Cozi (to-dos), FamilyWall",
+   "why_it_matters": "Task lists are the daily-active-use engine of every family organizer \u2014 documents and IDs are touched monthly, chores daily. Family Hub already has a 'child' role with nothing for children to do; a simple assignable-task module (points optional, later) gives the child role a purpose and a reason to open the app between document scans.",
+   "effort": "medium"
+  },
+  {
+   "feature": "Sign-in methods beyond Google: email/password (or magic link) and Sign in with Apple",
+   "seen_in": "All competitors offer email signup; Apple requires 'Sign in with Apple' for any iOS app offering third-party login",
+   "why_it_matters": "Google-only sign-in blocks the grandparent without a Google account and the iOS-heavy household, and is a hard App Store rejection if a native wrapper is ever shipped. Firebase Auth makes adding both providers configuration-plus-UI work.",
+   "effort": "small"
+  },
+  {
+   "feature": "Multiple named shopping lists with categories/aisles and real-time check-off (groceries vs pharmacy vs hardware)",
+   "seen_in": "AnyList (category/aisle sorting is its core value), Cozi (multiple lists + premade lists), FamilyWall, Maple",
+   "why_it_matters": "A single flat shopping list looks like a demo next to AnyList. Category grouping and multiple lists are small schema changes with outsized perceived polish; real-time check-off while a partner shops is the moment sync visibly 'wows'. AI could auto-categorize items as the differentiating twist.",
+   "effort": "small"
+  },
+  {
+   "feature": "App-store presence via a thin native wrapper (Capacitor) \u2014 post-launch, after PWA install is solid",
+   "seen_in": "Every competitor is on the App Store/Play Store; discovery for 'family organizer' happens almost entirely in app-store search",
+   "why_it_matters": "A web-only PWA forfeits the primary discovery channel and the perception of legitimacy for an app asking for passports and medical data. Not a launch blocker (PWA first is fine for the initial cohort), but the roadmap item that most affects growth; also unlocks reliable push on iOS.",
+   "effort": "large"
+  },
+  {
+   "feature": "Meal planning / recipe box (deliberately deferred \u2014 cover via AI instead)",
+   "seen_in": "Cozi (marquee feature), Maple, FamilyWall",
+   "why_it_matters": "It's the most common competitor feature Family Hub lacks, so reviewers doing checkbox comparisons will note it \u2014 but it's a different job-to-be-done (daily coordination) than the vault core. Rather than building a full planner pre-launch, let the AI chatbot generate a week's meals into the shopping list as a demo of the AI angle, and defer the dedicated module.",
+   "effort": "large"
+  }
+ ],
+ "positioning_notes": "The 2026 market is cleanly split into two price bands, and Family Hub straddles them \u2014 which is the opportunity. Daily-coordination apps (calendar/lists/chores) charge $0\u2013$80/yr: Cozi Gold $39/yr and Cozi Max $79.99/yr (AI), FamilyWall $4.99/mo, TimeTree ~$45/yr, Maple free tier + ~$40\u201368/yr for its AI assistant, OurHome free, AnyList ~$40/yr family. Vault/records apps charge much more: Trustworthy \u2014 the closest direct competitor and the category-definer ('Family Operating System') \u2014 runs Free (2GB) / Silver $120/yr / Gold $240/yr / Platinum $480/yr, and notably paywalls its AI auto-organization and 'ask your documents' chat at the $240/yr Gold tier; 1Password Families is $71.88/yr for credentials only. Everything with AI in this space is subscription, not one-off, and Family Hub's Gemini proxy has real per-use cost \u2014 so a one-off price is not viable; the model should be freemium (1 family, limited AI scans, capped storage) plus a single per-family (not per-seat) subscription around $50\u201370/yr, deliberately undercutting Trustworthy Gold by 3\u20134x while sitting just above Cozi. The single strongest positioning angle is the AI scan-anything-in flow: 'the family vault that fills itself' \u2014 photograph a passport, insurance letter, or utility bill and the AI files it into the right member's profile with expiry tracking, the exact capability Trustworthy charges $240/yr for, delivered at Cozi's price and in 9 languages (a genuine wedge for multilingual/immigrant and expat families, whom the US-centric incumbents ignore). Lead marketing with the scan-to-structured-data demo video; the prerequisite is closing the trust gap first (security page, vault re-lock, export), because the pitch only works if people believe the vault is safe."
+}

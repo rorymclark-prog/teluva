@@ -46,10 +46,11 @@ import type {
   CalendarBirthday,
   CalendarExtendedBirthday,
   CalendarNameCelebration,
+  CalendarPetBirthday,
 } from './familyDates';
 import { isLeapYear, nameDayOccurrenceInYear } from './nameDay';
 
-export type VirtualEventKind = 'birthday' | 'extendedBirthday' | 'nameDay' | 'anniversary';
+export type VirtualEventKind = 'birthday' | 'extendedBirthday' | 'nameDay' | 'anniversary' | 'petBirthday';
 
 export interface VirtualCalendarEvent {
   /** Unique per occurrence, e.g. 'virtual:birthday:m_12:2026-03-03'. Namespaced
@@ -123,6 +124,7 @@ export interface VirtualEventSources {
   extendedBirthdays?: readonly CalendarExtendedBirthday[];
   nameCelebrations?: readonly CalendarNameCelebration[];
   anniversaries?: readonly CalendarAnniversary[];
+  petBirthdays?: readonly CalendarPetBirthday[];
 }
 
 /**
@@ -218,6 +220,26 @@ export function buildVirtualEvents(
         date: iso,
         detail: years == null ? undefined : `${years} ${years === 1 ? 'year' : 'years'}`,
         memberIds: a.memberIds,
+      });
+    }
+  }
+
+  // Pets. `estimated` is why this is not just another copy of the birthday
+  // block: a rescue's birthday is a vet's guess, and the detail line has to say
+  // "about 7" rather than "turns 7" or the grid asserts a fact the record never
+  // claimed. buildCalendarPetBirthdays has already dropped any pet with a
+  // deceasedDate, so nothing here has to re-decide that.
+  for (const pb of sources.petBirthdays ?? []) {
+    const born = originYear(pb.date, pb.turningAge);
+    for (const iso of occurrencesInRange(pb.monthDay, startIso, endIso)) {
+      const age = born == null ? null : Number(iso.slice(0, 4)) - born;
+      out.push({
+        id: `virtual:petBirthday:${pb.petId}:${iso}`,
+        kind: 'petBirthday',
+        sourceId: pb.petId,
+        title: `${pb.petName}'s birthday`,
+        date: iso,
+        detail: age == null ? undefined : `${pb.estimated ? 'about ' : 'turns '}${age}`,
       });
     }
   }
@@ -373,6 +395,27 @@ export function buildOccasionSeries(
       repeat: 'yearly',
       description: describe(origin == null ? null : `Since ${origin}`, 'From Teluva'),
       category: 'Anniversary',
+    });
+  }
+
+  for (const pb of sources.petBirthdays ?? []) {
+    const born = originYear(pb.date, pb.turningAge);
+    const date = anchorIso(pb.monthDay, born ?? thisYear);
+    if (!date) continue;
+    out.push({
+      id: `virtual-petBirthday-${pb.petId}`,
+      kind: 'petBirthday',
+      title: `${pb.petName}'s birthday`,
+      date,
+      repeat: 'yearly',
+      // "Born about 2019" — the hedge travels with the date into the exported
+      // file, because the calendar it lands in will never know it was a guess.
+      description: describe(
+        pb.species,
+        born == null ? null : `Born ${pb.estimated ? 'about ' : ''}${born}`,
+        'From Teluva',
+      ),
+      category: 'Birthday',
     });
   }
 

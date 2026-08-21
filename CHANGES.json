@@ -1,9 +1,15 @@
 {
-  "label": "v245",
+  "label": "v250",
   "changes": [
-    "An adult's profile now has a \"Spouse or partner\" field, sitting just above the work details. It takes a name, whether or not that person is in your vault — an adult child's husband or a grandparent's late wife belong there just as much as someone already on file.",
-    "It says \"or partner\" on purpose. Plenty of people have a life partner they never married, and a vault that can only record a marriage records the wrong thing for them.",
-    "Like the work details, it appears from 18 and not before.",
-    "The assistant can fill it in when you tell it (\"my wife Maria\"), and it is told in as many words never to work one out for itself. Two adults sharing a surname, an address, or a family space are not evidence of a marriage, and a relationship it assumed and filed would be invisible to the people it was wrong about."
+    "The family tree can now read a GEDCOM file in, not just write one out. If your family is already on Ancestry, MyHeritage, FamilySearch or Gramps, export it there and bring it straight in — no retyping.",
+    "You see exactly what it will add before anything is saved: every person, where they will be filed, and every connection it found.",
+    "Anyone already in this vault is recognised by name and left exactly as they are. The file's connections attach to the record you already have, instead of making a second copy of your own grandmother.",
+    "If two people share a name, it adds neither and says so. Guessing which Maria is which is the one mistake a family tree can't recover from.",
+    "Relatives who have died go to In Memory, with their dates written the way you'd say them — \"about 1975\", \"between 1905 and 1907\" — rather than in the file's own shorthand. Anything written about them in the file is kept as a note.",
+    "Everyone else joins Extended Birthdays. An ancestor whose birthday nobody wrote down still comes in; the tree keeps them, the birthday list simply has nothing to remind you about.",
+    "Adopted, step and foster parents survive the trip, and so do marriages and divorces.",
+    "Genealogy sites blank out living people's names before letting you export. Those are left out with a note saying why, instead of arriving as a person called \"Living\".",
+    "A file that would make somebody their own grandfather has that one connection refused, with the reason, and the rest still comes in.",
+    "A file that isn't a GEDCOM, is empty, or holds a whole archive rather than a family is turned down whole — never half-imported."
   ]
 }

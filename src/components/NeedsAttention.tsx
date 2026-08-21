@@ -1,9 +1,10 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, ChevronDown, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock } from 'lucide-react';
-import { FamilyMember, AssetItem, Vehicle, ExtendedBirthday, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc, InsurancePolicy } from '../types';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, ChevronDown, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock, PawPrint } from 'lucide-react';
+import { FamilyMember, AssetItem, Vehicle, Pet, ExtendedBirthday, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc, InsurancePolicy } from '../types';
 import { careNextDue } from '../utils/care';
 import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones, loadFinances } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel, daysUntil } from '../utils/vehicle';
+import { petDeadlines, petLabel } from '../utils/pet';
 import { birthdayPhotoNudge } from '../utils/birthday';
 import { nextAnniversary, nextMilestoneAnniversary } from '../utils/businessMilestone';
 import { isReviewStale } from '../utils/willsEstate';
@@ -105,6 +106,32 @@ export function computeVehicleNudges(vehicles: Vehicle[]): Nudge[] {
       } else {
         out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days, sortDays: d.days });
       }
+    }
+  }
+  return out;
+}
+
+// Pet deadline nudges — vaccination, flea/worm treatment, insurance renewal,
+// licence. Same 42-day window and the same tone rules as the vehicle nudges
+// above, because they are the same kind of fact: a date somebody promised to
+// act on and will otherwise miss.
+//
+// petDeadlines() returns [] for a pet with a deceasedDate, which is the only
+// reason this loop doesn't need to say so itself. That gate lives in one place
+// on purpose (utils/pet.ts) — a nudge engine that has to be told separately
+// which animals are still alive will eventually be told wrong, and the failure
+// is telling a grieving family their dog's worming is overdue.
+export function computePetNudges(pets: Pet[]): Nudge[] {
+  const out: Nudge[] = [];
+  for (const p of pets) {
+    for (const d of petDeadlines(p)) {
+      if (d.days > 42) continue;
+      const name = petLabel(p);
+      const tone: Tone = d.days < 0 ? 'urgent' : 'warn';
+      const text = d.days < 0
+        ? `${name}: ${d.label.replace(/ due$/, '')} overdue`
+        : `${name}: ${d.label} ${d.days === 0 ? 'today' : `in ${d.days} days`}`;
+      out.push({ key: `pet-${p.id}-${d.kind}`, memberId: '', icon: PawPrint, tone, text, tab: 'household', view: 'household', date: d.date, days: d.days, sortDays: d.days });
     }
   }
   return out;
@@ -570,6 +597,7 @@ export default function NeedsAttention(
   const { mayRead: mayReadWills } = useWillsAccess();
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [pets, setPets] = useState<Pet[]>([]);
   const [spaceInfo, setSpaceInfo] = useState<FamilyInfoDoc | null>(null);
   const [estateRecords, setEstateRecords] = useState<EstateRecord[]>([]);
   const [slips, setSlips] = useState<SlipItem[]>([]);
@@ -582,8 +610,12 @@ export default function NeedsAttention(
       .then((a) => { if (!cancelled) setAssets(a || []); })
       .catch(() => { if (!cancelled) setAssets([]); });
     loadHousehold()
-      .then((h) => { if (!cancelled) setVehicles(h?.vehicles || []); })
-      .catch(() => { if (!cancelled) setVehicles([]); });
+      .then((h) => {
+        if (cancelled) return;
+        setVehicles(h?.vehicles || []);
+        setPets(h?.pets || []);
+      })
+      .catch(() => { if (!cancelled) { setVehicles([]); setPets([]); } });
     loadSpaceInfo()
       .then((s) => { if (!cancelled) setSpaceInfo(s); })
       .catch(() => { if (!cancelled) setSpaceInfo(null); });
@@ -634,6 +666,7 @@ export default function NeedsAttention(
     ...computeNudges(members),
     ...computeExtendedBirthdayNudges(extendedBirthdays || []),
     ...computeVehicleNudges(vehicles),
+    ...computePetNudges(pets),
     ...computeAssetNudges(assets),
     ...computeBusinessAnniversaryNudge(spaceInfo, settings),
     ...computeWorkAnniversaryNudges(members, spaceInfo, settings),

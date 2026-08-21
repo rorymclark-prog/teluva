@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { HouseholdInfo, UtilityProvider, Pet, BusinessLocation, HomeServiceRecord, HouseholdVendor, VendorTrade } from '../types';
+import { HouseholdInfo, UtilityProvider, BusinessLocation, HomeServiceRecord, HouseholdVendor, VendorTrade } from '../types';
 import { loadHousehold, saveHousehold, loadFamilyInfo } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import EmptyState from './EmptyState';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import {
-  Home, Plug, PawPrint, Plus, Trash2, Pencil, Check, X,
-  Cloud, CloudOff, MapPin, Building2, KeyRound, Info, Wrench,
+  Home, Plug, Plus, Trash2, Pencil, Check, X,
+  Cloud, CloudOff, MapPin, Building2, KeyRound, Info, Wrench, ShieldCheck,
 } from 'lucide-react';
 
 const EMPTY: HouseholdInfo = {
@@ -102,7 +102,7 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
             <p className="text-[13px] text-ink-500 font-medium">
               {isBusinessSpace
                 ? 'Business premises, access details and utilities — all in one shared place.'
-                : 'Property details, utilities, vehicles and pets — all in one shared place.'}
+                : 'Property details, utilities and the work log — all in one shared place.'}
             </p>
           </div>
         </div>
@@ -325,15 +325,10 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
       {/* Vehicles moved to their own dedicated "Vehicles" section (with inspection,
           insurance & service reminders). See VehiclesView. */}
 
-      {/* Pets — family only, no business equivalent */}
-      {!isBusinessSpace && (
-        <PetsSection
-          entries={info.pets ?? []}
-          onAdd={(p) => persist({ ...info, pets: [...(info.pets ?? []), p] })}
-          onUpdate={(p) => persist({ ...info, pets: (info.pets ?? []).map(x => x.id === p.id ? p : x) })}
-          onDelete={(id) => { if (window.confirm('Remove this pet? This can’t be undone.')) persist({ ...info, pets: (info.pets ?? []).filter(x => x.id !== id) }); }}
-        />
-      )}
+      {/* Pets have their own section (see PetsView) — they are family, not
+          household plant, and Household is where you look for a door code.
+          The DATA is still HouseholdInfo.pets, saved through this same
+          document; only the screen moved. */}
 
       {/* Footer sync status */}
       <div className="text-center">
@@ -759,121 +754,6 @@ function UtilityForm({ initial, onSave, onCancel }: {
         <input className="field" placeholder="Provider  (e.g. Wien Energie)" value={provider} onChange={e => setProvider(e.target.value)} />
       </div>
       <input className="field font-mono" placeholder="Account number" value={accountNumber} onChange={e => setAccountNumber(e.target.value)} />
-      <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
-      {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
-      <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
-        <button onClick={save} className="btn-primary text-xs px-3 py-1.5"><Check className="w-3.5 h-3.5" /> Save</button>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Pets ───────────────────────────────────────────────────────────────── */
-
-function PetsSection({ entries, onAdd, onUpdate, onDelete }: {
-  entries: Pet[];
-  onAdd: (p: Pet) => void;
-  onUpdate: (p: Pet) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [adding, setAdding] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-
-  return (
-    <section className="card p-5 space-y-4">
-      <div className="flex items-center justify-between pb-3 border-b border-cream-200">
-        <h3 className="section-label flex items-center gap-1.5"><PawPrint className="w-3.5 h-3.5" /> Pets</h3>
-        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
-          <Plus className="w-3.5 h-3.5" /> Add
-        </button>
-      </div>
-
-      {adding && (
-        <PetForm
-          onSave={(p) => { onAdd(p); setAdding(false); }}
-          onCancel={() => setAdding(false)}
-        />
-      )}
-
-      {entries.length === 0 && !adding ? (
-        <EmptyState icon={PawPrint} title="No pets yet — dogs, cats, birds, fish…" />
-      ) : (
-        <div className="space-y-2.5">
-          {entries.map(p => editId === p.id ? (
-            <div key={p.id}>
-              <PetForm
-                initial={p}
-                onSave={(upd) => { onUpdate(upd); setEditId(null); }}
-                onCancel={() => setEditId(null)}
-              />
-            </div>
-          ) : (
-            <div key={p.id} className="p-3.5 rounded-2xl border border-cream-200 bg-white flex items-start justify-between gap-3 hover:bg-cream-50 hover:border-cream-300 transition-colors">
-              <div className="min-w-0 space-y-0.5">
-                <p className="text-[14px] font-semibold text-ink-900 truncate">
-                  {p.name || 'Unnamed pet'}
-                  {p.species && <span className="chip bg-sage-100 text-sage-700 ml-2">{p.species}</span>}
-                </p>
-                {p.vet && <p className="text-[12px] text-ink-500">Vet: {p.vet}</p>}
-                {p.microchip && <p className="font-mono tabular-nums text-[11px] text-ink-400">Microchip: {p.microchip}</p>}
-                {p.vaccinations && <p className="text-[12px] text-ink-500">Vaccinations: {p.vaccinations}</p>}
-                {p.notes && <p className="text-[12px] text-ink-500">{p.notes}</p>}
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <button onClick={() => { setEditId(p.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={() => onDelete(p.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function PetForm({ initial, onSave, onCancel }: {
-  initial?: Pet;
-  onSave: (p: Pet) => void;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(initial?.name ?? '');
-  const [species, setSpecies] = useState(initial?.species ?? '');
-  const [vet, setVet] = useState(initial?.vet ?? '');
-  const [vaccinations, setVaccinations] = useState(initial?.vaccinations ?? '');
-  const [microchip, setMicrochip] = useState(initial?.microchip ?? '');
-  const [notes, setNotes] = useState(initial?.notes ?? '');
-
-  const [formError, setFormError] = useState<string | null>(null);
-  const save = () => {
-    if (!name.trim()) { setFormError('Name is required'); return; }
-    setFormError(null);
-    onSave({
-      id: initial?.id ?? newId(),
-      name: name.trim(),
-      species: species.trim() || undefined,
-      vet: vet.trim() || undefined,
-      vaccinations: vaccinations.trim() || undefined,
-      microchip: microchip.trim() || undefined,
-      notes: notes.trim() || undefined,
-    });
-  };
-
-  return (
-    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        <input autoFocus className="field" placeholder="Pet name  (e.g. Buddy)" value={name} onChange={e => setName(e.target.value)} />
-        <input className="field" placeholder="Species  (e.g. Dog, Cat, Rabbit)" value={species} onChange={e => setSpecies(e.target.value)} />
-      </div>
-      <input className="field" placeholder="Vet  (name / clinic / contact)" value={vet} onChange={e => setVet(e.target.value)} />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        <input className="field" placeholder="Vaccinations" value={vaccinations} onChange={e => setVaccinations(e.target.value)} />
-        <input className="field font-mono" placeholder="Microchip number" value={microchip} onChange={e => setMicrochip(e.target.value)} />
-      </div>
       <input className="field" placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} />
       {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">

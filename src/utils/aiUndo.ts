@@ -26,7 +26,7 @@ import type { AiEdit } from '../components/AIChatbot';
 export type UndoDomain =
   | 'member' | 'memberNested' | 'transitPass' | 'vaccination' | 'visa' | 'guardian' | 'serviceRecord'
   | 'contact' | 'number' | 'provider' | 'vendor'
-  | 'calendar' | 'vehicle' | 'pet' | 'utility' | 'homeService'
+  | 'calendar' | 'vehicle' | 'pet' | 'utility' | 'homeService' | 'petHealth'
   | 'bank' | 'insurance' | 'benefit'
   | 'timeline' | 'familyWord' | 'shopping' | 'asset' | 'recipe' | 'slip' | 'estate'
   | 'anniversary' | 'extendedBirthday'
@@ -39,7 +39,7 @@ export interface UndoRecord {
   domain: UndoDomain;
   id: string;                        // the id of the record that was created
   memberId?: string;                 // parent member (memberNested / transitPass) or document owner
-  parentId?: string;                 // parent vehicle id (serviceRecord)
+  parentId?: string;                 // parent vehicle id (serviceRecord) or pet id (petHealth)
   collection?: MemberNestedCollection; // which nested array (memberNested only)
   label: string;                     // short human summary, display-only
 }
@@ -175,6 +175,19 @@ export function diffHouseholdUndo(before: HouseholdInfo, after: HouseholdInfo): 
   // service records these need no parentId. There is only one house.
   out.push(...mapNewIds(before.homeServiceLog, after.homeServiceLog, 'homeService',
     (r: any) => [r.work || 'work', r.by].filter(Boolean).join(' — ')));
+  // Pet medical history — nested one level down, exactly like a vehicle's
+  // service records, so it needs a parentId for the same reason: undoing one
+  // entry must not touch the pet it hangs off. And, for the same reason,
+  // records added to a pet CREATED in this batch are skipped — undoing the new
+  // pet row takes its whole history with it.
+  const beforePets = new Map((before.pets || []).map((p) => [p.id, p]));
+  for (const p of after.pets || []) {
+    const prev = beforePets.get(p.id);
+    if (!prev) continue;
+    for (const rec of diffNewIds(prev.healthLog, p.healthLog)) {
+      out.push({ domain: 'petHealth', id: rec.id, parentId: p.id, label: `${(p.name || 'pet').trim()}: ${(rec as any).what || 'vet visit'}` });
+    }
+  }
   return out;
 }
 
@@ -253,6 +266,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
     case 'estate_record': return 'Wills & estate';
     case 'service_record': return 'Household · vehicle service history';
     case 'home_service': return 'Household · work done on the house';
+    case 'pet_health': return 'Household · Pets · medical history';
     // delete_record/update_record don't carry a `member` name — the person
     // (if any) is already named inside `e.label`, built by
     // annotateDestructiveEdits in aiDestructive.ts (e.g. "…from Rory's
@@ -270,6 +284,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
         contact: 'Contacts', provider: 'Providers & services', number: 'Important numbers', vendor: 'Household vendors',
         vehicle: 'Household · Vehicles', pet: 'Household · Pets', utility: 'Household · Utilities',
         home_service: 'Household · work done on the house',
+        pet_health: 'Household · Pets · medical history',
         bank: 'Finances · Banks', insurance: 'Finances · Insurance', benefit: 'Finances · Benefits',
         timeline: 'Family timeline', calendar_event: 'Calendar', slip: 'Slips', asset: 'Assets',
       };

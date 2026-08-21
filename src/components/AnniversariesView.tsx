@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { HeartHandshake, Plus, Pencil, Trash2, X, Sparkles } from 'lucide-react';
-import { AnniversaryRecord, AnniversaryKind, FamilyMember } from '../types';
-import { loadAnniversaries, saveAnniversaries } from '../utils/db';
+import { HeartHandshake, Plus, Pencil, Trash2, X, Sparkles, CalendarClock } from 'lucide-react';
+import { AnniversaryRecord, AnniversaryKind, FamilyMember, CalendarEvent } from '../types';
+import { loadAnniversaries, saveAnniversaries, loadCalendarEvents } from '../utils/db';
+import { anniversarySuggestions, AnniversarySuggestion } from '../utils/anniversarySuggestions';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -138,6 +139,10 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
   const [form, setForm] = useState<AnniversaryForm | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Read-only, purely to spot dates already sitting in the calendar. A
+  // failure here must never block the screen — the saved records are the
+  // real content and the suggestions are a bonus.
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
 
   // Two independent overlays live in this component (detail view + add/edit
   // form) — each locks background scroll only while it is itself open, same
@@ -150,6 +155,7 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
       setAnniversaries(data);
       setLoading(false);
     });
+    loadCalendarEvents().then(evs => setEvents(evs || [])).catch(() => setEvents([]));
   }, []);
 
   // Live updates from other family members, held while the form is open so a
@@ -188,6 +194,23 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
 
   const applyQuickAdd = (qa: typeof QUICK_ADDS[number]) => {
     setForm(prev => (prev ? { ...prev, title: qa.title, date: quickAddDate(qa.key), kind: 'Other' } : prev));
+  };
+
+  // ── Keeping a date the calendar already has ──
+
+  // Opens the ADD form prefilled, rather than saving straight off. The event
+  // gives a title and a month-day; what it cannot give is the promise that
+  // the date repeats, and that promise is the whole difference between a
+  // calendar entry and a record on this screen. So the family confirms it,
+  // exactly as they do for a quick-add chip.
+  //
+  // originalYear is deliberately left blank. The event's year is the year of
+  // THIS occurrence, not the year they married — prefilling it would greet
+  // them with "0 years" on their own anniversary.
+  const keepSuggestion = (s: AnniversarySuggestion) => {
+    setForm({ ...BLANK_FORM, title: s.title, date: s.monthDay, kind: 'Anniversary' });
+    setError(null);
+    setIsFormOpen(true);
   };
 
   // ── Members ──
@@ -264,6 +287,13 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
   });
   const viewing = anniversaries.find(a => a.id === viewingId) || null;
 
+  // Dates the calendar already carries that were never filed here. This is the
+  // bug the screen shipped with: FamilyCalendar merged saved records AND
+  // anniversary-shaped events, this screen saw only the records, so the one
+  // place meant to spare you hunting through the calendar was blind to what
+  // was in it.
+  const suggestions = anniversarySuggestions(events, anniversaries);
+
   const todayIso = todayIsoLocal();
 
   const dateLine = (a: AnniversaryRecord) => {
@@ -293,7 +323,11 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
             <div>
               <h2 className="font-display text-xl font-semibold text-ink-900">Anniversaries & Special Days</h2>
               <p className="text-[13px] text-ink-400 font-medium">
-                {anniversaries.length === 0 ? 'Nothing saved yet' : `${anniversaries.length} date${anniversaries.length !== 1 ? 's' : ''}`}
+                {anniversaries.length > 0
+                  ? `${anniversaries.length} date${anniversaries.length !== 1 ? 's' : ''}`
+                  : suggestions.length > 0
+                    ? `${suggestions.length} in your calendar, not saved here yet`
+                    : 'Nothing saved yet'}
               </p>
             </div>
           </div>
@@ -307,7 +341,7 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
 
         {/* List */}
         <div className="p-4 sm:p-5">
-          {anniversaries.length === 0 ? (
+          {anniversaries.length === 0 && suggestions.length === 0 ? (
             <EmptyState
               icon={HeartHandshake}
               tone="rosa"
@@ -315,6 +349,10 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
               description="Wedding anniversaries, Valentine's Day and other yearly dates — saved here so you don't have to hunt for them in the calendar"
               action={canWrite ? { label: 'Add a date', onClick: openNewForm, icon: Plus } : undefined}
             />
+          ) : anniversaries.length === 0 ? (
+            <p className="text-[13px] text-ink-500 leading-snug px-2 pb-1">
+              Nothing saved here yet — but your calendar already has {suggestions.length === 1 ? 'one of these' : 'some of these'}.
+            </p>
           ) : (
             <div className="space-y-1">
               {sorted.map(a => (
@@ -345,6 +383,41 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ── Already in the calendar, never filed here ──
+              Suggestions, not records: a calendar entry has a date but makes
+              no promise about repeating, and that promise is what this screen
+              stores. One tap opens the form prefilled; Save is still Save. */}
+          {canWrite && suggestions.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-cream-200">
+              <p className="text-[12px] font-semibold text-ink-500 uppercase tracking-wide mb-2">
+                Already in your calendar
+              </p>
+              <div className="space-y-1">
+                {suggestions.map(sg => (
+                  <button
+                    key={sg.eventId}
+                    onClick={() => keepSuggestion(sg)}
+                    className="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-lg shrink-0 bg-cream-100 flex items-center justify-center">
+                      <CalendarClock className="w-4 h-4 text-ink-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-medium text-ink-800 truncate">{sg.title}</p>
+                      <p className="text-[12px] text-ink-400">
+                        {formatNameDay(sg.monthDay)} · {relativeDayLabel(sg.eventDate, todayIso)}
+                      </p>
+                    </div>
+                    <span className="chip bg-rosa-100 text-rosa-700 shrink-0">Keep it here</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-ink-400 mt-1.5">
+                Kept here, a date comes back every year. In the calendar alone it only happens once.
+              </p>
             </div>
           )}
         </div>

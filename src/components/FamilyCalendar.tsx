@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { AnniversaryRecord, CalendarEvent, ExtendedBirthday, FamilyMember, HubSettings } from '../types';
+import { AnniversaryRecord, CalendarEvent, ExtendedBirthday, FamilyMember, HubSettings, Pet } from '../types';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import {
   Calendar, Clock, Plus, Trash2, Edit2,
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X,
   Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine, Link2,
   ChevronDown, IdCard, ShieldCheck, Cake, PartyPopper, Info, Stethoscope,
-  Heart, GraduationCap, Plane
+  Heart, GraduationCap, Plane, PawPrint
 } from 'lucide-react';
 import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken, connectGoogleAccess } from '../utils/firebase';
 import { auth } from '../lib/firebase';
@@ -32,6 +32,7 @@ import {
 import {
   buildCalendarBirthdays,
   buildCalendarExtendedBirthdays,
+  buildCalendarPetBirthdays,
   buildCalendarNameCelebrations,
   buildCalendarMedicalChecks,
   buildCalendarAnniversaries,
@@ -47,7 +48,7 @@ import { parseIcs, buildIcs } from '../utils/ics';
 import {
   CalendarFeed, mergeFeedEvents, removeFeedEvents, feedIdForUrl, describeSync, suggestFeedLabel,
 } from '../utils/calendarFeeds';
-import { loadAnniversaries, loadExtendedBirthdays } from '../utils/db';
+import { loadAnniversaries, loadExtendedBirthdays, loadHousehold } from '../utils/db';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -86,7 +87,10 @@ function dayDotClass(item: CalendarEvent | VirtualCalendarEvent, isSelected: boo
   if ('kind' in item) {
     const ring = isSelected
       ? 'border-white/80'
-      : item.kind === 'birthday' ? 'border-sage-500'
+      // A pet's birthday IS a birthday, so it shares the birthday ring rather
+      // than falling through to dusk, which means "extended birthday / name
+      // day" on this grid. At 6px a sixth hue would not be legible anyway.
+      : item.kind === 'birthday' || item.kind === 'petBirthday' ? 'border-sage-500'
         : item.kind === 'anniversary' ? 'border-rosa-500'
           : 'border-dusk-500'; // extended birthdays and name days both sit in the dusk-toned sections
     return `w-1.5 h-1.5 rounded-full border ${ring}`;
@@ -101,12 +105,13 @@ function dayDotClass(item: CalendarEvent | VirtualCalendarEvent, isSelected: boo
   return `w-1 h-1 rounded-full ${fill}`;
 }
 
-function DivisionIconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'rosa' | 'ink' | 'clay' | 'dusk' | 'honey' }) {
+function DivisionIconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'rosa' | 'ink' | 'clay' | 'dusk' | 'honey' | 'sage' }) {
   const cls =
     tone === 'rosa' ? 'bg-rosa-100 text-rosa-700'
     : tone === 'clay' ? 'bg-clay-100 text-clay-700'
     : tone === 'dusk' ? 'bg-dusk-100 text-dusk-700'
     : tone === 'honey' ? 'bg-honey-100 text-honey-700'
+    : tone === 'sage' ? 'bg-sage-100 text-sage-700'
     : 'bg-ink-100 text-ink-700';
   return (
     <span className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${cls}`}>
@@ -153,7 +158,7 @@ interface FamilyCalendarProps {
   /** Subscribed external calendars (HubSettings.calendarFeeds), owned by Dashboard. */
   calendarFeeds: CalendarFeed[];
   onSaveCalendarFeeds: (feeds: CalendarFeed[]) => void;
-  /** Per-division show/hide for the eight "at a glance" panels below (HubSettings.calendarDivisions), owned by Dashboard. */
+  /** Per-division show/hide for the nine "at a glance" panels below (HubSettings.calendarDivisions), owned by Dashboard. */
   settings: HubSettings;
 }
 
@@ -520,6 +525,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         extendedBirthdays: settings.calendarDivisions?.extendedBirthdays !== false ? extendedBirthdays : [],
         nameCelebrations: settings.calendarDivisions?.nameCelebrations !== false ? nameCelebrations : [],
         anniversaries: settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
+        petBirthdays: settings.calendarDivisions?.petBirthdays !== false ? petBirthdays : [],
       });
       const ics = buildIcs(events, 'Teluva', new Date(), occasions);
       const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
@@ -917,6 +923,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [showAllAnniversaries, setShowAllAnniversaries] = useState(false);
   const [showAllSchoolDates, setShowAllSchoolDates] = useState(false);
   const [showAllExtendedBirthdays, setShowAllExtendedBirthdays] = useState(false);
+  const [showAllPetBirthdays, setShowAllPetBirthdays] = useState(false);
   const [showAllVacations, setShowAllVacations] = useState(false);
 
   // Anniversaries & special days — unlike members/events, this isn't handed
@@ -936,6 +943,20 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   useEffect(() => {
     let cancelled = false;
     loadExtendedBirthdays().then((list) => { if (!cancelled) setExtendedBirthdayRecords(list); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Pets live on the household document, which this screen has never had a
+  // reason to read before. Loaded here rather than threaded down as a prop for
+  // the same reason extended birthdays are: the calendar is the only consumer,
+  // and every intermediate component that would have to carry the prop cares
+  // nothing about it. Failure is silent by design — no pets, no division.
+  const [pets, setPets] = useState<Pet[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    loadHousehold()
+      .then((h) => { if (!cancelled) setPets(h?.pets || []); })
+      .catch(() => { if (!cancelled) setPets([]); });
     return () => { cancelled = true; };
   }, []);
 
@@ -1200,6 +1221,17 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     [extendedBirthdayRecords],
   );
   const watchedExtendedBirthdays = extendedBirthdays.filter((b) => b.daysUntil <= OCCASION_WATCH_DAYS);
+
+  // Pets' birthdays. Rory: "pets to alot of families are just as important as
+  // children!" — and a child's birthday has been on this calendar since it
+  // shipped. buildCalendarPetBirthdays drops pets with a deceasedDate, so a
+  // family that has lost one keeps the record without being wished a happy
+  // birthday for them every year.
+  const petBirthdays = useMemo(() => buildCalendarPetBirthdays(pets), [pets]);
+  const watchedPetBirthdays = petBirthdays.filter((b) => b.daysUntil <= OCCASION_WATCH_DAYS);
+  const shownPetBirthdays = showAllPetBirthdays
+    ? petBirthdays
+    : watchedPetBirthdays.length > 0 ? watchedPetBirthdays : petBirthdays.slice(0, 1);
   const shownExtendedBirthdays = showAllExtendedBirthdays
     ? extendedBirthdays
     : watchedExtendedBirthdays.length > 0 ? watchedExtendedBirthdays : extendedBirthdays.slice(0, 1);
@@ -1237,13 +1269,14 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         extendedBirthdays: settings.calendarDivisions?.extendedBirthdays !== false ? extendedBirthdays : [],
         nameCelebrations: settings.calendarDivisions?.nameCelebrations !== false ? nameCelebrations : [],
         anniversaries: settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
+        petBirthdays: settings.calendarDivisions?.petBirthdays !== false ? petBirthdays : [],
       },
       monthStart,
       monthEnd,
     );
   }, [
     currentYear, currentMonth, daysInMonth,
-    birthdays, extendedBirthdays, nameCelebrations, anniversaries,
+    birthdays, extendedBirthdays, nameCelebrations, anniversaries, petBirthdays,
     settings.calendarDivisions,
   ]);
 
@@ -1566,6 +1599,70 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             ))}
           </div>
         )}
+      </section>
+      )}
+
+      {/* Pets' birthdays. Rory (2026-08-20): "pets!!!!!! yo we forgot abou
+          pets!!!!!!" and "pets to alot of families are just as important as
+          children!" — so the dog gets the same panel the children have had
+          since this screen shipped, immediately below the human birthdays
+          rather than tucked away at the bottom.
+          Read-only summary, like every division here — pets are added and
+          edited on the Household screen. Reads the household document
+          directly (see the loader above). Settings-gated:
+          HubSettings.calendarDivisions.petBirthdays.
+          "about 7" vs "turns 7" is not a style choice: a very large share of
+          pets are rescues whose birthday is a vet's estimate, and printing a
+          guess as fact is the app claiming something its own record doesn't. */}
+      {settings.calendarDivisions?.petBirthdays !== false && petBirthdays.length > 0 && (
+      <section className="rounded-3xl border border-sage-200 bg-sage-50 overflow-hidden">
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-sage-200/60">
+          <div className="p-2.5 rounded-2xl bg-sage-100 text-sage-700 shrink-0 self-start sm:self-auto">
+            <PawPrint className="w-5 h-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h4 className="font-display text-[16px] font-semibold text-ink-900">Pets&apos; birthdays</h4>
+              {watchedPetBirthdays.length > 0 ? (
+                <span className="chip bg-sage-100 text-sage-700">
+                  {watchedPetBirthdays.length} in the next {OCCASION_WATCH_DAYS} days
+                </span>
+              ) : (
+                <span className="chip bg-cream-200 text-ink-500">None in the next {OCCASION_WATCH_DAYS} days</span>
+              )}
+            </div>
+            <p className="text-[12.5px] text-ink-500 mt-0.5">
+              From your pets on the Household screen. Add a birthday there and it appears here and on the calendar.
+            </p>
+          </div>
+          {petBirthdays.length > shownPetBirthdays.length && (
+            <button type="button" onClick={() => setShowAllPetBirthdays(true)} className="btn-quiet text-xs shrink-0">
+              Show all {petBirthdays.length}
+            </button>
+          )}
+          {showAllPetBirthdays && petBirthdays.length > 1 && (
+            <button type="button" onClick={() => setShowAllPetBirthdays(false)} className="btn-quiet text-xs shrink-0">
+              Show upcoming
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-sage-200/60">
+          {shownPetBirthdays.map((b) => (
+            <div key={b.id} className="bg-white p-4 flex items-center gap-3 min-w-0">
+              <DivisionIconBadge icon={PawPrint} tone="sage" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13.5px] font-semibold text-ink-900 truncate">
+                  {b.petName} {b.estimated ? 'turns about' : 'turns'} {b.turningAge}
+                </p>
+                <p className="text-[11.5px] text-ink-400 tabular-nums mt-0.5">
+                  {formatIsoDateLong(b.date)}{b.species ? ` \u00b7 ${b.species}` : ''}
+                </p>
+              </div>
+              <span className="chip shrink-0 bg-sage-100 text-sage-700">{daysUntilLabel(b.daysUntil)}</span>
+            </div>
+          ))}
+        </div>
       </section>
       )}
 

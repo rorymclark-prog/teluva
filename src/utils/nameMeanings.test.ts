@@ -144,7 +144,11 @@ const server = read('server.js');
   const body = fn.slice(0, fn.indexOf('\n}\n'));
   assert.ok(/NAME_MEANING_CONFIDENCE\.has\(/.test(body), 'sanitizeNameMeaning must validate confidence against the allow-list');
   assert.ok(!/confidence\s*(=|\|\|)\s*['"]/.test(body), 'confidence must never be defaulted to a literal');
-  assert.ok(/allowedTokens/.test(body), 'sanitizeNameMeaning must reject tokens outside the server-derived allow-list');
+  // `.has(` deliberately: the slice starts at the signature, and the parameter
+  // is destructured there — `function sanitizeNameMeaning(raw, { allowedTokens })`
+  // satisfies a bare /allowedTokens/ on its own, so the guard reads as green
+  // with the rejection deleted and every token let through.
+  assert.ok(/allowedTokens\.has\(/.test(body), 'sanitizeNameMeaning must reject tokens outside the server-derived allow-list');
 }
 
 // The allow-list is split from the name SERVER-side. If the client supplied
@@ -178,8 +182,18 @@ assert.ok(
 // The prompt promises the assistant can recall meanings — a promise with no
 // code behind it is the dead-feature bug class this repo keeps re-learning.
 // Both halves must be named, and the hedge must survive into the answer.
-for (const needle of ['nameMeanings', 'surnameMeanings', 'contested']) {
-  assert.ok(server.includes(needle), `the chat system prompt must mention ${needle}`);
+{
+  // Sliced to the chat prompt itself. `contested` occurs FIVE times in
+  // server.js — in the research prompt, in the NAME_MEANING_CONFIDENCE set, in
+  // a comment — so a whole-file `includes` stays green with the hedge dropped
+  // from the one prompt this assertion names, and the assistant starts
+  // reporting a contested derivation as settled fact.
+  const at = server.indexOf('const SYSTEM_INSTRUCTION');
+  const chatPrompt = server.slice(at, server.indexOf('`;', at));
+  assert.ok(chatPrompt.length > 2000, 'the chat system prompt must still be what is being sliced');
+  for (const needle of ['nameMeanings', 'surnameMeanings', 'contested']) {
+    assert.ok(chatPrompt.includes(needle), `the chat system prompt must mention ${needle}`);
+  }
 }
 
 // --- the shared-document write --------------------------------------------

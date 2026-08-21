@@ -1,4 +1,4 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind, ExtendedBirthday, HouseholdVendor, HomeServiceRecord } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind, ExtendedBirthday, HouseholdVendor, HomeServiceRecord, PetHealthRecord } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
@@ -574,7 +574,19 @@ export function applyHouseholdEdits(h: HouseholdInfo, edits: AiEdit[]): Househol
       if (e.list === 'vehicles') {
         next = { ...next, vehicles: [...(next.vehicles || []), { id: newId(), ...e.item } as any] };
       } else if (e.list === 'pets') {
-        next = { ...next, pets: [...(next.pets || []), { id: newId(), ...e.item } as any] };
+        // list_add items are Record<string, string> — the model can only send
+        // text. Pet.birthdateEstimated is the one BOOLEAN in any of these
+        // lists, and spreading it raw would store the string "false", which is
+        // truthy: a family that told the assistant the birthday was NOT a guess
+        // would get "about 7" everywhere. Coerced here, at the one door the
+        // model's version of a pet comes through.
+        const item: Record<string, unknown> = { ...e.item };
+        if ('birthdateEstimated' in item) {
+          const raw = String(item.birthdateEstimated ?? '').trim().toLowerCase();
+          if (raw === 'true' || raw === 'yes' || raw === '1') item.birthdateEstimated = true;
+          else delete item.birthdateEstimated;
+        }
+        next = { ...next, pets: [...(next.pets || []), { id: newId(), ...item } as any] };
       } else if (e.list === 'utilities') {
         next = { ...next, utilities: [...(next.utilities || []), { id: newId(), ...e.item } as any] };
       }
@@ -997,6 +1009,89 @@ export function applyServiceRecordEdits(
     matched += recs.length;
   }
   return { vehicles: next, matched, unmatched };
+}
+
+// --- Pet medical history ---------------------------------------------------
+// The animal's version of a service log. Same shape as the two above and,
+// like the house one, nothing can fail to land in the same way a vehicle
+// service record can — except that here there IS something to match against,
+// because a family has more than one pet.
+//
+// MATCHING IS BY NAME AND MUST NOT GUESS. Pets are almost always named, the
+// name is what the family says out loud ("Buddy had his rabies jab"), and
+// there is no plate or VIN to fall back on. So the match is normalised
+// (case, spacing) but never fuzzy: a record for a pet that isn't on file is
+// returned as `unmatched` rather than dropped or filed against whichever pet
+// happens to be first. A vet bill silently attached to the wrong animal is
+// worse than one that didn't save, because nobody goes looking for it.
+//
+// The single-pet case is the exception, and a deliberate one: if the family
+// has exactly one pet and the model named nobody, the record is theirs. There
+// is no ambiguity to resolve.
+export const hasPetHealthEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'pet_health');
+
+const normPetName = (s?: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+export function applyPetHealthEdits(
+  household: HouseholdInfo,
+  edits: AiEdit[],
+): { household: HouseholdInfo; matched: number; unmatched: string[] } {
+  const pets = household.pets || [];
+  const additions = new Map<string, PetHealthRecord[]>();
+  const unmatched: string[] = [];
+  let matched = 0;
+
+  for (const e of edits) {
+    if (e.kind !== 'pet_health') continue;
+    for (const r of e.records || []) {
+      const what = (r?.what || '').trim();
+      if (!what) continue;   // an entry with nothing that happened is not a record
+
+      const named = normPetName(r.pet);
+      const hit = named
+        ? pets.find(p => normPetName(p.name) === named)
+        : (pets.length === 1 ? pets[0] : undefined);
+
+      if (!hit) {
+        unmatched.push(r.pet?.trim() || what);
+        continue;
+      }
+      matched += 1;
+
+      const rec: PetHealthRecord = {
+        id: newId(),
+        date: (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) ? r.date : new Date().toISOString().slice(0, 10),
+        what,
+        type: r.type?.trim() || undefined,
+        vet: r.vet?.trim() || undefined,
+        cost: r.cost?.trim() || undefined,
+        // A next-due date that isn't a date is not a date. Same rule the
+        // house log applies to warrantyUntil — better absent than invented.
+        nextDue: (r.nextDue && /^\d{4}-\d{2}-\d{2}$/.test(r.nextDue)) ? r.nextDue : undefined,
+        notes: r.notes?.trim() || undefined,
+      };
+      additions.set(hit.id, [...(additions.get(hit.id) || []), rec]);
+    }
+  }
+
+  if (additions.size === 0) return { household, matched, unmatched };
+
+  // Spread both the document AND each pet — HouseholdInfo is a merged shared
+  // doc, and a rebuilt-by-key pet would silently delete every field this
+  // function doesn't happen to name. That is the v236 lesson, and a pet now
+  // has twenty-five fields for it to eat.
+  return {
+    household: {
+      ...household,
+      pets: pets.map(p => (
+        additions.has(p.id)
+          ? { ...p, healthLog: [...(p.healthLog || []), ...additions.get(p.id)!] }
+          : p
+      )),
+    },
+    matched,
+    unmatched,
+  };
 }
 
 // --- House service history (what the plumber/electrician actually did) ------

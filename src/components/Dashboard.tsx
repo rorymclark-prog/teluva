@@ -42,6 +42,7 @@ import {
   hasSlipEdits, applySlipEdits,
   hasServiceRecordEdits, applyServiceRecordEdits,
   hasHomeServiceEdits, applyHomeServiceEdits,
+  hasPetHealthEdits, applyPetHealthEdits,
 } from '../utils/aiApply';
 // EDIT/DELETE existing records (confirm-before-destroy) — real logic lives here.
 import { hasDestructiveEdits, applyDestructiveEdits } from '../utils/aiDestructive';
@@ -122,7 +123,7 @@ import {
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
-  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt,
+  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt, PawPrint, Network,
   Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck, HeartHandshake, Cake} from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -151,6 +152,8 @@ const FinancesView = React.lazy(() => import('./FinancesView'));
 const InsuranceView = React.lazy(() => import('./InsuranceView'));
 const FamilyWordsView = React.lazy(() => import('./FamilyWordsView'));
 const VehiclesView = React.lazy(() => import('./VehiclesView'));
+const PetsView = React.lazy(() => import('./PetsView'));
+const FamilyTreeView = React.lazy(() => import('./FamilyTreeView'));
 const TimelineView = React.lazy(() => import('./TimelineView'));
 const TravelTimelineView = React.lazy(() => import('./TravelTimelineView'));
 const DocumentVault = React.lazy(() => import('./DocumentVault'));
@@ -212,7 +215,7 @@ function isJoinLinkVisit(): boolean {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays';
+type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -248,7 +251,7 @@ const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
 // 'emergency' is a medical/allergy/blood-type card — no business equivalent
 // exists yet (a real workplace-incident log would be a distinct feature, not
 // a relabel of this one) so it's hidden rather than mislabeled.
-const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate', 'gifts', 'anniversaries', 'extendedBirthdays'];
+const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate', 'gifts', 'anniversaries', 'extendedBirthdays', 'pets', 'familyTree'];
 
 // A persisted astrology blurb older than this is treated as stale and quietly
 // regenerated next time that member's Overview is viewed — keeps the card
@@ -264,6 +267,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'finances', icon: Landmark },
   { id: 'insurance', icon: ShieldCheck },
   { id: 'vehicles', icon: Car },
+  { id: 'pets', icon: PawPrint },
   { id: 'timeline', icon: CalendarHeart },
   { id: 'travelTimeline', icon: Globe2 },
   { id: 'vault', icon: FolderArchive },
@@ -280,6 +284,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'chat', icon: MessageCircle },
   { id: 'drive', icon: Cloud },
   { id: 'inMemory', icon: Flower2 },
+  { id: 'familyTree', icon: Network },
 ];
 
 function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
@@ -296,6 +301,8 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     assets: t.nav_assets,
     passwords: t.nav_passwords,
     familyWords: 'Family Words',
+    pets: 'Pets',
+    familyTree: 'Family tree',
     inMemory: 'In Memory',
     willsEstate: 'Wills & Estate',
     gifts: 'Gifts & Occasions',
@@ -1179,7 +1186,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       if (!ok) failures.push('calendar');
       else undo.push(...mapNewIds(events, next, 'calendar', (e) => e.title || 'event'));
     }
-    if (hasHouseholdEdits(edits) || hasServiceRecordEdits(edits) || hasHomeServiceEdits(edits)) {
+    if (hasHouseholdEdits(edits) || hasServiceRecordEdits(edits) || hasHomeServiceEdits(edits) || hasPetHealthEdits(edits)) {
       const h = (await loadHousehold()) || {};
       // The vendor directory lives in the OTHER document, and is read here for
       // one purpose only: turning "the plumber was Hofer" into a link to the
@@ -1192,7 +1199,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       // same batch exists), then append any scanned service records onto the
       // matching vehicle, then any work done on the house. One save covers all.
       const h2 = applyHomeServiceEdits(applyHouseholdEdits(h, edits), edits, vendorDirectory);
-      const { vehicles, matched, unmatched } = applyServiceRecordEdits(h2.vehicles || [], edits);
+      // Pet medical history runs AFTER applyHouseholdEdits for the same reason
+      // the service records do: "we got a puppy, Nala, and she had her first
+      // jabs today" is a list_add and a pet_health edit in one batch, and the
+      // pet has to exist before a record can be filed against her.
+      const { household: h3, matched: petMatched, unmatched: petUnmatched } = applyPetHealthEdits(h2, edits);
+      const { vehicles, matched, unmatched } = applyServiceRecordEdits(h3.vehicles || [], edits);
       // If service records named a vehicle that isn't on file AND there is
       // nothing else to save from this batch, tell the user plainly instead of
       // dropping the data. Throw BEFORE saving so a retry can't double-add
@@ -1201,7 +1213,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       if (unmatched.length && matched === 0 && !hasHouseholdEdits(edits) && !hasHomeServiceEdits(edits)) {
         throw new Error(`I couldn't find a vehicle on file matching ${unmatched.join(', ')}. Add that vehicle first (or check the plate on the document), then scan the service history again.`);
       }
-      const after = { ...h2, vehicles };
+      // Same rule for pets, and it matters more here: pets are matched by NAME
+      // alone, so a typo or a nickname is the difference between filing a vet
+      // bill and losing it. Saying so beats silently dropping it.
+      if (petUnmatched.length && petMatched === 0 && !hasHouseholdEdits(edits) && !hasHomeServiceEdits(edits) && matched === 0) {
+        throw new Error(`I couldn't find a pet on file called ${petUnmatched.join(', ')}. Add them under Household → Pets first, then tell me again and I'll file it.`);
+      }
+      const after = { ...h3, vehicles };
       const ok = await saveHousehold(after);
       if (!ok) failures.push('household');
       else undo.push(...diffHouseholdUndo(h, after));
@@ -1362,7 +1380,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       hasTimelineEdits(edits) || hasShoppingEdits(edits) || hasAssetEdits(edits) ||
       hasFamilyWordsEdits(edits) || hasRecipeEdits(edits) || hasAnniversaryEdits(edits) || hasEstateEdits(edits) || hasSlipEdits(edits) ||
       hasSuccessorEdits(edits) || hasInstructionsEdits(edits) ||
-      hasServiceRecordEdits(edits) || hasHomeServiceEdits(edits) || hasDestructiveEdits(edits)
+      hasServiceRecordEdits(edits) || hasHomeServiceEdits(edits) || hasPetHealthEdits(edits) || hasDestructiveEdits(edits)
     ) {
       setAiDataVersion(v => v + 1);
     }
@@ -1488,7 +1506,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     const vehIds = idsFor('vehicle'), petIds = idsFor('pet'), utilIds = idsFor('utility');
     const homeSvcIds = idsFor('homeService');
     const serviceRecs = records.filter(r => r.domain === 'serviceRecord');
-    if (vehIds.size || petIds.size || utilIds.size || homeSvcIds.size || serviceRecs.length) {
+    const petHealthRecs = records.filter(r => r.domain === 'petHealth');
+    if (vehIds.size || petIds.size || utilIds.size || homeSvcIds.size || serviceRecs.length || petHealthRecs.length) {
       const h = (await loadHousehold()) || {};
       tally(new Set((h.vehicles || []).map(v => v.id)), vehIds);
       tally(new Set((h.pets || []).map(p => p.id)), petIds);
@@ -1510,6 +1529,23 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       });
       // Service records whose vehicle no longer exists — count as not-found.
       for (const rm of byVeh.values()) for (const _ of rm) missing++;
+      // Pet medical-history entries, same shape one store over: keyed by the
+      // pet they hang off, and undone one entry at a time.
+      let pets = (h.pets || []).filter(p => !petIds.has(p.id));
+      const byPet = new Map<string, Set<string>>();
+      for (const r of petHealthRecs) {
+        if (!r.parentId) { missing++; continue; }
+        if (!byPet.has(r.parentId)) byPet.set(r.parentId, new Set());
+        byPet.get(r.parentId)!.add(r.id);
+      }
+      pets = pets.map(p => {
+        const rm = byPet.get(p.id);
+        if (!rm) return p;
+        tally(new Set((p.healthLog || []).map(r => r.id)), rm);
+        byPet.delete(p.id);
+        return { ...p, healthLog: (p.healthLog || []).filter(r => !rm.has(r.id)) };
+      });
+      for (const rm of byPet.values()) for (const _ of rm) missing++;
       // ...h first, and it is load-bearing: this document is three-way-merged
       // on save, so any household key not named here would be read as a
       // deletion. That is exactly how the info doc's `vendors` list was being
@@ -1517,7 +1553,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       await saveHousehold({
         ...h,
         vehicles,
-        pets: (h.pets || []).filter(p => !petIds.has(p.id)),
+        pets,
         utilities: (h.utilities || []).filter(u => !utilIds.has(u.id)),
         homeServiceLog: (h.homeServiceLog || []).filter(r => !homeSvcIds.has(r.id)),
       });
@@ -2280,7 +2316,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             members={members}
             events={events}
             onSaveEvents={handleSaveEvents}
-            // Per-division show/hide for the eight "at a glance" panels
+            // Per-division show/hide for the nine "at a glance" panels
             // (HubSettings.calendarDivisions) — same shared settings doc as
             // every toggle on this screen; FamilySettings writes it, this
             // is just the read side.
@@ -2338,6 +2374,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
         {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
         {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} canUseAI={canUseAI} />}
+        {mainView === 'pets' && <PetsView refreshKey={aiDataVersion} />}
+        {mainView === 'familyTree' && <FamilyTreeView refreshKey={aiDataVersion} />}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
 
