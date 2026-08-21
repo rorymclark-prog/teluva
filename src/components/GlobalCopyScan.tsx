@@ -382,8 +382,8 @@ export default function GlobalCopyScan() {
                   style={{
                     left: r.right - 22,
                     top: r.top + 4,
-                    background: isSelected ? '#c2703a' : '#fff',
-                    borderColor: isSelected ? '#c2703a' : '#d6cec2',
+                    background: isSelected ? 'var(--color-clay-600)' : 'var(--color-cream-50)',
+                    borderColor: isSelected ? 'var(--color-clay-600)' : 'var(--color-cream-400)',
                   }}
                 >
                   {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
