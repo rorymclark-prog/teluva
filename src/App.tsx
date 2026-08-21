@@ -13,6 +13,7 @@ import AccountLoadError from './components/AccountLoadError';
 import FamilySettings from './components/FamilySettings';
 import UpdateBanner from './components/UpdateBanner';
 import GlobalCopyScan from './components/GlobalCopyScan';
+import { AppearanceProvider } from './contexts/AppearanceContext';
 
 // ---------------------------------------------------------------------------
 // AppInner — reads FamilyContext and gates which screen to show
@@ -99,14 +100,16 @@ function AppInner() {
 
 export default function App() {
   return (
-    <LangProvider>
-      <FamilyProvider>
-        <ChatDraftProvider>
-          <AppInner />
-          <GlobalCopyScan />
-        </ChatDraftProvider>
-      </FamilyProvider>
-      <UpdateBanner />
-    </LangProvider>
+    <AppearanceProvider>
+      <LangProvider>
+        <FamilyProvider>
+          <ChatDraftProvider>
+            <AppInner />
+            <GlobalCopyScan />
+          </ChatDraftProvider>
+        </FamilyProvider>
+        <UpdateBanner />
+      </LangProvider>
+    </AppearanceProvider>
   );
 }

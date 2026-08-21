@@ -117,6 +117,11 @@ import CelebrationOverlay from './CelebrationOverlay';
 import InstallPrompt from './InstallPrompt';
 import FirstRunTour from './FirstRunTour';
 import FamilyInterview from './FamilyInterview';
+import AppearanceControls from './AppearanceControls';
+import EmberNavigation, { EmberDestination } from './EmberNavigation';
+import FamilyPulse, { PulseExpiryWarning } from './FamilyPulse';
+import CaptureMenu from './CaptureMenu';
+import { useAppearance } from '../contexts/AppearanceContext';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
@@ -215,7 +220,7 @@ function isJoinLinkVisit(): boolean {
 }
 
 type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians';
-type ViewId = 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree';
+type ViewId = 'pulse' | 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -363,6 +368,8 @@ interface DashboardProps {
 
 export default function Dashboard({ familySettingsButton, settingsVersion = 0 }: DashboardProps = {}) {
   const demo = isDemoMode();
+  const { interfacePreference } = useAppearance();
+  const emberInterface = interfacePreference === 'ember';
   const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId, loading: ctxLoading } = useFamilyCtx();
   // Wills & Estate has its own access answer, separate from role — see
   // hooks/useWillsAccess.ts and the carve-out in firestore.rules.
@@ -454,6 +461,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   };
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isCaptureOpen, setIsCaptureOpen] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [showMemberCalendar, setShowMemberCalendar] = useState(false);
   const [settings, setSettings] = useState<HubSettings>({});
@@ -463,7 +471,16 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [selectedDocumentMemberName, setSelectedDocumentMemberName] = useState<string>('');
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
 
-  const [mainView, setMainView] = useState<ViewId>('profiles');
+  const [mainView, setMainView] = useState<ViewId>(() => emberInterface ? 'pulse' : 'profiles');
+
+  // Switching presentation systems never reloads or rewrites family data.
+  // It only chooses which already-mounted entry surface is visible.
+  const previousInterface = useRef(interfacePreference);
+  useEffect(() => {
+    if (previousInterface.current === interfacePreference) return;
+    previousInterface.current = interfacePreference;
+    setMainView(interfacePreference === 'ember' ? 'pulse' : 'profiles');
+  }, [interfacePreference]);
 
   // Switching section must put you at the TOP of the new one.
   //
@@ -2034,22 +2051,22 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   // Renewal notices across passports, permits, licenses and visas (real date)
   const expiryWarnings = (() => {
     const today = new Date();
-    const items: { memberName: string; label: string; monthsLeft: number; status: 'expired' | 'critical' }[] = [];
-    const consider = (memberName: string, label: string, dateStr?: string, horizonMonths = 9) => {
+    const items: PulseExpiryWarning[] = [];
+    const consider = (memberId: string, memberName: string, label: string, dateStr?: string, horizonMonths = 9) => {
       if (!dateStr) return;
       const expiry = new Date(dateStr);
       if (isNaN(expiry.getTime())) return;
       const diffTime = expiry.getTime() - today.getTime();
       const monthsLeft = Number((Math.ceil(diffTime / (1000 * 60 * 60 * 24)) / 30.4375).toFixed(1));
-      if (diffTime < 0) items.push({ memberName, label, monthsLeft, status: 'expired' });
-      else if (monthsLeft <= horizonMonths) items.push({ memberName, label, monthsLeft, status: 'critical' });
+      if (diffTime < 0) items.push({ memberId, memberName, label, monthsLeft, status: 'expired' });
+      else if (monthsLeft <= horizonMonths) items.push({ memberId, memberName, label, monthsLeft, status: 'critical' });
     };
     members.forEach(m => {
-      consider(m.name, 'passport', m.passport?.expiryDate);
-      (m.passports || []).forEach(p => consider(m.name, `${p.country || ''} passport`.trim(), p.expiryDate));
-      consider(m.name, 'residence permit', m.identity?.residencePermitExpiry);
-      consider(m.name, "driver's license", m.identity?.driversLicenseExpiry);
-      (m.travel?.visas || []).forEach(v => consider(m.name, `${v.country || ''} visa`.trim(), v.expiryDate, 6));
+      consider(m.id, m.name, 'passport', m.passport?.expiryDate);
+      (m.passports || []).forEach(p => consider(m.id, m.name, `${p.country || ''} passport`.trim(), p.expiryDate));
+      consider(m.id, m.name, 'residence permit', m.identity?.residencePermitExpiry);
+      consider(m.id, m.name, "driver's license", m.identity?.driversLicenseExpiry);
+      (m.travel?.visas || []).forEach(v => consider(m.id, m.name, `${v.country || ''} visa`.trim(), v.expiryDate, 6));
     });
     return items;
   })();
@@ -2208,6 +2225,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
       {familySettingsButton}
 
+      <div className="px-3 py-2">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-ink-400">Appearance</p>
+        <AppearanceControls compact />
+      </div>
+
       <button type="button" onClick={handleExportAllData} disabled={exportingBackup} className={`${menuRow} disabled:opacity-50`}>
         {exportingBackup ? <Loader2 className="w-4 h-4 shrink-0 animate-spin" /> : <Download className="w-4 h-4 shrink-0" />}
         <span className="flex-1 text-left">{exportingBackup ? 'Preparing backup…' : 'Download a backup'}</span>
@@ -2234,7 +2256,15 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   ) : null;
 
   return (
-    <div className="min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans">
+    <div className={`min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans ${emberInterface ? 'ember-app' : ''}`}>
+      {emberInterface && (
+        <EmberNavigation
+          current={mainView}
+          onSelect={(destination: EmberDestination) => setMainView(destination as ViewId)}
+          onAsk={() => setAssistantOpenSignal((n) => n + 1)}
+          onCapture={() => setIsCaptureOpen(true)}
+        />
+      )}
       {/* Header */}
       {/* Ember Thread: the top bar is a deliberately FIXED dark surface, not a
           themed one — it does not flip with light/dark mode. Same "black
@@ -2243,7 +2273,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           theme is active. Everything inside therefore uses literal dark-
           surface colours rather than the cream/ink tokens (which invert
           under dark mode and would fight this bar's own fixed intent). */}
-      <header className="bg-[#0b0b0d] backdrop-blur border-b border-white/10 sticky top-0 z-40">
+      <header className={`bg-[#0b0b0d] backdrop-blur border-b border-white/10 sticky top-0 z-40 ${emberInterface ? 'ember-header' : ''}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
           {/* One control, not seven. The hub name IS the menu: spaces, settings,
               backup and sign-out all live behind it, the way a workspace name
@@ -2312,7 +2342,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
+      <main className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6 ${emberInterface ? 'ember-main' : ''}`}>
         {/* Suspense wraps every lazy-loaded mainView branch below — see the
             React.lazy declarations near the top of this file for why. It also
             wraps 'profiles' further down, harmlessly: nothing inside that
@@ -2450,6 +2480,19 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
         {mainView === 'passwords' && (
           demo ? <DemoUnavailable label="Family passwords" /> : <FamilyPasswords />
+        )}
+
+        {mainView === 'pulse' && (
+          <FamilyPulse
+            members={members}
+            events={events}
+            status={settings.status}
+            familyPhotoUrl={settings.familyPhotoUrl}
+            expiryWarnings={expiryWarnings}
+            onOpenCalendar={() => setMainView('calendar')}
+            onOpenMemberIds={(memberId) => goToMemberTab(memberId, 'ids')}
+            onOpenPeople={() => setMainView('profiles')}
+          />
         )}
 
         {mainView === 'profiles' && (
@@ -2986,6 +3029,16 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           setSelectedDocumentMemberName('');
         }}
       />
+
+      {emberInterface && (
+        <CaptureMenu
+          open={isCaptureOpen}
+          onClose={() => setIsCaptureOpen(false)}
+          onAddPerson={() => setIsAddModalOpen(true)}
+          onPlan={() => setMainView('calendar')}
+          onOpenVault={() => setMainView('vault')}
+        />
+      )}
 
       <AddMemberModal
         isOpen={isAddModalOpen}

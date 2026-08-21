@@ -12,3 +12,8 @@
 // env var) — both must be on for the feature to work, so flipping this const
 // alone does nothing until the server flag is also set.
 export const INSURANCE_READER_ENABLED = false;
+
+// Ember Thread is the 2027 shell and Family Pulse experience. The classic
+// dashboard remains compiled and can be selected instantly from Appearance,
+// so this is a reversible presentation rollout rather than a data migration.
+export const EMBER_THREAD_ENABLED = true;

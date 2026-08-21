@@ -18,6 +18,21 @@
     <meta name="theme-color" content="#EA5A3B" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Teluva" />
+    <!-- Appearance is applied before React and CSS paint. This prevents a
+         bright frame when a returning reader uses dark mode and also keeps
+         the Classic/Ember rollback preference stable across reloads. -->
+    <script>
+      try {
+        var theme = localStorage.getItem('teluva.theme') || 'system';
+        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var ui = localStorage.getItem('teluva.interface') || 'ember';
+        var requestedUi = new URLSearchParams(window.location.search).get('ui');
+        if (requestedUi === 'classic' || requestedUi === 'ember') ui = requestedUi;
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        document.documentElement.dataset.interface = ui;
+        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      } catch (e) { /* private mode — light Ember defaults */ }
+    </script>
     <!-- Text size, applied before the first paint. It has to run here rather
          than in React: the app's own bundle loads after the first frame, so a
          reader on the largest size would otherwise watch the whole screen
@@ -45,4 +60,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
