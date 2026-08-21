@@ -355,7 +355,7 @@ export default function InMemoryView() {
   }
 
   return (
-    <div className="max-w-lg">
+    <div className="max-w-lg ember-memory-screen">
       <input ref={photoFileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoFileChange} />
 
       {/* Header card */}
@@ -381,7 +381,7 @@ export default function InMemoryView() {
         </div>
 
         {/* List */}
-        <div className="p-4 sm:p-5">
+        <div className="p-4 sm:p-5 ember-memory-list">
           {people.length === 0 ? (
             <EmptyState
               icon={Flower2}
@@ -390,12 +390,12 @@ export default function InMemoryView() {
               action={canWrite ? { label: 'Add someone', onClick: openNewForm, icon: Plus } : undefined}
             />
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-1 ember-memory-grid">
               {sorted.map(p => (
                 <div
                   key={p.id}
                   onClick={() => setViewingId(p.id)}
-                  className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors cursor-pointer"
+                  className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors cursor-pointer ember-memory-person"
                 >
                   {p.photoUrl ? (
                     <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-cream-100 ring-1 ring-cream-200">

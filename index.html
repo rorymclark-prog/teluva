@@ -31,7 +31,14 @@
         document.documentElement.dataset.theme = dark ? 'dark' : 'light';
         document.documentElement.dataset.interface = ui;
         document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-      } catch (e) { /* private mode — light Ember defaults */ }
+      } catch (e) {
+        /* Storage can be denied in strict/private contexts. Paint the safe
+           default explicitly instead of leaving the document un-themed until
+           React mounts. */
+        document.documentElement.dataset.theme = 'light';
+        document.documentElement.dataset.interface = 'ember';
+        document.documentElement.style.colorScheme = 'light';
+      }
     </script>
     <!-- Text size, applied before the first paint. It has to run here rather
          than in React: the app's own bundle loads after the first frame, so a

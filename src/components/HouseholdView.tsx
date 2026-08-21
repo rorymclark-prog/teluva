@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HouseholdInfo, UtilityProvider, BusinessLocation, HomeServiceRecord, HouseholdVendor, VendorTrade } from '../types';
 import { loadHousehold, saveHousehold, loadFamilyInfo } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
@@ -44,9 +44,11 @@ const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 interface HouseholdViewProps {
   isBusinessSpace?: boolean;
   refreshKey?: number;
+  openAddSignal?: number;
+  emberMode?: boolean;
 }
 
-export default function HouseholdView({ isBusinessSpace, refreshKey }: HouseholdViewProps) {
+export default function HouseholdView({ isBusinessSpace, refreshKey, openAddSignal = 0, emberMode = false }: HouseholdViewProps) {
   const [info, setInfo] = useState<HouseholdInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -107,6 +109,21 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
           </div>
         </div>
       </div>
+
+      {emberMode && (
+        <section className="ember-house-scene">
+          <div>
+            <span className="pulse-eyebrow">{isBusinessSpace ? 'Main place' : 'Our home'}</span>
+            <h2>{info.address?.split('\n')[0] || (isBusinessSpace ? 'The main location' : 'Home base')}</h2>
+            <p>{info.homeServiceLog?.length ? 'The practical history is here when somebody needs to step in.' : 'Start with one useful detail; the home record can grow slowly.'}</p>
+          </div>
+          <div className="ember-house-vitals">
+            <span><b>{info.utilities?.length || 0}</b><small>utilities connected</small></span>
+            <span><b>{info.homeServiceLog?.length || 0}</b><small>jobs remembered</small></span>
+            <span><b>{info.wifiName ? 'Ready' : 'Open'}</b><small>home network record</small></span>
+          </div>
+        </section>
+      )}
 
       {/* Property */}
       <section className="card p-5 space-y-4">
@@ -305,6 +322,7 @@ export default function HouseholdView({ isBusinessSpace, refreshKey }: Household
       {/* Utilities */}
       <UtilitiesSection
         entries={info.utilities ?? []}
+        openAddSignal={openAddSignal}
         onAdd={(u) => persist({ ...info, utilities: [...(info.utilities ?? []), u] })}
         onUpdate={(u) => persist({ ...info, utilities: (info.utilities ?? []).map(x => x.id === u.id ? u : x) })}
         onDelete={(id) => { if (window.confirm('Remove this utility? This can’t be undone.')) persist({ ...info, utilities: (info.utilities ?? []).filter(x => x.id !== id) }); }}
@@ -460,17 +478,26 @@ function LocationForm({ initial, onSave, onCancel }: {
 
 /* ─── Utilities ─────────────────────────────────────────────────────────── */
 
-function UtilitiesSection({ entries, onAdd, onUpdate, onDelete }: {
+function UtilitiesSection({ entries, openAddSignal = 0, onAdd, onUpdate, onDelete }: {
   entries: UtilityProvider[];
+  openAddSignal?: number;
   onAdd: (u: UtilityProvider) => void;
   onUpdate: (u: UtilityProvider) => void;
   onDelete: (id: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!openAddSignal) return;
+    setAdding(true);
+    setEditId(null);
+    requestAnimationFrame(() => sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  }, [openAddSignal]);
 
   return (
-    <section className="card p-5 space-y-4">
+    <section ref={sectionRef} className="card p-5 space-y-4">
       <div className="flex items-center justify-between pb-3 border-b border-cream-200">
         <h3 className="section-label flex items-center gap-1.5"><Plug className="w-3.5 h-3.5" /> Utilities</h3>
         <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">

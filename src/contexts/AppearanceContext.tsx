@@ -67,6 +67,14 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 
   const setInterfacePreference = (next: InterfacePreference) => {
     try { localStorage.setItem(INTERFACE_KEY, next); } catch { /* private mode */ }
+    // An explicit preview URL is useful until the reader makes a choice. Once
+    // they do, remove only that override so their rollback preference survives
+    // reloads while every unrelated query parameter stays intact.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('ui')) {
+      url.searchParams.delete('ui');
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    }
     setInterfaceState(next);
   };
 

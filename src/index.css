@@ -990,7 +990,7 @@ html[data-interface="ember"] body {
 .pulse-people button { display: flex; align-items: center; gap: .35rem; color: var(--ember-action); font-size: .72rem; font-weight: 800; cursor: pointer; }
 
 .capture-backdrop { position: fixed; z-index: 90; inset: 0; padding: 1rem; display: grid; place-items: center; background: rgba(8, 8, 10, .62); backdrop-filter: blur(10px); }
-.capture-sheet { width: min(42rem, 100%); padding: 1.4rem; color: var(--ember-text); background: var(--ember-raised); border: 1px solid var(--ember-line); border-radius: 1.6rem; box-shadow: 0 32px 90px rgba(0, 0, 0, .35); }
+.capture-sheet { width: min(42rem, 100%); max-height: calc(100dvh - 2rem); padding: 1.4rem; overflow-y: auto; overscroll-behavior: contain; color: var(--ember-text); background: var(--ember-raised); border: 1px solid var(--ember-line); border-radius: 1.6rem; box-shadow: 0 32px 90px rgba(0, 0, 0, .35); }
 .capture-sheet > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .capture-sheet h2 { margin-top: .35rem; font-size: clamp(1.45rem, 4vw, 2.1rem); font-weight: 800; letter-spacing: -.05em; }
 .capture-sheet > header p { max-width: 34rem; margin-top: .45rem; color: var(--ember-muted); font-size: .72rem; line-height: 1.5; }
@@ -1083,7 +1083,8 @@ html[data-interface="ember"] body {
 
 [data-interface="ember"] .ember-main[data-view="vehicles"] > .max-w-lg,
 [data-interface="ember"] .ember-main[data-view="insurance"] > .max-w-lg,
-[data-interface="ember"] .ember-main[data-view="willsEstate"] > .max-w-lg { max-width: none; }
+[data-interface="ember"] .ember-main[data-view="willsEstate"] > .max-w-lg,
+[data-interface="ember"] .ember-main[data-view="inMemory"] > .max-w-lg { max-width: none; }
 
 [data-interface="ember"] .ember-main[data-view="vehicles"] > .max-w-lg > .card:first-of-type,
 [data-interface="ember"] .ember-main[data-view="insurance"] > .max-w-lg > .card:first-of-type {
@@ -1130,6 +1131,7 @@ html[data-interface="ember"] body {
 .ember-person-card.ring-1 { background: color-mix(in srgb, var(--ember-action) 9%, var(--ember-raised)) !important; border-color: color-mix(in srgb, var(--ember-action) 32%, transparent) !important; }
 .ember-person-card .avatar-ring { box-shadow: 0 8px 20px -12px rgba(0,0,0,.45); }
 .ember-person-card .w-9.h-9 { width: 3rem; height: 3rem; }
+.ember-person-card small { max-width: 13rem; }
 .ember-living-profile > .card { overflow: hidden; background: var(--ember-raised); border-color: var(--ember-line); }
 .ember-profile-hero {
   padding: clamp(1.25rem, 3vw, 2.1rem);
@@ -1163,7 +1165,31 @@ html[data-interface="ember"] body {
 .ember-profile-subtabs button.is-active { color: #FFF9F6; background: rgba(255,91,80,.16); }
 .ember-profile-subtabs button.is-active svg { color: var(--ember-action); }
 
+.ember-story-chapter { min-height: 4.5rem; margin: 1.2rem 0 .4rem; padding-left: 2.6rem; display: flex; align-items: baseline; gap: .7rem; }
+.ember-story-chapter span { color: var(--ember-text); font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 820; letter-spacing: -.07em; }
+.ember-story-chapter i { color: var(--ember-muted); font-size: .62rem; font-style: normal; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.ember-offline-emergency { min-height: 4rem; padding: .8rem 1rem; display: flex; align-items: center; gap: .7rem; color: #FFF9F6; background: #8F1724; border: 1px solid rgba(255,255,255,.14); border-radius: 1rem; box-shadow: 0 12px 30px -18px rgba(143,23,36,.8); }
+.ember-offline-emergency > span { display: grid; }
+.ember-offline-emergency b { font-size: .72rem; }
+.ember-offline-emergency small { margin-top: .1rem; color: rgba(255,249,246,.72); font-size: .62rem; }
+
+.ember-house-scene { min-height: 18rem; padding: clamp(1.4rem, 4vw, 2.6rem); position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(18rem, .8fr); align-items: end; gap: 1rem; color: #FFF9F6; background: radial-gradient(circle at 78% 22%, rgba(119,163,132,.28), transparent 27%), linear-gradient(145deg, #17291F, #0B0B0D); border: 1px solid rgba(255,255,255,.08); border-radius: 1.6rem; }
+.ember-house-scene::before { content: ""; width: 12rem; height: 8rem; position: absolute; right: 2.5rem; top: 1.2rem; border: 1px solid rgba(255,255,255,.14); border-radius: 5rem 5rem 1.5rem 1.5rem; transform: rotate(-4deg); }
+.ember-house-scene h2 { max-width: 36rem; margin-top: .7rem; font-size: clamp(2rem, 5vw, 4rem); font-weight: 820; line-height: .95; letter-spacing: -.065em; }
+.ember-house-scene p { max-width: 34rem; margin-top: .7rem; color: rgba(255,249,246,.58); font-size: .72rem; line-height: 1.5; }
+.ember-house-vitals { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: .45rem; }
+.ember-house-vitals span { min-height: 6.2rem; padding: .8rem; display: flex; flex-direction: column; justify-content: flex-end; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.09); border-radius: 1rem; }
+.ember-house-vitals b { font-size: 1.35rem; letter-spacing: -.04em; }
+.ember-house-vitals small { margin-top: .25rem; color: rgba(255,249,246,.52); font-size: .57rem; line-height: 1.35; }
+
+[data-interface="ember"] .ember-memory-screen > .card:first-of-type { background: linear-gradient(145deg, color-mix(in srgb, var(--ember-rose) 18%, var(--ember-raised)), var(--ember-raised)); }
+.ember-memory-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem !important; }
+.ember-memory-person { min-height: 6rem; padding: 1rem !important; background: var(--ember-canvas); border: 1px solid var(--ember-line); }
+.ember-memory-person .w-10.h-10 { width: 3.5rem; height: 3.5rem; }
+
 .ember-week-horizon { overflow: hidden; color: var(--ember-text); background: var(--ember-raised); border: 1px solid var(--ember-line); border-radius: 1.6rem; box-shadow: var(--shadow-card); }
+.ember-calendar-view { display: flex; flex-direction: column; }
+.ember-calendar-view > .ember-week-horizon { order: -1; }
 .ember-week-horizon > header { min-height: 5.5rem; padding: 1.15rem 1.35rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--ember-line); }
 .ember-week-horizon h3 { margin-top: .3rem; font-size: 1.45rem; font-weight: 800; letter-spacing: -.045em; }
 .ember-week-horizon > header > span { color: var(--ember-muted); font-size: .66rem; font-weight: 800; }
@@ -1247,6 +1273,9 @@ html[data-interface="ember"] body {
   .ember-subnav { margin-inline: -.15rem; padding-bottom: .1rem; }
   .ember-profile-lenses { grid-template-columns: repeat(2, 1fr); }
   .ember-profile-lenses button { min-height: 4.2rem; }
+  .ember-house-scene { min-height: 25rem; grid-template-columns: 1fr; }
+  .ember-house-vitals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ember-memory-grid { grid-template-columns: 1fr; }
   .pulse-hero { min-height: 35rem; grid-template-columns: 1fr; }
   .pulse-family-scene { width: 100%; min-height: 12rem; }
   .pulse-family-scene.has-photo { min-height: 14rem; }
@@ -1259,7 +1288,7 @@ html[data-interface="ember"] body {
   .pulse-decision-row > svg:first-of-type { display: none; }
   .capture-choices { grid-template-columns: 1fr; }
   .capture-choice,
-  .capture-choice:nth-child(n+4) { min-height: 6.5rem; grid-column: auto; display: grid; grid-template-columns: 2.8rem minmax(0, 1fr); grid-template-rows: auto auto; column-gap: .8rem; align-items: center; }
+  .capture-choice:nth-child(n+4) { min-height: 5.6rem; grid-column: auto; display: grid; grid-template-columns: 2.8rem minmax(0, 1fr); grid-template-rows: auto auto; column-gap: .8rem; align-items: center; }
   .capture-choice > span { grid-row: 1 / 3; margin: 0; }
   .capture-choice b { margin: 0; }
   .capture-choice small { margin-top: .15rem; }

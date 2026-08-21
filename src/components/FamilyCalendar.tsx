@@ -162,9 +162,11 @@ interface FamilyCalendarProps {
   settings: HubSettings;
   /** Enables the Ember Thread week-first composition without changing Classic. */
   emberMode?: boolean;
+  /** Opens the real new-event flow when Quick Capture targets Plan. */
+  openAddSignal?: number;
 }
 
-export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings, emberMode = false }: FamilyCalendarProps) {
+export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings, emberMode = false, openAddSignal = 0 }: FamilyCalendarProps) {
   const { isAdmin, canWrite, aiEligible, aiConsent } = useFamilyCtx();
   const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
   // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
@@ -1037,6 +1039,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setIsFormOpen(true);
   };
 
+  useEffect(() => {
+    if (!openAddSignal || !canWrite) return;
+    handleOpenAddForm();
+  }, [openAddSignal, canWrite]);
+
   // Open Form to Edit — read-only for non-writers
   const handleOpenEditForm = (ev: CalendarEvent) => {
     if (!canWrite) return;
@@ -1302,7 +1309,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const realTodayStr = todayLocal();
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${emberMode ? 'ember-calendar-view' : ''}`}>
       {/* Toast notification */}
       {reminderNote && (
         <div className="p-4 rounded-2xl bg-ink-900 text-white text-sm flex items-center gap-2.5 animate-bounce shadow-lift">

@@ -555,7 +555,7 @@ function FilterBar({ active, counts, categories, onChange }: FilterBarProps) {
 /* Main component                                                       */
 /* ------------------------------------------------------------------ */
 
-export default function DocumentVault({ members, isBusinessSpace, onMembersChange, emberMode = false }: { members: FamilyMember[]; isBusinessSpace?: boolean; onMembersChange?: (members: FamilyMember[]) => Promise<void> | void; emberMode?: boolean }) {
+export default function DocumentVault({ members, isBusinessSpace, onMembersChange, emberMode = false, openUploadSignal = 0 }: { members: FamilyMember[]; isBusinessSpace?: boolean; onMembersChange?: (members: FamilyMember[]) => Promise<void> | void; emberMode?: boolean; openUploadSignal?: number }) {
   const [docs, setDocs] = useState<VaultDocument[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -570,6 +570,13 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
 
   // Business spaces don't need family-oriented categories like Education/Medical.
   const categories = isBusinessSpace ? CATEGORIES.filter(c => !HIDDEN_IN_BUSINESS.includes(c)) : CATEGORIES;
+
+  useEffect(() => {
+    if (!openUploadSignal) return;
+    setShowUpload(true);
+    setShowBulkImport(false);
+    setSelectMode(false);
+  }, [openUploadSignal]);
 
   useEffect(() => {
     let active = true;
@@ -687,7 +694,9 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   const q = search.trim().toLowerCase();
   const filtered = docs.filter(d => {
     const matchesCat = filterCat === 'All' || d.category === filterCat;
-    const matchesSearch = !q || `${d.name} ${d.fileName}`.toLowerCase().includes(q);
+    const owner = d.memberId ? members.find(member => member.id === d.memberId)?.name || '' : '';
+    const searchText = `${d.name} ${d.fileName || ''} ${d.category} ${owner} ${d.notes || ''} ${d.fileType || ''}`.toLowerCase();
+    const matchesSearch = !q || q.split(/\s+/).every(token => searchText.includes(token));
     return matchesCat && matchesSearch;
   });
 

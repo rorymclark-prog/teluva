@@ -22,6 +22,10 @@ interface FamilyPulseProps {
 
 const DAY = 86_400_000;
 
+export function rankPulseDecisions<T extends { dueInDays: number }>(items: T[], limit = 3): T[] {
+  return [...items].sort((a, b) => a.dueInDays - b.dueInDays).slice(0, limit);
+}
+
 function localDate(value: string): Date | null {
   const date = new Date(`${value}T00:00:00`);
   return Number.isNaN(date.getTime()) ? null : date;
@@ -61,18 +65,26 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
     .filter((entry): entry is { event: CalendarEvent; date: Date } => !!entry.date && entry.date.getTime() >= today.getTime())
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  const decisions = [
+  const decisions = rankPulseDecisions([
     ...expiryWarnings.map((warning) => ({
       key: `expiry-${warning.memberId}-${warning.label}`,
       title: `${warning.memberName}'s ${warning.label}`,
       note: warning.status === 'expired' ? 'Expired — review now' : warning.monthsLeft < 1 ? 'Due within a month' : `Due in ${Math.ceil(warning.monthsLeft)} months`,
       icon: FileWarning,
       onClick: () => onOpenMemberIds(warning.memberId),
+      dueInDays: warning.status === 'expired' ? -1 : warning.monthsLeft * 30.44,
     })),
     ...upcoming
       .filter(({ date }) => (date.getTime() - today.getTime()) / DAY <= 30)
-      .map(({ event }) => ({ key: `event-${event.id}`, title: event.title, note: dateLabel(event), icon: CalendarDays, onClick: onOpenCalendar })),
-  ].slice(0, 3);
+      .map(({ event, date }) => ({
+        key: `event-${event.id}`,
+        title: event.title,
+        note: dateLabel(event),
+        icon: CalendarDays,
+        onClick: onOpenCalendar,
+        dueInDays: (date.getTime() - today.getTime()) / DAY,
+      })),
+  ]);
 
   const countWords = ['Nothing urgent', 'One thing matters', 'Two things matter', 'Three things matter'];
   const moment = positiveMoment(members);

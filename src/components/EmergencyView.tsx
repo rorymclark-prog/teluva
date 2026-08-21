@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { FamilyMember, IdCountry } from '../types';
 import { calculateAge } from './Dashboard';
 import { warmAvatarColor } from '../utils/avatarPalette';
@@ -7,7 +7,7 @@ import EmptyState from './EmptyState';
 import CopyableValue from './CopyableValue';
 import {
   Phone, Heart, AlertTriangle, Pill, Activity,
-  CreditCard, Leaf, Users, Briefcase
+  CreditCard, Leaf, Users, Briefcase, WifiOff
 } from 'lucide-react';
 
 interface EmergencyViewProps {
@@ -16,11 +16,30 @@ interface EmergencyViewProps {
 }
 
 export default function EmergencyView({ members, country }: EmergencyViewProps) {
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+
+  const offlineNotice = !online && (
+    <div className="ember-offline-emergency" role="status">
+      <WifiOff className="h-4 w-4" />
+      <span><b>Offline copy</b><small>Showing details already available on this device. Phone actions still work.</small></span>
+    </div>
+  );
+
   if (members.length === 0) {
     // Still show the dial-now number: it is useful on day one, before anyone
     // has entered a single record.
     return (
       <div className="space-y-6 font-sans max-w-lg mx-auto mt-8">
+        {offlineNotice}
         <EmergencyNumbersBanner country={country} />
         <div className="card">
           <EmptyState
@@ -35,6 +54,7 @@ export default function EmergencyView({ members, country }: EmergencyViewProps) 
 
   return (
     <div className="space-y-6 font-sans">
+      {offlineNotice}
       {/* The dial-now number leads the page — everything below it is detail. */}
       <EmergencyNumbersBanner country={country} />
 

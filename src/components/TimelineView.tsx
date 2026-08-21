@@ -26,7 +26,7 @@ const TYPE_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
   Other: { bg: 'bg-clay-50', text: 'text-clay-700', dot: 'bg-clay-500' },
 };
 
-export default function TimelineView() {
+export default function TimelineView({ openAddSignal = 0 }: { openAddSignal?: number }) {
   const [timeline, setTimeline] = useState<FamilyTimeline>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -81,6 +81,7 @@ export default function TimelineView() {
       <div className="card p-5 sm:p-6 space-y-6">
         <TimelineSection
           entries={timeline.entries}
+          openAddSignal={openAddSignal}
           onAdd={(e) => persist({ entries: [...timeline.entries, e] })}
           onUpdate={(e) => persist({ entries: timeline.entries.map(en => en.id === e.id ? e : en) })}
           onDelete={(id) => persist({ entries: timeline.entries.filter(en => en.id !== id) })}
@@ -102,14 +103,21 @@ export default function TimelineView() {
 
 /* --- Timeline Section --- */
 
-function TimelineSection({ entries, onAdd, onUpdate, onDelete }: {
+function TimelineSection({ entries, openAddSignal = 0, onAdd, onUpdate, onDelete }: {
   entries: TimelineEntry[];
+  openAddSignal?: number;
   onAdd: (e: TimelineEntry) => void;
   onUpdate: (e: TimelineEntry) => void;
   onDelete: (id: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openAddSignal) return;
+    setAdding(true);
+    setEditId(null);
+  }, [openAddSignal]);
 
   const sorted = [...entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -144,6 +152,12 @@ function TimelineSection({ entries, onAdd, onUpdate, onDelete }: {
         <div className="relative space-y-4 pt-2">
           {sorted.map((entry, idx) => (
             <div key={entry.id} className="relative">
+              {(idx === 0 || sorted[idx - 1].date.slice(0, 4) !== entry.date.slice(0, 4)) && (
+                <div className="ember-story-chapter">
+                  <span>{entry.date.slice(0, 4) || 'Undated'}</span>
+                  <i>{sorted.filter(item => item.date.slice(0, 4) === entry.date.slice(0, 4)).length} moments</i>
+                </div>
+              )}
               {/* Vertical line connecting dots */}
               {idx < sorted.length - 1 && (
                 <div className="absolute left-[11px] top-12 w-0.5 h-12 bg-cream-300" />

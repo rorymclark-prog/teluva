@@ -105,10 +105,30 @@ say "Deploying ${SERVICE} to Cloud Run"
 gcloud run services replace "$TMP_YAML" --region "$REGION" --project "$PROJECT"
 
 say "Repointing ${LEGACY_SERVICE} to the same digest"
-gcloud run services update "$LEGACY_SERVICE" \
+if ! gcloud run services update "$LEGACY_SERVICE" \
   --image "${REPO}@${DIGEST}" \
   --region "$REGION" \
-  --project "$PROJECT"
+  --project "$PROJECT"; then
+  # The first service has already moved. Put it back immediately so the two
+  # public names cannot silently serve different releases after this command.
+  say "Legacy service update failed — restoring both captured revisions"
+  ROLLBACK_FAILED=0
+  gcloud run services update-traffic "$SERVICE" \
+    --to-revisions="${OLD_PRIMARY_REV}=100" \
+    --region "$REGION" \
+    --project "$PROJECT" || ROLLBACK_FAILED=1
+  gcloud run services update-traffic "$LEGACY_SERVICE" \
+    --to-revisions="${OLD_LEGACY_REV}=100" \
+    --region "$REGION" \
+    --project "$PROJECT" || ROLLBACK_FAILED=1
+  if [ "$ROLLBACK_FAILED" = "0" ]; then
+    die "${LEGACY_SERVICE} could not be updated. Both services were restored to their captured revisions."
+  fi
+  printf '\nManual rollback commands:\n' >&2
+  printf '  gcloud run services update-traffic %s --to-revisions=%s=100 --region %s --project %s\n' "$SERVICE" "$OLD_PRIMARY_REV" "$REGION" "$PROJECT" >&2
+  printf '  gcloud run services update-traffic %s --to-revisions=%s=100 --region %s --project %s\n' "$LEGACY_SERVICE" "$OLD_LEGACY_REV" "$REGION" "$PROJECT" >&2
+  die "${LEGACY_SERVICE} could not be updated and automatic rollback was incomplete. Run the rollback commands printed above manually."
+fi
 
 # --- 5. Prove it ----------------------------------------------------------
 # A successful `replace` only means Cloud Run accepted the config. Ask the
@@ -127,6 +147,9 @@ verify_service() {
     fi
     sleep 5
   done
+  printf '\nVerification failed. Immediate rollback commands:\n' >&2
+  printf '  gcloud run services update-traffic %s --to-revisions=%s=100 --region %s --project %s\n' "$SERVICE" "$OLD_PRIMARY_REV" "$REGION" "$PROJECT" >&2
+  printf '  gcloud run services update-traffic %s --to-revisions=%s=100 --region %s --project %s\n' "$LEGACY_SERVICE" "$OLD_LEGACY_REV" "$REGION" "$PROJECT" >&2
   die "deployed, but ${target} still reports '${live:-unknown}' rather than ${TAG}."
 }
 

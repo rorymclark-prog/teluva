@@ -465,6 +465,14 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [listCollapsed, setListCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem('teluva.familyListCollapsed') === '1'; } catch { return false; }
   });
+  const [initialFirstJob] = useState<'week' | 'vault' | 'story' | null>(() => {
+    if (!emberInterface) return null;
+    try {
+      const firstJob = localStorage.getItem('teluva.firstJob');
+      if (firstJob) localStorage.removeItem('teluva.firstJob');
+      return firstJob === 'week' || firstJob === 'vault' || firstJob === 'story' ? firstJob : null;
+    } catch { return null; }
+  });
   const toggleListCollapsed = () => {
     // Written outside the state updater: React may invoke an updater twice, and
     // a setState callback is not the place for a side effect.
@@ -475,6 +483,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isCaptureOpen, setIsCaptureOpen] = useState(false);
+  const [capturePlanSignal, setCapturePlanSignal] = useState(initialFirstJob === 'week' ? 1 : 0);
+  const [captureVaultSignal, setCaptureVaultSignal] = useState(initialFirstJob === 'vault' ? 1 : 0);
+  const [captureStorySignal, setCaptureStorySignal] = useState(initialFirstJob === 'story' ? 1 : 0);
+  const [captureHouseSignal, setCaptureHouseSignal] = useState(0);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [showMemberCalendar, setShowMemberCalendar] = useState(false);
   const [settings, setSettings] = useState<HubSettings>({});
@@ -486,13 +498,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
   const [mainView, setMainView] = useState<ViewId>(() => {
     if (!emberInterface) return 'profiles';
-    try {
-      const firstJob = localStorage.getItem('teluva.firstJob');
-      if (firstJob) localStorage.removeItem('teluva.firstJob');
-      if (firstJob === 'week') return 'calendar';
-      if (firstJob === 'vault') return 'vault';
-      if (firstJob === 'story') return 'timeline';
-    } catch { /* private browsing */ }
+    if (initialFirstJob === 'week') return 'calendar';
+    if (initialFirstJob === 'vault') return 'vault';
+    if (initialFirstJob === 'story') return 'timeline';
     return 'pulse';
   });
 
@@ -811,6 +819,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   // the selected member keeps the full detail rendering (chips, subtitle, delete).
   const memberCardInner = (member: FamilyMember, grip?: React.ReactNode) => {
     const isSelected = selectedMemberId === member.id;
+    const today = new Date().toLocaleDateString('en-CA');
+    const nextMemberEvent = emberInterface
+      ? events
+          .filter(event => event.date >= today && event.memberIds?.includes(member.id))
+          .sort((a, b) => `${a.date} ${a.time || ''}`.localeCompare(`${b.date} ${b.time || ''}`))[0]
+      : undefined;
 
     if (!isSelected) {
       return (
@@ -829,7 +843,16 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
               </div>
             </div>
           )}
-          <span className="text-sm font-semibold text-ink-900 truncate">{memberName(member)}</span>
+          <span className="min-w-0 grid">
+            <b className="text-sm font-semibold text-ink-900 truncate">{memberName(member)}</b>
+            {emberInterface && (
+              <small className="mt-0.5 text-[10px] text-ink-400 truncate">
+                {nextMemberEvent
+                  ? `${member.role} · Next: ${nextMemberEvent.title} · ${nextMemberEvent.date}`
+                  : `${member.role} · Nothing pressing on their horizon`}
+              </small>
+            )}
+          </span>
         </div>
       );
     }
@@ -2394,6 +2417,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             members={members}
             events={events}
             emberMode={emberInterface}
+            openAddSignal={capturePlanSignal}
             onSaveEvents={handleSaveEvents}
             // Per-division show/hide for the nine "at a glance" panels
             // (HubSettings.calendarDivisions) — same shared settings doc as
@@ -2447,7 +2471,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
         {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} />}
 
-        {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} />}
+        {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} openAddSignal={captureHouseSignal} emberMode={emberInterface} />}
 
         {mainView === 'finances' && <FinancesView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onOpenPrivacy={() => setLegalTab('privacy')} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
@@ -2456,7 +2480,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         {mainView === 'pets' && <PetsView refreshKey={aiDataVersion} />}
         {mainView === 'familyTree' && <FamilyTreeView refreshKey={aiDataVersion} />}
 
-        {mainView === 'timeline' && <TimelineView key={aiDataVersion} />}
+        {mainView === 'timeline' && <TimelineView key={aiDataVersion} openAddSignal={captureStorySignal} />}
 
         {mainView === 'travelTimeline' && (
           demo ? <DemoUnavailable label="The travel timeline" /> : <TravelTimelineView key={aiDataVersion} />
@@ -2466,7 +2490,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           // onMembersChange lets a vault delete also strip the per-member copy
           // of the same document — the vault component has no other way to
           // persist member records (Dashboard owns that write).
-          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} onMembersChange={persistChanges} emberMode={emberInterface} />
+          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} onMembersChange={persistChanges} emberMode={emberInterface} openUploadSignal={captureVaultSignal} />
         )}
 
         {mainView === 'shopping' && (
@@ -3113,10 +3137,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           open={isCaptureOpen}
           onClose={() => setIsCaptureOpen(false)}
           onAddPerson={() => setIsAddModalOpen(true)}
-          onPlan={() => setMainView('calendar')}
-          onOpenVault={() => setMainView('vault')}
-          onOpenStory={() => setMainView('timeline')}
-          onOpenHouse={() => setMainView('household')}
+          onPlan={() => { setMainView('calendar'); setCapturePlanSignal(signal => signal + 1); }}
+          onOpenVault={() => { setMainView('vault'); setCaptureVaultSignal(signal => signal + 1); }}
+          onOpenStory={() => { setMainView('timeline'); setCaptureStorySignal(signal => signal + 1); }}
+          onOpenHouse={() => { setMainView('household'); setCaptureHouseSignal(signal => signal + 1); }}
         />
       )}
 
