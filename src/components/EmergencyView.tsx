@@ -7,16 +7,22 @@ import EmptyState from './EmptyState';
 import CopyableValue from './CopyableValue';
 import {
   Phone, Heart, AlertTriangle, Pill, Activity,
-  CreditCard, Leaf, Users, Briefcase, WifiOff
+  CreditCard, Leaf, Users, Briefcase, WifiOff, ArrowLeft, Download, ExternalLink, Share2, ShieldCheck
 } from 'lucide-react';
+import { loadEmergencyPack, removeEmergencyPack, saveEmergencyPack } from '../utils/emergencyPack';
 
 interface EmergencyViewProps {
   members: FamilyMember[];
   country?: IdCountry;
+  emberMode?: boolean;
+  packMode?: boolean;
+  onExit?: () => void;
 }
 
-export default function EmergencyView({ members, country }: EmergencyViewProps) {
+export default function EmergencyView({ members, country = 'AT', emberMode = false, packMode = false, onExit }: EmergencyViewProps) {
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
+  const [packSavedAt, setPackSavedAt] = useState(() => loadEmergencyPack()?.savedAt || null);
+  const [packNotice, setPackNotice] = useState<string | null>(null);
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener('online', update);
@@ -27,11 +33,58 @@ export default function EmergencyView({ members, country }: EmergencyViewProps) 
     };
   }, []);
 
-  const offlineNotice = !online && (
+  const offlineNotice = !online && (emberMode || packMode) && (
     <div className="ember-offline-emergency" role="status">
       <WifiOff className="h-4 w-4" />
       <span><b>Offline copy</b><small>Showing details already available on this device. Phone actions still work.</small></span>
     </div>
+  );
+
+  const savePack = () => {
+    try {
+      const pack = saveEmergencyPack(members, country);
+      setPackSavedAt(pack.savedAt);
+      setPackNotice('Offline pack saved on this device.');
+    } catch {
+      setPackNotice('This browser would not allow the offline pack to be saved.');
+    }
+  };
+
+  const deletePack = () => {
+    try { removeEmergencyPack(); } catch { /* storage unavailable */ }
+    setPackSavedAt(null);
+    setPackNotice('Offline pack removed from this device.');
+  };
+
+  const shareCard = async () => {
+    const text = members.map(member => {
+      const facts = [member.medical?.allergies && `Allergies: ${member.medical.allergies}`, member.medical?.bloodGroup && `Blood group: ${member.medical.bloodGroup}`, member.emergencyContactPhone && `Emergency contact: ${member.emergencyContactPhone}`].filter(Boolean);
+      return `${member.name}${facts.length ? ` — ${facts.join(' · ')}` : ''}`;
+    }).join('\n');
+    try {
+      if (navigator.share) await navigator.share({ title: 'Teluva emergency card', text });
+      else {
+        await navigator.clipboard.writeText(text);
+        setPackNotice('Emergency summary copied.');
+      }
+    } catch { /* sharing was cancelled */ }
+  };
+
+  const emergencyTop = (emberMode || packMode) && (
+    <header className="ember-emergency-topbar">
+      {onExit
+        ? <button type="button" onClick={onExit}><ArrowLeft className="h-4 w-4" /> Back to People</button>
+        : <a href="/"><ArrowLeft className="h-4 w-4" /> Back to Teluva</a>}
+      <b>Teluva emergency</b>
+      <span><ShieldCheck className="h-4 w-4" />{packMode ? 'Saved pack' : packSavedAt ? 'Ready offline' : 'Live view'}</span>
+    </header>
+  );
+
+  const actions = (emberMode || packMode) && members.length > 0 && (
+    <section className="ember-emergency-actions" aria-label="Emergency actions">
+      <button type="button" onClick={shareCard}><Share2 className="h-5 w-5" /><span><b>Share card</b><small>Send the visible facts</small></span></button>
+      <a href="https://www.google.com/maps/search/hospital" target="_blank" rel="noreferrer"><ExternalLink className="h-5 w-5" /><span><b>Nearest hospital</b><small>Opens your map service</small></span></a>
+    </section>
   );
 
   if (members.length === 0) {
@@ -39,6 +92,7 @@ export default function EmergencyView({ members, country }: EmergencyViewProps) 
     // has entered a single record.
     return (
       <div className="space-y-6 font-sans max-w-lg mx-auto mt-8">
+        {emergencyTop}
         {offlineNotice}
         <EmergencyNumbersBanner country={country} />
         <div className="card">
@@ -53,13 +107,34 @@ export default function EmergencyView({ members, country }: EmergencyViewProps) 
   }
 
   return (
-    <div className="space-y-6 font-sans">
+    <div className={`space-y-6 font-sans ${emberMode || packMode ? 'ember-emergency-screen' : ''}`}>
+      {emergencyTop}
       {offlineNotice}
       {/* The dial-now number leads the page — everything below it is detail. */}
       <EmergencyNumbersBanner country={country} />
 
-      {/* Header */}
-      <div className="card p-5 sm:p-6">
+      {actions}
+
+      {emberMode && !packMode && (
+        <section className="ember-emergency-pack-controls">
+          <div>
+            <span className="pulse-eyebrow">Emergency pack · This device only</span>
+            <h2>{packSavedAt ? 'Ready to open without a signal.' : 'Make this screen available offline.'}</h2>
+            <p>Stores only the emergency facts shown here—no documents or remote photos. Anyone who can unlock this device can open the pack.</p>
+            {packNotice && <small role="status">{packNotice}</small>}
+          </div>
+          <div>
+            <button type="button" onClick={savePack} className="btn-primary"><Download className="h-4 w-4" />{packSavedAt ? 'Update pack' : 'Save offline pack'}</button>
+            {packSavedAt && <a href="/emergency-pack?test=1" target="_blank" rel="noreferrer" className="btn-quiet"><ExternalLink className="h-4 w-4" />Test saved pack</a>}
+            {packSavedAt && <button type="button" onClick={deletePack} className="btn-quiet">Remove</button>}
+          </div>
+        </section>
+      )}
+
+      {packMode && <p className="ember-emergency-pack-stamp">Saved {packSavedAt ? new Date(packSavedAt).toLocaleString() : 'on this device'} · check the live app when a connection returns</p>}
+
+      {/* Classic keeps its compact page title; Ember has the dedicated top bar. */}
+      {!emberMode && !packMode && <div className="card p-5 sm:p-6">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-2xl bg-rosa-100 text-rosa-500 shrink-0">
             <Heart className="w-5 h-5" />
@@ -71,7 +146,7 @@ export default function EmergencyView({ members, country }: EmergencyViewProps) 
             </p>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Member cards */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">

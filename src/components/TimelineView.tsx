@@ -26,10 +26,11 @@ const TYPE_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
   Other: { bg: 'bg-clay-50', text: 'text-clay-700', dot: 'bg-clay-500' },
 };
 
-export default function TimelineView({ openAddSignal = 0 }: { openAddSignal?: number }) {
+export default function TimelineView({ openAddSignal = 0, emberMode = false }: { openAddSignal?: number; emberMode?: boolean }) {
   const [timeline, setTimeline] = useState<FamilyTimeline>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
+  const [localAddSignal, setLocalAddSignal] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -62,9 +63,14 @@ export default function TimelineView({ openAddSignal = 0 }: { openAddSignal?: nu
     );
   }
 
+  const storyEntries = [...timeline.entries].sort((a, b) => b.date.localeCompare(a.date));
+  const latestYear = storyEntries[0]?.date.slice(0, 4) || String(new Date().getFullYear());
+  const chapterEntries = storyEntries.filter(entry => entry.date.startsWith(latestYear));
+  const featured = chapterEntries[0];
+
   return (
     <div className="space-y-6 font-sans">
-      <div className="card p-5 sm:p-6">
+      {!emberMode && <div className="card p-5 sm:p-6">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-2xl bg-clay-100 text-clay-700 shrink-0">
             <CalendarHeart className="w-5 h-5" />
@@ -76,12 +82,49 @@ export default function TimelineView({ openAddSignal = 0 }: { openAddSignal?: nu
             </p>
           </div>
         </div>
-      </div>
+      </div>}
+
+      {emberMode && (
+        <>
+          <section className="ember-story-stage">
+            <div className="ember-story-year">
+              <span>Our year</span>
+              <strong>{latestYear}</strong>
+              <p>{chapterEntries.length ? `${chapterEntries.length} ${chapterEntries.length === 1 ? 'moment' : 'moments'} kept by the family` : 'A chapter waiting for its first moment'}</p>
+            </div>
+            <div className="ember-story-feature">
+              <span className="pulse-eyebrow">{featured ? `${featured.type || 'Memory'} · latest chapter` : 'Your first chapter'}</span>
+              <h2>{featured?.title || 'What should this year remember?'}</h2>
+              <p>{featured?.note || 'Keep the small story while the words are still close.'}</p>
+              <button type="button" onClick={() => setLocalAddSignal(signal => signal + 1)} className="btn-primary">
+                <Plus className="h-4 w-4" /> Add to this chapter
+              </button>
+            </div>
+            <div className="ember-story-orbit" aria-hidden="true"><i /><i /><i /></div>
+          </section>
+          {chapterEntries.length > 0 && (
+            <div className="ember-story-strip" aria-label={`${latestYear} chapter highlights`}>
+              {chapterEntries.slice(0, 4).map(entry => (
+                <article key={entry.id}>
+                  <span>{new Date(`${entry.date}T12:00:00`).toLocaleDateString('en-GB', { month: 'short' })}</span>
+                  <b>{entry.title}</b>
+                  <small>{entry.type || 'Memory'}</small>
+                </article>
+              ))}
+            </div>
+          )}
+          <section className="ember-story-prompt">
+            <div><span className="pulse-eyebrow">A small prompt for everyone</span><b>What did this year feel like?</b></div>
+            <button type="button" onClick={() => setLocalAddSignal(signal => signal + 1)}>Keep the answer <Plus className="h-4 w-4" /></button>
+          </section>
+        </>
+      )}
 
       <div className="card p-5 sm:p-6 space-y-6">
         <TimelineSection
           entries={timeline.entries}
-          openAddSignal={openAddSignal}
+          openAddSignal={openAddSignal + localAddSignal}
+          emberMode={emberMode}
           onAdd={(e) => persist({ entries: [...timeline.entries, e] })}
           onUpdate={(e) => persist({ entries: timeline.entries.map(en => en.id === e.id ? e : en) })}
           onDelete={(id) => persist({ entries: timeline.entries.filter(en => en.id !== id) })}
@@ -103,9 +146,10 @@ export default function TimelineView({ openAddSignal = 0 }: { openAddSignal?: nu
 
 /* --- Timeline Section --- */
 
-function TimelineSection({ entries, openAddSignal = 0, onAdd, onUpdate, onDelete }: {
+function TimelineSection({ entries, openAddSignal = 0, emberMode = false, onAdd, onUpdate, onDelete }: {
   entries: TimelineEntry[];
   openAddSignal?: number;
+  emberMode?: boolean;
   onAdd: (e: TimelineEntry) => void;
   onUpdate: (e: TimelineEntry) => void;
   onDelete: (id: string) => void;
@@ -152,7 +196,7 @@ function TimelineSection({ entries, openAddSignal = 0, onAdd, onUpdate, onDelete
         <div className="relative space-y-4 pt-2">
           {sorted.map((entry, idx) => (
             <div key={entry.id} className="relative">
-              {(idx === 0 || sorted[idx - 1].date.slice(0, 4) !== entry.date.slice(0, 4)) && (
+              {emberMode && (idx === 0 || sorted[idx - 1].date.slice(0, 4) !== entry.date.slice(0, 4)) && (
                 <div className="ember-story-chapter">
                   <span>{entry.date.slice(0, 4) || 'Undated'}</span>
                   <i>{sorted.filter(item => item.date.slice(0, 4) === entry.date.slice(0, 4)).length} moments</i>

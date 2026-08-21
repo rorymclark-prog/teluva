@@ -14,6 +14,7 @@ import FamilySettings from './components/FamilySettings';
 import UpdateBanner from './components/UpdateBanner';
 import GlobalCopyScan from './components/GlobalCopyScan';
 import { AppearanceProvider } from './contexts/AppearanceContext';
+import EmergencyOfflinePack from './components/EmergencyOfflinePack';
 
 // ---------------------------------------------------------------------------
 // AppInner — reads FamilyContext and gates which screen to show
@@ -32,6 +33,13 @@ function AppInner() {
   // installed PWA can be days. This counter is the nudge: FamilySettings bumps
   // it after a successful write, Dashboard re-reads on it.
   const [settingsVersion, setSettingsVersion] = React.useState(0);
+
+  // The emergency pack is explicitly saved to this device and must be able to
+  // open before auth/family networking resolves. It renders no app navigation
+  // and reads no live family data.
+  if (window.location.pathname === '/emergency-pack') {
+    return <EmergencyOfflinePack />;
+  }
 
   // 1. Auth/family resolution still in flight
   if (loading) {

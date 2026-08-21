@@ -2317,10 +2317,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     && !(!isBusinessSpace && HIDDEN_IN_FAMILY.includes(tab.id))
   ) : [];
   const activeProfileLens = profileLensFor(activeTab);
+  const emergencyFocus = emberInterface && mainView === 'emergency';
 
   return (
-    <div className={`min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans ${emberInterface ? 'ember-app' : ''}`}>
-      {emberInterface && (
+    <div className={`min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans ${emberInterface ? 'ember-app' : ''} ${emergencyFocus ? 'ember-emergency-mode' : ''}`}>
+      {emberInterface && !emergencyFocus && (
         <EmberNavigation
           current={mainView}
           onSelect={(destination: EmberDestination) => setMainView(destination as ViewId)}
@@ -2337,7 +2338,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           theme is active. Everything inside therefore uses literal dark-
           surface colours rather than the cream/ink tokens (which invert
           under dark mode and would fight this bar's own fixed intent). */}
-      <header className={`bg-[#0b0b0d] backdrop-blur border-b border-white/10 sticky top-0 z-40 ${emberInterface ? 'ember-header' : ''}`}>
+      {!emergencyFocus && <header className={`bg-[#0b0b0d] backdrop-blur border-b border-white/10 sticky top-0 z-40 ${emberInterface ? 'ember-header' : ''}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
           {/* One control, not seven. The hub name IS the menu: spaces, settings,
               backup and sign-out all live behind it, the way a workspace name
@@ -2397,13 +2398,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             )}
           </div>
         </div>
-      </header>
+      </header>}
 
       <main
-        className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6 ${emberInterface ? 'ember-main' : ''}`}
+        className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6 ${emberInterface ? 'ember-main' : ''} ${emergencyFocus ? 'ember-emergency-main' : ''}`}
         data-view={emberInterface ? mainView : undefined}
       >
-        {emberInterface && mainView !== 'pulse' && (
+        {emberInterface && mainView !== 'pulse' && !emergencyFocus && (
           <EmberViewHeader
             current={mainView}
             views={availableViewItems}
@@ -2472,7 +2473,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             moment you looked at the Info tab. */}
         {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onContactsChange={demo ? undefined : setContacts} />}
 
-        {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} />}
+        {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} emberMode={emberInterface} onExit={emberInterface ? () => setMainView('profiles') : undefined} />}
 
         {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} openAddSignal={captureHouseSignal} emberMode={emberInterface} />}
 
@@ -2483,7 +2484,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         {mainView === 'pets' && <PetsView refreshKey={aiDataVersion} />}
         {mainView === 'familyTree' && <FamilyTreeView refreshKey={aiDataVersion} />}
 
-        {mainView === 'timeline' && <TimelineView key={aiDataVersion} openAddSignal={captureStorySignal} />}
+        {mainView === 'timeline' && <TimelineView key={aiDataVersion} openAddSignal={captureStorySignal} emberMode={emberInterface} />}
 
         {mainView === 'travelTimeline' && (
           demo ? <DemoUnavailable label="The travel timeline" /> : <TravelTimelineView key={aiDataVersion} />
@@ -2536,7 +2537,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         )}
 
         {mainView === 'inMemory' && (
-          demo ? <DemoUnavailable label="In Memory" /> : <InMemoryView key={aiDataVersion} />
+          demo ? <DemoUnavailable label="In Memory" /> : <InMemoryView key={aiDataVersion} emberMode={emberInterface} />
         )}
 
         {mainView === 'willsEstate' && (
@@ -3074,7 +3075,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       </main>
 
       {/* Footer with honest sync status */}
-      <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 text-center pb-6">
+      {!emergencyFocus && <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 text-center pb-6">
         <div className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white rounded-full border border-cream-300/70 shadow-soft text-[12px] font-semibold text-ink-500">
           {demo ? (
             <>
@@ -3109,7 +3110,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           <span className="mx-1.5">·</span>
           <button onClick={() => setLegalTab('terms')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">Terms</button>
         </div>
-      </footer>
+      </footer>}
 
       {/* Toast */}
       <AnimatePresence>
@@ -3188,7 +3189,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           header comment for the full reasoning. Family spaces only, and only
           for someone who can actually write (children can't). `onSettled`
           opens the FirstRunTour gate below whether or not it actually ran. */}
-      <FamilyInterview
+      {!emergencyFocus && <FamilyInterview
         uid={auth.currentUser?.uid ?? null}
         demo={demo}
         ready={initialLoadDone && !consentOpen}
@@ -3201,7 +3202,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         onSaveSettings={handleSaveSettings}
         onSettled={() => setInterviewGateOpen(true)}
         forceKey={interviewReplayKey}
-      />
+      />}
 
       {/* First-run tour: highlights the handful of things worth knowing on
           day one (see FirstRunTour.tsx for the full stop list and why each
@@ -3209,7 +3210,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           loaded, the AI consent prompt (if any) has been dealt with, AND the
           guided setup interview above has settled — so at most one of the
           three ever has the screen. */}
-      <FirstRunTour
+      {!emergencyFocus && <FirstRunTour
         uid={auth.currentUser?.uid ?? null}
         demo={demo}
         ready={initialLoadDone && !consentOpen && interviewGateOpen}
@@ -3218,12 +3219,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         membersCount={members.length}
         canUseAI={canUseAI}
         forceKey={tourReplayKey}
-      />
+      />}
 
       <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
 
       {/* Floating AI assistant — only when AI is enabled (opt-in, off by default) */}
-      {canUseAI && (
+      {canUseAI && !emergencyFocus && (
         <AssistantBubble
           members={members}
           onApplyEdits={handleApplyAiEdits}

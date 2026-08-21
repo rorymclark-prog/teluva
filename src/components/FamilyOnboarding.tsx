@@ -65,7 +65,10 @@ export default function FamilyOnboarding() {
     setError(null);
     try {
       await createFamily(name);
-      try { localStorage.setItem('teluva.firstJob', firstJob); } catch { /* private browsing */ }
+      try {
+        if (emberMode) localStorage.setItem('teluva.firstJob', firstJob);
+        else localStorage.removeItem('teluva.firstJob');
+      } catch { /* private browsing */ }
       window.location.reload();
     } catch (err: any) {
       setError(err?.message ?? 'Something went wrong. Please try again.');

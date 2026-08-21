@@ -22,23 +22,16 @@
          bright frame when a returning reader uses dark mode and also keeps
          the Classic/Ember rollback preference stable across reloads. -->
     <script>
-      try {
-        var theme = localStorage.getItem('teluva.theme') || 'system';
-        var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        var ui = localStorage.getItem('teluva.interface') || 'ember';
-        var requestedUi = new URLSearchParams(window.location.search).get('ui');
-        if (requestedUi === 'classic' || requestedUi === 'ember') ui = requestedUi;
-        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-        document.documentElement.dataset.interface = ui;
-        document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-      } catch (e) {
-        /* Storage can be denied in strict/private contexts. Paint the safe
-           default explicitly instead of leaving the document un-themed until
-           React mounts. */
-        document.documentElement.dataset.theme = 'light';
-        document.documentElement.dataset.interface = 'ember';
-        document.documentElement.style.colorScheme = 'light';
-      }
+      var theme = 'system';
+      var ui = 'ember';
+      try { theme = localStorage.getItem('teluva.theme') || theme; } catch (e) {}
+      try { ui = localStorage.getItem('teluva.interface') || ui; } catch (e) {}
+      var requestedUi = new URLSearchParams(window.location.search).get('ui');
+      if (requestedUi === 'classic' || requestedUi === 'ember') ui = requestedUi;
+      var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      document.documentElement.dataset.interface = ui;
+      document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
     </script>
     <!-- Text size, applied before the first paint. It has to run here rather
          than in React: the app's own bundle loads after the first frame, so a

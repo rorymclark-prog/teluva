@@ -98,7 +98,7 @@ function toForm(p: DepartedRelative): PersonForm {
   };
 }
 
-export default function InMemoryView() {
+export default function InMemoryView({ emberMode = false }: { emberMode?: boolean }) {
   const { canWrite } = useFamilyCtx();
   const [people, setPeople] = useState<DepartedRelative[]>([]);
   const [loading, setLoading] = useState(true);
@@ -345,6 +345,7 @@ export default function InMemoryView() {
   };
 
   const sorted = [...people].sort((a, b) => a.name.localeCompare(b.name));
+  const featuredMemory = sorted[0];
 
   if (loading) {
     return (
@@ -355,8 +356,34 @@ export default function InMemoryView() {
   }
 
   return (
-    <div className="max-w-lg ember-memory-screen">
+    <div className={`max-w-lg ${emberMode ? 'ember-memory-screen' : ''}`}>
       <input ref={photoFileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoFileChange} />
+
+      {emberMode && featuredMemory && (
+        <section className="ember-memory-stage">
+          <div className="ember-memory-portrait">
+            {featuredMemory.photoUrl
+              ? <img src={featuredMemory.photoUrl} alt={featuredMemory.name} />
+              : <span>{featuredMemory.name.charAt(0)}</span>}
+            <i aria-hidden="true" />
+          </div>
+          <div className="ember-memory-intro">
+            <span className="pulse-eyebrow">{bornDied(featuredMemory) || featuredMemory.relation}</span>
+            <h2>{featuredMemory.name}</h2>
+            <p>{featuredMemory.notes[0]?.text || `${featuredMemory.relation}, remembered in the family's own words.`}</p>
+            <button type="button" onClick={() => setViewingId(featuredMemory.id)} className="btn-primary">Open their story <ChevronRight className="h-4 w-4" /></button>
+          </div>
+          {featuredMemory.notes[1] && <blockquote>“{featuredMemory.notes[1].text}”</blockquote>}
+          <div className="ember-memory-chapters">
+            {(featuredMemory.notes.length ? featuredMemory.notes : [{ id: 'start', text: 'The first things we remember' }]).slice(0, 3).map((note, index) => (
+              <button key={note.id} type="button" onClick={() => setViewingId(featuredMemory.id)}>
+                <span>{String(index + 1).padStart(2, '0')}</span><b>{note.text}</b><small>Family memory</small>
+              </button>
+            ))}
+          </div>
+          <footer><span>Stewarded by your family</span>{canWrite && <button type="button" onClick={openNewForm}>Add another life <Plus className="h-4 w-4" /></button>}</footer>
+        </section>
+      )}
 
       {/* Header card */}
       <div className="card overflow-hidden">
@@ -381,7 +408,7 @@ export default function InMemoryView() {
         </div>
 
         {/* List */}
-        <div className="p-4 sm:p-5 ember-memory-list">
+        <div className={`p-4 sm:p-5 ${emberMode ? 'ember-memory-list' : ''}`}>
           {people.length === 0 ? (
             <EmptyState
               icon={Flower2}
@@ -390,12 +417,13 @@ export default function InMemoryView() {
               action={canWrite ? { label: 'Add someone', onClick: openNewForm, icon: Plus } : undefined}
             />
           ) : (
-            <div className="space-y-1 ember-memory-grid">
+            <div className={`space-y-1 ${emberMode ? 'ember-memory-grid' : ''}`}>
               {sorted.map(p => (
-                <div
+                <button
                   key={p.id}
+                  type="button"
                   onClick={() => setViewingId(p.id)}
-                  className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors cursor-pointer ember-memory-person"
+                  className={`w-full text-left flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors cursor-pointer ${emberMode ? 'ember-memory-person' : ''}`}
                 >
                   {p.photoUrl ? (
                     <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-cream-100 ring-1 ring-cream-200">
@@ -415,7 +443,7 @@ export default function InMemoryView() {
                   </div>
 
                   <ChevronRight className="w-4 h-4 text-ink-300 shrink-0" />
-                </div>
+                </button>
               ))}
             </div>
           )}

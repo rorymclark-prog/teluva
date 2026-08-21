@@ -68,6 +68,7 @@ if [ "${SKIP_CHECKS:-}" = "1" ]; then
 else
   say "Checks: typecheck, colour tokens, tests, production build"
   npm run lint
+  npm run test:ember
   npm test
   npm run build
 fi
