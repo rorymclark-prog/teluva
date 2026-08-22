@@ -14,14 +14,16 @@ interface AddMemberModalProps {
   onAdd: (member: Omit<FamilyMember, 'documents' | 'favorites'>) => void;
   /** True when adding a member of a business space — no children hired here. */
   isBusinessSpace?: boolean;
+  /** Lets entry points such as Family tree open directly in child mode. */
+  initialRole?: MemberRole;
 }
 
-export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace = false }: AddMemberModalProps) {
+export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace = false, initialRole }: AddMemberModalProps) {
   useBodyScrollLock(isOpen);
 
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
-  const [role, setRole] = useState<MemberRole>(isBusinessSpace ? 'Employee' : 'Child');
+  const [role, setRole] = useState<MemberRole>(isBusinessSpace ? 'Employee' : (initialRole || 'Child'));
   const [customRole, setCustomRole] = useState('');
   const [birthdate, setBirthdate] = useState('');
   const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
@@ -46,6 +48,12 @@ export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace
       stopCamera();
     };
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setRole(isBusinessSpace ? 'Employee' : (initialRole || 'Child'));
+    setCustomRole('');
+  }, [isOpen, isBusinessSpace, initialRole]);
 
   const startCamera = async () => {
     setIsCameraActive(true);
@@ -136,7 +144,7 @@ export default function AddMemberModal({ isOpen, onClose, onAdd, isBusinessSpace
     // Reset form
     setName('');
     setNickname('');
-    setRole(isBusinessSpace ? 'Employee' : 'Child');
+    setRole(isBusinessSpace ? 'Employee' : (initialRole || 'Child'));
     setCustomRole('');
     setBirthdate('');
     setSelectedColor(AVATAR_COLORS[0]);

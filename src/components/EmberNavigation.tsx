@@ -44,7 +44,7 @@ export default function EmberNavigation({ current, onSelect, onAsk, onCapture, o
   return (
     <>
       <aside className="ember-sidebar" aria-label="Primary navigation">
-        <div className="ember-wordmark" aria-label="Teluva">tel<span>u</span>va</div>
+        <div className="ember-wordmark"><img src="/icons/wordmark.svg" alt="Teluva" /></div>
         <nav>
           {destinations.map(({ id, icon: Icon }) => (
             <button key={id} type="button" onClick={() => onSelect(id)} className={activeDestination === id ? 'is-active' : ''} aria-current={activeDestination === id ? 'page' : undefined}>

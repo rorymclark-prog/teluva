@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
-import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, ExtendedBirthday, VaultDocument, ReferralRecord, HealthcareProvider } from '../types';
+import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, ExtendedBirthday, VaultDocument, ReferralRecord, HealthcareProvider, MemberRole } from '../types';
 import { withContactBirthdays } from '../utils/extendedBirthdaySources';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
@@ -486,6 +486,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [peoplePane, setPeoplePane] = useState<'profiles' | 'todo'>('profiles');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addMemberInitialRole, setAddMemberInitialRole] = useState<MemberRole | undefined>();
+  const [addingChildFromTree, setAddingChildFromTree] = useState(false);
+  const [newTreeChildId, setNewTreeChildId] = useState<string | null>(null);
   const [isCaptureOpen, setIsCaptureOpen] = useState(false);
   const [capturePlanSignal, setCapturePlanSignal] = useState(initialFirstJob === 'week' ? 1 : 0);
   const [captureVaultSignal, setCaptureVaultSignal] = useState(initialFirstJob === 'vault' ? 1 : 0);
@@ -1169,10 +1172,17 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   }, [events, settings.autoSyncEventsToGoogle, settings.autoSyncBaselineIds, demo]);
 
   const handleAddMember = async (newMember: Omit<FamilyMember, 'documents'>) => {
+    const shouldReturnToTree = addingChildFromTree && newMember.role === 'Child';
     const fullMember: FamilyMember = { ...newMember, documents: [] };
     const updated = [...members, fullMember];
     await persistChanges(updated);
     setSelectedMemberId(fullMember.id);
+    if (shouldReturnToTree) {
+      setNewTreeChildId(fullMember.id);
+      setAiDataVersion(v => v + 1);
+      setMainView('familyTree');
+    }
+    setAddingChildFromTree(false);
   };
 
   const handleDeleteMember = async (id: string) => {
@@ -2157,7 +2167,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             height={56}
             className="mx-auto mb-4 rounded-[14px]"
           />
-          <img src="/icons/wordmark.svg" alt="Teluva" width={110} height={32} className="mx-auto mb-4 h-8 w-auto" />
+          <div className="mx-auto mb-4 inline-flex rounded-xl bg-ink-900 px-4 py-2.5">
+            <img src="/icons/wordmark.svg" alt="Teluva" width={110} height={32} className="h-8 w-auto" />
+          </div>
           <h1 className="text-display-md text-ink-900 mb-3">{joinLinkVisit ? "You've been invited" : hubName}</h1>
           <p className="text-sm text-ink-500 leading-relaxed mb-3">
             {joinLinkVisit
@@ -2491,7 +2503,15 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
         {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} canUseAI={canUseAI} />}
         {mainView === 'pets' && <PetsView refreshKey={aiDataVersion} />}
-        {mainView === 'familyTree' && <FamilyTreeView refreshKey={aiDataVersion} />}
+        {mainView === 'familyTree' && (
+          <FamilyTreeView
+            refreshKey={aiDataVersion}
+            canAddChild={!demo && isAdmin}
+            onAddChild={() => { setAddMemberInitialRole('Child'); setAddingChildFromTree(true); setIsAddModalOpen(true); }}
+            newChildId={newTreeChildId}
+            onNewChildHandled={() => setNewTreeChildId(null)}
+          />
+        )}
 
         {mainView === 'timeline' && <TimelineView key={aiDataVersion} openAddSignal={captureStorySignal} emberMode={emberInterface} />}
 
@@ -3168,9 +3188,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
       <AddMemberModal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={() => { setIsAddModalOpen(false); setAddMemberInitialRole(undefined); setAddingChildFromTree(false); }}
         onAdd={handleAddMember}
         isBusinessSpace={isBusinessSpace}
+        initialRole={addMemberInitialRole}
       />
 
       <EditMemberModal

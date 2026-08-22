@@ -180,7 +180,15 @@ function FamilyTreeCanvas({ graph, focus, onPick }: {
   );
 }
 
-export default function FamilyTreeView({ refreshKey }: { refreshKey?: number }) {
+interface FamilyTreeViewProps {
+  refreshKey?: number;
+  canAddChild?: boolean;
+  onAddChild?: () => void;
+  newChildId?: string | null;
+  onNewChildHandled?: () => void;
+}
+
+export default function FamilyTreeView({ refreshKey, canAddChild = false, onAddChild, newChildId, onNewChildHandled }: FamilyTreeViewProps) {
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [extended, setExtended] = useState<ExtendedBirthday[]>([]);
   const [departed, setDeparted] = useState<DepartedRelative[]>([]);
@@ -188,6 +196,7 @@ export default function FamilyTreeView({ refreshKey }: { refreshKey?: number }) 
   const [loaded, setLoaded] = useState(false);
   const [focus, setFocus] = useState<KinRef | null>(null);
   const [adding, setAdding] = useState(false);
+  const [pendingChildRef, setPendingChildRef] = useState<KinRef | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<GedcomImportResult | null>(null);
   const [importing, setImporting] = useState(false);
@@ -226,6 +235,21 @@ export default function FamilyTreeView({ refreshKey }: { refreshKey?: number }) 
     setFocus(graph.people[0]?.ref || null);
   }, [loaded, focus, graph.people]);
 
+  // A child created from this screen is already a normal family profile. Once
+  // the shared member save comes back, focus them and open the relationship
+  // sentence with the child side filled in; the family confirms the parent
+  // instead of the app guessing when a household has more than one adult.
+  useEffect(() => {
+    if (!loaded || !newChildId) return;
+    const ref = `member:${newChildId}`;
+    if (!graph.index.has(ref)) return;
+    setFocus(ref);
+    setPendingChildRef(ref);
+    setAdding(true);
+    setError(null);
+    onNewChildHandled?.();
+  }, [loaded, newChildId, graph.index, onNewChildHandled]);
+
   const persist = useCallback(async (next: KinLink[]) => {
     setLinks(next);
     await saveFamilyTree(next);
@@ -237,6 +261,7 @@ export default function FamilyTreeView({ refreshKey }: { refreshKey?: number }) 
     setError(null);
     await persist([...links, { ...l, id: newId(), createdAt: new Date().toISOString().slice(0, 10) }]);
     setAdding(false);
+    setPendingChildRef(null);
     return true;
   };
 
@@ -333,6 +358,11 @@ export default function FamilyTreeView({ refreshKey }: { refreshKey?: number }) 
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {canAddChild && onAddChild && (
+              <button onClick={onAddChild} className="btn-primary text-xs px-3 py-1.5" title="Create a child profile and connect it here">
+                <Plus className="w-3.5 h-3.5" /> Add a child
+              </button>
+            )}
             <button
               onClick={() => fileInput.current?.click()}
               className="btn-quiet text-xs px-3 py-1.5"
@@ -369,7 +399,8 @@ export default function FamilyTreeView({ refreshKey }: { refreshKey?: number }) 
           <EmptyState
             icon={Network}
             title="Nobody to connect yet"
-            description="The tree is built from the people already in this vault — the family, Extended Birthdays and In Memory. Add someone in one of those, then come back and draw the lines."
+            description="The tree is built from the people already in this vault — the family, Extended Birthdays and In Memory. Family profiles appear here automatically."
+            action={canAddChild && onAddChild ? { label: 'Add a child', onClick: onAddChild, icon: Plus } : undefined}
           />
         </div>
       ) : (
@@ -413,9 +444,10 @@ export default function FamilyTreeView({ refreshKey }: { refreshKey?: number }) 
               {adding && (
                 <AddLinkForm
                   people={graph.people}
-                  defaultFrom={focus}
+                  defaultFrom={pendingChildRef ? '' : focus}
+                  defaultTo={pendingChildRef || ''}
                   error={error}
-                  onCancel={() => { setAdding(false); setError(null); }}
+                  onCancel={() => { setAdding(false); setPendingChildRef(null); setError(null); }}
                   onSave={addLink}
                 />
               )}
@@ -583,9 +615,10 @@ const ImportPreview: React.FC<ImportPreviewProps> = ({ result, busy, onConfirm, 
 
 /* ─── Adding a link ───────────────────────────────────────────────────────── */
 
-function AddLinkForm({ people, defaultFrom, error, onCancel, onSave }: {
+function AddLinkForm({ people, defaultFrom, defaultTo = '', error, onCancel, onSave }: {
   people: KinPerson[];
   defaultFrom: KinRef;
+  defaultTo?: KinRef;
   error: string | null;
   onCancel: () => void;
   onSave: (l: Omit<KinLink, 'id' | 'createdAt'>) => void;
@@ -596,7 +629,7 @@ function AddLinkForm({ people, defaultFrom, error, onCancel, onSave }: {
   // that produces a tree with no top.
   const [kind, setKind] = useState<'parent' | 'partner'>('parent');
   const [from, setFrom] = useState<KinRef>(defaultFrom);
-  const [to, setTo] = useState<KinRef>('');
+  const [to, setTo] = useState<KinRef>(defaultTo);
   const [via, setVia] = useState<KinLink['via']>('birth');
   const [status, setStatus] = useState<KinLink['status']>('married');
 

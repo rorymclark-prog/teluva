@@ -740,11 +740,8 @@ html[data-interface="ember"] body {
 
 .ember-wordmark {
   padding: .5rem .7rem 1.75rem;
-  font-size: 1.45rem;
-  font-weight: 850;
-  letter-spacing: -.07em;
 }
-.ember-wordmark span { color: var(--ember-action); }
+.ember-wordmark img { display: block; width: 6.7rem; height: auto; }
 .ember-sidebar nav { display: grid; gap: .3rem; }
 .ember-sidebar nav button {
   min-height: 44px;
@@ -1317,8 +1314,8 @@ html[data-interface="ember"] body {
 
 .ember-onboarding { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(24rem, .92fr); gap: 1rem; background: #0B0B0D; }
 .ember-onboarding-story { min-height: calc(100vh - 2rem); padding: clamp(2rem, 6vw, 5rem); position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; color: #FFF9F6; background: radial-gradient(circle at 72% 25%, rgba(255,91,80,.2), transparent 24%), linear-gradient(150deg, #151316, #08080A); border: 1px solid rgba(255,255,255,.08); border-radius: 2rem; }
-.ember-onboarding-brand { position: absolute; left: clamp(2rem, 6vw, 5rem); top: clamp(2rem, 6vw, 4rem); display: flex; align-items: center; gap: .7rem; font-size: 1rem; }
-.ember-onboarding-brand span { width: 2.2rem; height: 2.2rem; display: grid; place-items: center; color: #151316; background: var(--ember-action, #E9433B); border-radius: .8rem; font-weight: 900; }
+.ember-onboarding-brand { position: absolute; left: clamp(2rem, 6vw, 5rem); top: clamp(2rem, 6vw, 4rem); }
+.ember-onboarding-brand img { display: block; width: 7.4rem; height: auto; }
 .ember-onboarding-orbit { width: 9rem; height: 9rem; position: relative; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.18); border-radius: 48% 52% 54% 46%; transform: rotate(-8deg); }
 .ember-onboarding-orbit::after { content: ""; width: 5.7rem; height: 5.7rem; position: absolute; border: 1px solid rgba(255,91,80,.4); border-radius: 53% 47% 42% 58%; transform: rotate(24deg); }
 .ember-onboarding-orbit span { width: 3.2rem; height: 3.2rem; position: relative; z-index: 2; display: grid; place-items: center; color: #151316; background: #FFD7D2; border-radius: 50%; }

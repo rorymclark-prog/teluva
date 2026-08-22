@@ -94,7 +94,7 @@ export default function FamilyOnboarding() {
   return (
     <div className={`min-h-screen bg-cream-50 flex items-center justify-center p-4 ${emberMode ? 'ember-onboarding' : ''}`}>
       {emberMode && <aside className="ember-onboarding-story">
-        <div className="ember-onboarding-brand"><span>T</span><b>Teluva</b></div>
+        <div className="ember-onboarding-brand"><img src="/icons/wordmark.svg" alt="Teluva" /></div>
         <div className="ember-onboarding-orbit" aria-hidden="true"><i /><i /><span>♥</span></div>
         <h1>Keep the family<br /><em>close to hand.</em></h1>
         <p>A private place for what matters now—and what should never be lost.</p>
