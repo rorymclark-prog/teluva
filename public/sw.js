@@ -12,8 +12,8 @@
 
 // Activate a new SW immediately rather than waiting for every tab to close,
 // so a push-handler fix reaches devices on the next visit.
-const SHELL_CACHE = 'teluva-emergency-shell-v253';
-const SHELL_VERSION = 'v253';
+const SHELL_CACHE = 'teluva-emergency-shell-v254';
+const SHELL_VERSION = 'v254';
 
 async function prepareEmergencyShell() {
   const cache = await caches.open(SHELL_CACHE);

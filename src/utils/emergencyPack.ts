@@ -1,7 +1,7 @@
 import type { FamilyMember, IdCountry, IdentityRecord, MedicalRecord } from '../types';
 
 const PACK_VERSION = 2 as const;
-export const EMERGENCY_SHELL_VERSION = 'v253';
+export const EMERGENCY_SHELL_VERSION = 'v254';
 const ACTIVE_SCOPE_KEY = 'teluva.emergencyPack.active.v2';
 const LEGACY_PACK_KEY = 'teluva.emergencyPack.v1';
 const PACK_KEY_PREFIX = 'teluva.emergencyPack.v2:';

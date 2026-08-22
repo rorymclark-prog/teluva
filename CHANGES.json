@@ -1,12 +1,10 @@
 {
-  "label": "v253",
+  "label": "v254",
   "changes": [
-    "People now opens with the family profiles first, while missing records and readiness checks live in their own To-do & readiness tab.",
-    "Family tree is now a real, interactive generation map with parent, child, partner, step, foster, adoptive and separated relationships, plus GEDCOM import and export.",
-    "Travel document watch now recommends when to start renewing: nine months before passport expiry and six months before visa or residence-permit expiry.",
-    "Family Hub and Business Hub are clearly labelled beside every space name, so a custom logo or title never hides which kind of space is open.",
-    "Business spaces now use team, work, operations and business language throughout Pulse, People, Capture, Calendar, credentials, insurance, chat and settings.",
-    "Business calendars exclude family-only occasions while keeping plans, team birthdays, work travel documents, medical checks and time away.",
-    "System, Light and Dark appearance controls remain available at the bottom of the main navigation, and classic Teluva remains available as a full rollback option."
+    "Teluva now uses the new white-and-coral wordmark consistently in the main navigation, onboarding and sign-in experience.",
+    "Family tree now has a direct Add a child action, so a parent never has to leave the tree to create the child’s profile.",
+    "New child profiles appear in the tree automatically, then Teluva opens the parent-and-child link with the child already selected.",
+    "Parent relationships are always confirmed by the family rather than guessed when a household has more than one possible parent.",
+    "A ready-to-use private-beta survey is included for consistent feedback alongside WhatsApp conversations."
   ]
 }
