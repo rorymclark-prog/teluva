@@ -784,6 +784,8 @@ html[data-interface="ember"] body {
 .ember-utility:hover { color: #FFF9F6; background: rgba(255,255,255,.05); }
 .ember-utility + .ember-ask { margin-top: .45rem; }
 .ember-ask kbd { margin-left: auto; color: rgba(255, 249, 246, .35); font: inherit; }
+.ember-sidebar-appearance { margin-top: .7rem; padding-top: .7rem; border-top: 1px solid rgba(255,255,255,.08); }
+.ember-sidebar-appearance > span { display: block; padding: 0 .25rem; color: rgba(255,249,246,.4); font-size: .56rem; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
 
 .ember-capture-mobile {
   min-height: 2.65rem;
@@ -802,6 +804,33 @@ html[data-interface="ember"] body {
   font-size: .68rem;
   font-weight: 850;
 }
+
+.ember-appearance-mobile-trigger {
+  min-height: 2.65rem;
+  padding: .55rem .8rem;
+  position: fixed;
+  z-index: 61;
+  left: 1rem;
+  bottom: calc(max(.65rem, env(safe-area-inset-bottom)) + 5.1rem);
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  color: var(--ember-text);
+  background: var(--ember-raised);
+  border: 1px solid var(--ember-line);
+  border-radius: 999px;
+  box-shadow: 0 13px 30px rgba(0,0,0,.16);
+  font-size: .68rem;
+  font-weight: 850;
+}
+.ember-appearance-mobile-trigger svg { color: var(--ember-action); }
+.ember-appearance-mobile-backdrop { position: fixed; inset: 0; z-index: 80; padding: 1rem; display: flex; align-items: flex-end; justify-content: center; background: rgba(9,9,11,.56); backdrop-filter: blur(8px); }
+.ember-appearance-mobile-sheet { width: min(100%, 28rem); padding: 1rem; color: var(--ember-text); background: var(--ember-raised); border: 1px solid var(--ember-line); border-radius: 1.4rem; box-shadow: 0 28px 80px rgba(0,0,0,.38); }
+.ember-appearance-mobile-sheet > header { margin-bottom: 1rem; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.ember-appearance-mobile-sheet > header > div { display: grid; gap: .2rem; }
+.ember-appearance-mobile-sheet > header span { color: var(--ember-action); font-size: .58rem; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
+.ember-appearance-mobile-sheet > header b { font-size: 1rem; }
+.ember-appearance-mobile-sheet > header button { width: 2.25rem; height: 2.25rem; display: grid; place-items: center; color: var(--ember-muted); background: var(--ember-canvas); border-radius: 999px; }
 
 .appearance-segment {
   padding: .22rem;
@@ -1326,6 +1355,7 @@ html[data-interface="ember"] body {
   .ember-header > div { max-width: none; }
   .ember-main { max-width: none; margin-left: 14.5rem; margin-right: 1.5rem; }
   .ember-capture-mobile { display: none; }
+  .ember-appearance-mobile-trigger { display: none; }
 }
 
 @media (max-width: 767px) {

@@ -1,4 +1,5 @@
-import { CalendarDays, FolderArchive, Home, MessageCircle, Plus, Settings, Sparkles, Users } from 'lucide-react';
+import { useState } from 'react';
+import { CalendarDays, FolderArchive, Home, MessageCircle, Palette, Plus, Settings, Sparkles, Users, X } from 'lucide-react';
 import AppearanceControls from './AppearanceControls';
 
 export type EmberDestination = 'pulse' | 'profiles' | 'calendar' | 'household' | 'vault';
@@ -33,6 +34,7 @@ interface EmberNavigationProps {
 
 export default function EmberNavigation({ current, onSelect, onAsk, onCapture, onSettings }: EmberNavigationProps) {
   const activeDestination = emberDestinationFor(current);
+  const [mobileAppearanceOpen, setMobileAppearanceOpen] = useState(false);
   return (
     <>
       <aside className="ember-sidebar" aria-label="Primary navigation">
@@ -53,8 +55,22 @@ export default function EmberNavigation({ current, onSelect, onAsk, onCapture, o
         <button type="button" onClick={onAsk} className="ember-ask">
           <MessageCircle className="h-4 w-4" /><span>Ask Teluva</span><kbd>⌘ K</kbd>
         </button>
-        <AppearanceControls />
+        <div className="ember-sidebar-appearance">
+          <span>Appearance</span>
+          <AppearanceControls />
+        </div>
       </aside>
+      <button type="button" onClick={() => setMobileAppearanceOpen(true)} className="ember-appearance-mobile-trigger" aria-label="Open Appearance settings">
+        <Palette className="h-4 w-4" /><span>Appearance</span>
+      </button>
+      {mobileAppearanceOpen && (
+        <div className="ember-appearance-mobile-backdrop" role="presentation" onClick={() => setMobileAppearanceOpen(false)}>
+          <section className="ember-appearance-mobile-sheet" role="dialog" aria-modal="true" aria-label="Appearance" onClick={event => event.stopPropagation()}>
+            <header><div><span>Appearance</span><b>Choose how Teluva looks.</b></div><button type="button" onClick={() => setMobileAppearanceOpen(false)} aria-label="Close Appearance"><X className="h-4 w-4" /></button></header>
+            <AppearanceControls />
+          </section>
+        </div>
+      )}
       <button type="button" onClick={onCapture} className="ember-capture-mobile" aria-label="Open Capture">
         <Plus className="h-5 w-5" /><span>Capture</span>
       </button>
