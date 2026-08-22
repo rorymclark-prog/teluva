@@ -1,12 +1,12 @@
 {
-  "label": "v252",
+  "label": "v253",
   "changes": [
-    "Ember Thread now runs through the full app: every existing tool sits inside one of five clear destinations — Pulse, People, Plan, House and Vault — with a focused local section menu.",
-    "Family Pulse opens with the few things that matter now, one real family moment and the next date on your calendar — all drawn from information already in your vault.",
-    "Living Profiles use four human lenses instead of a wall of tabs; Plan opens on a seven-day family horizon; and Vault begins with search and evidence rather than folders.",
-    "Quick Capture now understands documents, moments, plans, people and home knowledge, while first-time setup starts with one useful family job instead of a long configuration exercise.",
-    "Choose System, Light or Dark from Appearance. Your choice stays on this device and is applied before the first frame, so dark mode never flashes bright while the app starts.",
-    "Family Story and In Memory now open as living chapters, while Emergency can save an explicit device-only offline pack and test it before it is needed.",
-    "Ember Thread is fully reversible: choose Use classic Teluva at any time to return to the previous dashboard without changing or moving any family data."
+    "People now opens with the family profiles first, while missing records and readiness checks live in their own To-do & readiness tab.",
+    "Family tree is now a real, interactive generation map with parent, child, partner, step, foster, adoptive and separated relationships, plus GEDCOM import and export.",
+    "Travel document watch now recommends when to start renewing: nine months before passport expiry and six months before visa or residence-permit expiry.",
+    "Family Hub and Business Hub are clearly labelled beside every space name, so a custom logo or title never hides which kind of space is open.",
+    "Business spaces now use team, work, operations and business language throughout Pulse, People, Capture, Calendar, credentials, insurance, chat and settings.",
+    "Business calendars exclude family-only occasions while keeping plans, team birthdays, work travel documents, medical checks and time away.",
+    "System, Light and Dark appearance controls remain available at the bottom of the main navigation, and classic Teluva remains available as a full rollback option."
   ]
 }

@@ -56,7 +56,7 @@ assert.equal(pack.ownerUid, scope.ownerUid);
 assert.equal(pack.spaceId, scope.spaceId);
 assert.equal(pack.spaceName, scope.spaceName);
 assert.equal(isEmergencyPackOfflineReady(pack), false, 'saved data alone must not claim cold-offline readiness');
-assert.equal(isEmergencyPackOfflineReady({ ...pack, shellVerifiedAt: '2026-08-22T12:01:00.000Z', shellVersion: 'v252' }), true);
+assert.equal(isEmergencyPackOfflineReady({ ...pack, shellVerifiedAt: '2026-08-22T12:01:00.000Z', shellVersion: 'v253' }), true);
 assert.equal(isEmergencyPackOfflineReady({ ...pack, shellVerifiedAt: '2026-08-22T12:01:00.000Z', shellVersion: 'old' }), false);
 
 const stored = new Map<string, string>();
