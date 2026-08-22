@@ -9,6 +9,7 @@ interface CaptureMenuProps {
   onOpenVault: () => void;
   onOpenStory: () => void;
   onOpenHouse: () => void;
+  isBusinessSpace?: boolean;
 }
 
 const choices = [
@@ -19,7 +20,7 @@ const choices = [
   { id: 'home', title: 'Home knowledge', note: 'Keep a provider, object or household detail', icon: Home },
 ] as const;
 
-export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpenVault, onOpenStory, onOpenHouse }: CaptureMenuProps) {
+export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpenVault, onOpenStory, onOpenHouse, isBusinessSpace = false }: CaptureMenuProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -41,6 +42,12 @@ export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpen
   if (!open) return null;
 
   const actions = { person: onAddPerson, plan: onPlan, document: onOpenVault, moment: onOpenStory, home: onOpenHouse };
+  const visibleChoices = isBusinessSpace ? [
+    { id: 'document', title: 'Photo, scan or file', note: 'Send evidence into the business vault', icon: FileUp },
+    { id: 'plan', title: 'Plan something', note: 'Add a team date, deadline or appointment', icon: CalendarPlus },
+    { id: 'person', title: 'Add a team member', note: 'Create an employee or contractor record', icon: UserPlus },
+    { id: 'home', title: 'Operational detail', note: 'Keep a location, provider, asset or workplace detail', icon: Home },
+  ] as const : choices;
 
   const keepFocusInside = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Tab') return;
@@ -75,7 +82,7 @@ export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpen
           <button type="button" onClick={onClose} aria-label="Close Capture"><X className="h-5 w-5" /></button>
         </header>
         <div className="capture-choices">
-          {choices.map(({ id, title, note, icon: Icon }) => (
+          {visibleChoices.map(({ id, title, note, icon: Icon }) => (
             <button
               key={id}
               data-capture-choice

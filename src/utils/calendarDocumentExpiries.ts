@@ -21,6 +21,9 @@ export interface CalendarDocumentExpiry {
   daysRemaining: number;
   monthsRemaining: number;
   status: DocumentExpiryStatus;
+  renewalStartDate: string;
+  renewalLeadMonths: number;
+  renewalDue: boolean;
 }
 
 function dateOnlyMs(value: string): number | null {
@@ -40,6 +43,25 @@ function dateOnlyMs(value: string): number | null {
 
 function firstName(name: string): string {
   return name.split(/\s+/)[0] || name;
+}
+
+function isoDate(year: number, monthIndex: number, day: number): string {
+  return `${String(year).padStart(4, '0')}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Subtract whole calendar months without allowing 31 March to roll into March. */
+export function subtractCalendarMonths(value: string, months: number): string | null {
+  const parsed = dateOnlyMs(value);
+  if (parsed === null) return null;
+  const date = new Date(parsed);
+  const target = new Date(date.getFullYear(), date.getMonth() - months, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  return isoDate(target.getFullYear(), target.getMonth(), Math.min(date.getDate(), lastDay));
+}
+
+/** Conservative planning defaults, clearly presented as guidance in the UI. */
+export function renewalLeadMonths(kind: DocumentExpiryKind): number {
+  return kind === 'Passport' ? 9 : 6;
 }
 
 /**
@@ -68,6 +90,8 @@ export function buildCalendarDocumentExpiries(
     if (expiryMs === null) return;
     const daysRemaining = Math.round((expiryMs - today.getTime()) / DAY_MS);
     const monthsRemaining = (expiryMs - today.getTime()) / MONTH_MS;
+    const leadMonths = renewalLeadMonths(kind);
+    const renewalStartDate = subtractCalendarMonths(expiryDate, leadMonths)!;
     out.push({
       id,
       memberId: member.id,
@@ -80,6 +104,9 @@ export function buildCalendarDocumentExpiries(
       status: daysRemaining < 0
         ? 'expired'
         : monthsRemaining <= PASSPORT_WARN_MONTHS ? 'soon' : 'later',
+      renewalStartDate,
+      renewalLeadMonths: leadMonths,
+      renewalDue: dateOnlyMs(renewalStartDate)! <= today.getTime(),
     });
   };
 
@@ -132,6 +159,12 @@ export function buildCalendarDocumentExpiries(
     a.expiryDate.localeCompare(b.expiryDate)
     || firstName(a.memberName).localeCompare(firstName(b.memberName))
     || a.label.localeCompare(b.label));
+}
+
+export function documentRenewalLabel(expiry: CalendarDocumentExpiry): string {
+  if (expiry.status === 'expired') return 'Renew now';
+  if (expiry.renewalDue) return 'Start renewal now';
+  return `Start renewal by ${expiry.renewalStartDate}`;
 }
 
 export function documentExpiryStatusLabel(expiry: CalendarDocumentExpiry): string {

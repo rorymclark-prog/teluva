@@ -19,7 +19,7 @@ const BLANK: PasswordEntry = {
   createdAt: '',
 };
 
-export default function FamilyPasswords() {
+export default function FamilyPasswords({ isBusinessSpace = false }: { isBusinessSpace?: boolean }) {
   const { isAdmin } = useFamilyCtx();
   const [entries, setEntries] = useState<PasswordEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,7 +125,7 @@ export default function FamilyPasswords() {
             <KeyRound className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-display text-xl font-semibold text-ink-900">Family Passwords</h2>
+            <h2 className="font-display text-xl font-semibold text-ink-900">{isBusinessSpace ? 'Business Passwords' : 'Family Passwords'}</h2>
             <p className="text-[13px] text-ink-400 font-medium">
               {entries.length === 0
                 ? 'No entries yet'
@@ -143,7 +143,7 @@ export default function FamilyPasswords() {
 
       {/* Info banner */}
       <div className="bg-cream-100 text-ink-500 text-[12px] rounded-xl px-4 py-2.5">
-        These are <strong className="font-semibold text-ink-700">shared family passwords</strong> — for personal passwords use Apple Passwords or Google Passwords.
+        These are <strong className="font-semibold text-ink-700">shared {isBusinessSpace ? 'business' : 'family'} passwords</strong> — for personal passwords use Apple Passwords or Google Passwords.
       </div>
 
       {/* Empty state */}

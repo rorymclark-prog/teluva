@@ -30,9 +30,15 @@ interface EmberNavigationProps {
   onAsk: () => void;
   onCapture: () => void;
   onSettings: () => void;
+  isBusinessSpace?: boolean;
 }
 
-export default function EmberNavigation({ current, onSelect, onAsk, onCapture, onSettings }: EmberNavigationProps) {
+export function emberDestinationLabel(id: EmberDestination, isBusinessSpace: boolean): string {
+  if (!isBusinessSpace) return destinations.find(destination => destination.id === id)?.label || id;
+  return ({ pulse: 'Pulse', profiles: 'Team', calendar: 'Plan', household: 'Operations', vault: 'Vault' } as const)[id];
+}
+
+export default function EmberNavigation({ current, onSelect, onAsk, onCapture, onSettings, isBusinessSpace = false }: EmberNavigationProps) {
   const activeDestination = emberDestinationFor(current);
   const [mobileAppearanceOpen, setMobileAppearanceOpen] = useState(false);
   return (
@@ -40,9 +46,9 @@ export default function EmberNavigation({ current, onSelect, onAsk, onCapture, o
       <aside className="ember-sidebar" aria-label="Primary navigation">
         <div className="ember-wordmark" aria-label="Teluva">tel<span>u</span>va</div>
         <nav>
-          {destinations.map(({ id, label, icon: Icon }) => (
+          {destinations.map(({ id, icon: Icon }) => (
             <button key={id} type="button" onClick={() => onSelect(id)} className={activeDestination === id ? 'is-active' : ''} aria-current={activeDestination === id ? 'page' : undefined}>
-              <Icon className="h-4 w-4" /><span>{label}</span>
+              <Icon className="h-4 w-4" /><span>{emberDestinationLabel(id, isBusinessSpace)}</span>
             </button>
           ))}
         </nav>
@@ -75,9 +81,9 @@ export default function EmberNavigation({ current, onSelect, onAsk, onCapture, o
         <Plus className="h-5 w-5" /><span>Capture</span>
       </button>
       <nav className="ember-mobile-nav" aria-label="Primary navigation">
-        {destinations.map(({ id, label, icon: Icon }) => (
+        {destinations.map(({ id, icon: Icon }) => (
           <button key={id} type="button" onClick={() => onSelect(id)} className={activeDestination === id ? 'is-active' : ''} aria-current={activeDestination === id ? 'page' : undefined}>
-            <Icon className="h-5 w-5" /><span>{label}</span>
+            <Icon className="h-5 w-5" /><span>{emberDestinationLabel(id, isBusinessSpace)}</span>
           </button>
         ))}
       </nav>

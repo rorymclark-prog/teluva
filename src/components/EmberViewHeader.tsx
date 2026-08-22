@@ -11,6 +11,7 @@ interface EmberViewHeaderProps {
   current: string;
   views: EmberViewItem[];
   onSelect: (id: string) => void;
+  isBusinessSpace?: boolean;
 }
 
 type Destination = 'people' | 'plan' | 'house' | 'vault';
@@ -19,7 +20,7 @@ const destinations: Record<Destination, { label: string; icon: ElementType; ids:
   people: {
     label: 'People',
     icon: Users,
-    ids: ['profiles', 'emergency', 'info', 'timeline', 'familyWords', 'inMemory', 'familyTree', 'chat'],
+    ids: ['profiles', 'profilesTodo', 'emergency', 'info', 'timeline', 'familyWords', 'inMemory', 'familyTree', 'chat'],
   },
   plan: {
     label: 'Plan',
@@ -40,6 +41,7 @@ const destinations: Record<Destination, { label: string; icon: ElementType; ids:
 
 const copy: Record<string, { kicker: string; title: string; note: string }> = {
   profiles: { kicker: 'People · Living profiles', title: 'The family, at a glance.', note: 'Faces, relationships and what is happening in each person’s life right now.' },
+  profilesTodo: { kicker: 'People · To-do & readiness', title: 'Finish what matters.', note: 'Missing records and timely checks gathered away from the family profiles.' },
   emergency: { kicker: 'People · Emergency', title: 'Useful with one hand.', note: 'The critical facts and trusted actions your family may need under pressure.' },
   info: { kicker: 'People · Important information', title: 'The facts close to hand.', note: 'Trusted contacts, providers and practical details without the folder hunt.' },
   timeline: { kicker: 'People · Family story', title: 'A year you can feel.', note: 'Dates, photographs and small family moments gathered into a living timeline.' },
@@ -67,16 +69,40 @@ const copy: Record<string, { kicker: string; title: string; note: string }> = {
   willsEstate: { kicker: 'Vault · Estate & legacy', title: 'Start with the human note.', note: 'Wishes, responsibilities and the first things trusted people should know.' },
 };
 
+const businessCopy: Record<string, { kicker: string; title: string; note: string }> = {
+  profiles: { kicker: 'Team · People records', title: 'The team, at a glance.', note: 'Roles, contact details and the records each person needs for work.' },
+  profilesTodo: { kicker: 'Team · To-do & readiness', title: 'Finish what matters.', note: 'Missing records, expiring qualifications and timely checks in one worklist.' },
+  info: { kicker: 'Team · Compliance', title: 'The facts close to hand.', note: 'Professional contacts, registrations and practical business details without the folder hunt.' },
+  chat: { kicker: 'Team · Private chat', title: 'Keep the work conversation together.', note: 'A private thread for decisions and updates that belong to this team.' },
+  calendar: { kicker: 'Plan · Business horizon', title: 'The next seven days first.', note: 'People, deadlines and the dates shaping the team’s week.' },
+  household: { kicker: 'Operations · Locations', title: 'Every workplace accounted for.', note: 'Locations, utilities, providers and operational knowledge in one shared place.' },
+  vehicles: { kicker: 'Operations · Vehicles', title: 'Know what needs attention next.', note: 'Service history, documents and responsibilities attached to every vehicle.' },
+  assets: { kicker: 'Operations · Assets', title: 'Know what the business owns.', note: 'Receipts, warranties, manuals and custody attached to each important item.' },
+  vault: { kicker: 'Vault · Business documents', title: 'Find it in seconds.', note: 'Search, ownership, expiry and evidence—without guessing which folder won.' },
+  drive: { kicker: 'Vault · Google Drive', title: 'Keep the source connected.', note: 'Bring existing business files into reach without creating another orphaned copy.' },
+  finances: { kicker: 'Vault · Finance records', title: 'Know what exists. Know who can act.', note: 'Accounts, responsibilities and the evidence behind them, kept deliberately private.' },
+  insurance: { kicker: 'Vault · Business cover', title: 'Understand what protects the business.', note: 'Policies, assets and claim moments connected in plain language.' },
+  slips: { kicker: 'Vault · Purchase slips', title: 'Proof when you need it.', note: 'Receipts and purchase evidence ready for expenses, warranties and claims.' },
+  passwords: { kicker: 'Vault · Business access', title: 'Private means intentionally shared.', note: 'Sensitive access details with visible ownership and clear boundaries.' },
+};
+
+export function emberViewCopy(current: string, isBusinessSpace: boolean) {
+  return (isBusinessSpace ? businessCopy[current] : undefined) || copy[current];
+}
+
 function destinationFor(viewId: string): Destination | null {
   return (Object.entries(destinations).find(([, destination]) => destination.ids.includes(viewId))?.[0] as Destination | undefined) || null;
 }
 
-export default function EmberViewHeader({ current, views, onSelect }: EmberViewHeaderProps) {
+export default function EmberViewHeader({ current, views, onSelect, isBusinessSpace = false }: EmberViewHeaderProps) {
   const destinationId = destinationFor(current);
-  const meta = copy[current];
+  const meta = emberViewCopy(current, isBusinessSpace);
   if (!destinationId || !meta) return null;
 
   const destination = destinations[destinationId];
+  const destinationLabel = isBusinessSpace && destinationId === 'people'
+    ? 'Team'
+    : isBusinessSpace && destinationId === 'house' ? 'Operations' : destination.label;
   const available = destination.ids
     .map((id) => views.find((view) => view.id === id))
     .filter(Boolean) as EmberViewItem[];
@@ -92,7 +118,7 @@ export default function EmberViewHeader({ current, views, onSelect }: EmberViewH
       <div className="ember-view-mark" aria-hidden="true">
         {destinationId === 'people' ? <Heart /> : destinationId === 'plan' ? <Sparkles /> : destinationId === 'house' ? <Layers3 /> : <ShieldCheck />}
       </div>
-      <nav className="ember-subnav" aria-label={`${destination.label} sections`}>
+      <nav className="ember-subnav" aria-label={`${destinationLabel} sections`}>
         {available.map(({ id, label, icon: Icon }) => (
           <button key={id} type="button" onClick={() => onSelect(id)} className={id === current ? 'is-active' : ''} aria-current={id === current ? 'page' : undefined}>
             <Icon className="h-3.5 w-3.5" /><span>{label}</span>{id === current && <ArrowRight className="h-3 w-3" />}

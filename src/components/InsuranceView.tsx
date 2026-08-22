@@ -99,7 +99,7 @@ const BLANK_POLICY: InsurancePolicy = {
   coveredMemberIds: [], coveredAssetIds: [],
 };
 
-export default function InsuranceView({ members, canUseAI = false }: { members: FamilyMember[]; canUseAI?: boolean }) {
+export default function InsuranceView({ members, canUseAI = false, isBusinessSpace = false }: { members: FamilyMember[]; canUseAI?: boolean; isBusinessSpace?: boolean }) {
   const [finances, setFinances] = useState<FinancesInfo>(EMPTY_FINANCES);
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -579,7 +579,7 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
                 <input type="text" placeholder="24h claims line" value={editing.claimsPhone || ''} onChange={e => patch({ claimsPhone: e.target.value })} className="field w-full" />
                 {isFuneralPolicy(editing.type) && (
                   <p className="text-[11px] text-ink-400 mt-1">
-                    This is the number a grieving family calls first — keep it current.
+                    This is the number {isBusinessSpace ? 'the covered person’s contacts' : 'a grieving family'} call first — keep it current.
                   </p>
                 )}
               </div>
@@ -685,7 +685,7 @@ export default function InsuranceView({ members, canUseAI = false }: { members: 
                   <Users className="w-3.5 h-3.5" /> Covered people
                 </label>
                 {members.length === 0 ? (
-                  <EmptyState size="sm" title="No family members yet." />
+                  <EmptyState size="sm" title={isBusinessSpace ? 'No team members yet.' : 'No family members yet.'} />
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {members.map(m => {

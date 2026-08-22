@@ -18,6 +18,7 @@ interface FamilyPulseProps {
   onOpenCalendar: () => void;
   onOpenMemberIds: (memberId: string) => void;
   onOpenPeople: () => void;
+  isBusinessSpace?: boolean;
 }
 
 const DAY = 86_400_000;
@@ -38,7 +39,12 @@ function dateLabel(event: CalendarEvent): string {
     + (event.time ? ` · ${event.time}` : '');
 }
 
-function positiveMoment(members: FamilyMember[]): { title: string; note: string; growth: boolean } | null {
+function positiveMoment(members: FamilyMember[], isBusinessSpace: boolean): { title: string; note: string; growth: boolean } | null {
+  if (isBusinessSpace) {
+    return members.length > 0
+      ? { title: `${members.length} ${members.length === 1 ? 'person' : 'people'}, one team.`, note: 'Open People to keep the team record current', growth: false }
+      : null;
+  }
   for (const member of members) {
     const history = [...(member.growthHistory || [])]
       .filter((entry) => Number.isFinite(entry.heightCm) && !!localDate(entry.date))
@@ -57,7 +63,37 @@ function positiveMoment(members: FamilyMember[]): { title: string; note: string;
     : null;
 }
 
-export default function FamilyPulse({ members, events, status, familyPhotoUrl, expiryWarnings, onOpenCalendar, onOpenMemberIds, onOpenPeople }: FamilyPulseProps) {
+export function pulseSpaceCopy(isBusinessSpace: boolean) {
+  return isBusinessSpace ? {
+    eyebrow: 'This week at work',
+    calm: 'Your business space is calm and ready when you need it.',
+    calendar: 'shared calendar',
+    sceneAria: 'Your team',
+    sceneLabel: 'Our team',
+    sceneAlt: 'Your team together',
+    sceneEmpty: 'Your team belongs here',
+    returnEyebrow: 'Keep the team moving',
+    emptyTitle: 'Build your team.',
+    emptyAction: 'Add your first team member',
+    peopleAria: 'Team members',
+    peopleAction: 'See the team',
+  } : {
+    eyebrow: 'This week with us',
+    calm: 'Your family space is calm and ready when you need it.',
+    calendar: 'family calendar',
+    sceneAria: 'Your family scene',
+    sceneLabel: 'Our family',
+    sceneAlt: 'Your family together',
+    sceneEmpty: 'Your people belong here',
+    returnEyebrow: 'A reason to return',
+    emptyTitle: 'Start your family story.',
+    emptyAction: 'Add your first person',
+    peopleAria: 'Family members',
+    peopleAction: 'See everyone',
+  };
+}
+
+export default function FamilyPulse({ members, events, status, familyPhotoUrl, expiryWarnings, onOpenCalendar, onOpenMemberIds, onOpenPeople, isBusinessSpace = false }: FamilyPulseProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const upcoming = events
@@ -87,7 +123,8 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
   ]);
 
   const countWords = ['Nothing urgent', 'One thing matters', 'Two things matter', 'Three things matter'];
-  const moment = positiveMoment(members);
+  const copy = pulseSpaceCopy(isBusinessSpace);
+  const moment = positiveMoment(members, isBusinessSpace);
   const nextEvent = upcoming[0]?.event;
   const nextDate = nextEvent ? localDate(nextEvent.date) : null;
 
@@ -95,17 +132,17 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
     <div className="family-pulse">
       <section className="pulse-hero">
         <div className="pulse-hero-copy">
-          <span className="pulse-eyebrow">This week with us</span>
+          <span className="pulse-eyebrow">{copy.eyebrow}</span>
           <h1>{countWords[decisions.length]}.<br /><em>Everything else can wait.</em></h1>
-          <p>{status?.text || (nextEvent ? `${nextEvent.title} is the next thing on the family calendar.` : 'Your family space is calm and ready when you need it.')}</p>
+          <p>{status?.text || (nextEvent ? `${nextEvent.title} is the next thing on the ${copy.calendar}.` : copy.calm)}</p>
           {status && <small>Updated by {status.by}</small>}
         </div>
-        <div className={`pulse-family-scene ${familyPhotoUrl ? 'has-photo' : ''}`} aria-label="Your family scene">
+        <div className={`pulse-family-scene ${familyPhotoUrl ? 'has-photo' : ''}`} aria-label={copy.sceneAria}>
           {familyPhotoUrl ? (
-            <img src={familyPhotoUrl} alt="Your family together" />
+            <img src={familyPhotoUrl} alt={copy.sceneAlt} />
           ) : (
             <>
-              <span className="pulse-scene-label">Our family</span>
+              <span className="pulse-scene-label">{copy.sceneLabel}</span>
               <div className="pulse-scene-portraits">
                 {members.slice(0, 4).map((member) => member.avatarUrl ? (
                   <img key={member.id} src={member.avatarUrl} alt={member.name} title={member.name} />
@@ -115,7 +152,7 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
                   </span>
                 ))}
               </div>
-              <p>{members.length ? members.slice(0, 4).map((member) => member.name.split(' ')[0]).join(' · ') : 'Your people belong here'}</p>
+              <p>{members.length ? members.slice(0, 4).map((member) => member.name.split(' ')[0]).join(' · ') : copy.sceneEmpty}</p>
             </>
           )}
           {nextDate && (
@@ -143,20 +180,20 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
         </section>
 
         <button type="button" onClick={onOpenPeople} className="pulse-memory">
-          <span className="pulse-eyebrow">A reason to return</span>
+          <span className="pulse-eyebrow">{copy.returnEyebrow}</span>
           <div className="pulse-memory-icon">{moment?.growth ? <Ruler /> : <Sparkles />}</div>
-          <h2>{moment?.title || 'Start your family story.'}</h2>
-          <p>{moment?.note || 'Add your first person'} <ArrowRight className="h-4 w-4" /></p>
+          <h2>{moment?.title || copy.emptyTitle}</h2>
+          <p>{moment?.note || copy.emptyAction} <ArrowRight className="h-4 w-4" /></p>
         </button>
       </div>
 
-      <section className="pulse-people" aria-label="Family members">
+      <section className="pulse-people" aria-label={copy.peopleAria}>
         <div>
           {members.slice(0, 6).map((member) => member.avatarUrl
             ? <img key={member.id} src={member.avatarUrl} alt={member.name} />
             : <span key={member.id} aria-label={member.name}>{member.name.charAt(0).toUpperCase()}</span>)}
         </div>
-        <button type="button" onClick={onOpenPeople}>See everyone <ArrowRight className="h-4 w-4" /></button>
+        <button type="button" onClick={onOpenPeople}>{copy.peopleAction} <ArrowRight className="h-4 w-4" /></button>
       </section>
     </div>
   );

@@ -28,6 +28,7 @@ import EmptyState from './EmptyState';
 interface FamilyChatProps {
   members: FamilyMember[];
   selectedMemberId: string;
+  isBusinessSpace?: boolean;
 }
 
 interface ChatMessage {
@@ -40,14 +41,21 @@ interface ChatMessage {
   channelId: string;
 }
 
-const CHANNELS = [
+const FAMILY_CHANNELS = [
   { id: 'general', name: 'general', desc: 'Main family hub discussions' },
   { id: 'planning', name: 'planning', desc: 'Summer trips & activity schedule' },
   { id: 'shopping', name: 'shopping-list', desc: 'Grocery & supplies coordination' },
   { id: 'emergencies', name: 'emergencies', desc: 'Urgent household updates' }
 ];
 
-export default function FamilyChat({ members, selectedMemberId }: FamilyChatProps) {
+const BUSINESS_CHANNELS = [
+  { id: 'general', name: 'general', desc: 'Main team discussions' },
+  { id: 'planning', name: 'planning', desc: 'Deadlines, shifts and upcoming work' },
+  { id: 'shopping', name: 'supplies', desc: 'Supplies and purchasing coordination' },
+  { id: 'emergencies', name: 'urgent', desc: 'Urgent operational updates' },
+];
+
+export default function FamilyChat({ members, selectedMemberId, isBusinessSpace = false }: FamilyChatProps) {
   const { isAdmin, canWrite } = useFamilyCtx();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeChannel, setActiveChannel] = useState('general');
@@ -56,6 +64,7 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [chatUser, setChatUser] = useState<FamilyMember | null>(null);
+  const channels = isBusinessSpace ? BUSINESS_CHANNELS : FAMILY_CHANNELS;
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -117,7 +126,7 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
       handleFirestoreError(error, OperationType.LIST, 'messages');
       // Clear the spinner and show a real message instead of spinning forever
       setIsLoading(false);
-      setLoadError("Couldn't load the family chat. Check your connection and refresh.");
+      setLoadError(`Couldn't load the ${isBusinessSpace ? 'team' : 'family'} chat. Check your connection and refresh.`);
     });
 
     return () => unsubscribe();
@@ -228,7 +237,7 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
               Family Channels
             </h3>
             <div className="space-y-1">
-              {CHANNELS.map(ch => (
+              {channels.map(ch => (
                 <button
                   key={ch.id}
                   onClick={() => setActiveChannel(ch.id)}
@@ -251,7 +260,7 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
               <span>Private</span>
             </div>
             <p className="text-[13px] text-ink-400 font-light">
-              Only signed-in members of your family can read or post here.
+              Only signed-in members of {isBusinessSpace ? 'this business' : 'your family'} can read or post here.
             </p>
           </div>
         </div>
@@ -260,7 +269,7 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
         <div className="flex-1 flex flex-col bg-white min-w-0">
           {/* Mobile channel selector — the sidebar is hidden below md */}
           <div className="md:hidden flex gap-1.5 overflow-x-auto px-4 py-2 border-b border-cream-200 bg-cream-50">
-            {CHANNELS.map(ch => (
+            {channels.map(ch => (
               <button
                 key={ch.id}
                 onClick={() => setActiveChannel(ch.id)}
@@ -280,10 +289,10 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
             <div className="flex items-center space-x-2">
               <span className="font-semibold text-ink-800 flex items-center gap-1 text-[13px]">
                 <Hash className="w-3.5 h-3.5 text-ink-400 inline" />
-                {CHANNELS.find(c => c.id === activeChannel)?.name}
+                {channels.find(c => c.id === activeChannel)?.name}
               </span>
               <span className="text-[13px] text-ink-400 font-light hidden sm:inline">
-                — {CHANNELS.find(c => c.id === activeChannel)?.desc}
+                — {channels.find(c => c.id === activeChannel)?.desc}
               </span>
             </div>
             <div className="flex items-center space-x-1 text-[13px] text-ink-400 font-semibold">
@@ -311,7 +320,7 @@ export default function FamilyChat({ members, selectedMemberId }: FamilyChatProp
                 <EmptyState
                   icon={Hash}
                   title="No messages yet"
-                  description={`Be the first to post a note or checklist in #${CHANNELS.find(c => c.id === activeChannel)?.name}!`}
+                  description={`Be the first to post a note or checklist in #${channels.find(c => c.id === activeChannel)?.name}!`}
                 />
               </div>
             ) : (

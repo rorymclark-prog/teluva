@@ -77,7 +77,7 @@ export default function FinancesView({ isBusinessSpace, refreshKey, onOpenPrivac
       </div>
 
       <PrivacyNote onOpenPrivacy={onOpenPrivacy}>
-        Only signed-in members of your family can see this — it's stored securely and isolated to your family space.
+        Only signed-in members of {isBusinessSpace ? 'this business' : 'your family'} can see this — it&apos;s stored securely and isolated to {isBusinessSpace ? 'this business space' : 'your family space'}.
       </PrivacyNote>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">

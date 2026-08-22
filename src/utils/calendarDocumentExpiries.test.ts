@@ -4,7 +4,9 @@
 // calendar event existing.
 import assert from 'node:assert';
 import type { FamilyMember } from '../types';
-import { buildCalendarDocumentExpiries, documentExpiryStatusLabel } from './calendarDocumentExpiries';
+import {
+  buildCalendarDocumentExpiries, documentExpiryStatusLabel, documentRenewalLabel, subtractCalendarMonths,
+} from './calendarDocumentExpiries';
 
 const NOW = new Date('2026-08-17T12:00:00');
 
@@ -36,8 +38,17 @@ function member(overrides: Partial<FamilyMember> = {}): FamilyMember {
   assert.deepStrictEqual(expiries.map((e) => e.status), ['expired', 'soon', 'soon', 'later']);
   assert.strictEqual(documentExpiryStatusLabel(expiries[0]), 'Expired');
   assert.match(documentExpiryStatusLabel(expiries[1]), /^Expires in ~3 months$/);
+  assert.strictEqual(expiries[1].renewalStartDate, '2026-05-17');
+  assert.strictEqual(expiries[2].renewalStartDate, '2026-08-01');
+  assert.strictEqual(documentRenewalLabel(expiries[0]), 'Renew now');
+  assert.strictEqual(documentRenewalLabel(expiries[1]), 'Start renewal now');
+  assert.strictEqual(documentRenewalLabel(expiries[3]), 'Start renewal by 2027-04-01');
   assert.ok(expiries.every((e) => !JSON.stringify(e).includes('SECRET-')), 'document numbers must not enter the calendar-facing result');
 }
+
+assert.strictEqual(subtractCalendarMonths('2028-02-29', 9), '2027-05-29');
+assert.strictEqual(subtractCalendarMonths('2027-03-31', 1), '2027-02-28');
+assert.strictEqual(subtractCalendarMonths('not-a-date', 6), null);
 
 // The old single-passport field remains valid data, but must not duplicate a
 // matching record already migrated into passports[].

@@ -484,6 +484,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     setListCollapsed(next);
   };
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [peoplePane, setPeoplePane] = useState<'profiles' | 'todo'>('profiles');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isCaptureOpen, setIsCaptureOpen] = useState(false);
   const [capturePlanSignal, setCapturePlanSignal] = useState(initialFirstJob === 'week' ? 1 : 0);
@@ -2160,7 +2161,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           <h1 className="text-display-md text-ink-900 mb-3">{joinLinkVisit ? "You've been invited" : hubName}</h1>
           <p className="text-sm text-ink-500 leading-relaxed mb-3">
             {joinLinkVisit
-              ? 'Someone has invited you to join their family vault on Teluva — a private place to keep passports, insurance, medical notes and more, all in one spot. Sign in with Google to accept and you\'ll land straight inside.'
+              ? 'Someone has invited you to join their private space on Teluva — one shared place for people, plans, documents and important records. Sign in with Google to accept and you\'ll land straight inside.'
               : 'Sizes, documents, growth and plans for the whole family — together in one private place.'}
           </p>
           {/* The multi-device story is a real differentiator and it was only ever
@@ -2223,7 +2224,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                 not only on a page you reach after already signing in. Kept to
                 one short sentence — any longer and this grey block outweighs
                 the button above it. */}
-            Encrypted in transit and at rest, and your family&rsquo;s vault stays separate from every other family&rsquo;s —{' '}
+            Encrypted in transit and at rest, and {joinLinkVisit ? 'the invited space stays separate from every other Teluva space' : 'your family’s vault stays separate from every other family’s'} —{' '}
             <button onClick={() => setLegalTab('security')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">how we keep it safe</button>.
             {' '}By signing in you agree to our{' '}
             <button onClick={() => setLegalTab('terms')} className="underline underline-offset-2 hover:text-ink-600 cursor-pointer">Terms</button>
@@ -2247,18 +2248,18 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     <button
       type="button"
       onClick={() => setLightboxImage(settings.familyPhotoUrl!)}
-      title="View family photo"
-      aria-label="View family photo"
+      title={isBusinessSpace ? 'View business photo' : 'View family photo'}
+      aria-label={isBusinessSpace ? 'View business photo' : 'View family photo'}
       className="w-12 h-12 rounded-2xl overflow-hidden shrink-0 border border-cream-300 shadow-soft cursor-zoom-in transition-transform hover:scale-105"
     >
-      <img src={settings.familyPhotoUrl} alt="Family" className="w-full h-full object-cover" />
+      <img src={settings.familyPhotoUrl} alt={isBusinessSpace ? 'Business' : 'Family'} className="w-full h-full object-cover" />
     </button>
   ) : (
     <button
       type="button"
       onClick={() => !demo && setIsSettingsOpen(true)}
-      title={demo ? undefined : 'Add a family photo'}
-      aria-label={demo ? 'Family' : 'Add a family photo'}
+      title={demo ? undefined : isBusinessSpace ? 'Add a business photo' : 'Add a family photo'}
+      aria-label={demo ? (isBusinessSpace ? 'Business' : 'Family') : isBusinessSpace ? 'Add a business photo' : 'Add a family photo'}
       className={`w-12 h-12 rounded-2xl bg-sage-100 flex items-center justify-center shrink-0 transition-colors ${demo ? '' : 'hover:bg-sage-200 cursor-pointer'}`}
     >
       <ShieldCheck className="w-6 h-6 text-sage-600" />
@@ -2333,6 +2334,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           onAsk={() => setAssistantOpenSignal((n) => n + 1)}
           onCapture={() => setIsCaptureOpen(true)}
           onSettings={() => setIsSettingsOpen(true)}
+          isBusinessSpace={isBusinessSpace}
         />
       )}
       {/* Header */}
@@ -2411,9 +2413,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       >
         {emberInterface && mainView !== 'pulse' && !emergencyFocus && (
           <EmberViewHeader
-            current={mainView}
+            current={mainView === 'profiles' && peoplePane === 'todo' ? 'profilesTodo' : mainView}
             views={availableViewItems}
             onSelect={(id) => setMainView(id as ViewId)}
+            isBusinessSpace={isBusinessSpace}
           />
         )}
         {/* Suspense wraps every lazy-loaded mainView branch below — see the
@@ -2427,6 +2430,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             events={events}
             emberMode={emberInterface}
             openAddSignal={capturePlanSignal}
+            isBusinessSpace={isBusinessSpace}
             onSaveEvents={handleSaveEvents}
             // Per-division show/hide for the nine "at a glance" panels
             // (HubSettings.calendarDivisions) — same shared settings doc as
@@ -2483,7 +2487,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} openAddSignal={captureHouseSignal} emberMode={emberInterface} />}
 
         {mainView === 'finances' && <FinancesView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onOpenPrivacy={() => setLegalTab('privacy')} />}
-        {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} />}
+        {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} isBusinessSpace={isBusinessSpace} />}
         {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
         {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} canUseAI={canUseAI} />}
         {mainView === 'pets' && <PetsView refreshKey={aiDataVersion} />}
@@ -2517,7 +2521,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           demo ? (
             <DemoUnavailable label="Family chat" />
           ) : (
-            <FamilyChat members={members} selectedMemberId={selectedMemberId} />
+            <FamilyChat members={members} selectedMemberId={selectedMemberId} isBusinessSpace={isBusinessSpace} />
           )
         )}
 
@@ -2554,7 +2558,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         )}
 
         {mainView === 'passwords' && (
-          demo ? <DemoUnavailable label="Family passwords" /> : <FamilyPasswords />
+          demo ? <DemoUnavailable label={isBusinessSpace ? 'Business passwords' : 'Family passwords'} /> : <FamilyPasswords isBusinessSpace={isBusinessSpace} />
         )}
 
         {mainView === 'pulse' && (
@@ -2567,6 +2571,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             onOpenCalendar={() => setMainView('calendar')}
             onOpenMemberIds={(memberId) => goToMemberTab(memberId, 'ids')}
             onOpenPeople={() => setMainView('profiles')}
+            isBusinessSpace={isBusinessSpace}
           />
         )}
 
@@ -2576,6 +2581,30 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                 an install prompt over an empty vault is asking for commitment
                 before showing any value. Silent in demo mode. */}
             {!demo && <InstallPrompt hasContent={members.length > 0} />}
+
+            {emberInterface && (
+              <nav className="card flex items-center gap-1 p-1.5" aria-label={isBusinessSpace ? 'Team sections' : 'People sections'}>
+                <button
+                  type="button"
+                  onClick={() => setPeoplePane('profiles')}
+                  aria-current={peoplePane === 'profiles' ? 'page' : undefined}
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-bold transition-colors ${peoplePane === 'profiles' ? 'bg-ink-900 text-white' : 'text-ink-500 hover:bg-cream-100'}`}
+                >
+                  {isBusinessSpace ? 'Team profiles' : 'Family profiles'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPeoplePane('todo')}
+                  aria-current={peoplePane === 'todo' ? 'page' : undefined}
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-bold transition-colors ${peoplePane === 'todo' ? 'bg-ink-900 text-white' : 'text-ink-500 hover:bg-cream-100'}`}
+                >
+                  To-do &amp; readiness
+                </button>
+              </nav>
+            )}
+
+            {(!emberInterface || peoplePane === 'todo') && (
+              <>
 
             {pendingEditCount > 0 && (
               <button
@@ -2594,20 +2623,6 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
               </button>
             )}
 
-            {/* The whiteboard line. Above the digest deliberately: a human
-                wrote it about right now, which outranks anything computed. */}
-            <FamilyStatus
-              // The demo carries a sample line so the feature is visible to
-              // someone taking a look, rather than hidden behind write access.
-              status={demo
-                ? { text: 'Everyone at Oma’s until Sunday — Ben’s party is Saturday 3pm.', by: 'Mama', at: new Date(Date.now() - 5 * 3600_000).toISOString() }
-                : settings.status}
-              canWrite={!demo && canWrite}
-              authorName={currentUser?.displayName || currentUser?.email || 'Someone'}
-              onSave={(next) => { void handleSaveSettings({ ...settings, status: next }); }}
-              isBusinessSpace={isBusinessSpace}
-            />
-
             {/* Family-only: scores willsEstate/emergency-style readiness, which
                 has no business-space equivalent (willsEstate itself is hidden
                 in business spaces — see HIDDEN_VIEWS_IN_BUSINESS). */}
@@ -2622,47 +2637,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             )}
 
             <NeedsAttention members={members} extendedBirthdays={homeExtendedBirthdays} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
-            <CelebrationOverlay members={members} />
-
-            <OnThisDay members={members} events={events} extendedBirthdays={homeExtendedBirthdays} />
-
-            {!isBusinessSpace && (
-              <>
-                <FamilyWordOfDay demo={demo} onOpen={() => setMainView('familyWords')} />
-                <FlashbackCard members={members} events={events} />
               </>
             )}
+            <CelebrationOverlay members={members} />
 
-            {/* Quick actions — one-tap entry into the full-screen feature modals (family-only) */}
-            {!isBusinessSpace && (
-              <div className="flex flex-wrap gap-2">
-                <button data-tour="quick-emergency" type="button" onClick={() => setShowEmergency(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                  <Siren className="w-4 h-4" />
-                  <span>Emergency</span>
-                </button>
-                <button type="button" onClick={() => setShowBabysitter(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                  <Baby className="w-4 h-4" />
-                  <span>Babysitter</span>
-                </button>
-                <button type="button" onClick={() => setShowTravelPack(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                  <Plane className="w-4 h-4" />
-                  <span>Travel pack</span>
-                </button>
-                <button type="button" onClick={() => setShowFamilyStats(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                  <BarChart3 className="w-4 h-4" />
-                  <span>Family stats</span>
-                </button>
-                <button type="button" onClick={() => setShowFamilyQuiz(true)} className="btn-quiet px-3.5 py-2 text-[13px]">
-                  <HelpCircle className="w-4 h-4" />
-                  <span>Quiz</span>
-                </button>
-                <button type="button" onClick={() => { setHealthTimelineMemberId(null); setShowHealthTimeline(true); }} className="btn-quiet px-3.5 py-2 text-[13px]">
-                  <HeartPulse className="w-4 h-4" />
-                  <span>Health timeline</span>
-                </button>
-              </div>
-            )}
-
+            {(!emberInterface || peoplePane === 'profiles') && (
+              <>
             {initialLoadDone && members.length === 0 ? (
               <div className="card text-center py-20 px-6">
                 <div className="w-16 h-16 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-5">
@@ -2996,7 +2976,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                 />
                               )}
                               {activeTab === 'ids' && (
-                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} onAddDocument={handleAddDocument} country={settings.country || 'AT'} onOpenPrivacy={() => setLegalTab('privacy')} />
+                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} onAddDocument={handleAddDocument} country={settings.country || 'AT'} onOpenPrivacy={() => setLegalTab('privacy')} isBusinessSpace={isBusinessSpace} />
                               )}
                               {activeTab === 'guardians' && (
                                 <MemberGuardians member={selectedMember} onUpdate={handlePatchSelectedMember} />
@@ -3039,14 +3019,14 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                               )}
                               {activeTab === 'secrets' && (
                                 isAdmin
-                                  ? <SecureSecrets member={selectedMember} onUpdateMember={handleUpdateMember} onOpenPrivacy={() => setLegalTab('privacy')} />
+                                  ? <SecureSecrets member={selectedMember} onUpdateMember={handleUpdateMember} onOpenPrivacy={() => setLegalTab('privacy')} isBusinessSpace={isBusinessSpace} />
                                   : (
                                     <div className="card text-center py-16 px-4">
                                       <div className="w-12 h-12 rounded-2xl bg-cream-200 text-ink-400 flex items-center justify-center mx-auto mb-3">
                                         <Key className="w-6 h-6" />
                                       </div>
                                       <h3 className="text-sm font-semibold text-ink-800">Admins only</h3>
-                                      <p className="text-[13px] text-ink-400 mt-1">Saved logins can only be viewed by a family admin.</p>
+                                      <p className="text-[13px] text-ink-400 mt-1">Saved logins can only be viewed by {isBusinessSpace ? 'a business admin' : 'a family admin'}.</p>
                                     </div>
                                   )
                               )}
@@ -3068,11 +3048,43 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                         <User className="w-7 h-7" />
                       </div>
                       <h3 className="text-sm font-semibold text-ink-800">No one selected</h3>
-                      <p className="text-[13px] text-ink-400 mt-1">Pick a family member from the list to see their things.</p>
+                      <p className="text-[13px] text-ink-400 mt-1">Pick {isBusinessSpace ? 'a team member' : 'a family member'} from the list to see their things.</p>
                     </div>
                   )}
                 </section>
               </div>
+            )}
+
+            {/* The shared whiteboard and keepsakes support the people; they
+                follow the profiles instead of pushing those profiles below a
+                long administrative checklist. */}
+            <FamilyStatus
+              status={demo
+                ? { text: 'Everyone at Oma’s until Sunday — Ben’s party is Saturday 3pm.', by: 'Mama', at: new Date(Date.now() - 5 * 3600_000).toISOString() }
+                : settings.status}
+              canWrite={!demo && canWrite}
+              authorName={currentUser?.displayName || currentUser?.email || 'Someone'}
+              onSave={(next) => { void handleSaveSettings({ ...settings, status: next }); }}
+              isBusinessSpace={isBusinessSpace}
+            />
+
+            <OnThisDay members={members} events={events} extendedBirthdays={homeExtendedBirthdays} />
+
+            {!isBusinessSpace && (
+              <>
+                <FamilyWordOfDay demo={demo} onOpen={() => setMainView('familyWords')} />
+                <FlashbackCard members={members} events={events} />
+                <div className="flex flex-wrap gap-2">
+                  <button data-tour="quick-emergency" type="button" onClick={() => setShowEmergency(true)} className="btn-quiet px-3.5 py-2 text-[13px]"><Siren className="w-4 h-4" /><span>Emergency</span></button>
+                  <button type="button" onClick={() => setShowBabysitter(true)} className="btn-quiet px-3.5 py-2 text-[13px]"><Baby className="w-4 h-4" /><span>Babysitter</span></button>
+                  <button type="button" onClick={() => setShowTravelPack(true)} className="btn-quiet px-3.5 py-2 text-[13px]"><Plane className="w-4 h-4" /><span>Travel pack</span></button>
+                  <button type="button" onClick={() => setShowFamilyStats(true)} className="btn-quiet px-3.5 py-2 text-[13px]"><BarChart3 className="w-4 h-4" /><span>Family stats</span></button>
+                  <button type="button" onClick={() => setShowFamilyQuiz(true)} className="btn-quiet px-3.5 py-2 text-[13px]"><HelpCircle className="w-4 h-4" /><span>Quiz</span></button>
+                  <button type="button" onClick={() => { setHealthTimelineMemberId(null); setShowHealthTimeline(true); }} className="btn-quiet px-3.5 py-2 text-[13px]"><HeartPulse className="w-4 h-4" /><span>Health timeline</span></button>
+                </div>
+              </>
+            )}
+              </>
             )}
           </>
         )}
@@ -3150,6 +3162,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           onOpenVault={() => { setMainView('vault'); setCaptureVaultSignal(signal => signal + 1); }}
           onOpenStory={() => { setMainView('timeline'); setCaptureStorySignal(signal => signal + 1); }}
           onOpenHouse={() => { setMainView('household'); setCaptureHouseSignal(signal => signal + 1); }}
+          isBusinessSpace={isBusinessSpace}
         />
       )}
 

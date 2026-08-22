@@ -140,6 +140,7 @@ interface MemberIDsProps {
   onAddDocument: (memberId: string, doc: FamilyDocument) => void;
   country?: IdCountry;
   onOpenPrivacy?: () => void;
+  isBusinessSpace?: boolean;
 }
 
 /* ─── Passport form ──────────────────────────────────────────────── */
@@ -1365,7 +1366,7 @@ function foldPassports(member: FamilyMember): PassportRecord[] {
   return list;
 }
 
-export default function MemberIDs({ member, onUpdate, onAddDocument, country = 'AT', onOpenPrivacy }: MemberIDsProps) {
+export default function MemberIDs({ member, onUpdate, onAddDocument, country = 'AT', onOpenPrivacy, isBusinessSpace = false }: MemberIDsProps) {
   const [passports, setPassports] = useState<PassportRecord[]>(() => foldPassports(member));
   const [identity, setIdentity] = useState<IdentityRecord>(member.identity ?? {});
   const [viewScanSrc, setViewScanSrc] = useState<string | null>(null);
@@ -1433,7 +1434,7 @@ export default function MemberIDs({ member, onUpdate, onAddDocument, country = '
   return (
     <div className="space-y-6 font-sans">
       <PrivacyNote onOpenPrivacy={onOpenPrivacy}>
-        Only signed-in members of your family can see this — it's stored securely and isolated to your family space.
+        Only signed-in members of {isBusinessSpace ? 'this business' : 'your family'} can see this — it&apos;s stored securely and isolated to {isBusinessSpace ? 'this business space' : 'your family space'}.
       </PrivacyNote>
 
       <PassportsSection

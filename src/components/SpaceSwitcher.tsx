@@ -5,6 +5,7 @@ import { NewBusinessExtra, suggestBusinessInfo } from '../utils/db';
 
 const TYPE_ICON: Record<SpaceType, typeof Users> = { family: Users, business: Briefcase, personal: User };
 const TYPE_LABEL: Record<SpaceType, string> = { family: 'Family', business: 'Business', personal: 'Personal' };
+const TYPE_HUB_LABEL: Record<SpaceType, string> = { family: 'Family Hub', business: 'Business Hub', personal: 'Personal space' };
 
 // Small "this came from your chat" tag shown under a prefilled field — clicking
 // the X clears just that field's value (it stays editable either way, the tag
@@ -190,6 +191,9 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
         <h1 className="font-display text-lg font-semibold text-white leading-tight truncate">
           {title || active?.name || TYPE_LABEL[active?.type || 'family']}
         </h1>
+        <span className="hidden sm:inline-flex shrink-0 rounded-full border border-white/15 bg-white/8 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-white/55">
+          {TYPE_HUB_LABEL[active?.type || 'family']}
+        </span>
         {busy && avatar && <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-white/50" />}
         <ChevronDown className={`w-4 h-4 shrink-0 text-white/50 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>

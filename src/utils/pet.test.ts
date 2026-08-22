@@ -201,8 +201,8 @@ const NOW = new Date(2026, 7, 20);   // 2026-08-20, local
   const cal = read('src/components/FamilyCalendar.tsx');
   assert.ok(cal.includes('calendarDivisions?.petBirthdays'), 'the calendar must read the division toggle');
   assert.ok(cal.includes('buildCalendarPetBirthdays(pets)'), 'and build the birthdays');
-  assert.ok(/petBirthdays: settings\.calendarDivisions\?\.petBirthdays !== false \? petBirthdays : \[\],[\s\S]{0,400}buildIcs/.test(cal),
-    'pet birthdays must reach the .ics export too, or they stop at the app boundary');
+  assert.ok(/petBirthdays: !isBusinessSpace && settings\.calendarDivisions\?\.petBirthdays !== false \? petBirthdays : \[\],[\s\S]{0,400}buildIcs/.test(cal),
+    'pet birthdays must reach family .ics exports and stay out of business calendars');
 
   // Pets live on their OWN screen (v248) rather than at the bottom of
   // Household. The data did not move — still HouseholdInfo.pets, still saved

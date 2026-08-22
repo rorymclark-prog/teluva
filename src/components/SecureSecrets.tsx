@@ -13,9 +13,10 @@ interface SecureSecretsProps {
   member: FamilyMember;
   onUpdateMember: (member: FamilyMember) => void;
   onOpenPrivacy?: () => void;
+  isBusinessSpace?: boolean;
 }
 
-export default function SecureSecrets({ member, onUpdateMember, onOpenPrivacy }: SecureSecretsProps) {
+export default function SecureSecrets({ member, onUpdateMember, onOpenPrivacy, isBusinessSpace = false }: SecureSecretsProps) {
   const [successMsg, setSuccessMsg] = useState('');
 
   // SSN/IDs Form States
@@ -233,7 +234,7 @@ export default function SecureSecrets({ member, onUpdateMember, onOpenPrivacy }:
       </div>
 
       <PrivacyNote onOpenPrivacy={onOpenPrivacy}>
-        Only signed-in members of your family can see this. ID numbers, bank details and login passwords are all encrypted before they're stored.
+        Only signed-in members of {isBusinessSpace ? 'this business space' : 'your family'} can see this. ID numbers, bank details and login passwords are all encrypted before they're stored.
       </PrivacyNote>
 
       {successMsg && (

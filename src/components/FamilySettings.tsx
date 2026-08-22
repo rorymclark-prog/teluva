@@ -132,6 +132,11 @@ export default function FamilySettings({ onClose, onSettingsChanged }: FamilySet
     { key: 'vacations', label: 'Holidays & time away' },
     { key: 'petBirthdays', label: 'Pets\u2019 birthdays', sublabel: 'Shows only once a pet on the Household screen has a birthday on file.' },
   ];
+  const visibleCalendarDivisions = isBusinessSpace
+    ? CALENDAR_DIVISIONS
+      .filter(row => ['travelDocuments', 'birthdays', 'medicalChecks', 'vacations'].includes(row.key))
+      .map(row => row.key === 'birthdays' ? { ...row, label: 'Team birthdays' } : row.key === 'vacations' ? { ...row, label: 'Time away' } : row)
+    : CALENDAR_DIVISIONS;
   const [calendarDivisions, setCalendarDivisions] = useState<NonNullable<HubSettings['calendarDivisions']>>({});
   const [calendarDivisionsSavingKey, setCalendarDivisionsSavingKey] = useState<CalendarDivisionKey | null>(null);
   const [calendarDivisionsError, setCalendarDivisionsError] = useState<string | null>(null);
@@ -538,13 +543,13 @@ export default function FamilySettings({ onClose, onSettingsChanged }: FamilySet
               Calendar panels
             </h3>
             <p className="text-[11px] text-ink-400 leading-relaxed -mt-1">
-              Choose which “at a glance” panels show at the top of the Family Calendar. Turning one off doesn’t delete anything — it just stops that panel from rendering.
+              Choose which “at a glance” panels show at the top of the {isBusinessSpace ? 'Business' : 'Family'} Calendar. Turning one off doesn’t delete anything — it just stops that panel from rendering.
             </p>
             {calendarDivisionsError && (
               <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{calendarDivisionsError}</p>
             )}
             <div className="space-y-3 pt-1">
-              {CALENDAR_DIVISIONS.map((row) => {
+              {visibleCalendarDivisions.map((row) => {
                 const checked = row.key === 'nameCelebrations'
                   ? calendarDivisions.nameCelebrations === true
                   : calendarDivisions[row.key] !== false;
@@ -856,7 +861,7 @@ export default function FamilySettings({ onClose, onSettingsChanged }: FamilySet
                             title={isSelf ? 'Cannot change your own role' : undefined}
                           >
                             {ROLE_OPTIONS.map((r) => (
-                              <option key={r} value={r}>{r}</option>
+                              <option key={r} value={r}>{isBusinessSpace && r === 'child' ? 'viewer' : r}</option>
                             ))}
                           </select>
                         )

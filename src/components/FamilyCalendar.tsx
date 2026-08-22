@@ -28,6 +28,7 @@ import { sortByRelevance } from '../utils/eventRelevance';
 import {
   buildCalendarDocumentExpiries,
   documentExpiryStatusLabel,
+  documentRenewalLabel,
 } from '../utils/calendarDocumentExpiries';
 import {
   buildCalendarBirthdays,
@@ -42,7 +43,6 @@ import {
 } from '../utils/familyDates';
 import { buildVirtualEvents, buildOccasionSeries, groupVirtualEventsByDate } from '../utils/virtualEvents';
 import type { VirtualCalendarEvent } from '../utils/virtualEvents';
-import { PASSPORT_WARN_MONTHS } from '../utils/readiness';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import { parseIcs, buildIcs } from '../utils/ics';
 import {
@@ -164,9 +164,10 @@ interface FamilyCalendarProps {
   emberMode?: boolean;
   /** Opens the real new-event flow when Quick Capture targets Plan. */
   openAddSignal?: number;
+  isBusinessSpace?: boolean;
 }
 
-export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings, emberMode = false, openAddSignal = 0 }: FamilyCalendarProps) {
+export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings, emberMode = false, openAddSignal = 0, isBusinessSpace = false }: FamilyCalendarProps) {
   const { isAdmin, canWrite, aiEligible, aiConsent } = useFamilyCtx();
   const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
   // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
@@ -526,10 +527,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       // as the grid, so a division switched off here is off everywhere.
       const occasions = buildOccasionSeries({
         birthdays: settings.calendarDivisions?.birthdays !== false ? birthdays : [],
-        extendedBirthdays: settings.calendarDivisions?.extendedBirthdays !== false ? extendedBirthdays : [],
-        nameCelebrations: settings.calendarDivisions?.nameCelebrations !== false ? nameCelebrations : [],
-        anniversaries: settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
-        petBirthdays: settings.calendarDivisions?.petBirthdays !== false ? petBirthdays : [],
+        extendedBirthdays: !isBusinessSpace && settings.calendarDivisions?.extendedBirthdays !== false ? extendedBirthdays : [],
+        nameCelebrations: !isBusinessSpace && settings.calendarDivisions?.nameCelebrations !== false ? nameCelebrations : [],
+        anniversaries: !isBusinessSpace && settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
+        petBirthdays: !isBusinessSpace && settings.calendarDivisions?.petBirthdays !== false ? petBirthdays : [],
       });
       const ics = buildIcs(events, 'Teluva', new Date(), occasions);
       const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
@@ -645,7 +646,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     if (!token) return;
     const eligible = events.filter(isEligibleForGooglePush);
     if (eligible.length === 0) {
-      triggerReminderNotification('Nothing to export — every Family Hub event is already on Google Calendar or came from there.');
+      triggerReminderNotification(`Nothing to export — every ${isBusinessSpace ? 'Business Calendar' : 'Family Hub'} event is already on Google Calendar or came from there.`);
       return;
     }
     const skipped = events.length - eligible.length;
@@ -1100,7 +1101,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       onSaveEvents([...events, newEvent]);
       triggerReminderNotification(
         remindMe
-          ? `Event added — tagged family members will see it on the shared calendar.`
+          ? `Event added — tagged ${isBusinessSpace ? 'team' : 'family'} members will see it on the shared calendar.`
           : `Event added to the shared calendar.`
       );
     }
@@ -1111,7 +1112,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // Delete Event
   const handleDeleteEvent = (eventId: string) => {
     const ev = events.find(e => e.id === eventId);
-    const ok = window.confirm(`Delete "${ev?.title || 'this event'}" from the family calendar? This can't be undone.`);
+    const ok = window.confirm(`Delete "${ev?.title || 'this event'}" from the shared calendar? This can't be undone.`);
     if (!ok) return;
     const updated = events.filter(e => e.id !== eventId);
     onSaveEvents(updated);
@@ -1186,7 +1187,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // so Calendar and Dashboard cannot disagree about whether a passport is
   // approaching expiry.
   const documentExpiries = useMemo(() => buildCalendarDocumentExpiries(members), [members]);
-  const watchedDocumentExpiries = documentExpiries.filter((item) => item.status !== 'later');
+  const watchedDocumentExpiries = documentExpiries.filter((item) => item.renewalDue);
   const shownDocumentExpiries = showAllDocumentDates
     ? documentExpiries
     : watchedDocumentExpiries.length > 0 ? watchedDocumentExpiries : documentExpiries.slice(0, 1);
@@ -1288,10 +1289,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     return buildVirtualEvents(
       {
         birthdays: settings.calendarDivisions?.birthdays !== false ? birthdays : [],
-        extendedBirthdays: settings.calendarDivisions?.extendedBirthdays !== false ? extendedBirthdays : [],
-        nameCelebrations: settings.calendarDivisions?.nameCelebrations !== false ? nameCelebrations : [],
-        anniversaries: settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
-        petBirthdays: settings.calendarDivisions?.petBirthdays !== false ? petBirthdays : [],
+        extendedBirthdays: !isBusinessSpace && settings.calendarDivisions?.extendedBirthdays !== false ? extendedBirthdays : [],
+        nameCelebrations: !isBusinessSpace && settings.calendarDivisions?.nameCelebrations !== false ? nameCelebrations : [],
+        anniversaries: !isBusinessSpace && settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
+        petBirthdays: !isBusinessSpace && settings.calendarDivisions?.petBirthdays !== false ? petBirthdays : [],
       },
       monthStart,
       monthEnd,
@@ -1299,7 +1300,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   }, [
     currentYear, currentMonth, daysInMonth,
     birthdays, extendedBirthdays, nameCelebrations, anniversaries, petBirthdays,
-    settings.calendarDivisions,
+    settings.calendarDivisions, isBusinessSpace,
   ]);
 
   const virtualByDate = useMemo(() => groupVirtualEventsByDate(virtualEvents), [virtualEvents]);
@@ -1326,7 +1327,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-5">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wide text-clay-300">Shared planning</p>
-            <h3 className="text-2xl font-display font-semibold mt-1">Family calendar</h3>
+            <h3 className="text-2xl font-display font-semibold mt-1">{isBusinessSpace ? 'Business calendar' : 'Family calendar'}</h3>
             <p className="text-[13px] text-white/70 mt-1 max-w-xl">
               The month, today’s agenda and the next six months — with travel documents kept in view.
             </p>
@@ -1376,7 +1377,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       {emberMode && (
         <section className="ember-week-horizon" aria-labelledby="week-horizon-title">
           <header>
-            <div><span className="pulse-eyebrow">Family horizon</span><h3 id="week-horizon-title">The next seven days</h3></div>
+            <div><span className="pulse-eyebrow">{isBusinessSpace ? 'Team horizon' : 'Family horizon'}</span><h3 id="week-horizon-title">The next seven days</h3></div>
             <span>{nextSevenDays.reduce((total, day) => total + day.events.length, 0)} planned</span>
           </header>
           <div className="ember-week-days">
@@ -1450,7 +1451,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               <h4 className="font-display text-[16px] font-semibold text-ink-900">Travel document watch</h4>
               {watchedDocumentExpiries.length > 0 ? (
                 <span className="chip bg-honey-100 text-honey-700">
-                  {watchedDocumentExpiries.length} expired or within {PASSPORT_WARN_MONTHS} months
+                  {watchedDocumentExpiries.length} ready to renew
                 </span>
               ) : documentExpiries.length > 0 ? (
                 <span className="chip bg-sage-100 text-sage-700">No renewals due soon</span>
@@ -1459,7 +1460,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               )}
             </div>
             <p className="text-[12.5px] text-ink-500 mt-0.5">
-              Passport, visa and residence-card dates come directly from each family member’s current record.
+              Dates come from each {isBusinessSpace ? 'team member’s' : 'family member’s'} current record. Start-by dates are a planning guide, not an issuing-authority deadline.
             </p>
           </div>
           {documentExpiries.length > shownDocumentExpiries.length && (
@@ -1481,7 +1482,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         {shownDocumentExpiries.length === 0 ? (
           <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
             <ShieldCheck className="w-4 h-4 text-sage-600 shrink-0" />
-            Add passport, visa or residence-permit expiry dates in a family member’s ID records and they will stay visible here.
+            Add passport, visa or residence-permit expiry dates in a {isBusinessSpace ? 'team member’s' : 'family member’s'} ID records and they will stay visible here.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-honey-200/60">
@@ -1501,6 +1502,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   <div className="min-w-0 flex-1">
                     <p className="text-[13.5px] font-semibold text-ink-900 truncate">{item.memberName} · {item.label}</p>
                     <p className="text-[11.5px] text-ink-400 tabular-nums mt-0.5">Expires {item.expiryDate}</p>
+                    <p className={`text-[11.5px] tabular-nums mt-0.5 font-medium ${item.renewalDue ? 'text-honey-800' : 'text-ink-500'}`}>
+                      {documentRenewalLabel(item)}
+                    </p>
                   </div>
                   <span className={`chip shrink-0 ${urgent ? 'bg-rosa-100 text-rosa-700' : soon ? 'bg-honey-100 text-honey-700' : 'bg-sage-100 text-sage-700'}`}>
                     {documentExpiryStatusLabel(item)}
@@ -1537,7 +1541,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               )}
             </div>
             <p className="text-[12.5px] text-ink-500 mt-0.5">
-              Each family member’s next birthday, and the age they’ll turn.
+              Each {isBusinessSpace ? 'team member’s' : 'family member’s'} next birthday, and the age they’ll turn.
             </p>
           </div>
           {birthdays.length > shownBirthdays.length && (
@@ -1555,7 +1559,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         {shownBirthdays.length === 0 ? (
           <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
             <Cake className="w-4 h-4 text-sage-600 shrink-0" />
-            Add a birthdate on a family member’s profile and it will appear here.
+            Add a birthdate on a {isBusinessSpace ? 'team member’s' : 'family member’s'} profile and it will appear here.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-sage-200/60">
@@ -1583,7 +1587,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           screen — added/edited from the Extended Birthdays tab (see
           ExtendedBirthdaysView.tsx). Settings-gated —
           HubSettings.calendarDivisions.extendedBirthdays. */}
-      {settings.calendarDivisions?.extendedBirthdays !== false && (
+      {!isBusinessSpace && settings.calendarDivisions?.extendedBirthdays !== false && (
       <section className="rounded-3xl border border-dusk-200 bg-dusk-50 overflow-hidden">
         <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-dusk-200/60">
           <div className="p-2.5 rounded-2xl bg-dusk-100 text-dusk-700 shrink-0 self-start sm:self-auto">
@@ -1656,7 +1660,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           "about 7" vs "turns 7" is not a style choice: a very large share of
           pets are rescues whose birthday is a vet's estimate, and printing a
           guess as fact is the app claiming something its own record doesn't. */}
-      {settings.calendarDivisions?.petBirthdays !== false && petBirthdays.length > 0 && (
+      {!isBusinessSpace && settings.calendarDivisions?.petBirthdays !== false && petBirthdays.length > 0 && (
       <section className="rounded-3xl border border-sage-200 bg-sage-50 overflow-hidden">
         <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-sage-200/60">
           <div className="p-2.5 rounded-2xl bg-sage-100 text-sage-700 shrink-0 self-start sm:self-auto">
@@ -1723,7 +1727,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           undefined follows the prominence rule above; true FORCES it to show
           even with zero confirmed celebrations (lets a family discover/opt
           into the feature deliberately); false always hides it. */}
-      {(settings.calendarDivisions?.nameCelebrations === true || (settings.calendarDivisions?.nameCelebrations !== false && nameCelebrations.length > 0)) && (
+      {!isBusinessSpace && (settings.calendarDivisions?.nameCelebrations === true || (settings.calendarDivisions?.nameCelebrations !== false && nameCelebrations.length > 0)) && (
       <section className="rounded-3xl border border-dusk-200 bg-dusk-50 overflow-hidden">
         <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-dusk-200/60">
           <div className="p-2.5 rounded-2xl bg-dusk-100 text-dusk-700 shrink-0 self-start sm:self-auto">
@@ -1878,7 +1882,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         {shownMedicalChecks.length === 0 ? (
           <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
             <ShieldCheck className="w-4 h-4 text-sage-600 shrink-0" />
-            Add a recurring check-up in a family member’s Care schedule, or book a referral appointment, and it will stay visible here.
+            Add a recurring check-up in a {isBusinessSpace ? 'team member’s' : 'family member’s'} Care schedule, or book a referral appointment, and it will stay visible here.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-px bg-clay-200/60">
@@ -1919,7 +1923,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           reason to hide it, since wedding anniversaries and days like
           Valentine's are not the market-specific cultural feature name days
           are. Settings-gated — HubSettings.calendarDivisions.anniversaries. */}
-      {settings.calendarDivisions?.anniversaries !== false && (
+      {!isBusinessSpace && settings.calendarDivisions?.anniversaries !== false && (
       <section className="rounded-3xl border border-rosa-200 bg-rosa-50 overflow-hidden">
         <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-rosa-200/60">
           <div className="p-2.5 rounded-2xl bg-rosa-100 text-rosa-700 shrink-0 self-start sm:self-auto">
@@ -1990,7 +1994,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           notice" AI flow and the manual event form both already apply. Same
           non-vanishing bones as Anniversaries above. Settings-gated —
           HubSettings.calendarDivisions.schoolDates. */}
-      {settings.calendarDivisions?.schoolDates !== false && (
+      {!isBusinessSpace && settings.calendarDivisions?.schoolDates !== false && (
       <section className="rounded-3xl border border-ink-200 bg-ink-50 overflow-hidden">
         <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-b border-ink-200/60">
           <div className="p-2.5 rounded-2xl bg-ink-100 text-ink-700 shrink-0 self-start sm:self-auto">
@@ -2167,7 +2171,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             </h4>
             <p className="text-[13px] text-ink-400 mt-0.5">
               {needsAuth
-                ? "Link your Google account to bring in appointments you already had scheduled there — even from before you started using Family Hub — and keep new ones in sync."
+                ? `Link your Google account to bring in appointments you already had scheduled there — even from before you started using ${isBusinessSpace ? 'Business Calendar' : 'Family Hub'} — and keep new ones in sync.`
                 : `Active connection with ${user?.email || 'Google account'}.`
               }
             </p>
@@ -2231,7 +2235,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                 onClick={handleImportFromGoogle}
                 disabled={isGoogleCalendarSyncing}
                 className="btn-quiet flex-1 sm:flex-none disabled:opacity-50"
-                title="Pulls in appointments from the past year plus everything upcoming, including ones scheduled before you started using Family Hub"
+                title={`Pulls in appointments from the past year plus everything upcoming, including ones scheduled before you started using ${isBusinessSpace ? 'Business Calendar' : 'Family Hub'}`}
               >
                 {isGoogleCalendarSyncing ? (
                   <Loader2 className="w-4 h-4 animate-spin text-ink-400" />
@@ -3097,7 +3101,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               </div>
 
               <div>
-                <label className="field-label">Tag family members</label>
+                <label className="field-label">Tag {isBusinessSpace ? 'team' : 'family'} members</label>
                 <div className="flex flex-wrap gap-2 pt-1">
                   {members.map(m => {
                     const isTagged = taggedMemberIds.includes(m.id);

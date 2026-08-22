@@ -8,6 +8,9 @@ import {
   KinPerson, buildKinGraph, childrenOf, describeKinLink, findKinCycles,
   generations, kinLifespan, kinLinkProblem, kinName, parentsOf, partnersOf, siblingsOf,
 } from '../utils/kin';
+import {
+  buildFamilyTreeLayout, generationLabel, TREE_NODE_HEIGHT, TREE_NODE_WIDTH, TREE_ROW_GAP,
+} from '../utils/familyTreeLayout';
 import { gedcomFilename, gedcomSummary, toGedcom } from '../utils/gedcom';
 import { GedcomImportResult, importSummary, planGedcomImport } from '../utils/gedcomImport';
 import EmptyState from './EmptyState';
@@ -24,10 +27,10 @@ import {
 // related. `role` is a household role: in a house with two children, "Child"
 // is true of both and connects neither to anyone.
 //
-// ONE ROW PER GENERATION, everyone else beside them. Not a drawn tree with
-// curved connectors: on a phone that is either unreadable or needs pan-and-
-// zoom, and this app is used on a phone. Rows with a named relationship under
-// each person carry the same information and can be read at a glance.
+// ONE ROW PER GENERATION, connected by the two relationship facts the model
+// actually stores. The canvas scrolls horizontally on a phone while every
+// person remains a native HTML button, so the diagram does not trade away
+// touch targets or keyboard access for SVG decoration.
 //
 // The whole thing is centred on ONE person at a time, which is also how a
 // family tree is actually used — "show me Maya's side" — and it means a vault
@@ -97,6 +100,85 @@ const Row: React.FC<RowProps> = ({ title, refs, index, focus, onPick }) => {
     </div>
   );
 };
+
+function FamilyTreeCanvas({ graph, focus, onPick }: {
+  graph: ReturnType<typeof buildKinGraph>;
+  focus: KinRef;
+  onPick: (ref: KinRef) => void;
+}) {
+  const layout = useMemo(() => buildFamilyTreeLayout(graph, focus), [graph, focus]);
+  const connectedLinks = graph.links.filter(link => layout.byRef.has(link.from) && layout.byRef.has(link.to));
+  return (
+    <section className="card overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cream-200 px-5 py-4">
+        <div>
+          <h3 className="section-label">The family around {kinName(focus, graph.index)}</h3>
+          <p className="mt-1 text-[12px] text-ink-400">Tap a person to redraw the generations from where they stand.</p>
+        </div>
+        <span className="chip bg-cream-200 text-ink-500">Drag sideways to explore</span>
+      </div>
+      <div className="overflow-x-auto overscroll-x-contain bg-gradient-to-b from-cream-50 to-white" tabIndex={0} aria-label="Scrollable family tree diagram">
+        <div className="relative" style={{ width: layout.width, height: layout.height }}>
+          <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${layout.width} ${layout.height}`} aria-hidden="true">
+            {connectedLinks.map(link => {
+              const from = layout.byRef.get(link.from)!;
+              const to = layout.byRef.get(link.to)!;
+              if (link.kind === 'partner') {
+                const left = from.x < to.x ? from : to;
+                const right = left === from ? to : from;
+                const y = left.y + TREE_NODE_HEIGHT / 2;
+                return <path key={link.id} d={`M ${left.x + TREE_NODE_WIDTH} ${y} H ${right.x}`} fill="none" stroke="var(--ember-action)" strokeWidth="3" strokeLinecap="round" strokeDasharray={link.status === 'divorced' ? '7 6' : undefined} />;
+              }
+              const parentX = from.x + TREE_NODE_WIDTH / 2;
+              const parentY = from.y + TREE_NODE_HEIGHT;
+              const childX = to.x + TREE_NODE_WIDTH / 2;
+              const childY = to.y;
+              const middleY = parentY + (childY - parentY) / 2;
+              return <path key={link.id} d={`M ${parentX} ${parentY} V ${middleY} H ${childX} V ${childY}`} fill="none" stroke="var(--ember-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={link.via && link.via !== 'birth' ? '6 5' : undefined} />;
+            })}
+          </svg>
+          {Array.from({ length: layout.maxGeneration - layout.minGeneration + 1 }, (_, index) => layout.minGeneration + index).map(level => (
+            <span key={level} className="absolute left-3 rounded-full bg-white/90 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-ink-400 shadow-sm" style={{ top: 12 + (level - layout.minGeneration) * (TREE_NODE_HEIGHT + TREE_ROW_GAP) }}>
+              {generationLabel(level)}
+            </span>
+          ))}
+          {layout.nodes.map(node => {
+            const photo = node.person.avatarUrl || node.person.photoUrl;
+            const selected = node.ref === focus;
+            return (
+              <button
+                key={node.ref}
+                type="button"
+                onClick={() => onPick(node.ref)}
+                aria-current={selected ? 'true' : undefined}
+                aria-label={`${node.person.name || 'Unnamed'}, ${generationLabel(node.generation)}`}
+                className={`absolute flex items-center gap-2.5 rounded-2xl border bg-white px-3 py-2 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift ${selected ? 'border-clay-400 ring-2 ring-clay-200' : 'border-cream-300'}`}
+                style={{ left: node.x, top: node.y, width: TREE_NODE_WIDTH, height: TREE_NODE_HEIGHT }}
+              >
+                {photo ? (
+                  <img src={photo} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
+                ) : (
+                  <span className={`h-11 w-11 shrink-0 rounded-full grid place-items-center text-sm font-bold ${KIND_TONE[node.person.kind]}`}>
+                    {(node.person.name || '?').charAt(0).toUpperCase()}
+                  </span>
+                )}
+                <span className="min-w-0">
+                  <b className="block truncate text-[12.5px] text-ink-900">{node.person.name || 'Unnamed'}</b>
+                  <small className="block truncate text-[10.5px] text-ink-400">{kinLifespan(node.person) || node.person.relation || node.person.source}</small>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-3 border-t border-cream-200 px-5 py-3 text-[10.5px] text-ink-400">
+        <span><i className="mr-1 inline-block h-0.5 w-5 align-middle bg-ink-300" /> parent &amp; child</span>
+        <span><i className="mr-1 inline-block h-0.5 w-5 align-middle bg-clay-500" /> partners</span>
+        <span>A dashed line records a step, foster, adoptive or separated relationship.</span>
+      </div>
+    </section>
+  );
+}
 
 export default function FamilyTreeView({ refreshKey }: { refreshKey?: number }) {
   const [members, setMembers] = useState<FamilyMember[]>([]);
@@ -304,9 +386,11 @@ export default function FamilyTreeView({ refreshKey }: { refreshKey?: number }) 
             </div>
           )}
 
+          {focus && <FamilyTreeCanvas graph={graph} focus={focus} onPick={setFocus} />}
+
           {/* Who the tree is drawn around */}
           <section className="card p-5 space-y-3">
-            <h3 className="section-label flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Everyone in the vault</h3>
+            <h3 className="section-label flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Choose where the tree starts</h3>
             <div className="flex flex-wrap gap-2">
               {graph.people.map(p => (
                 <PersonChip key={p.ref} p={p} active={p.ref === focus} onClick={() => setFocus(p.ref)} />
