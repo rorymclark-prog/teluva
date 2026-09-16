@@ -1,4 +1,4 @@
-# Timeline correction — v358
+# Timeline correction — v359
 
 The v357 browser check used the whole-family demo with all categories visible. It missed the interaction between a person scope and a category filter: the filtered records were also being used to calculate the life span. The new timeline receives the person-scoped history separately from the filtered display records.
 
@@ -10,7 +10,7 @@ The v357 browser check used the whole-family demo with all categories visible. I
 - Every matching record remaining reachable after grouping.
 - Medical records staying near the end of a birth-to-present axis when the birth card is filtered away.
 - Legacy Google shopping/pickup imports excluded from health projections without changing the calendar source.
-- New Google imports classified by medical context, explicit native appointment categories retained, and explicit Other categories respected.
+- New Google imports classified by medical context, explicit native appointment categories retained, and explicitly confirmed categories respected.
 - Medical context in descriptions, English/German clinical titles, and doctor names.
 - A dense leap year and leap month at four fitted densities, preserving all 366/29 records.
 - All 52 years remaining distinct in scrolling mode. This exposed and fixed a floating-point bucket collision.
@@ -37,3 +37,7 @@ Verified in the browser:
 - Birth-only history reaches the present, empty history retains controls, business history excludes family medical content and uses business wording.
 
 The available live browser was signed out. These regression scenarios recreate the reported conditions with fictional data; they do not claim to inspect or alter the user's private saved records.
+
+The v358 image was built but its rollout was stopped before Cloud Run deployment to add the explicit category-confirmation safeguard. These corrections ship together as v359.
+
+The additional local calendar fixture (`tests/calendar-category-fixture.html?demo=1`) mounts the real calendar editor with in-memory saves. Browser verification: an unconfirmed legacy import opens as Other; selecting Medical appointment and saving sets `categoryConfirmed: true` and includes it in medical; reopening and saving Other removes it again. No household or Google Calendar writes were performed.

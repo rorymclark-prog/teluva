@@ -1,3 +1,4 @@
+import { calendarCategoryForEdit } from '../utils/medicalCalendarEvent';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnniversaryRecord, CalendarEvent, ExtendedBirthday, FamilyMember, HubSettings, Pet } from '../types';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -1098,7 +1099,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setEventDate(ev.date);
     setEventTime(ev.time || '12:00');
     setDescription(ev.description || '');
-    setCategory(ev.category);
+    setCategory(calendarCategoryForEdit(ev));
     setRemindMe(ev.remindMe);
     setImportantChoice(ev.important);
     // Pre-fill with the name-matched person when nobody was tagged, so
@@ -1152,6 +1153,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             time: eventTime || undefined,
             description: description.trim() || undefined,
             category,
+            categoryConfirmed: true,
             remindMe,
             memberIds: taggedMemberIds,
             ...tripFields(ev),
@@ -1170,6 +1172,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         time: eventTime || undefined,
         description: description.trim() || undefined,
         category,
+        categoryConfirmed: true,
         remindMe,
         memberIds: taggedMemberIds,
         ...tripFields(),

@@ -1,10 +1,10 @@
 [
   {
-    "label": "v358",
+    "label": "v359",
     "changes": [
       "Life keeps your full recorded lifespan visible when categories or search hide earlier moments. Switching people uses that person’s own history.",
       "Choose Fit screen for compact, grouped cards or Scroll for full-size cards across Life, Year and Month. Empty years stay available to explore.",
-      "Shopping and pickups from older Google Calendar imports no longer appear as medical history. New imports are no longer all labelled appointments."
+      "Shopping and pickups from older Google Calendar imports no longer appear as medical history. New imports are no longer all labelled appointments. Categories you confirm in the calendar take precedence."
     ],
     "date": "2026-09-16"
   },

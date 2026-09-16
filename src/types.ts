@@ -1524,6 +1524,8 @@ export interface CalendarEvent {
   time?: string; // HH:MM
   description?: string;
   category: 'Milestone' | 'Appointment' | 'School' | 'Travel' | 'Other';
+  /** The calendar form confirmed this category; legacy Google labels were only guesses. */
+  categoryConfirmed?: boolean;
   remindMe: boolean;
   memberIds?: string[]; // Tagged family members
   /**

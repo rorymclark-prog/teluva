@@ -4,7 +4,7 @@ import { buildHealthTimeline } from './healthTimeline';
 import { buildFamilyTimeline } from './familyTimeline';
 import { memberAppointments } from './memberAppointments';
 import { googleEventsToCalendarEvents } from './googleCalendarImport';
-import { isMedicalCalendarEvent } from './medicalCalendarEvent';
+import { calendarCategoryForEdit, isMedicalCalendarEvent } from './medicalCalendarEvent';
 import { fitTimelineChapters, lifeTimelineChapters, timelineChapters, timelineYears } from './visualTimeline';
 import type { CalendarEvent, FamilyMember } from '../types';
 import type { FamilyTimelineItem } from './familyTimeline';
@@ -63,3 +63,10 @@ console.log('timelineRegressions: legacy/new imports, ownership, source preserva
 
 const everyYear = Array.from({ length: 52 }, (_, index) => ({ ...dense[0], id: `year${index}`, date: `${1975 + index}-01-01` }));
 assert.equal(lifeTimelineChapters(everyYear, 52, 2026, 1975).length, 52, 'scroll mode keeps all 52 year buckets distinct, without floating-point collisions');
+
+assert.equal(calendarCategoryForEdit(events[0]), 'Other', 'editing a legacy shopping import shows its corrected category');
+const confirmed = { ...events[0], title: 'Annual visit', categoryConfirmed: true };
+assert.equal(calendarCategoryForEdit(confirmed), 'Appointment', 'a confirmed imported appointment remains editable as medical');
+assert.ok(isMedicalCalendarEvent(confirmed), 'manual category confirmation takes precedence over keyword guesses');
+assert.ok(!isMedicalCalendarEvent({ ...confirmed, category: 'Other' }), 'changing a confirmed appointment to Other removes it from medical');
+assert.ok(all(buildLifeTimeline({ members, events: [confirmed], entries: [], now })).some(i => i.title === 'Annual visit' && i.category === 'medical'), 'a confirmed category reaches the timeline, not just its helper');
