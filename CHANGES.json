@@ -1,8 +1,6 @@
 {
-  "label": "v362",
+  "label": "v363",
   "changes": [
-    "Timeline qualifications and school reports now carry their linked certificates and documents through to the timeline.",
-    "Select a single document card or record title to open its file. Grouped chapters let you choose a moment; records with several attachments show each file.",
-    "Document opening works from expanded timelines as well as the normal timeline and All records view."
+    "The timeline All filter now switches every category off when all are selected, and switches every category on when clicked again. From a partial selection, All selects everything."
   ]
 }

@@ -291,6 +291,7 @@ export default function TimelineView({
   };
   const holidays = useMemo(() => holidaySummary(scoped), [scoped]);
   const categories = LIFE_CATEGORIES.filter((c) => !(isBusinessSpace && c.id === 'medical'));
+  const allCategoriesSelected = categories.every(c => enabledCategories.includes(c.id));
 
   if (!loaded) {
     return (
@@ -448,9 +449,9 @@ export default function TimelineView({
           <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1" role="group" aria-label="Kind of moment">
             <button
               type="button"
-              onClick={() => { setCategory(''); setEnabledCategories(LIFE_CATEGORIES.map(c => c.id)); }}
-              className={`tab-pill text-[12.5px] shrink-0 ${enabledCategories.length === LIFE_CATEGORIES.length ? 'tab-pill-active' : 'bg-cream-100 hover:bg-cream-200'}`}
-              aria-pressed={enabledCategories.length === LIFE_CATEGORIES.length}
+              onClick={() => { setCategory(''); setEnabledCategories(current => categories.every(c => current.includes(c.id)) ? [] : categories.map(c => c.id)); }}
+              className={`tab-pill text-[12.5px] shrink-0 ${allCategoriesSelected ? 'tab-pill-active' : 'bg-cream-100 hover:bg-cream-200'}`}
+              aria-pressed={allCategoriesSelected}
             >
               All
             </button>
@@ -799,6 +800,7 @@ function MomentForm({ initial, members, documents, defaults, demo, isBusinessSpa
   const fileRef = useRef<HTMLInputElement>(null);
 
   const categories = LIFE_CATEGORIES.filter((c) => !(isBusinessSpace && c.id === 'medical'));
+  const allCategoriesSelected = categories.every(c => enabledCategories.includes(c.id));
   const photoCount = photos.length + pending.length;
 
   // Papers belonging to the people this moment is about come first.

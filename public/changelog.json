@@ -1,5 +1,12 @@
 [
   {
+    "label": "v363",
+    "changes": [
+      "The timeline All filter now switches every category off when all are selected, and switches every category on when clicked again. From a partial selection, All selects everything."
+    ],
+    "date": "2026-09-16"
+  },
+  {
     "label": "v362",
     "changes": [
       "Timeline qualifications and school reports now carry their linked certificates and documents through to the timeline.",
