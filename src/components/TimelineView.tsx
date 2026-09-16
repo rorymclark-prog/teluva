@@ -343,13 +343,15 @@ export default function TimelineView({
 
   const visualSource = [...shown.upcoming, ...flat.map(f => f.item), ...shown.undated];
   const categoryMap: Record<LifeCategory, TimelineCategory> = { milestone: 'memories', memory: 'memories', medical: 'medical', holiday: 'travel', school: 'education', home: 'addresses', work: 'calendar', papers: 'calendar', other: 'memories' };
-  const visualItems: FamilyTimelineItem[] = visualSource.map(item => ({
+  const toVisualItem = (item: LifeTimelineItem): FamilyTimelineItem => ({
     id: item.id, category: item.profileTab === 'growth' ? 'growth' : categoryMap[item.category],
     date: item.precision === 'year' ? item.date.slice(0, 4) : item.precision === 'month' ? item.date.slice(0, 7) : item.date,
     dateLabel: lifeDateLabel(item), title: item.title, note: item.note, memberIds: item.memberIds,
     sourceLabel: item.detail || CATEGORY_ONE[item.category], imageUrl: item.imageUrl || item.photos?.[0]?.url,
     endDate: item.endDate, rangeLabel: item.title,
-  }));
+  });
+  const visualItems = visualSource.map(toVisualItem);
+  const domainItems = [...scoped.upcoming, ...scoped.years.flatMap(y => y.items), ...scoped.undated].map(toVisualItem);
 
   return (
     <div className="space-y-6 font-sans">
@@ -543,7 +545,7 @@ export default function TimelineView({
           <div className="story-scale" role="group" aria-label="Timeline presentation"><button type="button" aria-pressed={visual} onClick={() => setVisual(true)}>Visual timeline</button><button type="button" aria-pressed={!visual} onClick={() => setVisual(false)}>All records</button></div>
           <label><span className="sr-only">Search timeline</span><input className="field text-sm" placeholder="Search timeline…" value={search} onChange={e => setSearch(e.target.value)} /></label>
         </div>
-        {visual && total > 0 && <VisualTimeline items={visualItems} members={members} renderDetails={item => renderRow(visualSource.find(source => source.id === item.id)!)} />}
+        {visual && <VisualTimeline items={visualItems} domainItems={domainItems} members={members} isBusinessSpace={isBusinessSpace} renderDetails={item => renderRow(visualSource.find(source => source.id === item.id)!)} />}
         {!visual && (total === 0 && !adding ? (
           <EmptyState
             icon={CalendarHeart}

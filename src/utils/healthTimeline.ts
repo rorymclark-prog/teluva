@@ -1,3 +1,4 @@
+import { isMedicalCalendarEvent } from './medicalCalendarEvent';
 // One member's whole health picture, merged into a single chronological axis.
 //
 // WHY THIS EXISTS
@@ -359,7 +360,7 @@ export function buildHealthTimeline({
   // CalendarEvent.date is a required field, so every matched event places
   // into either upcoming or years — never undated.
   for (const e of events) {
-    if (e.category !== 'Appointment') continue;
+    if (!isMedicalCalendarEvent(e)) continue;
     if (!eventBelongsToMember(e, member.id, members)) continue;
     const item: HealthTimelineItem = {
       id: `appointment-${e.id}`,
@@ -411,7 +412,7 @@ export function buildHealthTimeline({
         (member.careSchedule?.length || 0) +
         (member.referrals?.length || 0) +
         (member.growthHistory?.length || 0) +
-        events.filter((e) => e.category === 'Appointment' && eventBelongsToMember(e, member.id, members)).length +
+        events.filter((e) => isMedicalCalendarEvent(e) && eventBelongsToMember(e, member.id, members)).length +
         ownMoments.length,
       upcoming: upcoming.length,
       dated,

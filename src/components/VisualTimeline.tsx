@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, ArrowUpRight, CalendarDays, CalendarHeart, Gradu
 import { createPortal } from 'react-dom';
 import type { FamilyMember, TimelineEntry } from '../types';
 import type { FamilyTimelineItem } from '../utils/familyTimeline';
-import { lifeTimelineChapters, preferredTimelineYear, timelineChapters, timelineRange, timelineYears, type TimelineScale } from '../utils/visualTimeline';
+import { fitTimelineChapters, lifeTimelineChapters, preferredTimelineYear, timelineChapters, timelineRange, timelineYears, type TimelineScale } from '../utils/visualTimeline';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import './VisualTimeline.css';
 
@@ -11,14 +11,19 @@ const ICONS = { memories: CalendarHeart, medical: HeartPulse, education: Graduat
 const dateLabel = (item: FamilyTimelineItem) => item.dateLabel || (!item.date ? 'Date not recorded' : item.date.length === 4 ? `${item.date} · exact date not recorded` : new Date(`${item.date}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }));
 const monthName = (month: number) => new Date(2024, month, 1).toLocaleDateString(undefined, { month: 'long' });
 
-export default function VisualTimeline({ items, members, onOpenRecord, onEdit, onDelete, busy, filters, renderDetails }: {
+export default function VisualTimeline({ items, domainItems = items, members, isBusinessSpace = false, onOpenRecord, onEdit, onDelete, busy, filters, renderDetails }: {
   items: FamilyTimelineItem[]; members: FamilyMember[];
+  /** Person-scoped records before category/search filters: filters never shorten a life. */
+  domainItems?: FamilyTimelineItem[];
+  isBusinessSpace?: boolean;
   onOpenRecord?: (target: NonNullable<FamilyTimelineItem['target']>) => void;
   onEdit?: (entry: TimelineEntry) => void; onDelete?: (entry: TimelineEntry) => void; busy?: boolean; filters?: React.ReactNode; renderDetails?: (item: FamilyTimelineItem) => React.ReactNode;
 }) {
   const [year, setYear] = useState(() => preferredTimelineYear(items));
   const [month, setMonth] = useState(new Date().getMonth());
   const [scale, setScale] = useState<TimelineScale>('life');
+  const [layout, setLayout] = useState<'fit' | 'scroll' | null>(null);
+  const fitted = layout === 'fit' || (layout === null && scale === 'life');
   const [viewportWidth, setViewportWidth] = useState(900);
   const [selectedId, setSelectedId] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -27,10 +32,14 @@ export default function VisualTimeline({ items, members, onOpenRecord, onEdit, o
   const panel = useRef<HTMLDivElement>(null);
   const expandButton = useRef<HTMLButtonElement>(null);
   const lastWindow = useRef('');
-  const years = useMemo(() => timelineYears(items), [items]);
+  const years = useMemo(() => timelineYears(domainItems), [domainItems]);
   const firstYear = years[0] ?? year, lastYear = Math.max(years.at(-1) ?? year, new Date().getFullYear());
-  const lifeSlots = Math.min(lastYear - firstYear + 1, Math.max(2, Math.floor((viewportWidth - 100) / 110)));
-  const chapters = useMemo(() => scale === 'life' ? lifeTimelineChapters(items, lifeSlots, lastYear) : timelineChapters(items, year, month, scale), [items, year, month, scale, lifeSlots, lastYear]);
+  const periodSlots = scale === 'life' ? lastYear - firstYear + 1 : scale === 'year' ? 12 : new Date(year, month + 1, 0).getDate();
+  const slots = fitted ? Math.min(periodSlots, Math.max(2, Math.floor((viewportWidth - 100) / 85))) : periodSlots;
+  const chapters = useMemo(() => scale === 'life'
+    ? lifeTimelineChapters(items, slots, lastYear, firstYear)
+    : fitTimelineChapters(timelineChapters(items, year, month, scale), periodSlots, slots),
+  [items, year, month, scale, slots, periodSlots, firstYear, lastYear]);
   const undated = items.filter(item => !item.date);
   const yearOnly = scale === 'life' ? [] : items.filter(item => item.date === String(year) || (scale === 'month' && item.date === `${year}-${String(month + 1).padStart(2, '0')}`));
   const ranges = items.map(item => ({ item, range: timelineRange(item, year, month, scale, [firstYear, lastYear]) })).filter(entry => entry.range);
@@ -42,11 +51,11 @@ export default function VisualTimeline({ items, members, onOpenRecord, onEdit, o
   const selectedChapter = chapters.find(chapter => chapter.items.some(item => item.id === selected?.id));
   const group = selectedChapter?.items || (selected?.date.length === 4 ? yearOnly : selected?.date ? [selected] : undated);
   const selectedIndex = group.findIndex(item => item.id === selected?.id);
-  const slots = scale === 'life' ? lifeSlots : scale === 'year' ? 12 : new Date(year, month + 1, 0).getDate();
   const padding = scale === 'life' ? 50 : 60;
-  const slotWidth = scale === 'life' ? Math.max(1, viewportWidth - padding * 2) / slots : scale === 'year' ? 190 : 150;
+  const slotWidth = fitted ? Math.max(1, viewportWidth - padding * 2) / slots : scale === 'year' ? 190 : 150;
   const width = slots * slotWidth + padding * 2;
-  const personNames = (item: FamilyTimelineItem) => item.memberIds.length ? item.memberIds.map(id => members.find(member => member.id === id)?.name || 'Family member').join(' · ') : 'Family';
+  const cardWidth = fitted ? Math.min(160, Math.max(64, slotWidth * 1.65)) : 180;
+  const personNames = (item: FamilyTimelineItem) => item.memberIds.length ? item.memberIds.map(id => members.find(member => member.id === id)?.name || 'Family member').join(' · ') : isBusinessSpace ? 'Business' : 'Family';
   const jumpToYear = (next: number) => { setYear(next); setSelectedId(''); if (scale === 'life') setScale('year'); };
   const changeScale = (next: TimelineScale) => {
     if (next !== 'life' && selected?.date) {
@@ -56,15 +65,15 @@ export default function VisualTimeline({ items, members, onOpenRecord, onEdit, o
     setScale(next);
   };
   useEffect(() => {
-    if (years.length && (year < years[0] || year > years.at(-1)!)) { setYear(preferredTimelineYear(items)); setSelectedId(''); }
+    if (years.length && (year < firstYear || year > lastYear)) { setYear(preferredTimelineYear(domainItems)); setSelectedId(''); }
   }, [years.join(',')]);
   useEffect(() => {
-    const key = `${year}:${month}:${scale}:${expanded}:${scale === 'life' ? viewportWidth : ''}`;
+    const key = `${year}:${month}:${scale}:${expanded}:${fitted ? viewportWidth : ''}:${fitted}`;
     if (!scroller.current || lastWindow.current === key) return;
     lastWindow.current = key;
     const active = selectedChapter || chapters.at(-1);
-    scroller.current.scrollLeft = scale === 'life' ? 0 : Math.max(0, 60 + ((active?.index ?? 0) + 0.5) * slotWidth - scroller.current.clientWidth / 2);
-  }, [year, month, scale, expanded, chapters, viewportWidth]);
+    scroller.current.scrollLeft = fitted ? 0 : Math.max(0, 60 + ((active?.index ?? 0) + 0.5) * slotWidth - scroller.current.clientWidth / 2);
+  }, [year, month, scale, expanded, chapters, viewportWidth, fitted]);
   const activeChapterIndex = useRef(0); activeChapterIndex.current = selectedChapter?.index ?? chapters.at(-1)?.index ?? 0;
   useEffect(() => {
     const element = scroller.current;
@@ -75,11 +84,11 @@ export default function VisualTimeline({ items, members, onOpenRecord, onEdit, o
       if (element.clientWidth === previousWidth) return;
       previousWidth = element.clientWidth;
       setViewportWidth(element.clientWidth);
-      element.scrollLeft = scale === 'life' ? 0 : Math.max(0, 60 + (activeChapterIndex.current + 0.5) * slotWidth - element.clientWidth / 2);
+      element.scrollLeft = fitted ? 0 : Math.max(0, 60 + (activeChapterIndex.current + 0.5) * slotWidth - element.clientWidth / 2);
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [expanded, slotWidth, scale]);
+  }, [expanded, slotWidth, scale, fitted]);
   useEffect(() => {
     if (!expanded) return;
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -103,26 +112,27 @@ export default function VisualTimeline({ items, members, onOpenRecord, onEdit, o
   const open = (item: FamilyTimelineItem) => { setExpanded(false); if (item.target) onOpenRecord?.(item.target); };
   const select = (item: FamilyTimelineItem) => setSelectedId(item.id);
   const scroll = (direction: number) => scroller.current?.scrollBy({ left: direction * scroller.current.clientWidth * 0.72, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-  const content = <section ref={panel} className={`story-timeline ${scale === 'life' ? 'story-timeline--life' : ''} ${expanded ? 'story-timeline--expanded' : ''}`} role={expanded ? 'dialog' : 'region'} aria-modal={expanded || undefined} aria-label="Visual family timeline" tabIndex={expanded ? -1 : undefined}>
+  const content = <section ref={panel} className={`story-timeline ${scale === 'life' ? 'story-timeline--life' : ''} ${expanded ? 'story-timeline--expanded' : ''} ${cardWidth < 125 ? 'story-timeline--compact' : ''}`} style={{ '--story-card-width': `${cardWidth}px` } as React.CSSProperties} role={expanded ? 'dialog' : 'region'} aria-modal={expanded || undefined} aria-label={isBusinessSpace ? 'Visual business timeline' : 'Visual family timeline'} tabIndex={expanded ? -1 : undefined}>
     <div className="story-toolbar">
-      <div className="story-period"><span className="story-eyebrow">A life in chapters</span><div className="story-period-controls">{scale === 'life' ? <span className="story-life-span">{years.length ? `${firstYear} — ${lastYear}` : 'Your whole life'}</span> : <>
+      <div className="story-period"><span className="story-eyebrow">{isBusinessSpace ? 'Business history' : 'A life in chapters'}</span><div className="story-period-controls">{scale === 'life' ? <span className="story-life-span">{years.length ? `${firstYear} — ${lastYear}` : isBusinessSpace ? 'Your business history' : 'Your whole life'}</span> : <>
         <button type="button" className="story-icon-button" aria-label="Previous year" disabled={year <= firstYear} onClick={() => jumpToYear(year - 1)}><ArrowLeft size={18} /></button>
-        <label><span className="sr-only">Timeline year</span><select value={year} onChange={event => jumpToYear(Number(event.target.value))}>{[...new Set([...years, year])].sort((a,b) => a-b).map(value => <option key={value}>{value}</option>)}</select></label>
+        <label><span className="sr-only">Timeline year</span><select value={year} onChange={event => jumpToYear(Number(event.target.value))}>{Array.from({ length: lastYear - firstYear + 1 }, (_, i) => firstYear + i).map(value => <option key={value}>{value}</option>)}</select></label>
         <button type="button" className="story-icon-button" aria-label="Next year" disabled={year >= lastYear} onClick={() => jumpToYear(year + 1)}><ArrowRight size={18} /></button>
       </>}</div></div>
-      <div className="story-tools"><div className="story-scale" role="group" aria-label="Timeline detail">{(['life', 'year', 'month'] as TimelineScale[]).map(value => <button key={value} type="button" aria-pressed={scale === value} onClick={() => changeScale(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
+      <div className="story-tools"><div className="story-scale" role="group" aria-label="Timeline detail">{(['life', 'year', 'month'] as TimelineScale[]).map(value => <button key={value} type="button" aria-pressed={scale === value} onClick={() => changeScale(value)}>{value === 'life' && isBusinessSpace ? 'All time' : value[0].toUpperCase() + value.slice(1)}</button>)}</div>
         {scale === 'month' && <label><span className="sr-only">Timeline month</span><select className="story-month" value={month} onChange={event => { setMonth(Number(event.target.value)); setSelectedId(''); }}>{Array.from({ length: 12 }, (_, i) => <option key={i} value={i}>{monthName(i)}</option>)}</select></label>}
         {expanded && filters && <button type="button" className="story-icon-button" aria-label="Timeline filters" aria-expanded={showFilters} onClick={() => setShowFilters(!showFilters)}><SlidersHorizontal size={18} /></button>}
         <button ref={expandButton} type="button" className="story-icon-button" aria-label={expanded ? 'Close expanded timeline' : 'Expand timeline'} onClick={() => setExpanded(!expanded)}>{expanded ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button>
       </div>
     </div>
+    <div className="story-layout-toolbar"><div className="story-scale" role="group" aria-label="Timeline layout"><button type="button" aria-pressed={fitted} onClick={() => setLayout('fit')}>Fit screen</button><button type="button" aria-pressed={!fitted} onClick={() => setLayout('scroll')}>Scroll</button></div><span>{fitted ? 'Full span fits here · crowded periods are grouped' : 'Full-size cards · scroll through time'}</span></div>
     {expanded && showFilters && <div className="story-expanded-filters">{filters}</div>}
-    <div className="story-hint"><span>{periodItems.length} dated {periodItems.length === 1 ? 'moment' : 'moments'} · {scale === 'life' ? 'Whole recorded life · nearby years grouped' : scale === 'year' ? 'One chapter per month' : `${monthName(month)} · One chapter per day`}</span><span>{scale === 'life' ? 'Select a chapter, then explore a year' : 'Swipe or scroll along the line'} <ArrowRight size={14} /></span></div>
+    <div className="story-hint"><span>{periodItems.length} dated {periodItems.length === 1 ? 'moment' : 'moments'} · {scale === 'life' ? (isBusinessSpace ? 'Whole business history' : 'Whole recorded life') : scale === 'year' ? (slots < periodSlots ? 'Months grouped to fit' : 'One chapter per month') : `${monthName(month)} · ${slots < periodSlots ? 'Days grouped to fit' : 'One chapter per day'}`}</span><span>{fitted ? 'Select a chapter to explore its moments' : 'Swipe or scroll along the line'} <ArrowRight size={14} /></span></div>
     {yearOnly.length > 0 && <div className="story-loose"><span>During {year}</span>{yearOnly.map(item => <button type="button" key={item.id} className={`story-tag story-${item.category}`} aria-pressed={selected?.id === item.id} onClick={() => select(item)}><GraduationCap size={14} />{item.title} · {item.dateLabel}</button>)}<small>Exact dates not recorded</small></div>}
     <div className="story-scroll" ref={scroller} tabIndex={0} aria-label="Scrollable timeline. Use left and right arrow keys to move." onKeyDown={event => { if (event.target !== event.currentTarget) return; if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { event.preventDefault(); scroll(event.key === 'ArrowRight' ? 1 : -1); } }}>
       <div className="story-canvas" style={{ width }}>
         <div className="story-spine" style={{ left: padding, right: padding }} />
-        {scale === 'life' ? <><div className="story-tick" style={{ left: padding }}><span>{firstYear}</span></div><div className="story-tick" style={{ left: width - padding }}><span>{lastYear}</span></div></> : Array.from({ length: slots }, (_, index) => <div key={index} className="story-tick" style={{ left: 60 + (index + 0.5) * slotWidth }}><span>{scale === 'year' ? monthName(index).slice(0, 3) : index + 1}</span></div>)}
+        {scale === 'life' ? <><div className="story-tick" style={{ left: padding }}><span>{firstYear}</span></div><div className="story-tick" style={{ left: width - padding }}><span>{lastYear}</span></div></> : Array.from({ length: slots }, (_, index) => <div key={index} className="story-tick" style={{ left: 60 + (index + 0.5) * slotWidth }}><span>{scale === 'year' ? monthName(Math.floor(index / slots * periodSlots)).slice(0, 3) : Math.floor(index / slots * periodSlots) + 1}</span></div>)}
         {chapters.map((chapter, index) => {
           const active = chapter.items.find(item => item.id === selected?.id);
           const lead = active || chapter.items.find(item => item.imageUrl) || chapter.items.find(item => ['memories', 'education', 'addresses', 'travel'].includes(item.category)) || chapter.items[0];
@@ -139,7 +149,7 @@ export default function VisualTimeline({ items, members, onOpenRecord, onEdit, o
       </div>
       {ranges.length > 0 && <div className="story-residences" style={{ width }}>{ranges.map(({ item, range }) => <div className="story-range-row" key={item.id}><button type="button" className="story-residence" style={{ left: padding + range!.start * (width - padding * 2), width: Math.max(10, (range!.end - range!.start) * (width - padding * 2)) }} onClick={() => select(item)} aria-label={`${item.rangeLabel}, ${item.date} to ${item.endDate}`}><MapPin size={13} /><span>{item.rangeLabel}</span></button></div>)}</div>}
     </div>
-    <div className="story-under-line"><span>Earlier <span aria-hidden="true">⟶</span> Later · {ranges.length ? 'Home bands show recorded residence dates' : 'Select a chapter to explore its moments'}</span><div><button type="button" className="story-icon-button" aria-label="Scroll timeline earlier" disabled={scale === 'life'} onClick={() => scroll(-1)}><ArrowLeft size={17} /></button><button type="button" className="story-icon-button" aria-label="Scroll timeline later" disabled={scale === 'life'} onClick={() => scroll(1)}><ArrowRight size={17} /></button></div></div>
+    <div className="story-under-line"><span>Earlier <span aria-hidden="true">⟶</span> Later · {ranges.length ? 'Home bands show recorded residence dates' : 'Select a chapter to explore its moments'}</span><div><button type="button" className="story-icon-button" aria-label="Scroll timeline earlier" disabled={fitted} onClick={() => scroll(-1)}><ArrowLeft size={17} /></button><button type="button" className="story-icon-button" aria-label="Scroll timeline later" disabled={fitted} onClick={() => scroll(1)}><ArrowRight size={17} /></button></div></div>
     {selected && <div className={`story-detail story-${selected.category}`} aria-live="polite">
       <div className="story-detail-top"><span className="story-eyebrow">{selectedChapter ? `${selectedChapter.label} · ${selectedIndex + 1} of ${group.length}` : selected.date ? 'Chapter details' : 'Still part of your story'}</span><div className="story-detail-navigation"><button type="button" className="story-icon-button" aria-label="Previous moment in chapter" disabled={selectedIndex <= 0} onClick={() => select(group[selectedIndex - 1])}><ArrowLeft size={16} /></button><button type="button" className="story-icon-button" aria-label="Next moment in chapter" disabled={selectedIndex < 0 || selectedIndex >= group.length - 1} onClick={() => select(group[selectedIndex + 1])}><ArrowRight size={16} /></button></div></div>
       {renderDetails ? <>{scale === 'life' && selected.date && <button type="button" className="btn-primary text-xs mb-3" onClick={() => changeScale('year')}>Explore {selected.date.slice(0, 4)}<ArrowRight size={14} /></button>}{renderDetails(selected)}</> : <>      <div className="story-detail-body">{selected.imageUrl && <img src={selected.imageUrl} alt={selected.title} className="story-detail-photo" loading="lazy" />}<div className="story-detail-copy"><p className="story-detail-date">{dateLabel(selected)} · {selected.sourceLabel}</p><h3>{selected.title}</h3><p className="story-detail-person">{personNames(selected)}</p>{selected.note && <p className="story-detail-note">{selected.note}</p>}<div className="story-detail-actions">{scale === 'life' && selected.date && <button type="button" className="btn-primary text-xs" onClick={() => changeScale('year')}>Explore {selected.date.slice(0, 4)}<ArrowRight size={14} /></button>}{selected.target && onOpenRecord && <button type="button" className="btn-quiet text-xs" onClick={() => open(selected)}>Open {selected.sourceLabel.toLowerCase()}<ArrowUpRight size={14} /></button>}{selected.manual && onEdit && <button type="button" className="btn-quiet text-xs" onClick={() => { setExpanded(false); onEdit(selected.manual!); }}><Pencil size={14} />Edit moment</button>}{selected.manual && onDelete && <ConfirmDeleteButton disabled={busy} ariaLabel={`Delete ${selected.title}`} onConfirm={() => onDelete(selected.manual!)} />}</div></div></div></>}

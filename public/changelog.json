@@ -1,5 +1,14 @@
 [
   {
+    "label": "v358",
+    "changes": [
+      "Life keeps your full recorded lifespan visible when categories or search hide earlier moments. Switching people uses that person’s own history.",
+      "Choose Fit screen for compact, grouped cards or Scroll for full-size cards across Life, Year and Month. Empty years stay available to explore.",
+      "Shopping and pickups from older Google Calendar imports no longer appear as medical history. New imports are no longer all labelled appointments."
+    ],
+    "date": "2026-09-16"
+  },
+  {
     "label": "v357",
     "changes": [
       "The timeline now has Life, Year and Month views. See the whole recorded lifespan on one line, then open a year or month for more detail.",

@@ -1,9 +1,8 @@
 {
-  "label": "v357",
+  "label": "v358",
   "changes": [
-    "The timeline now has Life, Year and Month views. See the whole recorded lifespan on one line, then open a year or month for more detail.",
-    "Choose which kinds of moments to show, search the timeline, and expand it for a wider view on a phone, tablet or laptop. Imports, photos and the full records view are still available.",
-    "Each family profile has an Education section for school years, teachers, reports, class photos, achievements and qualifications, with links to saved certificates.",
-    "Keep previous addresses with move-in and move-out dates. Homes and education records appear in the timeline and relevant exports."
+    "Life keeps your full recorded lifespan visible when categories or search hide earlier moments. Switching people uses that person’s own history.",
+    "Choose Fit screen for compact, grouped cards or Scroll for full-size cards across Life, Year and Month. Empty years stay available to explore.",
+    "Shopping and pickups from older Google Calendar imports no longer appear as medical history. New imports are no longer all labelled appointments."
   ]
 }

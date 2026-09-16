@@ -25,6 +25,7 @@
 // only ever opened from a button the person pressed.
 
 import type { CalendarEvent, FamilyMember } from '../types';
+import { hasMedicalCalendarContext } from './medicalCalendarEvent';
 import { resolveEventMembers } from './eventMemberMatch';
 import { partitionNewEvents } from './calendarDedup';
 
@@ -121,14 +122,14 @@ export function googleEventsToCalendarEvents(
 
     const startVal = gEv.start?.dateTime || gEv.start?.date || '';
     if (!startVal) continue;
-    const title = gEv.summary || 'Google Appointment';
+    const title = gEv.summary || 'Google Calendar event';
     out.push({
       id,
       title,
       date: startVal.substring(0, 10),
       time: gEv.start?.dateTime ? startVal.substring(11, 16) : '12:00',
       description: gEv.description || 'Imported from Google Calendar',
-      category: 'Appointment',
+      category: hasMedicalCalendarContext({ title, description: gEv.description }) ? 'Appointment' : 'Other',
       remindMe: true,
       // Google has no idea who lives in the house; read the person out of the
       // title (utils/eventMemberMatch.ts). What stays untagged is what the

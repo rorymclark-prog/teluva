@@ -2,6 +2,20 @@ import type { FamilyTimelineItem } from './familyTimeline';
 
 export type TimelineScale = 'life' | 'year' | 'month';
 export interface TimelineChapter { key: string; index: number; label: string; items: FamilyTimelineItem[] }
+/** Group neighbouring calendar periods only when cards would overlap in Fit screen. */
+export function fitTimelineChapters(chapters: TimelineChapter[], periodSlots: number, visibleSlots: number): TimelineChapter[] {
+  if (visibleSlots >= periodSlots) return chapters;
+  const grouped = new Map<number, TimelineChapter[]>();
+  for (const chapter of chapters) {
+    const index = Math.min(visibleSlots - 1, Math.floor(chapter.index * visibleSlots / periodSlots));
+    grouped.set(index, [...(grouped.get(index) || []), chapter]);
+  }
+  return [...grouped.entries()].map(([index, group]) => ({
+    key: `fit:${group[0].key}`, index,
+    label: group.length === 1 ? group[0].label : `${group[0].label} – ${group.at(-1)!.label}`,
+    items: group.flatMap(chapter => chapter.items),
+  }));
+}
 // Calendar buckets deliberately avoid pretending an unknown school start date is January 1.
 export function timelineChapters(items: FamilyTimelineItem[], year: number, month: number, scale: Exclude<TimelineScale, 'life'>): TimelineChapter[] {
   const grouped = new Map<number, FamilyTimelineItem[]>();
@@ -39,14 +53,15 @@ export function timelineRange(item: FamilyTimelineItem, year: number, month: num
 
 // Life fits the complete recorded span on screen. Nearby years share a chapter
 // when space is tight; every record remains available in that chapter's detail.
-export function lifeTimelineChapters(items: FamilyTimelineItem[], slots: number, throughYear = new Date().getFullYear()): TimelineChapter[] {
+export function lifeTimelineChapters(items: FamilyTimelineItem[], slots: number, throughYear = new Date().getFullYear(), fromYear?: number): TimelineChapter[] {
   const years = timelineYears(items);
   if (!years.length) return [];
-  const first = years[0], span = Math.max(throughYear, years.at(-1)!) - first + 1;
+  slots = Math.max(1, Math.floor(slots));
+  const first = Math.min(fromYear ?? years[0], years[0]), span = Math.max(throughYear, years.at(-1)!) - first + 1;
   const grouped = new Map<number, FamilyTimelineItem[]>();
   for (const item of items) {
     if (!item.date) continue;
-    const index = Math.min(slots - 1, Math.floor((Number(item.date.slice(0, 4)) - first) / span * slots));
+    const index = Math.min(slots - 1, Math.floor((Number(item.date.slice(0, 4)) - first) * slots / span));
     grouped.set(index, [...(grouped.get(index) || []), item]);
   }
   return [...grouped.entries()].sort(([a], [b]) => a - b).map(([index, records]) => {

@@ -1,3 +1,4 @@
+import { isMedicalCalendarEvent } from './medicalCalendarEvent';
 import { CalendarEvent, FamilyMember } from '../types';
 import { eventBelongsToMember } from './eventMemberMatch';
 
@@ -27,6 +28,8 @@ import { eventBelongsToMember } from './eventMemberMatch';
 /**
  * Appointments for one person, soonest first.
  *
+ * Legacy Google imports also need medical context: they used to mark shopping
+ * and pickups as Appointment. Native records keep the user's chosen category.
  * Deliberately narrowed to category 'Appointment': it is what the assistant
  * files a doctor's visit as (see the calendar_event rules in server.js) and
  * what the Add-event form defaults to for one. A member-tagged School play or
@@ -49,7 +52,7 @@ export function memberAppointments(
   members: readonly Pick<FamilyMember, 'id' | 'name'>[] = [],
 ): { upcoming: CalendarEvent[]; past: CalendarEvent[] } {
   const mine = events.filter(
-    (ev) => ev.category === 'Appointment' && eventBelongsToMember(ev, memberId, members),
+    (ev) => isMedicalCalendarEvent(ev) && eventBelongsToMember(ev, memberId, members),
   );
 
   // String comparison is correct and cheap for YYYY-MM-DD, and — unlike

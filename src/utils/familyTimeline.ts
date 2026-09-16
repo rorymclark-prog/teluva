@@ -1,3 +1,4 @@
+import { isMedicalCalendarEvent } from './medicalCalendarEvent';
 import type { CalendarEvent, FamilyMember, TimelineEntry, TravelTimelineEntry, VaultDocument } from '../types';
 import { buildHealthTimeline } from './healthTimeline';
 import { parseDateOnly } from './age';
@@ -73,7 +74,7 @@ export function buildFamilyTimeline({ members, events = [], memories = [], trave
   // Appointment IDs use the existing health timeline's appointment- prefix.
   for (const event of events) {
     if (event.category === 'Appointment' && healthEvents.has(`appointment-${event.id}`)) continue;
-    items.push({ id: `event:${event.id}`, category: event.category === 'Appointment' ? 'medical' : event.category === 'School' ? 'education' : event.category === 'Travel' ? 'travel' : 'calendar',
+    items.push({ id: `event:${event.id}`, category: isMedicalCalendarEvent(event) ? 'medical' : event.category === 'School' ? 'education' : event.category === 'Travel' ? 'travel' : 'calendar',
       date: validDate(event.date), title: event.title, note: event.description, memberIds: event.memberIds || [], sourceLabel: 'Calendar', target: { view: 'calendar' } });
   }
   for (const trip of travel) items.push({ id: `trip:${trip.id}`, category: 'travel', date: validDate(trip.date),

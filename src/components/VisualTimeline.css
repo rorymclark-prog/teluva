@@ -33,7 +33,7 @@
 .story-stem { position: absolute; left: 0; width: 1px; background: var(--story-color); opacity: .5; }
 .story-above .story-stem { top: calc(var(--story-axis) - 42px); height: 42px; }
 .story-below .story-stem { top: var(--story-axis); height: 48px; }
-.story-card { position: absolute; left: -90px; width: 180px; height: 166px; border-radius: 14px; background: var(--color-cream-50); border: 1px solid var(--color-cream-300); overflow: hidden; text-align: left; box-shadow: 0 5px 14px color-mix(in srgb, var(--color-ink-900) 5%, transparent); transition: border-color .15s, transform .15s; }
+.story-card { position: absolute; left: calc(var(--story-card-width, 180px) / -2); width: var(--story-card-width, 180px); height: 166px; border-radius: 14px; background: var(--color-cream-50); border: 1px solid var(--color-cream-300); overflow: hidden; text-align: left; box-shadow: 0 5px 14px color-mix(in srgb, var(--color-ink-900) 5%, transparent); transition: border-color .15s, transform .15s; }
 .story-card:hover { transform: translateY(-3px); border-color: var(--story-color); }
 .story-selected .story-card { border: 2px solid var(--story-color); box-shadow: 0 5px 18px color-mix(in srgb, var(--story-color) 12%, transparent); }
 .story-above .story-card { top: calc(var(--story-axis) - 202px); }
@@ -118,7 +118,18 @@
   .story-timeline--expanded .story-card-copy small { display: none; }
 }
 .story-life-span { font-family: var(--font-display); font-size: 29px; font-weight: 600; letter-spacing: -.04em; white-space: nowrap; }
-.story-timeline--life .story-card { width: 160px; left: -80px; }
+
+.story-layout-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 0 24px 14px; }
+.story-layout-toolbar > span { font-size: 11px; color: var(--color-ink-500); }
+.story-timeline--compact .story-card-copy { padding: 8px; }
+.story-timeline--compact .story-card-copy strong { font-size: 11px; }
+.story-timeline--compact .story-card-art { padding: 8px; }
+.story-timeline--compact .story-card-art span { display: none; }
+.story-timeline--compact .story-card-date { font-size: 8px; letter-spacing: 0; flex-wrap: wrap; }
+@media (max-height: 600px) and (orientation: landscape) {
+  .story-timeline--expanded .story-layout-toolbar { padding: 0 18px 6px; }
+}
+
 @media (min-width: 600px) { .story-life-span { font-size: 34px; } }
 @media (max-width: 767px) {
   [data-interface="ember"] .ember-main[data-view="timeline"] > .ember-view-heading { position: static; }
