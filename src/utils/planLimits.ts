@@ -17,16 +17,42 @@ export interface PlanLimitConfig {
   seats: number;
 }
 
+// AI actions are the only line item here that costs real money — measured at
+// roughly $0.06 each (Vertex, gemini-2.5-pro dominating). Seats are free, so
+// they are set by what a household plausibly needs, not by cost.
+//
+// WHY 'trial' EXISTS AS ITS OWN TIER. Every new space is stamped with a
+// 180-day grant. That grant used to be 'paid', so every single signup carried
+// the 2,000-action paid allowance for six months and the free number was
+// irrelevant to the bill: 2,500 households x 2,000 x $0.06 is roughly
+// $315,000 a month. A trial is a trial — generous enough to file every
+// document and form an opinion, nowhere near a paying customer's ceiling.
 export const PLAN_LIMITS: Record<Plan, PlanLimitConfig> = {
-  free: { aiActionsPerMonth: 30, seats: 10 },
+  free: { aiActionsPerMonth: 5, seats: 10 },
+  trial: { aiActionsPerMonth: 100, seats: 200 },
   paid: { aiActionsPerMonth: 2000, seats: 200 },
 };
 
-// Whatever isn't literally "paid" is "free" — this is also how an absent
-// `plan` field (every space today) defaults, since free is the only tier
-// that exists until the owner starts flipping the field by hand.
+// The whole-app ceiling, and the only number that actually bounds the bill.
+// Per-space limits cannot: the cost scales with how many people sign up, and
+// nothing stops 10,000 of them. This is a hard monthly stop across every space
+// at once — when it trips, AI is off for everybody until the next UTC month or
+// until the ceiling is raised.
+//
+// The server reads AI_GLOBAL_ACTIONS_PER_MONTH from the environment, so this
+// can be changed on Cloud Run WITHOUT a deploy. This constant is the default
+// and the client-side display value; server.js holds the enforcing copy.
+// 5,000 actions is about $315/month at the measured rate.
+export const GLOBAL_AI_ACTIONS_PER_MONTH = 5000;
+
+// Anything that is not a tier name we recognise is 'free' — including an
+// absent field, which is how a pre-trial space defaults. Deliberately an
+// allowlist of two strings rather than "not free means paid": a typo in the
+// Firestore console must never hand somebody the paid ceiling.
 export function planFromField(planField: unknown): Plan {
-  return planField === 'paid' ? 'paid' : 'free';
+  if (planField === 'paid') return 'paid';
+  if (planField === 'trial') return 'trial';
+  return 'free';
 }
 
 // A "paid" grant is only paid while it hasn't expired — `planExpiresAt` is an
@@ -41,19 +67,35 @@ export function resolvePlan(
   info: { plan?: unknown; planExpiresAt?: unknown } | null | undefined,
   now: Date = new Date(),
 ): Plan {
-  if (planFromField(info?.plan) !== 'paid') return 'free';
+  const granted = planFromField(info?.plan);
+  if (granted === 'free') return 'free';
   const expiresAt = info?.planExpiresAt;
   if (typeof expiresAt === 'string' && expiresAt) {
     const t = Date.parse(expiresAt);
     if (!Number.isNaN(t) && t <= now.getTime()) return 'free';
   }
-  return 'paid';
+  return granted;
 }
 
-// 14 days of full paid limits from signup — enough to scan every document in
-// one sitting ("enough for them to set up all their docs"). Stamped onto a
-// new space by /api/create-family and /api/create-space.
-export const TRIAL_DAYS = 14;
+// 90 days of TRIAL limits from signup (not paid limits — see PLAN_LIMITS).
+//
+// WHY 90 AND NOT 180. A family's AI use is front-loaded: they file every
+// document in the first weeks and then it goes quiet, so a household that has
+// not formed an opinion in 90 days will not form one in 180. It halves the
+// per-signup exposure (300 actions rather than 600, roughly $19 against $38 at
+// the measured rate) and it reports back on whether people will pay three
+// months sooner — which is the thing worth knowing BEFORE a store launch.
+//
+// It is also the only direction that moves gracefully. scripts/grant-tester-plan.mjs
+// extends any individual space by hand, so a tester who earns more gets more.
+// Going the other way means taking something away from people who already have
+// it, which cannot be done quietly.
+//
+// server.js keeps its OWN copy of this constant (it ships standalone with no
+// TypeScript in the runtime image) and IT is what stamps planExpiresAt onto a
+// new space. Changing only this one is a no-op for every real signup —
+// planLimits.test.ts pins the two together so that cannot happen quietly.
+export const TRIAL_DAYS = 90;
 
 export function trialExpiryIso(from: Date = new Date()): string {
   const d = new Date(from);

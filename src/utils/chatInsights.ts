@@ -1,7 +1,7 @@
 import { IdCard, HeartPulse, PhoneCall, Car, Shirt } from 'lucide-react';
 import { FamilyMember, Vehicle, SlipItem, InsurancePolicy } from '../types';
 import { Nudge, computeNudges, computeVehicleNudges, computeSlipNudges, computeFuneralCoverNudges } from '../components/NeedsAttention';
-import { vehicleLabel } from './vehicle';
+import { vehicleLabel, vehicleFieldProfile, vehicleKindOf } from './vehicle';
 import { sizeStaleness } from './sizeStaleness';
 import { todayISO } from './age';
 
@@ -98,9 +98,11 @@ export function computeChatInsights(
     }
   }
 
-  // Vehicle with no inspection (§57a / MOT) date on file.
+  // Vehicle with no inspection (§57a / MOT) date on file. Only for kinds that
+  // HAVE one — a bicycle or e-scooter has no Pickerl, and nagging about it
+  // would be the app not knowing what a bike is.
   for (const v of vehicles) {
-    if (!v.inspectionExpiry) {
+    if (!v.inspectionExpiry && vehicleFieldProfile(vehicleKindOf(v)).inspection) {
       gaps.push({ key: `gap-veh-inspection-${v.id}`, memberId: '', icon: Car, tone: 'info', text: `${vehicleLabel(v)} has no inspection (§57a/MOT) date on file`, tab: 'vehicles', view: 'vehicles' });
     }
   }

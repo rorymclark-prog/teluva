@@ -6,6 +6,7 @@ import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import EmptyState from './EmptyState';
 import { ageLabelAt, todayISO } from '../utils/age';
+import { appConfirm } from '../utils/appConfirm';
 
 const newId = () => 'word-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const BLANK = { word: '', meaning: '', coinedBy: '', approxDate: '', stillUsed: false };
@@ -79,7 +80,7 @@ export default function FamilyWordsView({ members, canEdit = false, demo = false
   };
 
   const remove = async (id: string) => {
-    if (!window.confirm('Delete this word?')) return;
+    if (!(await appConfirm('Delete this word?', { danger: true, confirmLabel: 'Delete' }))) return;
     await persist(words.filter((w) => w.id !== id));
     if (editingId === id) close();
   };

@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, Search, Loader2, FileText, Copy, Share2, Check, ExternalLink,
-  AlertTriangle, Scale, ChevronDown, Quote,
+  AlertTriangle, Scale, ChevronDown, Quote, Bot,
 } from 'lucide-react';
 import { DocCoverage, DocPassage, DocReadResult } from '../types';
 import { readDocument } from '../utils/docReader';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { useT } from '../i18n/LangContext';
 import { canShare } from '../utils/share';
+import { canOpenElsewhere, openElsewhere } from '../utils/openElsewhere';
 import { auth } from '../lib/firebase';
 import SheetGrabber from './SheetGrabber';
 
@@ -323,9 +325,21 @@ export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQue
     window.open(doc.src, '_blank', 'noopener,noreferrer');
   }, [doc]);
 
+  /* The file itself, handed to whatever the phone has installed. See
+     utils/openElsewhere.ts for why this is the honest answer to "what does my
+     lease mean" rather than something this sheet should try to answer. */
+  const handOver = useCallback(() => {
+    if (!doc) return;
+    void openElsewhere(doc.src, doc.name || 'document');
+  }, [doc]);
+
   const examples = (doc && EXAMPLE_TERMS[doc.category]) || DEFAULT_EXAMPLE_TERMS;
 
-  return (
+  // Portalled to <body> for the same reason the scanner is: it opens from the
+  // chat panel, whose `.glass` backdrop-filter turns it into the containing
+  // block for fixed children — in place, this overlay would be trapped inside
+  // (and clipped by) the sheet that opened it.
+  return createPortal(
     <AnimatePresence>
       {doc && (
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-4">
@@ -470,6 +484,7 @@ export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQue
                     open={helpOpen}
                     onToggle={() => setHelpOpen((v) => !v)}
                     onAskAgain={askAgain}
+                    onOpenElsewhere={canOpenElsewhere ? handOver : undefined}
                   />
                 </>
               )}
@@ -506,7 +521,8 @@ export default function DocumentAskModal({ doc, isBusinessSpace = false, autoQue
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 
@@ -921,14 +937,14 @@ function NoMatchState({
  * gets as far as asking, and the next move is offered in the same breath.
  */
 function EscalationFooter({
-  open, onToggle, onAskAgain,
-}: { open: boolean; onToggle: () => void; onAskAgain: () => void }) {
+  open, onToggle, onAskAgain, onOpenElsewhere,
+}: { open: boolean; onToggle: () => void; onAskAgain: () => void; onOpenElsewhere?: () => void }) {
   return (
     <div className="pt-1 space-y-2.5 border-t border-cream-200">
       <p className="text-[12.5px] leading-relaxed text-ink-500 pt-3">
         Whether any of this legally obliges someone is a question for a person qualified to answer it —
         that&rsquo;s the one thing I can&rsquo;t tell you. What I can do is show you more of what your
-        document says.
+        document says{onOpenElsewhere ? ', or hand you the file to take somewhere else' : ''}.
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -949,6 +965,19 @@ function EscalationFooter({
         >
           <Scale className="w-3 h-3" /> Who can actually answer this
         </button>
+        {/* Deliberately LAST, and deliberately not worded as an alternative to
+            the line above. A chat app is not a Rechtsanwalt either; the reason
+            to offer it is that it is the user's own tool and their own file,
+            not that it answers the legal question. */}
+        {onOpenElsewhere && (
+          <button
+            type="button"
+            onClick={onOpenElsewhere}
+            className="chip min-h-11 px-4 bg-cream-100 text-ink-700 hover:bg-cream-200 cursor-pointer transition-colors"
+          >
+            <Bot className="w-3 h-3" /> Open it in ChatGPT or another app
+          </button>
+        )}
       </div>
 
       {open && (

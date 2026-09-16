@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType, FamilyInfoDoc, HouseholdVendor, VendorTrade } from '../types';
+import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType, FamilyInfoDoc, HouseholdVendor, VendorTrade, IdCountry } from '../types';
 import { loadFamilyInfo, saveFamilyInfo, loadSpaceInfo } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import { auth } from '../lib/firebase';
@@ -21,9 +21,10 @@ interface ImportantInfoProps {
   isBusinessSpace?: boolean;
   refreshKey?: number;
   onContactsChange?: (contacts: ContactEntry[]) => void;
+  country?: IdCountry;
 }
 
-export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsChange }: ImportantInfoProps) {
+export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsChange, country }: ImportantInfoProps) {
   const [info, setInfo] = useState<FamilyInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -190,9 +191,13 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
 
       {/* Household vendors — the plumber, electrician, locksmith, the neighbour
           with the spare key. Mirrors ProvidersSection closely (same directory
-          pattern, different domain) — a household's other "who to call" list. */}
+          pattern, different domain) — a household's other "who to call" list.
+          Rendered in BOTH space types (unfiltered, unlike providers above) —
+          an office needs its own plumber and locksmith too — so it re-labels
+          itself via isBusinessSpace rather than disappearing. */}
       <VendorsSection
         entries={vendors}
+        isBusinessSpace={isBusinessSpace}
         onAdd={(v) => persist({ ...info, vendors: [...(info.vendors || []), v] })}
         onUpdate={(v) => persist({ ...info, vendors: (info.vendors || []).map(x => x.id === v.id ? v : x) })}
         onDelete={(id) => persist({ ...info, vendors: (info.vendors || []).filter(v => v.id !== id) })}
@@ -205,6 +210,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
           onUpdate={(e) => persist({ ...info, numbers: info.numbers.map(n => n.id === e.id ? e : n) })}
           onDelete={(id) => persist({ ...info, numbers: info.numbers.filter(n => n.id !== id) })}
           isBusinessSpace={isBusinessSpace}
+          country={country}
         />
         <ContactsSection
           entries={contacts}
@@ -283,14 +289,34 @@ function MilestoneSection({ spaceInfo, noteLoading, noteError, onGenerateNote }:
   );
 }
 
+/* What "key numbers" means for a registered business is a national concept,
+ * not a universal one — CIPC/SARS/UIF/COIDA are South African. An Austrian
+ * company's equivalents are the Firmenbuchnummer, UID (VAT) number, and
+ * Sozialversicherung employer number; a UK one is Companies House and PAYE
+ * references. Defaulting to South African terms regardless of the space's
+ * own country (HubSettings.country) told every non-SA business to file
+ * numbers under the wrong country's scheme. 'other'/unset falls back to a
+ * generic phrase rather than guessing a country that was never set. */
+function businessRegHint(country?: IdCountry): string {
+  switch (country) {
+    case 'ZA': return 'CIPC registration, SARS tax ref, UIF, COIDA';
+    case 'AT': return 'Firmenbuchnummer, UID (VAT) number, Sozialversicherung employer number';
+    case 'UK': return 'Companies House number, VAT registration, PAYE reference';
+    case 'US': return 'EIN, state registration number';
+    case 'RO': return 'CUI, Registrul Comerțului number';
+    default: return 'company registration, tax reference';
+  }
+}
+
 /* ---------------- Numbers ---------------- */
 
-function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }: {
+function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace, country }: {
   entries: InfoEntry[];
   onAdd: (e: InfoEntry) => void;
   onUpdate: (e: InfoEntry) => void;
   onDelete: (id: string) => void;
   isBusinessSpace?: boolean;
+  country?: IdCountry;
 }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -309,6 +335,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
           onSave={(e) => { onAdd(e); setAdding(false); }}
           onCancel={() => setAdding(false)}
           isBusinessSpace={isBusinessSpace}
+          country={country}
         />
       )}
 
@@ -316,7 +343,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
         <EmptyState
           size="sm"
           title={isBusinessSpace
-            ? 'No numbers yet — CIPC registration, SARS tax ref, UIF, COIDA, policy numbers…'
+            ? `No numbers yet — ${businessRegHint(country)}, policy numbers…`
             : 'No numbers yet — passports, social security, insurance, policy numbers…'}
         />
       ) : (
@@ -328,6 +355,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
                 onSave={(upd) => { onUpdate(upd); setEditId(null); }}
                 onCancel={() => setEditId(null)}
                 isBusinessSpace={isBusinessSpace}
+                country={country}
               />
             </div>
           ) : (
@@ -354,11 +382,12 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
   );
 }
 
-function NumberForm({ initial, onSave, onCancel, isBusinessSpace }: {
+function NumberForm({ initial, onSave, onCancel, isBusinessSpace, country }: {
   initial?: InfoEntry;
   onSave: (e: InfoEntry) => void;
   onCancel: () => void;
   isBusinessSpace?: boolean;
+  country?: IdCountry;
 }) {
   const [label, setLabel] = useState(initial?.label || '');
   const [value, setValue] = useState(initial?.value || '');
@@ -376,7 +405,7 @@ function NumberForm({ initial, onSave, onCancel, isBusinessSpace }: {
       <input
         autoFocus
         className="field"
-        placeholder={isBusinessSpace ? 'Label  (e.g. CIPC registration, SARS tax ref)' : 'Label  (e.g. Mia – Social security)'}
+        placeholder={isBusinessSpace ? `Label  (e.g. ${businessRegHint(country).split(', ').slice(0, 2).join(', ')})` : 'Label  (e.g. Mia – Social security)'}
         value={label}
         onChange={e => setLabel(e.target.value)}
       />
@@ -535,10 +564,17 @@ function ContactForm({ initial, onSave, onCancel, isBusinessSpace }: {
        * subscribed to the family feed. Extended Birthdays does all of that, so
        * that is where birthdays live now. Anything already typed here is kept
        * and still read (see utils/extendedBirthdaySources.ts) and has been
-       * migrated across; this just stops new ones landing in the weaker place. */}
-      <p className="text-[11px] text-ink-400">
-        Birthdays live in <span className="font-semibold text-ink-500">Extended Birthdays</span> — saved there they show on the family calendar and send a reminder every year.
-      </p>
+       * migrated across; this just stops new ones landing in the weaker place.
+       *
+       * Family spaces only: Extended Birthdays is in HIDDEN_VIEWS_IN_BUSINESS
+       * (Dashboard.tsx) — a business space has nowhere to point this at, and
+       * even the accountant/adviser this form is really for isn't someone
+       * whose birthday belongs on a company calendar. */}
+      {!isBusinessSpace && (
+        <p className="text-[11px] text-ink-400">
+          Birthdays live in <span className="font-semibold text-ink-500">Extended Birthdays</span> — saved there they show on the family calendar and send a reminder every year.
+        </p>
+      )}
       {formError && <p role="alert" className="text-[11px] text-rosa-600">{formError}</p>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5"><X className="w-3.5 h-3.5" /> Cancel</button>
@@ -752,7 +788,7 @@ function ProviderForm({ initial, isBusinessSpace, onSave, onCancel }: {
           </div>
         </>
       )}
-      <input className="field" placeholder="For  (optional — e.g. Mia; blank = whole family)" value={forMember} onChange={e => setForMember(e.target.value)} />
+      <input className="field" placeholder={isBusinessSpace ? 'For  (optional — e.g. Katharina; blank = whole team)' : 'For  (optional — e.g. Mia; blank = whole family)'} value={forMember} onChange={e => setForMember(e.target.value)} />
       <label className="flex items-center gap-2 text-[13px] text-ink-600 cursor-pointer select-none">
         <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)} className="rounded" />
         {professional ? 'This is our main point of contact for this kind of thing' : 'This is our usual GP / primary provider'}
@@ -777,11 +813,12 @@ const VENDOR_TRADES: VendorTrade[] = [
   'Cleaner', 'Gardener', 'Appliance repair', 'Pest control', 'Neighbour (spare key)', 'Other',
 ];
 
-function VendorsSection({ entries, onAdd, onUpdate, onDelete }: {
+function VendorsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }: {
   entries: HouseholdVendor[];
   onAdd: (v: HouseholdVendor) => void;
   onUpdate: (v: HouseholdVendor) => void;
   onDelete: (id: string) => void;
+  isBusinessSpace?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -791,10 +828,12 @@ function VendorsSection({ entries, onAdd, onUpdate, onDelete }: {
       <div className="flex items-center justify-between pb-3 border-b border-cream-200">
         <div>
           <h3 className="section-label flex items-center gap-1.5">
-            <Wrench className="w-3.5 h-3.5" /> Household vendors
+            <Wrench className="w-3.5 h-3.5" /> {isBusinessSpace ? 'Vendors' : 'Household vendors'}
           </h3>
           <p className="text-[12px] text-ink-400 mt-0.5">
-            Your plumber, electrician, boiler service, locksmith, the neighbour with the spare key — one place to find who to call.
+            {isBusinessSpace
+              ? 'Your plumber, electrician, cleaner, IT support, the building’s facilities contact — one place to find who to call.'
+              : 'Your plumber, electrician, boiler service, locksmith, the neighbour with the spare key — one place to find who to call.'}
           </p>
         </div>
         <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5 shrink-0">
@@ -812,7 +851,9 @@ function VendorsSection({ entries, onAdd, onUpdate, onDelete }: {
       {entries.length === 0 && !adding ? (
         <EmptyState
           size="sm"
-          title="No household vendors yet — your plumber, electrician, boiler service, locksmith, or the neighbour with the spare key."
+          title={isBusinessSpace
+            ? 'No vendors yet — your plumber, electrician, cleaner, or IT support.'
+            : 'No household vendors yet — your plumber, electrician, boiler service, locksmith, or the neighbour with the spare key.'}
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">

@@ -7,6 +7,7 @@ import React from 'react';
 import { LangProvider } from './i18n/LangContext';
 import { FamilyProvider, useFamilyCtx } from './contexts/FamilyContext';
 import { ChatDraftProvider } from './contexts/ChatDraftContext';
+import { recordOwnerStillHere } from './utils/db';
 import Dashboard from './components/Dashboard';
 import FamilyOnboarding from './components/FamilyOnboarding';
 import AccountLoadError from './components/AccountLoadError';
@@ -34,6 +35,18 @@ function AppInner() {
   // installed PWA can be days. This counter is the nudge: FamilySettings bumps
   // it after a successful write, Dashboard re-reads on it.
   const [settingsVersion, setSettingsVersion] = React.useState(0);
+
+  /* "I am still here." An admin opening the app is the ONLY evidence this app
+     has that the owner of a will is alive, and it must be recorded here rather
+     than on the Wills & Estate screen — an owner who never visits that screen
+     would otherwise look silent while using the app daily, and two people who
+     agreed could walk straight in. Throttled to once a day inside
+     recordOwnerStillHere, and it fails silently: a missed heartbeat only ever
+     makes the fast door slower. It grants nothing on its own. */
+  React.useEffect(() => {
+    if (loading || !uid || !familyId || !isAdmin) return;
+    void recordOwnerStillHere();
+  }, [loading, uid, familyId, isAdmin]);
 
   // Point the device's pack route at the account's active space as soon as the
   // normal app resolves it. This prevents a space/account switch from treating

@@ -19,6 +19,7 @@ import { FamilyMember, FavoriteItem, NameCelebration } from '../types';
 import { daysUntilNameDay, formatNameDay } from './nameDay';
 import { resolveCelebrations, daysUntilCelebration } from './nameCelebrations';
 import { parseDateOnly } from './age';
+import { hiddenKey, NO_HIDDEN_PEOPLE, type HiddenPeople } from './hiddenPeople';
 
 export type OccasionKind = 'birthday' | 'nameDay' | 'christmas';
 
@@ -93,11 +94,15 @@ function monthDayFromBirthdate(birthdate?: string): string | null {
 export function buildGiftOccasions({
   members,
   now,
+  hidden = NO_HIDDEN_PEOPLE,
 }: {
   members: readonly FamilyMember[];
   /** Injected, never read from the clock in here — same convention as
    *  buildHealthTimeline's `now` parameter. */
   now: Date;
+  /** People whose dates this account has hidden (utils/hiddenPeople.ts): no
+   *  birthday or name day for them, but Christmas — everyone's — still is. */
+  hidden?: HiddenPeople;
 }): GiftOccasionsResult {
   const t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const buckets: Record<OccasionKind, MemberOccasion[]> = { birthday: [], nameDay: [], christmas: [] };
@@ -108,9 +113,10 @@ export function buildGiftOccasions({
       feast?: string; celebrationKind?: NameCelebration['kind'];
     };
     const candidates: Candidate[] = [];
+    const datesHidden = hidden.keys.has(hiddenKey.member(member.id));
 
     // --- birthday ---
-    const birthdayMonthDay = monthDayFromBirthdate(member.birthdate);
+    const birthdayMonthDay = datesHidden ? null : monthDayFromBirthdate(member.birthdate);
     if (birthdayMonthDay) {
       const d = daysUntilNameDay(birthdayMonthDay, now);
       if (d != null) candidates.push({ kind: 'birthday', monthDay: birthdayMonthDay, daysUntil: d });
@@ -125,7 +131,7 @@ export function buildGiftOccasions({
     // or an opted-in additional one) is the single candidate carried
     // forward — same "pick the soonest" rule this file applies again below
     // across birthday/nameDay/christmas.
-    const { primary, additional } = resolveCelebrations(member);
+    const { primary, additional } = datesHidden ? { primary: null, additional: [] as NameCelebration[] } : resolveCelebrations(member);
     let soonestCelebration: { celebration: NameCelebration; daysUntil: number } | null = null;
     for (const c of [primary, ...additional].filter((x): x is NameCelebration => x != null)) {
       const { days } = daysUntilCelebration(c, now);

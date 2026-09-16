@@ -5,8 +5,11 @@
 // to be.
 import type { AssetItem } from '../types';
 
+// 'Appliance' — the dishwasher, washing machine, boiler: things that get
+// serviced and whose repair paperwork needs a home (Rory, 2026-09-12:
+// "imagine i had a dishwasher service where do we keep it?").
 export const CATEGORIES: AssetItem['category'][] = [
-  'Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other',
+  'Electronics', 'Appliance', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other',
 ];
 
 export const IDENTIFIER_TYPES = ['Serial', 'IMEI', 'VIN', 'Frame no.', 'ISBN', 'Certificate no.', 'Other'];
@@ -29,6 +32,7 @@ export function suggestIdentifier(cat: AssetItem['category']): string {
     case 'Vehicle': return 'VIN';
     case 'Jewellery': return 'Certificate no.';
     case 'Electronics':
+    case 'Appliance':   // rating-plate serial, the one a repair engineer asks for
     case 'Sporting': return 'Serial';
     default: return 'Serial';
   }

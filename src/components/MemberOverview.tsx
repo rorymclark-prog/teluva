@@ -1,6 +1,6 @@
 import {
   AlertTriangle, GraduationCap, Phone, Mail, MapPin, Bell, Sparkles, IdCard, Lock, Stethoscope, Dices, RefreshCw,
-  Heart,
+  Heart, Briefcase, Award,
 } from 'lucide-react';
 import { useState, useEffect, type ElementType, useMemo } from 'react';
 import { FamilyMember, FamilyDocument, SurnameMeaning } from '../types';
@@ -11,8 +11,10 @@ import { isHintSeen, markHintSeen, loadSpaceInfo, loadFamilyInfo } from '../util
 import { formatNameDay } from '../utils/nameDay';
 import { resolveCelebrations, suggestLocal, daysUntilCelebration } from '../utils/nameCelebrations';
 import { meaningsFor, roleLabel, confidenceLabel } from '../utils/nameMeanings';
+import { qualificationExpiryStatus, type QualificationExpiryStatus } from '../utils/qualificationExpiry';
 import MemberBelongings from './MemberBelongings';
 import ShowCardModal, { type ShowCardField } from './ShowCardModal';
+import DocThumb from './DocThumb';
 
 // Proof of address: an ID-category scan named like a Meldezettel / registration
 // certificate. Lets us show a "view" icon next to the address.
@@ -50,6 +52,32 @@ function nearestExpiry(member: FamilyMember): { label: string; date: string; sta
   return { ...soonest, status: months < 0 ? 'expired' : months <= 9 ? 'soon' : 'ok' };
 }
 
+// Business spaces only. Prefers the CV's own current-flagged role (structured
+// career history, added after the fact) and falls back to the older
+// top-level jobTitle/employer fields (v111) that predate the CV tab and are
+// still the only source some members have — same fallback MemberCV.tsx's own
+// "Current role" header reads from.
+function currentRoleLabel(member: FamilyMember): string | null {
+  const currentRole = (member.cv?.roles || []).find((r) => r.current);
+  const title = currentRole?.title || member.jobTitle;
+  const employer = currentRole?.employer || member.employer;
+  if (!title && !employer) return null;
+  return title ? (employer ? `${title} at ${employer}` : title) : (employer as string);
+}
+
+// Business spaces only. The soonest-expiring certificate, mirroring
+// MemberCV's own Certificates & qualifications list (same sort, same
+// qualificationExpiryStatus threshold) so this glance card and that tab can
+// never disagree about what "expires soon" means.
+function nextExpiringQualification(member: FamilyMember): { name: string; expiryDate: string; status: QualificationExpiryStatus } | null {
+  const dated = (member.cv?.qualifications || [])
+    .filter((q) => q.expiryDate && !isNaN(new Date(q.expiryDate).getTime()));
+  if (!dated.length) return null;
+  dated.sort((a, b) => new Date(a.expiryDate!).getTime() - new Date(b.expiryDate!).getTime());
+  const soonest = dated[0];
+  return { name: soonest.name, expiryDate: soonest.expiryDate!, status: qualificationExpiryStatus(soonest.expiryDate!) };
+}
+
 export default function MemberOverview({
   member,
   canEdit = false,
@@ -58,6 +86,7 @@ export default function MemberOverview({
   astrologyBlurb,
   astrologyCappedToday = false,
   onSetNameDay,
+  isBusinessSpace = false,
 }: {
   member: FamilyMember;
   canEdit?: boolean;
@@ -69,6 +98,7 @@ export default function MemberOverview({
   astrologyCappedToday?: boolean;
   /** Store a Namenstag ('MM-DD' + the feast it belongs to). Omitted = read-only viewer, so no "add" offer is drawn. */
   onSetNameDay?: (date: string, feast?: string) => void;
+  isBusinessSpace?: boolean;
 }) {
   // First-time discovery nudge for the dice icon — dismissed for good the
   // first time it's actually clicked, per device/space (isHintSeen/db.ts).
@@ -138,7 +168,12 @@ export default function MemberOverview({
   if (member.nationality) tiles.push({ label: 'Nationality', value: member.nationality });
   if (docCount) tiles.push({ label: 'Documents', value: `${docCount}` });
 
-  const rows: { icon: ElementType; label: string; value: string; warn?: boolean; viewSrc?: string }[] = [];
+  // viewSrc and viewType travel together on purpose. An earlier version carried
+  // only the bytes, and the thumbnail below was a bare <img> — so a proof of
+  // address that happened to be a PDF (the city emails them as PDFs, and our
+  // own scanner writes two-sided documents as PDFs) rendered as a broken image.
+  // The type is not optional metadata here; it decides the renderer.
+  const rows: { icon: ElementType; label: string; value: string; warn?: boolean; viewSrc?: string; viewType?: string }[] = [];
   // Allergies are a genuine safety flag (a babysitter/ER needs them at a glance).
   // Detailed/sensitive medical (chronic conditions, medications) is deliberately
   // NOT shown on this casual default landing — it lives behind the Medical tab.
@@ -148,7 +183,26 @@ export default function MemberOverview({
   if (member.spouse) rows.push({ icon: Heart, label: 'Spouse or partner', value: member.spouse });
   if (member.phone) rows.push({ icon: Phone, label: 'Phone', value: member.phone });
   if (member.email) rows.push({ icon: Mail, label: 'Email', value: member.email });
-  if (member.address) rows.push({ icon: MapPin, label: 'Address', value: member.address, viewSrc: findAddressScan(member)?.fileData });
+  if (member.address) {
+    const addressScan = findAddressScan(member);
+    rows.push({ icon: MapPin, label: 'Address', value: member.address, viewSrc: addressScan?.fileData, viewType: addressScan?.fileType });
+  }
+  // Business spaces only: the single most useful glance fact for an HR file
+  // (see MemberCV.tsx) — current role and next-expiring certificate — was
+  // previously invisible until the CV tab was opened directly.
+  if (isBusinessSpace) {
+    const role = currentRoleLabel(member);
+    if (role) rows.push({ icon: Briefcase, label: 'Role', value: role });
+    const qual = nextExpiringQualification(member);
+    if (qual) {
+      rows.push({
+        icon: Award,
+        label: 'Certificate',
+        value: qual.status === 'expired' ? `${qual.name} — expired` : `${qual.name} — expires ${qual.expiryDate}`,
+        warn: qual.status !== 'ok',
+      });
+    }
+  }
 
   const isEmpty = tiles.length === 0 && rows.length === 0 && !expiry && !hasPrivateMedical && !showCare;
 
@@ -222,7 +276,7 @@ export default function MemberOverview({
                     className="shrink-0 w-8 h-8 rounded-lg overflow-hidden border border-cream-200 bg-cream-50"
                     title="View proof of address"
                   >
-                    <img src={r.viewSrc} alt="" className="w-full h-full object-cover" />
+                    <DocThumb src={r.viewSrc} fileType={r.viewType} size="w-full h-full" chrome={false} />
                   </button>
                 )}
               </div>

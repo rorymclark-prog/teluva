@@ -200,7 +200,8 @@ const NOW = new Date(2026, 7, 20);   // 2026-08-20, local
 
   const cal = read('src/components/FamilyCalendar.tsx');
   assert.ok(cal.includes('calendarDivisions?.petBirthdays'), 'the calendar must read the division toggle');
-  assert.ok(cal.includes('buildCalendarPetBirthdays(pets)'), 'and build the birthdays');
+  // A pet whose dates the family hid is filtered first (hiddenPeopleWiring.test.ts).
+  assert.ok(cal.includes('buildCalendarPetBirthdays(visiblePets(pets, hiddenPeople))'), 'and build the birthdays');
   assert.ok(/petBirthdays: !isBusinessSpace && settings\.calendarDivisions\?\.petBirthdays !== false \? petBirthdays : \[\],[\s\S]{0,400}buildIcs/.test(cal),
     'pet birthdays must reach family .ics exports and stay out of business calendars');
 
@@ -241,7 +242,11 @@ const NOW = new Date(2026, 7, 20);   // 2026-08-20, local
   // says only that the word exists SOMEWHERE in a 4,000-line prompt file —
   // `insuranceRenewal` is already shared with vehicles, and the next list to
   // borrow one of these names would hold this guard green while pets lost it.
-  const petsPrompt = server.slice(server.indexOf('pets (name, species'), server.indexOf('utilities (type, provider'));
+  const petsPrompt = server.slice(server.indexOf('pets (name, species'), server.indexOf('utilities (kind'));
+  // The end marker is the START of the utilities clause, not its field list —
+  // v318 rewrote those fields and an exact-field marker silently became -1,
+  // which slices from the end and leaves this guard green over nothing. The
+  // length assertion below is what caught it.
   assert.ok(petsPrompt.length > 400 && petsPrompt.length < 3000, 'the pets clause must still be what is being sliced');
   for (const field of ['chipRegistry', 'birthdateEstimated', 'deceasedDate', 'nextTreatmentDue', 'licenceExpiry']) {
     assert.ok(petsPrompt.includes(field), `server.js's pets field list must mention ${field}`);

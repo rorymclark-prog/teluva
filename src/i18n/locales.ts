@@ -58,8 +58,30 @@ export interface Strings {
   ai_placeholder: string;
   ai_hint: string;
   ai_applied: string;
+  ai_reveal_heading: string;
+  ai_reveal_copy: string;
+  ai_reveal_copy_all: string;
+  ai_reveal_copy_named: string;
+  ai_reveal_copied: string;
+  ai_reveal_truncated: string;
+  ai_reveal_note: string;
   ai_applying: string;
   ai_empty: string;
+
+  // "All ID numbers" overview screen — every identity number, passport,
+  // visa/permit and (admin-only) national identifier for one member, listed
+  // in one place. Reached from the ID & Passports tab.
+  id_overview_open: string;
+  id_overview_title: string;
+  id_overview_group_identity: string;
+  id_overview_group_passport: string;
+  id_overview_group_visa: string;
+  id_overview_group_other: string;
+  id_overview_empty_title: string;
+  id_overview_empty_desc: string;
+  id_overview_documents_empty: string;
+  id_overview_attached_to: string;
+  id_overview_view_document: string;
 
   // Onboarding
   onboard_title: string;
@@ -103,7 +125,7 @@ export interface Strings {
   update_refresh: string;
 }
 
-export type LangCode = 'en' | 'de' | 'es' | 'fr' | 'pt' | 'it' | 'nl' | 'pl' | 'af';
+export type LangCode = 'en' | 'de' | 'es' | 'fr' | 'pt' | 'it' | 'nl' | 'pl' | 'af' | 'ro';
 
 export const LANGUAGE_NAMES: Record<LangCode, string> = {
   en: 'English',
@@ -115,6 +137,7 @@ export const LANGUAGE_NAMES: Record<LangCode, string> = {
   nl: 'Nederlands',
   pl: 'Polski',
   af: 'Afrikaans',
+  ro: 'Română',
 };
 
 const en: Strings = {
@@ -170,6 +193,24 @@ const en: Strings = {
   ai_placeholder: 'Ask anything about your family…',
   ai_hint: 'Paste a screenshot with Ctrl+V · Nothing saves until you tap Apply.',
   ai_applied: 'Applied',
+  ai_reveal_heading: 'From your records',
+  ai_reveal_copy: 'Copy',
+  ai_reveal_copy_all: 'Copy all',
+  ai_reveal_copy_named: 'Copy with name',
+  ai_reveal_copied: 'Copied',
+  ai_reveal_truncated: 'Showing the first {n}. Ask about one person at a time to see the rest.',
+  ai_reveal_note: 'Looked up on this device and not saved to the conversation.',
+  id_overview_open: 'View all ID numbers',
+  id_overview_title: 'All ID numbers',
+  id_overview_group_identity: 'Identity numbers',
+  id_overview_group_passport: 'Passports',
+  id_overview_group_visa: 'Visas & permits',
+  id_overview_group_other: 'Other identifiers',
+  id_overview_empty_title: 'No ID numbers on file yet',
+  id_overview_empty_desc: 'Add a passport, visa, or ID number above and it will show up here.',
+  id_overview_documents_empty: 'No documents filed yet.',
+  id_overview_attached_to: 'Attached to',
+  id_overview_view_document: 'View document',
   ai_applying: 'Applying…',
   ai_empty: 'Ask me anything — sizes, medical info, passports, upcoming events — or tell me something to save.',
 
@@ -260,6 +301,24 @@ const de: Strings = {
   ai_placeholder: 'Frag alles über deine Familie…',
   ai_hint: 'Screenshot mit Strg+V einfügen · Nichts wird gespeichert bis du „Übernehmen" tippst.',
   ai_applied: 'Übernommen',
+  ai_reveal_heading: 'Aus euren Unterlagen',
+  ai_reveal_copy: 'Kopieren',
+  ai_reveal_copy_all: 'Alle kopieren',
+  ai_reveal_copy_named: 'Mit Name kopieren',
+  ai_reveal_copied: 'Kopiert',
+  ai_reveal_truncated: 'Die ersten {n} werden angezeigt. Frag nach einer Person nach der anderen, um den Rest zu sehen.',
+  ai_reveal_note: 'Auf diesem Gerät nachgeschlagen und nicht im Chatverlauf gespeichert.',
+  id_overview_open: 'Alle Ausweisnummern anzeigen',
+  id_overview_title: 'Alle Ausweisnummern',
+  id_overview_group_identity: 'Ausweisnummern',
+  id_overview_group_passport: 'Reisepässe',
+  id_overview_group_visa: 'Visa & Aufenthaltstitel',
+  id_overview_group_other: 'Weitere Kennnummern',
+  id_overview_empty_title: 'Noch keine Ausweisnummern hinterlegt',
+  id_overview_empty_desc: 'Füge oben einen Reisepass, ein Visum oder eine Ausweisnummer hinzu — sie erscheint dann hier.',
+  id_overview_documents_empty: 'Noch keine Dokumente abgelegt.',
+  id_overview_attached_to: 'Zugehörig zu',
+  id_overview_view_document: 'Dokument ansehen',
   ai_applying: 'Wird übernommen…',
   ai_empty: 'Frag mich alles — Größen, medizinische Infos, Pässe, Termine — oder sag mir etwas zum Speichern.',
 
@@ -350,6 +409,24 @@ const es: Strings = {
   ai_placeholder: 'Pregunta lo que quieras sobre tu familia…',
   ai_hint: 'Pega una captura con Ctrl+V · Nada se guarda hasta que pulses Aplicar.',
   ai_applied: 'Aplicado',
+  ai_reveal_heading: 'De vuestros registros',
+  ai_reveal_copy: 'Copiar',
+  ai_reveal_copy_all: 'Copiar todo',
+  ai_reveal_copy_named: 'Copiar con nombre',
+  ai_reveal_copied: 'Copiado',
+  ai_reveal_truncated: 'Mostrando los primeros {n}. Pregunta por una persona a la vez para ver el resto.',
+  ai_reveal_note: 'Consultado en este dispositivo y no guardado en la conversación.',
+  id_overview_open: 'Ver todos los números de identificación',
+  id_overview_title: 'Todos los números de identificación',
+  id_overview_group_identity: 'Números de identidad',
+  id_overview_group_passport: 'Pasaportes',
+  id_overview_group_visa: 'Visados y permisos',
+  id_overview_group_other: 'Otros identificadores',
+  id_overview_empty_title: 'Aún no hay números de identificación registrados',
+  id_overview_empty_desc: 'Añade un pasaporte, visado o número de identificación arriba y aparecerá aquí.',
+  id_overview_documents_empty: 'Aún no hay documentos archivados.',
+  id_overview_attached_to: 'Vinculado a',
+  id_overview_view_document: 'Ver documento',
   ai_applying: 'Aplicando…',
   ai_empty: 'Pregúntame lo que quieras — tallas, info médica, pasaportes, eventos — o dime algo para guardar.',
 
@@ -440,6 +517,24 @@ const fr: Strings = {
   ai_placeholder: 'Posez n\'importe quelle question sur votre famille…',
   ai_hint: 'Collez une capture avec Ctrl+V · Rien n\'est enregistré jusqu\'à ce que vous appuyiez sur Appliquer.',
   ai_applied: 'Appliqué',
+  ai_reveal_heading: 'Dans vos dossiers',
+  ai_reveal_copy: 'Copier',
+  ai_reveal_copy_all: 'Tout copier',
+  ai_reveal_copy_named: 'Copier avec le nom',
+  ai_reveal_copied: 'Copié',
+  ai_reveal_truncated: 'Affichage des {n} premiers. Demandez une personne à la fois pour voir le reste.',
+  ai_reveal_note: 'Consulté sur cet appareil et non enregistré dans la conversation.',
+  id_overview_open: "Voir tous les numéros d'identité",
+  id_overview_title: "Tous les numéros d'identité",
+  id_overview_group_identity: "Numéros d'identité",
+  id_overview_group_passport: 'Passeports',
+  id_overview_group_visa: 'Visas et permis',
+  id_overview_group_other: 'Autres identifiants',
+  id_overview_empty_title: "Aucun numéro d'identité enregistré pour l'instant",
+  id_overview_empty_desc: 'Ajoutez un passeport, un visa ou un numéro d\'identité ci-dessus et il apparaîtra ici.',
+  id_overview_documents_empty: 'Aucun document archivé pour l\'instant.',
+  id_overview_attached_to: 'Associé à',
+  id_overview_view_document: 'Voir le document',
   ai_applying: 'Application…',
   ai_empty: 'Posez-moi n\'importe quelle question — tailles, infos médicales, passeports, événements — ou dites-moi quelque chose à sauvegarder.',
 
@@ -530,6 +625,24 @@ const pt: Strings = {
   ai_placeholder: 'Pergunte qualquer coisa sobre a sua família…',
   ai_hint: 'Cole uma captura com Ctrl+V · Nada é guardado até tocar em Aplicar.',
   ai_applied: 'Aplicado',
+  ai_reveal_heading: 'Dos vossos registos',
+  ai_reveal_copy: 'Copiar',
+  ai_reveal_copy_all: 'Copiar tudo',
+  ai_reveal_copy_named: 'Copiar com o nome',
+  ai_reveal_copied: 'Copiado',
+  ai_reveal_truncated: 'A mostrar os primeiros {n}. Pergunte por uma pessoa de cada vez para ver o resto.',
+  ai_reveal_note: 'Consultado neste dispositivo e não guardado na conversa.',
+  id_overview_open: 'Ver todos os números de identificação',
+  id_overview_title: 'Todos os números de identificação',
+  id_overview_group_identity: 'Números de identidade',
+  id_overview_group_passport: 'Passaportes',
+  id_overview_group_visa: 'Vistos e autorizações',
+  id_overview_group_other: 'Outros identificadores',
+  id_overview_empty_title: 'Ainda não há números de identificação registados',
+  id_overview_empty_desc: 'Adicione um passaporte, visto ou número de identificação acima e ele aparecerá aqui.',
+  id_overview_documents_empty: 'Ainda não há documentos arquivados.',
+  id_overview_attached_to: 'Associado a',
+  id_overview_view_document: 'Ver documento',
   ai_applying: 'A aplicar…',
   ai_empty: 'Pergunte-me o que quiser — tamanhos, info médica, passaportes, eventos — ou diga-me algo para guardar.',
 
@@ -620,6 +733,24 @@ const it: Strings = {
   ai_placeholder: 'Chiedi qualsiasi cosa sulla tua famiglia…',
   ai_hint: 'Incolla uno screenshot con Ctrl+V · Niente viene salvato finché non tocchi Applica.',
   ai_applied: 'Applicato',
+  ai_reveal_heading: 'Dai vostri documenti',
+  ai_reveal_copy: 'Copia',
+  ai_reveal_copy_all: 'Copia tutto',
+  ai_reveal_copy_named: 'Copia con il nome',
+  ai_reveal_copied: 'Copiato',
+  ai_reveal_truncated: 'Vengono mostrati i primi {n}. Chiedi una persona alla volta per vedere il resto.',
+  ai_reveal_note: 'Consultato su questo dispositivo e non salvato nella conversazione.',
+  id_overview_open: 'Vedi tutti i numeri identificativi',
+  id_overview_title: 'Tutti i numeri identificativi',
+  id_overview_group_identity: 'Numeri identificativi',
+  id_overview_group_passport: 'Passaporti',
+  id_overview_group_visa: 'Visti e permessi',
+  id_overview_group_other: 'Altri identificativi',
+  id_overview_empty_title: 'Nessun numero identificativo ancora registrato',
+  id_overview_empty_desc: 'Aggiungi un passaporto, un visto o un numero identificativo qui sopra e comparirà qui.',
+  id_overview_documents_empty: 'Nessun documento archiviato ancora.',
+  id_overview_attached_to: 'Collegato a',
+  id_overview_view_document: 'Visualizza documento',
   ai_applying: 'Applicazione…',
   ai_empty: 'Chiedimi qualsiasi cosa — taglie, info mediche, passaporti, eventi — o dimmi qualcosa da salvare.',
 
@@ -710,6 +841,24 @@ const nl: Strings = {
   ai_placeholder: 'Vraag alles over je familie…',
   ai_hint: 'Plak een schermafbeelding met Ctrl+V · Niets wordt opgeslagen totdat je op Toepassen tikt.',
   ai_applied: 'Toegepast',
+  ai_reveal_heading: 'Uit jullie gegevens',
+  ai_reveal_copy: 'Kopiëren',
+  ai_reveal_copy_all: 'Alles kopiëren',
+  ai_reveal_copy_named: 'Kopiëren met naam',
+  ai_reveal_copied: 'Gekopieerd',
+  ai_reveal_truncated: 'De eerste {n} worden getoond. Vraag per persoon om de rest te zien.',
+  ai_reveal_note: 'Op dit apparaat opgezocht en niet in het gesprek bewaard.',
+  id_overview_open: 'Alle identiteitsnummers bekijken',
+  id_overview_title: 'Alle identiteitsnummers',
+  id_overview_group_identity: 'Identiteitsnummers',
+  id_overview_group_passport: 'Paspoorten',
+  id_overview_group_visa: 'Visa & vergunningen',
+  id_overview_group_other: 'Overige identificatienummers',
+  id_overview_empty_title: 'Nog geen identiteitsnummers vastgelegd',
+  id_overview_empty_desc: 'Voeg hierboven een paspoort, visum of identiteitsnummer toe — het verschijnt dan hier.',
+  id_overview_documents_empty: 'Nog geen documenten gearchiveerd.',
+  id_overview_attached_to: 'Gekoppeld aan',
+  id_overview_view_document: 'Document bekijken',
   ai_applying: 'Toepassen…',
   ai_empty: 'Vraag me alles — maten, medische info, paspoorten, evenementen — of vertel me iets om op te slaan.',
 
@@ -800,6 +949,24 @@ const pl: Strings = {
   ai_placeholder: 'Zapytaj o cokolwiek dotyczącego rodziny…',
   ai_hint: 'Wklej zrzut ekranu przez Ctrl+V · Nic nie zostanie zapisane, dopóki nie naciśniesz Zastosuj.',
   ai_applied: 'Zastosowano',
+  ai_reveal_heading: 'Z waszych dokumentów',
+  ai_reveal_copy: 'Kopiuj',
+  ai_reveal_copy_all: 'Kopiuj wszystko',
+  ai_reveal_copy_named: 'Kopiuj z imieniem',
+  ai_reveal_copied: 'Skopiowano',
+  ai_reveal_truncated: 'Pokazano pierwsze {n}. Zapytaj o jedną osobę naraz, aby zobaczyć resztę.',
+  ai_reveal_note: 'Sprawdzone na tym urządzeniu i niezapisane w rozmowie.',
+  id_overview_open: 'Zobacz wszystkie numery identyfikacyjne',
+  id_overview_title: 'Wszystkie numery identyfikacyjne',
+  id_overview_group_identity: 'Numery tożsamości',
+  id_overview_group_passport: 'Paszporty',
+  id_overview_group_visa: 'Wizy i zezwolenia',
+  id_overview_group_other: 'Inne identyfikatory',
+  id_overview_empty_title: 'Brak jeszcze zapisanych numerów identyfikacyjnych',
+  id_overview_empty_desc: 'Dodaj powyżej paszport, wizę lub numer identyfikacyjny — pojawi się tutaj.',
+  id_overview_documents_empty: 'Brak jeszcze zapisanych dokumentów.',
+  id_overview_attached_to: 'Powiązane z',
+  id_overview_view_document: 'Zobacz dokument',
   ai_applying: 'Stosowanie…',
   ai_empty: 'Zapytaj mnie o cokolwiek — rozmiary, informacje medyczne, paszporty, wydarzenia — lub powiedz mi coś do zapisania.',
 
@@ -890,6 +1057,24 @@ const af: Strings = {
   ai_placeholder: 'Vra enigiets oor jou familie…',
   ai_hint: 'Plak \'n skermkiekie met Ctrl+V · Niks word gestoor totdat jy op Pas toe druk nie.',
   ai_applied: 'Toegepas',
+  ai_reveal_heading: 'Uit julle rekords',
+  ai_reveal_copy: 'Kopieer',
+  ai_reveal_copy_all: 'Kopieer alles',
+  ai_reveal_copy_named: 'Kopieer met naam',
+  ai_reveal_copied: 'Gekopieer',
+  ai_reveal_truncated: 'Wys die eerste {n}. Vra oor een persoon op ’n slag om die res te sien.',
+  ai_reveal_note: 'Op hierdie toestel opgesoek en nie in die gesprek gestoor nie.',
+  id_overview_open: 'Bekyk alle ID-nommers',
+  id_overview_title: 'Alle ID-nommers',
+  id_overview_group_identity: 'Identiteitsnommers',
+  id_overview_group_passport: 'Paspoorte',
+  id_overview_group_visa: 'Visums & permitte',
+  id_overview_group_other: 'Ander identifiseerders',
+  id_overview_empty_title: 'Nog geen ID-nommers aangeteken nie',
+  id_overview_empty_desc: "Voeg hierbo 'n paspoort, visum of ID-nommer by en dit sal hier verskyn.",
+  id_overview_documents_empty: 'Nog geen dokumente aangeteken nie.',
+  id_overview_attached_to: 'Geheg aan',
+  id_overview_view_document: 'Bekyk dokument',
   ai_applying: 'Besig om toe te pas…',
   ai_empty: 'Vra my enigiets — groottes, mediese inligting, paspoorte, geleenthede — of vertel my iets om te stoor.',
 
@@ -927,7 +1112,115 @@ const af: Strings = {
   status_error: 'Iets het verkeerd gegaan. Probeer asseblief weer.',
 };
 
-export const LOCALES: Record<LangCode, Strings> = { en, de, es, fr, pt, it, nl, pl, af };
+const ro: Strings = {
+  update_available: 'Versiune nouă disponibilă',
+  update_refresh: 'Reîmprospătează',
+  nav_family: 'Familie',
+  nav_calendar: 'Calendar',
+  nav_documents: 'Documente',
+  nav_household: 'Gospodărie',
+  nav_finances: 'Finanțe',
+  nav_info: 'Informații',
+  nav_timeline: 'Cronologie',
+  nav_assistant: 'Asistent',
+  nav_assets: 'Bunuri',
+  nav_passwords: 'Parole',
+
+  btn_save: 'Salvează',
+  btn_cancel: 'Anulează',
+  btn_close: 'Închide',
+  btn_add: 'Adaugă',
+  btn_edit: 'Editează',
+  btn_delete: 'Șterge',
+  btn_apply: 'Aplică',
+  btn_back: 'Înapoi',
+  btn_create: 'Creează',
+  btn_join: 'Alătură-te',
+  btn_remove: 'Elimină',
+  btn_share: 'Partajează',
+  btn_copy: 'Copiază',
+  btn_upload: 'Încarcă',
+  btn_scan: 'Scanează',
+  btn_done: 'Gata',
+  btn_confirm: 'Confirmă',
+
+  heading_family_members: 'Membrii familiei',
+  heading_medical: 'Medical',
+  heading_identity: 'Identitate',
+  heading_education: 'Educație',
+  heading_sizes: 'Mărimi',
+  heading_travel: 'Călătorii',
+  heading_preferences: 'Preferințe',
+  heading_documents: 'Documente',
+  heading_passports: 'Pașapoarte',
+  heading_calendar: 'Calendarul familiei',
+  heading_household: 'Gospodărie',
+  heading_finances: 'Finanțe',
+  heading_info: 'Informații importante',
+  heading_timeline: 'Cronologia familiei',
+  heading_assets: 'Bunurile familiei',
+  heading_passwords: 'Parolele familiei',
+  heading_settings: 'Setările familiei',
+
+  ai_placeholder: 'Întreabă orice despre familia ta…',
+  ai_hint: 'Lipește o captură de ecran cu Ctrl+V · Nimic nu se salvează până nu apeși Aplică.',
+  ai_applied: 'Aplicat',
+  ai_reveal_heading: 'Din documentele voastre',
+  ai_reveal_copy: 'Copiază',
+  ai_reveal_copy_all: 'Copiază tot',
+  ai_reveal_copy_named: 'Copiază cu nume',
+  ai_reveal_copied: 'Copiat',
+  ai_reveal_truncated: 'Se afișează primele {n}. Întreabă despre o persoană pe rând ca să vezi restul.',
+  ai_reveal_note: 'Căutat pe acest dispozitiv și nesalvat în conversație.',
+  id_overview_open: 'Vezi toate numerele de identificare',
+  id_overview_title: 'Toate numerele de identificare',
+  id_overview_group_identity: 'Numere de identitate',
+  id_overview_group_passport: 'Pașapoarte',
+  id_overview_group_visa: 'Vize și permise',
+  id_overview_group_other: 'Alți identificatori',
+  id_overview_empty_title: 'Niciun număr de identificare înregistrat încă',
+  id_overview_empty_desc: 'Adaugă mai sus un pașaport, o viză sau un număr de identificare și va apărea aici.',
+  id_overview_documents_empty: 'Niciun document încărcat încă.',
+  id_overview_attached_to: 'Atașat la',
+  id_overview_view_document: 'Vezi documentul',
+  ai_applying: 'Se aplică…',
+  ai_empty: 'Întreabă-mă orice — mărimi, informații medicale, pașapoarte, evenimente viitoare — sau spune-mi ceva de salvat.',
+
+  onboard_title: 'Bine ai venit',
+  onboard_start: 'Începe o familie nouă',
+  onboard_start_sub: 'Creează-ți seiful — vei fi administrator',
+  onboard_join: 'Alătură-te cu un cod',
+  onboard_join_sub: 'Introdu codul primit de la administratorul familiei',
+  onboard_family_name_label: 'Numele familiei',
+  onboard_family_name_placeholder: 'ex. Familia Popescu',
+  onboard_code_label: 'Cod de acces',
+  onboard_creating: 'Se creează…',
+  onboard_joining: 'Se alătură…',
+
+  settings_invite_title: 'Link de invitație în familie',
+  settings_invite_desc: 'Trimite acest link oricui vrei să adaugi — îl deschide, se conectează cu Google și intră imediat.',
+  settings_members_title: 'Membrii familiei',
+  settings_share_btn: 'Trimite linkul de invitație',
+  settings_copy_btn: 'Copiază linkul de invitație',
+
+  lbl_name: 'Nume',
+  lbl_role: 'Rol',
+  lbl_notes: 'Notițe',
+  lbl_date: 'Data',
+  lbl_total: 'Total',
+  lbl_all: 'Toate',
+  lbl_search: 'Caută',
+  lbl_loading: 'Se încarcă…',
+  lbl_signout: 'Deconectare',
+  lbl_language: 'Limbă',
+
+  status_saved: 'Salvat',
+  status_sync_fail: 'Salvat pe acest dispozitiv — sincronizarea în cloud nu a reușit.',
+  status_copied: 'Link copiat în clipboard!',
+  status_error: 'Ceva nu a mers bine. Încearcă din nou.',
+};
+
+export const LOCALES: Record<LangCode, Strings> = { en, de, es, fr, pt, it, nl, pl, af, ro };
 
 const STORAGE_KEY = 'fv_lang';
 

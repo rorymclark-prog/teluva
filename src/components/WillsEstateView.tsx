@@ -1,28 +1,44 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollText, Plus, Pencil, Trash2, X, Loader2, Info, User, Landmark,
   HandHeart, Paperclip, Upload, Eye, AlertCircle, MapPin, Phone, HandCoins,
-  Users, Key, Check, Lock, UserPlus, Send, Clock,
+  Users, Key, Check, Lock, UserPlus, Send, Clock, Printer, BellRing, ThumbsUp,
 } from 'lucide-react';
 import {
   EstateRecord, FamilyMember, VaultDocument, FamilyDocument, InsurancePolicy,
-  WillsEstateDoc, DesignatedSuccessor, EmergencyInstructions, NotifyContact, AccountToClose, FamilyMemberRole,
-  WillsAccessDoc, PendingWillReader,
+  WillsEstateDoc, DesignatedSuccessor, SuccessorShareLevel, EmergencyInstructions, NotifyContact, AccountToClose, FamilyMemberRole,
+  WillsAccessDoc, PendingWillReader, FinancesInfo, EstateDocStatus, EstateRegistryStatus,
 } from '../types';
-import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile, loadFinances, loadFamilyRoles, saveWillsAccess, createEstateInvite, cancelPendingWillReader } from '../utils/db';
+import { loadWillsEstate, saveWillsEstate, loadDocuments, saveDocuments, uploadVaultFile, loadFinances, loadFamilyRoles, saveWillsAccess, createEstateInvite, cancelPendingWillReader, loadReleaseState, requestWillRelease, approveWillRelease, declineWillRelease } from '../utils/db';
+import type { ReleaseRequestRow, FindabilityEntry } from '../utils/db';
+import { RELEASE_WAIT_DAYS, QUIET_DAYS, waitLabel, daysLeft } from '../utils/releaseCopy';
 import { grantableMembers, withReader, staleReaders, pendingWillReaders, pendingInviteFor, isInviteExpired } from '../utils/willsAccess';
 import { useWillsAccess } from '../hooks/useWillsAccess';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { auth } from '../lib/firebase';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { ESTATE_DOC_KINDS, isReviewStale, reviewAgeLabel } from '../utils/willsEstate';
-import { isFuneralPolicy } from '../utils/funeralCover';
+import { computeEstateReadiness } from '../utils/estateReadiness';
+import type { EstateReadiness } from '../utils/estateReadiness';
+import { ESTATE_DOC_KINDS, ESTATE_DOC_STATUSES, REGISTRY_STATUSES, isReviewStale, reviewAgeLabel, statusLabel, findabilityGap } from '../utils/willsEstate';
+import { isFuneralPolicy, funeralCoverLines } from '../utils/funeralCover';
+import type { FuneralCoverLine } from '../utils/funeralCover';
 import { resolveSuccessorAccess, SuccessorAccess, SuccessorAccessResult } from '../utils/successor';
 import DocumentViewer from './DocumentViewer';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import SheetGrabber from './SheetGrabber';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import FirstHoursPack from './FirstHoursPack';
+import { buildFirstHoursPack } from '../utils/firstHours';
+import { listFamilyLinks, loadFamilyLinkProfiles } from '../utils/familyLink';
+
+/** A person another household shares with us, offered as a successor. */
+interface ConnectedCandidate {
+  linkId: string;
+  householdName: string;
+  memberId: string;
+  name: string;
+}
 
 const FUNERAL_WISHES_KIND = 'Funeral wishes';
 
@@ -39,6 +55,9 @@ interface EstateForm {
   notaryName: string;
   notaryPhone: string;
   executor: string;
+  status: EstateDocStatus;
+  registered: EstateRegistryStatus;
+  registryName: string;
   lastReviewed: string;
   notes: string;
   linkedDocIds: string[];
@@ -47,7 +66,8 @@ interface EstateForm {
 
 const BLANK_FORM: EstateForm = {
   id: '', kind: ESTATE_DOC_KINDS[0].kind, forMember: '', originalLocation: '', heldBy: '',
-  notaryName: '', notaryPhone: '', executor: '', lastReviewed: '', notes: '', linkedDocIds: [],
+  notaryName: '', notaryPhone: '', executor: '', status: 'unknown', registered: 'unknown',
+  registryName: '', lastReviewed: '', notes: '', linkedDocIds: [],
   linkedPolicyIds: [],
 };
 
@@ -61,6 +81,9 @@ function toForm(r: EstateRecord): EstateForm {
     notaryName: r.notaryName || '',
     notaryPhone: r.notaryPhone || '',
     executor: r.executor || '',
+    status: r.status || 'unknown',
+    registered: r.registered || 'unknown',
+    registryName: r.registryName || '',
     lastReviewed: r.lastReviewed || '',
     notes: r.notes || '',
     linkedDocIds: r.linkedDocIds ? [...r.linkedDocIds] : [],
@@ -78,7 +101,10 @@ function toFamilyDoc(v: VaultDocument): FamilyDocument {
   };
 }
 
-export default function WillsEstateView({ members, refreshKey = 0 }: { members: FamilyMember[]; refreshKey?: number }) {
+export default function WillsEstateView(
+  { members, refreshKey = 0, hubName = 'your family' }:
+  { members: FamilyMember[]; refreshKey?: number; hubName?: string },
+) {
   /* `canWrite` (admin OR member) is NOT the gate here any more.
    *
    * Since v230 reference/willsEstate is admin-and-named-readers-only in
@@ -98,6 +124,12 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   // store.
   const [successor, setSuccessor] = useState<DesignatedSuccessor | undefined>(undefined);
   const [instructions, setInstructions] = useState<EmergencyInstructions | undefined>(undefined);
+  /* The people a connected household shares with us — candidates for "who
+     takes over" who are, by definition, not in our own member list. Loaded
+     read-only and never written back; the estate doc stores only the id and
+     the household name. */
+  const [connectedPeople, setConnectedPeople] = useState<ConnectedCandidate[]>([]);
+
   // The live roles collection — needed only to answer "can the designated
   // person actually get in today" (resolveSuccessorAccess). Same source
   // ReadinessCard/FamilySettings already read for the same reason.
@@ -107,6 +139,23 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   // so a 'Funeral wishes' record can link to its policy and surface the
   // policy number and who-to-call right where a bereaved family looks.
   const [funeralPolicies, setFuneralPolicies] = useState<InsurancePolicy[]>([]);
+  /* Requests to open the will. Loaded through the server rather than read off
+     the willsAccess doc, because that same call is what SETTLES a clock that has
+     run out — there is no scheduler, so somebody looking is what makes it real. */
+  const [releaseRequests, setReleaseRequests] = useState<ReleaseRequestRow[]>([]);
+  const [decliningId, setDecliningId] = useState<string | null>(null);
+  const [declineError, setDeclineError] = useState<string | null>(null);
+  const readiness = useMemo(() => computeEstateReadiness({
+    records, successor, instructions, hasFuneralCover: funeralPolicies.length > 0,
+  }), [records, successor, instructions, funeralPolicies]);
+  const [packOpen, setPackOpen] = useState(false);
+
+  /* Assembled, never stored — see utils/firstHours.ts. Rebuilt from whatever
+   * this view already loaded, so it cannot drift from what is on screen. */
+  const firstHours = useMemo(
+    () => buildFirstHoursPack({ insurance: funeralPolicies } as FinancesInfo, { records, instructions }),
+    [funeralPolicies, records, instructions],
+  );
   const [loading, setLoading] = useState(true);
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [form, setForm] = useState<EstateForm | null>(null);
@@ -129,6 +178,28 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   // The access answer comes first — everything else waits on it, because
   // loading the estate document before we know whether this person may see it
   // is exactly the request the rule will refuse.
+  useEffect(() => {
+    if (!isAdmin) return;
+    let active = true;
+    (async () => {
+      try {
+        const out = await loadReleaseState();
+        if (active) setReleaseRequests(out.requests || []);
+      } catch { if (active) setReleaseRequests([]); }
+    })();
+    return () => { active = false; };
+  }, [isAdmin, refreshKey]);
+
+  const declineRequest = async (id: string) => {
+    setDecliningId(id); setDeclineError(null);
+    try {
+      const out = await declineWillRelease(id);
+      setReleaseRequests(out.requests || []);
+    } catch (e) {
+      setDeclineError(e instanceof Error ? e.message : 'Could not refuse that request.');
+    } finally { setDecliningId(null); }
+  };
+
   useEffect(() => {
     if (accessLoading) return;
     if (!mayRead) { setLoading(false); return; }
@@ -195,6 +266,32 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   useSharedDoc<{ docs: VaultDocument[] }>(
     'documents', (v) => setDocuments(v.docs || []), { hold: busy },
   );
+
+  /* Candidates from connected households. A failure here is silent on
+     purpose: not being able to list the cousins must never stop the estate
+     page loading, and the picker simply falls back to your own family. */
+  useEffect(() => {
+    if (!mayRead) return;
+    let active = true;
+    (async () => {
+      try {
+        const links = (await listFamilyLinks()).filter((l) => l.status === 'active');
+        const packs = await Promise.all(links.map(async (l) => {
+          const { members: people } = await loadFamilyLinkProfiles(l.id);
+          return people.map((p) => ({
+            linkId: l.id,
+            householdName: l.otherName || 'a connected family',
+            memberId: p.id,
+            name: p.name,
+          }));
+        }));
+        if (active) setConnectedPeople(packs.flat());
+      } catch {
+        if (active) setConnectedPeople([]);
+      }
+    })();
+    return () => { active = false; };
+  }, [mayRead]);
 
   // Every save writes the WHOLE shared doc (records + successor +
   // instructions) — omitting a field here would tell the three-way merge
@@ -317,6 +414,9 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
         notaryName: form.notaryName.trim() || undefined,
         notaryPhone: form.notaryPhone.trim() || undefined,
         executor: form.executor.trim() || undefined,
+        status: form.status,
+        registered: form.registered,
+        registryName: form.registryName.trim() || undefined,
         lastReviewed: form.lastReviewed || undefined,
         linkedDocIds: form.linkedDocIds.length ? form.linkedDocIds : undefined,
         linkedPolicyIds: form.linkedPolicyIds.length ? form.linkedPolicyIds : undefined,
@@ -351,7 +451,9 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
   // could leak the contents — no record count, no successor name, nothing
   // that answers "what's in there" for someone who isn't allowed to know.
   if (!accessLoading && !mayRead) {
-    return <LockedCard isChild={role === 'child'} />;
+    // NOT LockedCard any more. "Ask an admin for access" is sound advice right
+    // up until the admin is the person whose will it is — see ReleaseDoorbell.
+    return <ReleaseDoorbell isChild={role === 'child'} />;
   }
 
   if (loading) {
@@ -369,13 +471,31 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
         <option value="Whole family" />
         {members.map(m => <option key={m.id} value={m.name} />)}
       </datalist>
+      {/* The successor list deliberately reaches past this household: a
+          sister-in-law is often the right person to take over and is exactly
+          who is not a member here. The label says whose family they are in, so
+          two Marias do not become one. */}
       <datalist id="successor-name-options">
         {members.map(m => <option key={m.id} value={m.name} />)}
+        {connectedPeople.map(c => (
+          <option key={`${c.linkId}-${c.memberId}`} value={c.name} label={c.householdName} />
+        ))}
       </datalist>
 
+      {/* A running clock outranks everything else on this page: it is the only
+          thing here that gets worse if it is scrolled past. */}
+      {isAdmin && (
+        <ReleaseRequestsCard
+          requests={releaseRequests}
+          onDecline={declineRequest}
+          busyId={decliningId}
+          error={declineError}
+        />
+      )}
+
       {/* Who can open this — admins only. Deliberately the FIRST thing an
-          admin sees: the whole point of the lock is knowing, at a glance,
-          exactly who else can read this page. */}
+          admin sees after any live request: the whole point of the lock is
+          knowing, at a glance, exactly who else can read this page. */}
       {isAdmin && (
         <AccessCard
           access={access}
@@ -391,6 +511,7 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
       <SuccessorCard
         successor={successor}
         members={members}
+        connectedPeople={connectedPeople}
         roles={roles}
         canWrite={canWrite}
         onSave={persistSuccessor}
@@ -409,6 +530,10 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
         onSave={persistInstructions}
       />
 
+      <EstateReadinessCard readiness={readiness} />
+
+      <FuneralCoverCard policies={funeralPolicies} />
+
       {/* Header card */}
       <div className="card overflow-hidden">
         <div className="p-5 sm:p-6 border-b border-cream-200 flex items-start justify-between gap-3">
@@ -423,12 +548,22 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
               </p>
             </div>
           </div>
-          {canWrite && (
-            <button onClick={openNewForm} className="btn-primary text-xs px-3 py-2 shrink-0">
-              <Plus className="w-3.5 h-3.5" />
-              Add
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setPackOpen(true)}
+              className="btn-quiet text-xs px-3 py-2"
+              title="A printable page for the first day or two"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">First hours</span>
             </button>
-          )}
+            {canWrite && (
+              <button onClick={openNewForm} className="btn-primary text-xs px-3 py-2">
+                <Plus className="w-3.5 h-3.5" />
+                Add
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Plain-language, persistent disclaimer — store-and-recall only */}
@@ -485,10 +620,31 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
                         </p>
                       )}
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[12px] text-ink-500">
+                        {/* A draft says so on the row. The whole point of the
+                            field is that it stops being invisible. */}
+                        {r.status && r.status !== 'unknown' && (
+                          <span className={`chip ${r.status === 'draft' ? 'bg-honey-100 text-honey-800' : 'bg-sage-100 text-sage-700'}`}>
+                            {statusLabel(r.status)}
+                          </span>
+                        )}
+                        {r.registered === 'registered' && (
+                          <span className="chip bg-dusk-100 text-dusk-700">
+                            {r.registryName ? `In ${r.registryName}` : 'Registered'}
+                          </span>
+                        )}
                         {r.heldBy && <span className="flex items-center gap-1"><User className="w-3 h-3" />{r.heldBy}</span>}
                         {r.notaryName && <span className="flex items-center gap-1"><Landmark className="w-3 h-3" />{r.notaryName}</span>}
                         {r.executor && <span className="flex items-center gap-1"><HandHeart className="w-3 h-3" />Executor: {r.executor}</span>}
                       </div>
+                      {/* Only where the gap is real — see findabilityGap. This
+                          reports how Austrian probate works; it does not tell
+                          anybody what to do about it. */}
+                      {findabilityGap(r) && (
+                        <p className="mt-2 rounded-xl border border-honey-300 bg-honey-50 px-3 py-2 text-[12px] text-ink-700 leading-snug flex gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5 text-honey-700 shrink-0 mt-0.5" />
+                          <span>{findabilityGap(r)}</span>
+                        </p>
+                      )}
                       {linked.length > 0 && (
                         <span className="inline-flex items-center gap-1 text-[11px] text-ink-400 mt-1.5">
                           <Paperclip className="w-3 h-3" />
@@ -691,13 +847,55 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
                 </select>
               </div>
 
+              {/* WHAT STATE IT IS IN. The product boundary made concrete: a
+                  Word file nobody printed and a notarised original used to
+                  render as the same tidy row. */}
+              <div>
+                <label className="field-label">What state is it in</label>
+                <select
+                  value={form.status}
+                  onChange={e => setForm(prev => (prev ? { ...prev, status: e.target.value as EstateDocStatus } : prev))}
+                  className="field w-full"
+                >
+                  {ESTATE_DOC_STATUSES.map(o => (
+                    <option key={o.id} value={o.id}>{o.label}</option>
+                  ))}
+                </select>
+                <p className="text-[12px] text-ink-400 mt-1">
+                  {ESTATE_DOC_STATUSES.find(o => o.id === form.status)?.detail}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="field-label">In a will register</label>
+                  <select
+                    value={form.registered}
+                    onChange={e => setForm(prev => (prev ? { ...prev, registered: e.target.value as EstateRegistryStatus } : prev))}
+                    className="field w-full"
+                  >
+                    {REGISTRY_STATUSES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="field-label">Which register</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. ÖZTR"
+                    value={form.registryName}
+                    onChange={e => setForm(prev => (prev ? { ...prev, registryName: e.target.value } : prev))}
+                    className="field w-full"
+                  />
+                </div>
+              </div>
+
               {/* Whose */}
               <div>
                 <label className="field-label">Whose</label>
                 <input
                   type="text"
                   list="estate-formember-options"
-                  placeholder="e.g. Barbara, or Whole family"
+                  placeholder="e.g. Erika, or Whole family"
                   value={form.forMember}
                   onChange={e => setForm(prev => (prev ? { ...prev, forMember: e.target.value } : prev))}
                   className="field w-full"
@@ -895,6 +1093,10 @@ export default function WillsEstateView({ members, refreshKey = 0 }: { members: 
         memberName={viewingDoc ? (members.find(m => m.id === viewingDoc.memberId)?.name ?? 'the family') : ''}
         onClose={() => setViewingDoc(null)}
       />
+
+      {packOpen && (
+        <FirstHoursPack pack={firstHours} hubName={hubName} onClose={() => setPackOpen(false)} />
+      )}
     </div>
   );
 }
@@ -911,10 +1113,104 @@ const ACCESS_STYLE: Record<SuccessorAccess, string> = {
   unknown: 'bg-cream-200 text-ink-500',
 };
 
+/**
+ * HOW MUCH THE NAMED PERSON IS TOLD — three rungs, not a switch.
+ *
+ * Rory: "sort out the will thing i still think we should be able to toggle it
+ * on and off etc send a notification i dunno make it easy for families that
+ * are all on the app."
+ *
+ * A plain on/off was the obvious build and the wrong one. "On" would mean
+ * handing another household a document that can hold where a safe is and what
+ * is in it; "off" means a sister finds out she was responsible for an estate
+ * at the worst possible moment. The rungs separate three genuinely different
+ * decisions, and the copy states the CONSEQUENCE of each rather than naming
+ * the level — "she can read what you want her to do" is a sentence somebody
+ * can agree or disagree with; "instructions" is not.
+ */
+const SHARE_RUNGS: Array<{ id: SuccessorShareLevel; label: string; detail: (who: string) => string }> = [
+  {
+    id: 'fact',
+    label: 'Only that you named them',
+    detail: (who) => `${who} sees that you chose them, and nothing else.`,
+  },
+  {
+    id: 'instructions',
+    label: 'And what you want them to do',
+    detail: (who) => `${who} can read your note — the bank to ring, the school to tell. Most families want this one: it is the part that is useless if they only read it afterwards.`,
+  },
+  {
+    id: 'documents',
+    label: 'And which papers exist',
+    detail: (who) => `${who} also sees that there is a will, a power of attorney and so on, and when each was last looked at. Never where any of it is kept, and never the documents themselves.`,
+  },
+];
+
+function SuccessorShareLadder({ level, householdName, personName, onChange }: {
+  level: SuccessorShareLevel;
+  householdName: string;
+  personName: string;
+  onChange: (next: SuccessorShareLevel) => void;
+}) {
+  const who = personName.trim().split(/\s+/)[0] || 'They';
+  return (
+    <div className="mt-3 rounded-2xl border border-cream-200 bg-cream-50/70 p-3.5">
+      <p className="text-[12.5px] font-bold text-ink-900">
+        What {householdName} is told
+      </p>
+      <p className="text-[12px] text-ink-500 mt-0.5 mb-2.5">
+        They see this on their own screen as soon as you change it.
+      </p>
+      <div className="space-y-1.5">
+        {SHARE_RUNGS.map((rung) => {
+          const on = rung.id === level;
+          return (
+            <button
+              key={rung.id}
+              type="button"
+              onClick={() => onChange(rung.id)}
+              aria-pressed={on}
+              className={`w-full text-left rounded-xl border px-3.5 py-2.5 transition-colors cursor-pointer ${
+                on
+                  ? 'border-clay-400 bg-white shadow-soft'
+                  : 'border-cream-200 bg-white/50 hover:bg-white'
+              }`}
+            >
+              <span className="flex items-start gap-2.5">
+                {/* A filled dot rather than a checkbox: these are rungs on one
+                    ladder, not four independent switches, and a row of
+                    checkboxes would invite somebody to try to tick the third
+                    without the second. */}
+                <span className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${
+                  on ? 'border-clay-500' : 'border-ink-200'
+                }`}>
+                  {on && <span className="w-2 h-2 rounded-full bg-clay-500" />}
+                </span>
+                <span className="min-w-0">
+                  <span className={`block text-[13.5px] ${on ? 'font-bold text-ink-900' : 'font-semibold text-ink-700'}`}>
+                    {rung.label}
+                  </span>
+                  <span className="block text-[12px] text-ink-500 mt-0.5 leading-snug">
+                    {rung.detail(who)}
+                  </span>
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11.5px] text-ink-400 mt-2.5">
+        Turning it down again takes effect immediately — nothing is kept on their side.
+      </p>
+    </div>
+  );
+}
+
 function SuccessorCard({
-  successor, members, roles, canWrite, onSave,
+  successor, members, connectedPeople, roles, canWrite, onSave,
   isAdmin, willsAccess, savingUid, onGrantReader, onInvite, onCancelInvite,
 }: {
+  connectedPeople: ConnectedCandidate[];
   successor?: DesignatedSuccessor;
   members: FamilyMember[];
   roles: Record<string, FamilyMemberRole>;
@@ -949,10 +1245,17 @@ function SuccessorCard({
       setEditing(false);
       return;
     }
-    const matched = members.find(m => m.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    const key = trimmedName.toLowerCase();
+    const matched = members.find(m => m.name.trim().toLowerCase() === key);
+    // Own family wins a name clash — they are the ones who can actually be
+    // granted access, so resolving to them is the more useful answer.
+    const cousin = matched ? undefined : connectedPeople.find(c => c.name.trim().toLowerCase() === key);
     onSave({
       name: trimmedName,
       memberId: matched?.id,
+      fromLinkId: cousin?.linkId,
+      sharedMemberId: cousin?.memberId,
+      fromFamilyName: cousin?.householdName,
       whatTheyShouldDo: what.trim(),
       setAt: new Date().toISOString(),
     });
@@ -1011,7 +1314,34 @@ function SuccessorCard({
           </div>
         ) : successor?.name ? (
           <div className="space-y-2">
-            <p className="text-[15px] font-semibold text-ink-900">{successor.name}</p>
+            <p className="text-[15px] font-semibold text-ink-900 flex items-center gap-2 flex-wrap">
+              {successor.name}
+              {successor.fromFamilyName && (
+                <span className="chip bg-dusk-100 text-dusk-700">in {successor.fromFamilyName}</span>
+              )}
+            </p>
+            {successor.fromFamilyName && (
+              <p className="text-[12.5px] text-ink-500">
+                They are in a connected family, so they have no way into this vault today —
+                naming them is not access. You choose below how much they are told.
+              </p>
+            )}
+            {/* THE LADDER. Only for somebody in a CONNECTED household: for a
+                person in your own vault the real mechanic is the reader grant
+                below, not disclosure, and offering both would suggest they are
+                alternatives. */}
+            {successor.fromFamilyName && canWrite && (
+              <SuccessorShareLadder
+                level={successor.shareLevel || 'fact'}
+                householdName={successor.fromFamilyName}
+                personName={successor.name}
+                onChange={(next) => onSave({
+                  ...successor,
+                  shareLevel: next,
+                  shareLevelSetAt: new Date().toISOString(),
+                })}
+              />
+            )}
             {successor.whatTheyShouldDo && (
               <p className="text-[13px] text-ink-600 whitespace-pre-wrap">{successor.whatTheyShouldDo}</p>
             )}
@@ -1067,11 +1397,191 @@ function estateInviteMessage(ownerName: string, code: string) {
     title: `${ownerName} has named you to look after their estate`,
     text: [
       `${ownerName} has named you as the person who steps in if something happens to them.`,
-      `This link gives you access to their will, their important papers and their instructions — they're kept in Teluva, a private family vault. You'll need to sign in with a Google account to open it.`,
+      `Accepting does not open their will. It records that you are the person, and shows you where the signed will is kept — with a notary, in a register, wherever they have said. If the day comes that you need to read the whole thing, you ask for it from inside the app, and it opens after seven days unless they say no.`,
+      `Everything is kept in Teluva, a private family vault. You'll need to sign in with a Google account.`,
       `Invite code ${code}. It works once, and runs out in 14 days.`,
       `Teluva is still in testing, so if Google turns you away, reply with the address you tried.`,
     ].join('\n\n'),
   };
+}
+
+
+/**
+ * HOW READY IS THIS. Rory: "some basic instructions to come up when someone
+ * is doing there will and maybe a seperate progress slider thats says how
+ * ready one is."
+ *
+ * The two are one component on purpose. Instructions parked at the top of a
+ * page get read once and scrolled past forever; a bare percentage says you
+ * are at 40% and nothing about what the rest is. Here the instruction IS the
+ * step — each undone item carries its own sentence, and the bar is simply how
+ * many are done.
+ *
+ * Collapsed by default once anything is done, because a checklist that will
+ * not fold away turns into nagging, and this page is one people open when
+ * they are already uneasy.
+ */
+/**
+ * Funeral cover, read-only, on the page where it is needed.
+ *
+ * ONE WRITER, TWO PLACES TO READ. Insurance under Finances remains the only
+ * screen that can change any of this; there is deliberately no edit control
+ * here, because two editors for one policy is how a claims number ends up
+ * differing depending on which screen you opened.
+ *
+ * The card renders even with nothing on file. An estate page that silently
+ * omits funeral cover reads as "there is none" to the person who most needs to
+ * know whether to look — so the empty state says plainly that nothing is
+ * recorded and where to put it, rather than the section vanishing.
+ */
+function FuneralCoverCard({ policies }: { policies: InsurancePolicy[] }) {
+  const lines = useMemo(() => funeralCoverLines(policies), [policies]);
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="p-5 sm:p-6 border-b border-cream-200 flex items-center gap-3">
+        <div className="p-2 rounded-xl bg-clay-100 text-clay-700 shrink-0">
+          <HandHeart className="w-5 h-5" />
+        </div>
+        <div className="min-w-0">
+          <h3 className="font-display text-lg font-semibold text-ink-900">Funeral cover</h3>
+          <p className="text-[13px] text-ink-400 font-medium">
+            The number to ring in the first day, before anyone reads a will.
+          </p>
+        </div>
+      </div>
+
+      <div className="p-5 sm:p-6 space-y-3">
+        {lines.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-cream-300 bg-cream-50/60 px-4 py-4">
+            <p className="text-[13.5px] font-semibold text-ink-700">
+              No funeral cover or burial society recorded.
+            </p>
+            <p className="text-[12.5px] text-ink-500 mt-1.5 leading-relaxed">
+              If there is a policy or a society, add it under <strong>Finances → Insurance</strong> and
+              set its type to Funeral cover, Burial society or Repatriation cover. It will appear here.
+              If there genuinely is none, that is worth saying out loud in the letter below — it is the
+              first thing a family discovers, usually at the worst moment.
+            </p>
+          </div>
+        ) : lines.map((l: FuneralCoverLine) => (
+          <div key={l.id} className="rounded-2xl border border-cream-200 bg-white px-4 py-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[14px] font-bold text-ink-900 break-words">{l.provider}</p>
+                <p className="text-[12px] text-ink-400 font-medium mt-0.5">{l.type}</p>
+              </div>
+              {l.policyNumber && (
+                <span className="text-[12px] font-semibold text-ink-600 tabular-nums shrink-0 bg-cream-100 rounded-lg px-2 py-1">
+                  {l.policyNumber}
+                </span>
+              )}
+            </div>
+
+            {l.callValue && (
+              <div className="mt-2.5">
+                {l.callIsPhone ? (
+                  <a
+                    href={`tel:${l.callTel}`}
+                    className="inline-flex items-center gap-2 rounded-xl bg-ink-900 text-white px-3.5 py-2 text-[13px] font-bold hover:bg-ink-800 transition-colors"
+                  >
+                    <Phone className="w-3.5 h-3.5" /> {l.callLabel}: {l.callValue}
+                  </a>
+                ) : (
+                  <p className="text-[13px] text-ink-700">
+                    <span className="font-semibold">{l.callLabel}:</span> {l.callValue}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="mt-2 space-y-1">
+              {l.beneficiary && (
+                <p className="text-[12.5px] text-ink-500">Pays out to <strong className="text-ink-700">{l.beneficiary}</strong></p>
+              )}
+              {l.repatriation && <p className="text-[12.5px] text-ink-500">{l.repatriation}</p>}
+              {l.bare && (
+                <p className="text-[12.5px] text-clay-700">
+                  No policy number and no number to ring — add them in Insurance while you still can.
+                </p>
+              )}
+              {l.waitingNote && (
+                <p className="text-[12.5px] text-clay-700 flex items-start gap-1.5">
+                  <Clock className="w-3.5 h-3.5 mt-0.5 shrink-0" /> {l.waitingNote}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+
+        <p className="text-[12px] text-ink-400 leading-relaxed">
+          Shown here, changed under Finances → Insurance. Waiting periods are read from the dates on
+          the policy — this is what the policy says, not a decision about any particular claim.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function EstateReadinessCard({ readiness }: { readiness: EstateReadiness }) {
+  const [open, setOpen] = useState(readiness.percent === 0);
+  const { percent, doneCount, steps, next } = readiness;
+  const tone = percent >= 80 ? 'bg-sage-500' : percent >= 40 ? 'bg-honey-500' : 'bg-clay-500';
+
+  return (
+    <div className="card overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full text-left p-5 sm:p-6 cursor-pointer"
+        aria-expanded={open}
+      >
+        <div className="flex items-center justify-between gap-3 mb-2.5">
+          <h2 className="font-display text-lg font-semibold text-ink-900">How ready this is</h2>
+          <span className="text-[15px] font-bold text-ink-900 tabular-nums shrink-0">{percent}%</span>
+        </div>
+        <div className="h-2 rounded-full bg-cream-200 overflow-hidden" role="presentation">
+          <div className={`h-full rounded-full transition-all duration-500 ${tone}`} style={{ width: `${percent}%` }} />
+        </div>
+        <p className="text-[12.5px] text-ink-500 mt-2">
+          {doneCount} of {steps.length} done
+          {next && <> · next: <span className="font-semibold text-ink-700">{next.label}</span></>}
+        </p>
+      </button>
+
+      {open && (
+        <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-2">
+          {steps.map(step => (
+            <div
+              key={step.id}
+              className={`rounded-xl border px-3.5 py-2.5 ${
+                step.done ? 'border-cream-200 bg-cream-50/50' : 'border-cream-300 bg-white'
+              }`}
+            >
+              <p className="text-[13.5px] font-semibold flex items-start gap-2">
+                <span className={`mt-0.5 w-4 h-4 rounded-full shrink-0 flex items-center justify-center ${
+                  step.done ? 'bg-sage-500 text-white' : 'border-2 border-ink-200'
+                }`}>
+                  {step.done && <Check className="w-2.5 h-2.5" strokeWidth={3} />}
+                </span>
+                <span className={step.done ? 'text-ink-400 line-through decoration-ink-200' : 'text-ink-900'}>
+                  {step.label}
+                </span>
+              </p>
+              {/* The instruction only where it is still needed. */}
+              {!step.done && (
+                <p className="text-[12.5px] text-ink-500 mt-1 ml-6 leading-snug">{step.how}</p>
+              )}
+            </div>
+          ))}
+          <p className="text-[11.5px] text-ink-400 pt-1 leading-snug">
+            This is about what Teluva has recorded, not about whether a document is
+            legally sound. Only a lawyer or notary can tell you that.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function EstateAccessActions({
@@ -1171,7 +1681,7 @@ function EstateAccessActions({
       {granted ? (
         <p className="text-[12px] text-sage-700 flex items-center gap-1.5">
           <Lock className="w-3.5 h-3.5 shrink-0" />
-          Named on this page — they can open the will.
+          You have let them open this page — they can read the will now.
         </p>
       ) : resolved.uid ? (
         // In the vault already; the will is what they still can't see.
@@ -1517,6 +2027,297 @@ function AccountForm({ initial, onSave, onCancel }: {
 // What someone without access sees. It names WHO to ask rather than just
 // refusing — a dead end with no next step reads as a broken app, and the
 // person who can grant access is always an admin of this space.
+/* ── THE DOORBELL ────────────────────────────────────────────────────────────
+ *
+ * What a named person sees instead of a dead end.
+ *
+ * The old locked screen said "ask an admin to give you access", which is sound
+ * advice right up until the admin is the person whose will it is. That sentence
+ * was the whole gap: there was no path at all from "you were named" to "you can
+ * read it", so the will simply became unreadable the moment its owner was gone.
+ *
+ * This screen is that path. It does not decide anything — server/willsRelease.mjs
+ * does — it asks, and then tells the truth about what is happening.
+ */
+/**
+ * RUNG ONE, for somebody an estate invite named: who holds the signed will.
+ *
+ * This is the whole of what being named gets you before the will opens, and it
+ * is deliberately not much: a custodian, or the fact that it is lodged in a
+ * register. Knowing a notary in Vienna holds it does not let anyone take it —
+ * it lets them ring the right doorbell on the worst day of their life instead
+ * of searching a house. The hiding place appears only when nobody holds it and
+ * no register has it, at which point it is the only answer that exists.
+ */
+function WhereItIsCard({ entries }: { entries: FindabilityEntry[] }) {
+  const line = (e: FindabilityEntry) => {
+    if (e.heldBy) return `Held by ${e.heldBy}`;
+    if (e.notaryName) return `With the notary ${e.notaryName}`;
+    if (e.registered) return e.registryName ? `Lodged in ${e.registryName}` : 'Lodged in a will register';
+    if (e.originalLocation) return `Kept at ${e.originalLocation}`;
+    return null;
+  };
+  return (
+    <div className="card p-5">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-ink-400 flex items-center gap-1.5">
+        <MapPin className="w-3 h-3" /> Where the signed will is
+      </p>
+      <div className="mt-2.5 space-y-2.5">
+        {entries.map((e, i) => {
+          const where = line(e);
+          return (
+            <div key={i} className="rounded-xl border border-cream-200 px-3.5 py-3">
+              <p className="text-[12px] text-ink-400">{e.kind || 'Will'}</p>
+              {where ? (
+                <p className="text-[14px] text-ink-900 font-medium mt-0.5">{where}</p>
+              ) : (
+                /* Said out loud rather than shown as an empty card. The point of
+                   telling somebody early is that they can still ask. */
+                <p className="text-[13.5px] text-ink-700 mt-0.5 leading-relaxed">
+                  Nothing has been written down about where this is kept. It is worth asking
+                  them now &mdash; on the day it matters, there is nobody left to ask.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[12px] text-ink-500 mt-3 leading-relaxed">
+        You were named to help with this estate, so you can see where the signed will is
+        even though the rest of this page is still private.
+      </p>
+    </div>
+  );
+}
+
+function ReleaseDoorbell({ isChild }: { isChild: boolean }) {
+  const [requests, setRequests] = useState<ReleaseRequestRow[] | null>(null);
+  const [findability, setFindability] = useState<FindabilityEntry[] | null>(null);
+  const [named, setNamed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [justAsked, setJustAsked] = useState(false);
+  const uid = auth.currentUser?.uid || '';
+
+  const refresh = async () => {
+    try {
+      const out = await loadReleaseState();
+      setRequests(out.requests || []);
+      setFindability(out.findability || null);
+      setNamed(!!out.youAreNamed);
+      // The sweep may have opened it on this very call — the person waiting is
+      // usually the one whose visit settles their own clock.
+      if (out.youMayRead) window.location.reload();
+    } catch {
+      setRequests([]);
+    }
+  };
+  useEffect(() => { if (!isChild) refresh(); /* eslint-disable-next-line */ }, [isChild]);
+
+  const mine = (requests || []).find((r) => r.requestedBy === uid && !r.declinedAt && !r.releasedAt);
+  const declined = (requests || []).find((r) => r.requestedBy === uid && r.declinedAt);
+  const others = (requests || []).filter(
+    (r) => r.requestedBy !== uid && !r.declinedAt && !r.releasedAt,
+  );
+
+  const ask = async () => {
+    setBusy(true); setError(null);
+    try { await requestWillRelease(); setJustAsked(true); await refresh(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not send that.'); }
+    finally { setBusy(false); }
+  };
+
+  const agree = async (id: string) => {
+    setBusy(true); setError(null);
+    try {
+      const out = await approveWillRelease(id);
+      if (out.released) { window.location.reload(); return; }
+      await refresh();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not record that.'); }
+    finally { setBusy(false); }
+  };
+
+  if (isChild) return <LockedCard isChild />;
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <div className="card p-8 text-center">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-ink-900 text-white flex items-center justify-center">
+          <Lock className="w-7 h-7" />
+        </div>
+        <h2 className="font-display text-xl font-semibold text-ink-900">
+          {named ? 'You were named for this' : 'Wills & Estate is private'}
+        </h2>
+        <p className="text-[13px] text-ink-500 leading-relaxed mt-2 max-w-xs mx-auto">
+          {named
+            ? 'Being named means you can find the will and ask to read it. It does not open it — that stays theirs to decide while they can.'
+            : 'Only the people an admin has named can open this. Everything else in the vault is unchanged.'}
+        </p>
+      </div>
+
+      {findability && findability.length > 0 && <WhereItIsCard entries={findability} />}
+
+      {/* Somebody else has already asked. Agreeing is the fast door — and it is
+          offered BEFORE the button to ask separately, because two people asking
+          separately is two clocks and helps nobody. */}
+      {others.length > 0 && (
+        <div className="card p-5">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-ink-400 flex items-center gap-1.5">
+            <BellRing className="w-3 h-3" /> Somebody has asked
+          </p>
+          <div className="mt-2.5 space-y-2.5">
+            {others.map((r) => (
+              <div key={r.id} className="rounded-xl border border-cream-200 px-3.5 py-3">
+                <p className="text-[13.5px] text-ink-800">
+                  <strong>{r.requestedByName || 'Someone named'}</strong> asked to read the will.
+                </p>
+                <p className="text-[12.5px] text-ink-500 mt-1">
+                  It opens on its own {waitLabel(daysLeft(r.requestedAt))} if nobody refuses.
+                  If you agree it should be opened, it may open sooner.
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => agree(r.id)}
+                  className="btn-primary text-[13px] px-4 py-2 mt-2.5 inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <ThumbsUp className="w-3.5 h-3.5" /> I agree it should be opened
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="card p-5">
+        {mine ? (
+          <>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-ink-400 flex items-center gap-1.5">
+              <Clock className="w-3 h-3" /> You have asked
+            </p>
+            <p className="text-[13.5px] text-ink-800 mt-2 leading-relaxed">
+              {justAsked ? 'Sent. ' : ''}
+              This opens {waitLabel(daysLeft(mine.requestedAt))} unless an admin of this space refuses.
+              They have been told you asked.
+            </p>
+            <p className="text-[12.5px] text-ink-500 mt-2 leading-relaxed">
+              If somebody else who was named also agrees it should be opened, it can open sooner —
+              but only once this space has been unused for {QUIET_DAYS} days. While its owner is
+              still using the app, the {RELEASE_WAIT_DAYS} days stand, so they keep the chance to say no.
+            </p>
+          </>
+        ) : declined ? (
+          <>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-ink-400">
+              Your request was refused
+            </p>
+            <p className="text-[13.5px] text-ink-800 mt-2 leading-relaxed">
+              An admin of this space refused it. You can ask again, and that starts a fresh
+              {' '}{RELEASE_WAIT_DAYS} days — but it may be worth speaking to them first.
+            </p>
+            <button type="button" disabled={busy} onClick={ask}
+              className="btn-quiet text-[13px] px-4 py-2 mt-3 disabled:opacity-50">
+              Ask again
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-[13.5px] text-ink-800 leading-relaxed">
+              If you are meant to have this — you are handling someone&rsquo;s estate, or they asked
+              you to — you can ask for it here.
+            </p>
+            <p className="text-[12.5px] text-ink-500 mt-2 leading-relaxed">
+              Every admin of this space is told straight away and can refuse. If nobody refuses,
+              it opens after {RELEASE_WAIT_DAYS} days. Nothing here decides that anyone has died;
+              it only notices that nobody answered.
+            </p>
+            <button
+              type="button"
+              disabled={busy || requests === null}
+              onClick={ask}
+              className="btn-primary text-[13px] px-4 py-2 mt-3 inline-flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <BellRing className="w-3.5 h-3.5" /> Ask to read the will
+            </button>
+          </>
+        )}
+        {error && <p className="text-[12.5px] text-clay-700 mt-2">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The owner's side: who has asked, and the button that refuses them.
+ *
+ * Shown to admins ABOVE everything else on the page, because a request with a
+ * clock running is the only thing here that gets worse if it is scrolled past.
+ */
+function ReleaseRequestsCard({ requests, onDecline, busyId, error }: {
+  requests: ReleaseRequestRow[];
+  onDecline: (id: string) => void;
+  busyId: string | null;
+  error: string | null;
+}) {
+  const live = requests.filter((r) => !r.declinedAt && !r.releasedAt);
+  const opened = requests.filter((r) => r.releasedAt);
+  if (!live.length && !opened.length) return null;
+
+  return (
+    <div className="card overflow-hidden border-clay-300">
+      <div className="p-5 border-b border-cream-200 flex items-center gap-3">
+        <div className="p-2 rounded-xl bg-clay-100 text-clay-700 shrink-0">
+          <BellRing className="w-5 h-5" />
+        </div>
+        <div className="min-w-0">
+          <h3 className="font-display text-lg font-semibold text-ink-900">Someone asked to read your will</h3>
+          <p className="text-[13px] text-ink-400 font-medium">You can refuse. Doing nothing lets it open.</p>
+        </div>
+      </div>
+      <div className="p-5 space-y-3">
+        {live.map((r) => (
+          <div key={r.id} className="rounded-2xl border border-clay-300 bg-clay-50 px-4 py-3.5">
+            <p className="text-[14px] font-bold text-ink-900">{r.requestedByName || 'Someone named'}</p>
+            <p className="text-[12.5px] text-ink-600 mt-1">
+              Asked on {new Date(r.requestedAt).toLocaleDateString()}.
+              {' '}Opens <strong>{waitLabel(daysLeft(r.requestedAt))}</strong> unless you refuse.
+            </p>
+            {(r.approvals || []).length > 1 && (
+              <p className="text-[12.5px] text-clay-700 mt-1">
+                {(r.approvals || []).length} of the people you named agree it should be opened. It will
+                open at once if this space goes {QUIET_DAYS} days unused.
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={busyId === r.id}
+              onClick={() => onDecline(r.id)}
+              className="btn-quiet text-[13px] px-4 py-2 mt-2.5 disabled:opacity-50"
+            >
+              No — refuse this
+            </button>
+          </div>
+        ))}
+        {opened.map((r) => (
+          <div key={r.id} className="rounded-2xl border border-cream-200 px-4 py-3">
+            <p className="text-[13.5px] text-ink-800">
+              <strong>{r.requestedByName || 'Someone named'}</strong> can now read it — opened{' '}
+              {new Date(r.releasedAt!).toLocaleDateString()}.
+            </p>
+            <p className="text-[12.5px] text-ink-500 mt-1">
+              {r.releasedBecause === 'two-approvals-owner-quiet'
+                ? 'Two of the people you named agreed while this space had gone unused.'
+                : `Nobody refused it within ${RELEASE_WAIT_DAYS} days.`}
+              {' '}To undo this, remove them in “Who can open this”.
+            </p>
+          </div>
+        ))}
+        {error && <p className="text-[12.5px] text-clay-700">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 function LockedCard({ isChild }: { isChild: boolean }) {
   return (
     <div className="max-w-lg">
@@ -1561,6 +2362,11 @@ function AccessCard({
   const [cancelling, setCancelling] = useState<string | null>(null);
   const candidates = grantableMembers(roles);
   const readers = access?.readerUids || [];
+  // People an estate invite named (v329). They cannot read this page; they can
+  // find the will and ask. Shown here because this is the card that answers
+  // "who can open this", and "nobody yet, but two people are waiting to ask"
+  // is part of that answer — an invisible list is a list nobody can revoke.
+  const named = (access?.namedUids || []).filter((u) => !readers.includes(u));
   const stale = staleReaders(access, roles);
   const grantedCount = readers.filter(u => !stale.includes(u)).length;
   // Estate invites that have been sent but not redeemed. Listed here as well
@@ -1583,6 +2389,7 @@ function AccessCard({
             {grantedCount === 0
               ? 'Admins only. Nobody else in the family can see this page.'
               : `Admins, plus ${grantedCount} named ${grantedCount === 1 ? 'person' : 'people'}.`}
+            {named.length > 0 && ` ${named.length} named for later.`}
             {pending.length > 0 && ` ${pending.length} ${pending.length === 1 ? 'invite' : 'invites'} waiting.`}
           </p>
         </div>
@@ -1594,6 +2401,11 @@ function AccessCard({
           <p className="text-[12px] text-ink-500 leading-relaxed pt-3">
             Giving someone access lets them read this page &mdash; the will, the letter, who to call. It does not
             let them change anything, and it doesn&rsquo;t touch the rest of the vault.
+          </p>
+          <p className="text-[12px] text-ink-500 leading-relaxed">
+            Accepting an estate invite does <strong>not</strong> do this. It names them: they can see where the
+            signed will is kept, and can ask to read the rest &mdash; which you are told about, and can refuse.
+            Ticking someone here opens it for them today.
           </p>
 
           {candidates.length === 0 ? (
@@ -1628,8 +2440,12 @@ function AccessCard({
                         <p className="text-[11px] text-ink-400 truncate">{c.email}</p>
                       )}
                     </div>
-                    <span className={`chip shrink-0 ${granted ? 'bg-sage-100 text-sage-700' : 'bg-cream-200 text-ink-500'}`}>
-                      {granted ? 'Can open' : 'No access'}
+                    <span className={`chip shrink-0 ${
+                      granted ? 'bg-sage-100 text-sage-700'
+                        : named.includes(c.uid) ? 'bg-honey-100 text-honey-700'
+                        : 'bg-cream-200 text-ink-500'
+                    }`}>
+                      {granted ? 'Can open' : named.includes(c.uid) ? 'Named, cannot open' : 'No access'}
                     </span>
                   </button>
                 );
@@ -1709,6 +2525,7 @@ function AccessCard({
           </p>
         </div>
       )}
+
     </div>
   );
 }

@@ -17,7 +17,7 @@ spec:
     spec:
       containerConcurrency: 80
       containers:
-      - image: europe-west2-docker.pkg.dev/gen-lang-client-0384516171/cloud-run-source-deploy/teluva:v254
+      - image: europe-west2-docker.pkg.dev/gen-lang-client-0384516171/cloud-run-source-deploy/teluva:v356
         name: app-container
         ports:
         - containerPort: 8080
@@ -43,6 +43,19 @@ spec:
         # database with no daily read-quota cap.
         - name: FIRESTORE_DB_ID
           value: teluva-prod
+        # The two document-reader scope flags. Both default OFF in code, so
+        # these lines are what actually opens them — deleting either restores
+        # the original refusal without touching a source file.
+        # Insurance: was blocked pending an Austrian Rechtsanwalt on GewO §137
+        # (Versicherungsvermittlung). Opened 2026-08-30 at the owner's
+        # instruction; the reader still only quotes and never advises.
+        - name: FEATURE_INSURANCE_READER
+          value: "1"
+        # Medical/Health: was blocked on Art. 9 GDPR and self-diagnosis grounds.
+        # The prohibition on INTERPRETING a result is unchanged and applies
+        # whatever this is set to — what opened is quoting, not advice.
+        - name: FEATURE_MEDICAL_READER
+          value: "1"
         # (ALLOWED_EMAILS removed 2026-08-20: a hardcoded sign-in allowlist left
         # over from before the custom-claim membership model. Nothing in the
         # codebase read it — access is decided by the familyId/familyIds claims

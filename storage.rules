@@ -24,33 +24,21 @@ service firebase.storage {
         );
     }
 
-    // Transition fallback: the original household accounts keep access to
-    // THEIR OWN family's files even before their tokens carry the new claim.
-    // Scoped to familyId == 'household' — no longer a master key to all families.
-    //
-    // Identified by UID, not by email address. Same three accounts, same
-    // effect — but a rules file is a published artifact, and a list of real
-    // household email addresses in one is a phishing target that grants
-    // nothing. A UID is opaque, is not an address anyone can write to, and is
-    // the identity the token actually carries.
-    function isLegacyHouseholdMember(familyId) {
-      return familyId == 'household' &&
-        request.auth != null &&
-        request.auth.token.email_verified == true &&
-        request.auth.uid in [
-          'P22E4pEZTiOJyMXRWCOprWj9ifo2',
-          'N3RtiCHzoMRloMOUktU4pUc5vS12',
-          'Yronp4TmgVdvBepCcsA28cLaDzB2'
-        ];
-    }
+    // The legacy 3-UID isLegacyHouseholdMember fallback was REMOVED 2026-08-24
+    // (design-audit P0). Verified before removal: the two active household
+    // accounts carry familyId/familyIds claims (checked via accounts:lookup),
+    // and the third UID has no users/{uid} profile in teluva-prod — the server
+    // already denies it everywhere, so the fallback was its only remaining
+    // access: a removal-resistant backdoor, not a migration aid. Membership is
+    // now claims-only for every family, including 'household'.
 
     match /families/{familyId}/{allPaths=**} {
-      allow read: if inFamily(familyId) || isLegacyHouseholdMember(familyId);
+      allow read: if inFamily(familyId);
       // Size cap applies to uploads only. On delete, request.resource is null, so
       // gating delete on request.resource.size denied EVERY delete and orphaned files.
-      allow create, update: if (inFamily(familyId) || isLegacyHouseholdMember(familyId))
+      allow create, update: if inFamily(familyId)
         && request.resource.size < 20 * 1024 * 1024;
-      allow delete: if inFamily(familyId) || isLegacyHouseholdMember(familyId);
+      allow delete: if inFamily(familyId);
     }
 
     // Everything else: locked.

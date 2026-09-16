@@ -63,11 +63,24 @@ OLD_PRIMARY_REV=$(gcloud run services describe "$SERVICE" --region "$REGION" --p
 OLD_LEGACY_REV=$(gcloud run services describe "$LEGACY_SERVICE" --region "$REGION" --project "$PROJECT" --format='value(status.latestReadyRevisionName)')
 
 # --- 2. Don't ship something broken ---------------------------------------
+# The bypass is deliberately awkward (design-audit P0 #10: "remove the deploy
+# bypass from normal release operation or make exceptions explicit and
+# auditable"). Skipping now REQUIRES a stated reason, prints it in red where
+# the terminal scrollback becomes the audit trail, and can never skip the
+# security-rules tests or the changelog guard — those are seconds, not the
+# minutes the bypass exists to save, and rules once sat 19 days stale on a
+# sibling project precisely because nothing forced them through a gate.
 if [ "${SKIP_CHECKS:-}" = "1" ]; then
-  say "Skipping checks (SKIP_CHECKS=1)"
+  [ -n "${SKIP_CHECKS_REASON:-}" ] \
+    || die "SKIP_CHECKS=1 needs SKIP_CHECKS_REASON='why this tree is already verified' — the skip must be auditable."
+  printf '\n\033[31m==> SKIPPING lint/tests/build. Reason: %s\033[0m\n' "$SKIP_CHECKS_REASON"
+  say "Non-skippable gates: security rules tests + changelog guard"
+  npm run test:rules
+  npx tsx src/utils/changelogFresh.test.ts
 else
-  say "Checks: typecheck, colour tokens, tests, production build"
+  say "Checks: typecheck, colour tokens, security rules, tests, production build"
   npm run lint
+  npm run test:rules
   npm run test:ember
   npm test
   npm run build

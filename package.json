@@ -5,17 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && tsx scripts/render-legal-pages.ts",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "rm -rf dist",
     "deploy": "bash scripts/deploy.sh",
     "lint": "tsc --noEmit && npm run check:colors",
     "check:colors": "node scripts/check-colors.mjs",
     "test:rules": "firebase emulators:exec --only firestore --project rules-probe \"node firestore-rules.test.mjs\"",
+    "test:storage-rules": "firebase emulators:exec --config firebase.emulator.json --only storage --project rules-probe \"node storage-rules.test.mjs\"",
     "test:server": "node --test server/*.test.mjs",
-    "test:ember": "tsx src/components/EmberNavigation.test.ts && tsx src/components/FamilyPulse.test.ts && tsx src/components/ClassicRollback.test.ts && tsx src/utils/emergencyPack.test.ts",
+    "test:ember": "tsx src/components/EmberNavigation.test.ts && tsx src/components/FamilyPulse.test.ts && tsx src/components/ClassicRollback.test.ts && tsx src/components/ModalLayer.test.ts && tsx src/components/StepHero.test.ts && tsx src/utils/emergencyPack.test.ts",
     "test:family-tree": "tsx src/utils/familyTreeLayout.test.ts",
-    "test": "tsx src/components/EmberNavigation.test.ts && tsx src/components/FamilyPulse.test.ts && tsx src/utils/speechLocale.test.ts && tsx src/utils/mergeShared.test.ts && tsx src/utils/emergencyNumbers.test.ts && tsx src/utils/measureReading.test.ts && tsx src/utils/measurementUnits.test.ts && tsx src/utils/sizeStaleness.test.ts && tsx src/utils/businessMilestone.test.ts && tsx src/utils/aiRedact.test.ts && node authz.test.mjs && npm run test:server && tsx src/utils/funeralCover.test.ts && tsx src/utils/installPrompt.test.ts && tsx src/utils/planLimits.test.ts && tsx src/utils/aiEditCoverage.test.ts && tsx src/utils/aiVendorEdits.test.ts && tsx src/utils/aiHomeService.test.ts && tsx src/utils/aiPetHealth.test.ts && tsx src/utils/readiness.test.ts && tsx src/utils/referralGrouping.test.ts && tsx src/utils/changelogFresh.test.ts && tsx src/utils/googleCalendarSync.test.ts && tsx src/utils/memberAppointments.test.ts && tsx src/utils/calendarDedup.test.ts && tsx src/utils/eventMemberMatch.test.ts && tsx src/utils/exportPack.test.ts && tsx src/utils/summaryPdf.test.ts && tsx src/utils/ics.test.ts && tsx src/utils/astronomy.test.ts && tsx src/utils/birthChart.test.ts && tsx src/utils/calendarDivisions.test.ts && tsx src/utils/calendarFeeds.test.ts && tsx src/utils/calendarDuplicates.test.ts && tsx src/utils/googleScopes.test.ts && tsx src/utils/pendingSync.test.ts && tsx src/utils/aiStatusEdit.test.ts && tsx src/utils/vaultFields.test.ts && tsx src/utils/docReadEligibility.test.ts && tsx src/utils/appUpdate.test.ts && tsx src/utils/docTextCoverage.test.ts && tsx src/utils/nameDay.test.ts && tsx src/utils/nameCelebrations.test.ts && tsx src/utils/nameCelebrationGate.test.ts && tsx src/utils/nameMeanings.test.ts && tsx src/utils/ageGates.test.ts && tsx src/utils/customAssist.test.ts && tsx src/utils/nameCelebrationsParity.test.ts && tsx src/utils/chatInsights.test.ts && tsx src/utils/calendarWindow.test.ts && tsx src/utils/eventRelevance.test.ts && tsx src/utils/calendarDocumentExpiries.test.ts && tsx src/utils/healthTimeline.test.ts && tsx src/utils/giftOccasions.test.ts && tsx src/utils/eventKeywordFlags.test.ts && tsx src/utils/familyDates.test.ts && tsx src/utils/anniversarySuggestions.test.ts && tsx src/utils/virtualEvents.test.ts && tsx src/utils/pet.test.ts && tsx src/utils/kin.test.ts && tsx src/utils/familyTreeLayout.test.ts && tsx src/utils/gedcom.test.ts && tsx src/utils/gedcomImport.test.ts && tsx src/utils/extendedBirthdays.test.ts && tsx src/utils/willsAccess.test.ts"
+    "test": "tsx src/components/EmberNavigation.test.ts && tsx src/components/FamilyPulse.test.ts && tsx src/components/ModalLayer.test.ts && tsx src/components/StepHero.test.ts && tsx src/utils/legalPages.test.ts && tsx src/utils/speechLocale.test.ts && tsx src/utils/mergeShared.test.ts && tsx src/utils/emergencyNumbers.test.ts && tsx src/utils/measureReading.test.ts && tsx src/utils/measurementUnits.test.ts && tsx src/utils/sizeStaleness.test.ts && tsx src/utils/businessMilestone.test.ts && tsx src/utils/aiRedact.test.ts && tsx src/utils/aiReveal.test.ts && node authz.test.mjs && npm run test:server && tsx src/utils/funeralCover.test.ts && tsx src/utils/installPrompt.test.ts && tsx src/utils/planLimits.test.ts && tsx src/utils/aiEditCoverage.test.ts && tsx src/utils/aiVendorEdits.test.ts && tsx src/utils/aiHomeService.test.ts && tsx src/utils/serviceDocs.test.ts && tsx src/utils/scanGeometry.test.ts && tsx src/utils/aiPetHealth.test.ts && tsx src/utils/readiness.test.ts && tsx src/utils/referralGrouping.test.ts && tsx src/utils/changelogFresh.test.ts && tsx src/utils/googleCalendarSync.test.ts && tsx src/utils/memberAppointments.test.ts && tsx src/utils/calendarDedup.test.ts && tsx src/utils/eventMemberMatch.test.ts && tsx src/utils/exportPack.test.ts && tsx src/utils/summaryPdf.test.ts && tsx src/utils/ics.test.ts && tsx src/utils/astronomy.test.ts && tsx src/utils/birthChart.test.ts && tsx src/utils/calendarDivisions.test.ts && tsx src/utils/calendarFeeds.test.ts && tsx src/utils/calendarDuplicates.test.ts && tsx src/utils/googleScopes.test.ts && tsx src/utils/pendingSync.test.ts && tsx src/utils/aiStatusEdit.test.ts && tsx src/utils/vaultFields.test.ts && tsx src/utils/docReadEligibility.test.ts && tsx src/utils/appUpdate.test.ts && tsx src/utils/docTextCoverage.test.ts && tsx src/utils/docSearch.test.ts && tsx src/utils/docIndex.test.ts && tsx src/utils/vaultSearch.test.ts && tsx src/utils/scanImage.test.ts && tsx src/utils/scannerWiring.test.ts && tsx src/utils/idOverview.test.ts && tsx src/utils/connectedInlineCollapse.test.ts && tsx src/utils/nameDay.test.ts && tsx src/utils/nameCelebrations.test.ts && tsx src/utils/nameCelebrationGate.test.ts && tsx src/utils/nameMeanings.test.ts && tsx src/utils/ageGates.test.ts && tsx src/utils/customAssist.test.ts && tsx src/utils/nameCelebrationsParity.test.ts && tsx src/utils/nameDayTwoDates.test.ts && tsx src/utils/chatInsights.test.ts && tsx src/utils/calendarWindow.test.ts && tsx src/utils/eventRelevance.test.ts && tsx src/utils/calendarDocumentExpiries.test.ts && tsx src/utils/healthTimeline.test.ts && tsx src/utils/lifeTimeline.test.ts && tsx src/utils/timelineImport.test.ts && tsx src/utils/timelineWiring.test.ts && tsx src/utils/giftOccasions.test.ts && tsx src/utils/eventKeywordFlags.test.ts && tsx src/utils/familyDates.test.ts && tsx src/utils/anniversarySuggestions.test.ts && tsx src/utils/virtualEvents.test.ts && tsx src/utils/pet.test.ts && tsx src/utils/kin.test.ts && tsx src/utils/familyTreeLayout.test.ts && tsx src/utils/gedcom.test.ts && tsx src/utils/gedcomImport.test.ts && tsx src/utils/extendedBirthdays.test.ts && tsx src/utils/willsAccess.test.ts && tsx src/utils/trip.test.ts && tsx src/utils/aiTripAttach.test.ts && tsx src/utils/me.test.ts && tsx src/utils/aiNoOp.test.ts && tsx src/utils/attachments.test.ts && tsx src/utils/platform.test.ts && tsx src/utils/feedbackWiring.test.ts && tsx src/utils/hubName.test.ts && tsx src/utils/calendarConsentNotice.test.ts && tsx src/utils/googleDisconnect.test.ts && tsx src/utils/accountChooser.test.ts && tsx src/utils/familyLinkWiring.test.ts && tsx src/utils/firstHours.test.ts && tsx src/utils/utilityFields.test.ts && tsx src/utils/openElsewhere.test.ts && tsx src/utils/estateStatus.test.ts && tsx src/utils/estateReadiness.test.ts && tsx src/utils/funeralCoverLines.test.ts && tsx src/utils/findWillRender.test.ts && tsx src/utils/releaseCopy.test.ts && tsx src/utils/businessBoundary.test.ts && tsx src/utils/activity.test.ts && tsx src/utils/jsxComponents.test.ts && tsx src/utils/firstRunTour.test.ts && tsx src/utils/businessCopy.test.ts && tsx src/utils/travelGeo.test.ts && tsx src/utils/aiCvNoOp.test.ts && tsx src/utils/memberOverviewWork.test.ts && tsx src/utils/importantInfoBusiness.test.ts && tsx src/utils/testCoverage.test.ts && tsx src/utils/docEnhance.test.ts && tsx src/utils/docThumbAdoption.test.ts && tsx src/utils/shareTarget.test.ts && tsx src/utils/idOverviewDocs.test.ts && tsx src/utils/inboundMailWiring.test.ts && tsx src/utils/gmailBridgeWiring.test.ts && tsx src/utils/referralAppointment.test.ts && tsx src/utils/untaggedAppointments.test.ts && tsx src/utils/googleCalendarImport.test.ts && tsx src/utils/importantEvents.test.ts && tsx src/utils/importantEventsParity.test.ts && tsx src/utils/hiddenPeople.test.ts && tsx src/utils/hiddenPeopleParity.test.ts && tsx src/utils/hiddenPeopleWiring.test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -36,12 +37,13 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
-    "pdfjs-dist": "^6.1.200",
+    "pdfjs-dist": "^6.2.108",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-i18next": "^17.0.8",
     "scanic": "^1.5.1",
+    "scanic-ml": "^0.2.0",
     "tz-lookup": "^6.1.25",
     "vite": "^6.2.3",
     "web-push": "^3.6.7"
@@ -56,5 +58,8 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

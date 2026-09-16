@@ -7,8 +7,10 @@ import EmptyState from './EmptyState';
 import CopyableValue from './CopyableValue';
 import {
   Phone, Heart, AlertTriangle, Pill, Activity,
-  CreditCard, Leaf, Users, Briefcase, WifiOff, ArrowLeft, Download, ExternalLink, Share2, ShieldCheck
+  CreditCard, Leaf, Users, Briefcase, WifiOff, ArrowLeft, Download, ExternalLink, Share2, ShieldCheck,
+  Plane, ArrowRight
 } from 'lucide-react';
+import type { Trip } from '../utils/trip';
 import {
   activateEmergencyPackScope,
   EmergencyPack,
@@ -16,10 +18,16 @@ import {
   isEmergencyPackOfflineReady,
   loadEmergencyPack,
   markEmergencyPackVerified,
+  packAgeDays,
+  packExpiryTime,
+  PACK_EXPIRY_DAYS,
+  PACK_STALE_DAYS,
   prepareEmergencyShell,
+  refreshEmergencyPack,
   removeEmergencyPack,
   saveEmergencyPack,
 } from '../utils/emergencyPack';
+import { appConfirm } from '../utils/appConfirm';
 
 interface EmergencyViewProps {
   members: FamilyMember[];
@@ -29,9 +37,12 @@ interface EmergencyViewProps {
   packScope?: EmergencyPackScope;
   savedPack?: EmergencyPack;
   onExit?: () => void;
+  /** Trips happening now or imminent. Empty for a family not travelling. */
+  trips?: Trip[];
+  onOpenTrip?: (tripId: string) => void;
 }
 
-export default function EmergencyView({ members, country = 'AT', emberMode = false, packMode = false, packScope, savedPack, onExit }: EmergencyViewProps) {
+export default function EmergencyView({ members, country = 'AT', emberMode = false, packMode = false, packScope, savedPack, onExit, trips = [], onOpenTrip }: EmergencyViewProps) {
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine);
   const [pack, setPack] = useState<EmergencyPack | null>(() => savedPack || (packScope ? loadEmergencyPack(packScope) : null));
   const [packNotice, setPackNotice] = useState<string | null>(null);
@@ -61,8 +72,37 @@ export default function EmergencyView({ members, country = 'AT', emberMode = fal
     </div>
   );
 
+  /* Keep an existing pack's CONTENT fresh without a tap. The person consented
+     once to keeping a device copy; letting that copy silently rot into
+     out-of-date allergies and dead phone numbers honours the letter of the
+     consent and betrays its purpose. So any online visit to Emergency
+     re-stamps the already-consented pack with current data (also pushing its
+     60-day expiry out — an actively used device never expires; an abandoned
+     one does). Only for packs older than a day, so ordinary navigation
+     doesn't rewrite storage on every render. First saves still go through
+     the explicit consent below — this never CREATES a pack. */
+  useEffect(() => {
+    if (!packScope || packMode || !online || !pack || members.length === 0) return;
+    if (packAgeDays(pack) < 1) return;
+    try {
+      const refreshed = refreshEmergencyPack(members, country, packScope);
+      if (refreshed) setPack(refreshed);
+    } catch { /* storage unavailable — the stale-pack banner still shows */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online, packMode, packScope?.ownerUid, packScope?.spaceId]);
+
   const savePack = async () => {
     if (!packScope) return;
+    // Explicit device consent (design-audit P0), once, at the FIRST save.
+    // Updates skip it — consent was already given for this device+space.
+    if (!pack) {
+      const ok = await appConfirm(
+        'The pack is stored readable on this device so it opens instantly with no internet and no sign-in — that also means anyone who can unlock this device can read it.\n\n'
+        + `It refreshes itself whenever you open Emergency online, and self-deletes after ${PACK_EXPIRY_DAYS} days without a refresh. You can remove it here any time.`,
+        { title: 'Keep an offline emergency copy on this device?', confirmLabel: 'Keep on this device' },
+      );
+      if (!ok) return;
+    }
     setPreparingPack(true);
     try {
       const saved = saveEmergencyPack(members, country, packScope);
@@ -147,6 +187,50 @@ export default function EmergencyView({ members, country = 'AT', emberMode = fal
       {/* The dial-now number leads the page — everything below it is detail. */}
       <EmergencyNumbersBanner country={country} />
 
+      {/* Anyone away from home sits directly under the emergency numbers. This
+          screen is opened when something has gone wrong, and "who is not here"
+          is the first thing that changes the answer — the numbers on this page
+          are the numbers for HERE, and they are the wrong ones for someone
+          abroad. Rendered only while a trip is current, so it costs nothing the
+          rest of the year. Ungated by role, like the rest of this view. */}
+      {trips.length > 0 && onOpenTrip && (
+        <section className="rounded-2xl border border-honey-200 bg-honey-50 overflow-hidden print:border-ink-900/20">
+          <div className="px-4 sm:px-5 py-3 border-b border-honey-200 flex items-center gap-2">
+            <Plane className="w-4 h-4 text-honey-700" />
+            <h3 className="text-[13px] font-bold text-honey-900">Away from home right now</h3>
+          </div>
+          <div className="divide-y divide-honey-200/70">
+            {trips.map((trip) => {
+              const names = trip.memberIds
+                .map((id) => members.find((member) => member.id === id)?.name.split(' ')[0])
+                .filter(Boolean);
+              return (
+                <button
+                  key={trip.id}
+                  type="button"
+                  onClick={() => onOpenTrip(trip.id)}
+                  className="w-full flex items-center gap-3 px-4 sm:px-5 py-3 text-left hover:bg-honey-100/60 transition-colors cursor-pointer"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-bold text-honey-900 truncate">
+                      {names.length ? names.join(', ') : 'The family'}
+                      {trip.destination ? ` — ${trip.destination}` : ''}
+                    </span>
+                    <span className="block text-[12px] text-honey-800/90 font-medium">
+                      {trip.status === 'active'
+                        ? `Home in ${trip.daysUntilEnd} day${trip.daysUntilEnd === 1 ? '' : 's'}`
+                        : `Leaves in ${trip.daysUntilStart} day${trip.daysUntilStart === 1 ? '' : 's'}`}
+                      {' · '}Insurance, passport and what to do if documents are lost
+                    </span>
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-honey-700 shrink-0" />
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {actions}
 
       {emberMode && !packMode && (
@@ -155,6 +239,11 @@ export default function EmergencyView({ members, country = 'AT', emberMode = fal
             <span className="pulse-eyebrow">Emergency pack · This device only</span>
             <h2>{packReady ? 'Cold-offline opening is verified.' : pack ? 'Emergency facts saved; offline opening still needs verification.' : 'Make this screen available offline.'}</h2>
             <p>For {packScope?.spaceName || 'this family'}, this stores only the emergency facts shown here—no documents, remote photos or hidden profile fields. Anyone who can unlock this device can open the pack.</p>
+            {pack && (
+              <p>
+                Saved {new Date(pack.savedAt).toLocaleDateString()} · refreshes itself when you open this screen online · self-deletes {new Date(packExpiryTime(pack)).toLocaleDateString()} if it can&rsquo;t refresh.
+              </p>
+            )}
             {packNotice && <small role="status">{packNotice}</small>}
           </div>
           <div>
@@ -165,7 +254,22 @@ export default function EmergencyView({ members, country = 'AT', emberMode = fal
         </section>
       )}
 
-      {packMode && <p className="ember-emergency-pack-stamp">Saved for {savedPack?.spaceName || 'this family'} · {savedPack?.savedAt ? new Date(savedPack.savedAt).toLocaleString() : 'on this device'} · check the live app when a connection returns</p>}
+      {/* Freshness must be answerable AT THE MOMENT OF USE: someone reading
+          allergies off this screen in a hospital corridor needs to know if
+          they're looking at last month's facts. Age in days, not a raw
+          timestamp — and past PACK_STALE_DAYS it stops being a caption and
+          becomes a warning. */}
+      {packMode && savedPack && (() => {
+        const age = packAgeDays(savedPack);
+        const stale = age >= PACK_STALE_DAYS;
+        return (
+          <p className="ember-emergency-pack-stamp" role={stale ? 'alert' : undefined}>
+            {stale
+              ? <>⚠ These details were saved {age} days ago and may be out of date — open Teluva online to refresh them. This copy deletes itself {new Date(packExpiryTime(savedPack)).toLocaleDateString()}.</>
+              : <>Saved for {savedPack.spaceName || 'this family'} · {age === 0 ? 'today' : age === 1 ? 'yesterday' : `${age} days ago`} · check the live app when a connection returns</>}
+          </p>
+        );
+      })()}
 
       {/* Classic keeps its compact page title; Ember has the dedicated top bar. */}
       {!emberMode && !packMode && <div className="card p-5 sm:p-6">

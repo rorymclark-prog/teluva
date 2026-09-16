@@ -9,7 +9,7 @@ import { memberAppointments } from './memberAppointments';
 // -------
 // "With all the medical reports etc we should be able to export any
 // information and files all at once — go to the chatbot, prepare a folder to
-// export all medical reports, results etc for Sophie. It must take everything,
+// export all medical reports, results etc for Mia. It must take everything,
 // and then export or email even if a large amount." Then, immediately after:
 // "not just medical but any tailored folder of files via chat", and "or share
 // it with other apps like AI".
@@ -55,6 +55,7 @@ export type PackTopic =
   | 'providers'      // doctors and specialists
   | 'identity'       // passports, visas/permits, national ID numbers
   | 'education'      // school/qualification details
+  | 'employment'     // CV: work history, education, qualifications, skills — business spaces only
   | 'travel'         // travel info and transit passes
   | 'financial'      // financial accounts
   | 'legal'          // legal documents
@@ -63,8 +64,8 @@ export type PackTopic =
 
 export const ALL_TOPICS: PackTopic[] = [
   'contact', 'medical', 'vaccinations', 'referrals', 'appointments', 'checkups',
-  'growth', 'providers', 'identity', 'education', 'travel', 'financial', 'legal',
-  'documents',
+  'growth', 'providers', 'identity', 'education', 'employment', 'travel', 'financial',
+  'legal', 'documents',
 ];
 
 /** What the user sees on the confirm screen, and what the assistant is told it can ask for. */
@@ -79,13 +80,14 @@ export const TOPIC_LABELS: Record<PackTopic, string> = {
   providers: 'Doctors and specialists',
   identity: 'Passports, visas and ID numbers',
   education: 'Education',
+  employment: 'CV and work history',
   travel: 'Travel and transit passes',
   financial: 'Financial accounts',
   legal: 'Legal documents',
   documents: 'Filed documents and scans',
 };
 
-// Named bundles, so "everything medical for Sophie" does not depend on the
+// Named bundles, so "everything medical for Mia" does not depend on the
 // model remembering all seven medical topics. The assistant names a preset or
 // lists topics; both arrive here as a plain topic list.
 export const TOPIC_PRESETS: Record<string, PackTopic[]> = {
@@ -97,13 +99,14 @@ export const TOPIC_PRESETS: Record<string, PackTopic[]> = {
   // only ever goes in when it is asked for by name.
   identity: ['contact', 'identity'],
   school: ['contact', 'education'],
+  employment: ['contact', 'employment'],
   travel: ['contact', 'identity', 'travel'],
   everything: ALL_TOPICS,
 };
 
 /** What the assistant produces, and what the confirm screen edits. Never file contents. */
 export interface PackRequest {
-  /** "Sophie's medical records" — becomes the folder name. */
+  /** "Mia's medical records" — becomes the folder name. */
   title?: string;
   /** Member ids. Empty means the whole household. */
   memberIds: string[];
@@ -242,6 +245,14 @@ const TOPIC_VAULT_CATEGORIES: Partial<Record<PackTopic, string[]>> = {
 
 // The same, for documents filed on the person rather than in the shared vault.
 // FamilyDocument uses an older, shorter category list than VaultDocument.
+//
+// 'employment' has no entry here on purpose. A filed CV has nowhere else to
+// go in that shorter category list, so MemberCV.tsx files it as 'Other' —
+// the same bucket as every unrelated scan nobody categorised. Sweeping by
+// category would hand "Mia's CV" folder a random passport photo filed
+// the same way. Instead the CV file is found directly by
+// member.cv.fileDocumentId, below, and attached only when it is that exact
+// document.
 const TOPIC_MEMBER_DOC_CATEGORIES: Partial<Record<PackTopic, string[]>> = {
   medical: ['Health'],
   referrals: ['Health'],
@@ -485,6 +496,63 @@ export function buildPack(request: PackRequest, data: PackData): Pack {
         ['Schedule notes', ed?.scheduleNotes],
       ]));
       bump('education', ed?.schoolName ? 1 : 0);
+    }
+
+    if (has('employment')) {
+      const cv = member.cv || {};
+      const roles = cv.roles || [];
+      const cvEducation = cv.education || [];
+      const qualifications = cv.qualifications || [];
+      const skills = cv.skills || [];
+      const languages = cv.languages || [];
+
+      // The filed CV, found by id rather than by category — see the comment
+      // on TOPIC_MEMBER_DOC_CATEGORIES for why category matching would be
+      // wrong here. addFile's own dedupe (by hash, or by leaf name + size)
+      // means this is still safe to attach even if 'documents' was ALSO
+      // requested and would otherwise pull the same file in a second time.
+      const cvFile = cv.fileDocumentId
+        ? (member.documents || []).find((d) => d.id === cv.fileDocumentId)
+        : undefined;
+      let cvFileNote: SummaryBlock | undefined;
+      if (cvFile) {
+        if (cvFile.fileData) {
+          addFile({
+            src: cvFile.fileData,
+            name: `${dir}CV and work history/${safeLeaf(cvFile.name || cvFile.fileName, 'CV')}${fileExt(cvFile.fileName)}`,
+            size: cvFile.fileSize,
+            hash: cvFile.contentHash,
+          });
+          cvFileNote = { type: 'note', text: 'The filed CV is in the "CV and work history" folder.' };
+        } else {
+          recordsWithoutFiles++;
+        }
+      }
+
+      section(
+        'CV and work history',
+        ...(cvFileNote ? [cvFileNote] : []),
+        factsBlock([['Summary', cv.summary]]),
+        tableBlock(
+          ['Role', 'Employer', 'From', 'To', 'Notes'],
+          roles.map((r) => [r.title, r.employer || '', r.startDate || '', r.current ? 'Current' : (r.endDate || ''), r.notes || '']),
+        ),
+        tableBlock(
+          ['Institution', 'Qualification', 'Field of study', 'From', 'To'],
+          cvEducation.map((e) => [e.institution, e.qualification || '', e.fieldOfStudy || '', e.startDate || '', e.endDate || '']),
+        ),
+        tableBlock(
+          ['Certificate / licence', 'Issuer', 'Issued', 'Expires', 'Notes'],
+          qualifications.map((q) => [q.name, q.issuer || '', q.issueDate || '', q.expiryDate || '', q.notes || '']),
+        ),
+        factsBlock([
+          ['Skills', skills.join(', ')],
+          ['Languages', languages.join(', ')],
+        ]),
+      );
+      const structuredCount = roles.length + cvEducation.length + qualifications.length;
+      const anyCv = !!(cv.summary || structuredCount || skills.length || languages.length || cvFile);
+      bump('employment', anyCv ? Math.max(1, structuredCount + (cvFile ? 1 : 0)) : 0);
     }
 
     if (has('travel')) {

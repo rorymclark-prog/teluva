@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Quote, Plus, X, Trash2, Pencil, Star, CalendarDays } from 'lucide-react';
 import { FamilyMember, Saying } from '../types';
 import { ageLabelAt, todayISO } from '../utils/age';
+import { appConfirm } from '../utils/appConfirm';
 import EmptyState from './EmptyState';
 
 interface Props {
@@ -50,8 +51,8 @@ export default function MemberSayings({ member, onUpdateMember, canEdit = false 
     close();
   };
 
-  const remove = (id: string) => {
-    if (!window.confirm('Delete this saying?')) return;
+  const remove = async (id: string) => {
+    if (!(await appConfirm('Delete this saying?', { danger: true, confirmLabel: 'Delete' }))) return;
     onUpdateMember({ ...member, sayings: sayings.filter((s) => s.id !== id) });
     if (editingId === id) close();
   };

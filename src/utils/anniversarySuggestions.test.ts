@@ -101,7 +101,9 @@ const rec = (p: Partial<AnniversaryRecord> & { date: string }): AnniversaryRecor
 // --- wiring: the screen must actually use it --------------------------------
 {
   const view = fs.readFileSync(path.join(root, 'src/components/AnniversariesView.tsx'), 'utf8');
-  assert.ok(view.includes('anniversarySuggestions(events, anniversaries)'), 'the view must compute suggestions');
+  // The events are first filtered by the hidden-people set (a hidden person's
+  // calendar anniversary is not suggested); hiddenPeopleWiring.test.ts guards that part.
+  assert.ok(view.includes('anniversarySuggestions(visibleEvents(events, hiddenPeople), anniversaries)'), 'the view must compute suggestions');
   assert.ok(view.includes('loadCalendarEvents()'), 'the view must load calendar events');
 
   // The bug was the copy as much as the data: a screen saying "Nothing saved

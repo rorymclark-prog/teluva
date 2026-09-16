@@ -12,12 +12,19 @@
  *     and posted here, so validateOcrImages is handling untrusted input that we
  *     then forward to a paid API on the user's behalf.
  *
- *  3. A PAGE WE CANNOT TRUST IS A PAGE WE DID NOT READ. pageFromVisionResponse
- *     returns null rather than a doubtful page, because an unread page is named
- *     out loud and blocks "your lease doesn't mention that", whereas a
- *     badly-read page silently answers the question wrong.
+ *  3. A PAGE WE CANNOT TRUST IS A PAGE WE DID NOT *VOUCH FOR* — which is not
+ *     the same as a page whose words we throw away. pageFromVisionResponse
+ *     returns a doubtful page FLAGGED (lowConfidence), and coverage keeps it
+ *     out of the read-page list so it still blocks "your lease doesn't mention
+ *     that". Until v345 it returned null instead, and the result was the app
+ *     telling people a card they can read perfectly came back blank.
+ *
+ *  4. WE READ BOTH VISION ANNOTATIONS. DOCUMENT_TEXT_DETECTION populates
+ *     fullTextAnnotation for dense pages and can leave it empty for a photo of
+ *     a card, where the whole text sits in textAnnotations[0] instead.
  */
 import {
+  textFromVisionResponse,
   ocrKind,
   isAllowedPath,
   validateOcrImages,
@@ -89,22 +96,64 @@ eq(imageBatches([]), [], 'nothing to read is no requests');
   check(batches.every((b) => b.length >= 1), 'a page larger than the ceiling still goes out alone rather than being dropped');
 }
 
-console.log('\npageFromVisionResponse — a page we cannot trust is a page we did NOT read');
+console.log('\ntextFromVisionResponse — read BOTH annotations, not just the document one');
+eq(
+  textFromVisionResponse({ fullTextAnnotation: { text: 'dense contract text' } }),
+  'dense contract text',
+  'the document annotation is preferred when present',
+);
+eq(
+  textFromVisionResponse({ textAnnotations: [{ description: 'MIA CLARK\n2110056029083' }] }),
+  'MIA CLARK\n2110056029083',
+  'THE CARD BUG. A photo of a plastic card is sparse imagery: DOCUMENT_TEXT_DETECTION '
+  + 'can return no fullTextAnnotation at all while textAnnotations[0] holds the whole '
+  + 'legible card. Reading only the first field told people their clear photo was blank.',
+);
+eq(
+  textFromVisionResponse({ fullTextAnnotation: { text: '  ' }, textAnnotations: [{ description: 'real text' }] }),
+  'real text',
+  'a blank document annotation must not shadow a populated flat one',
+);
+eq(textFromVisionResponse({}), '', 'genuinely nothing is still nothing');
+
+console.log('\npageFromVisionResponse — low confidence is FLAGGED, not deleted');
 eq(
   pageFromVisionResponse({ fullTextAnnotation: { text: '§ 8 Erhaltung', pages: [{ confidence: 0.93 }] }, context: { pageNumber: 4 } }, 1),
-  { n: 4, text: '§ 8 Erhaltung', confidence: 0.93 },
+  { n: 4, text: '§ 8 Erhaltung', confidence: 0.93, lowConfidence: false },
   'a confident page comes back with its real page number',
 );
 eq(pageFromVisionResponse({ error: { message: 'boom' } }, 2), null, 'an errored page is unread');
 eq(pageFromVisionResponse({ fullTextAnnotation: { text: '   ' } }, 2), null, 'whitespace-only is unread, not empty text');
-eq(
-  pageFromVisionResponse({ fullTextAnnotation: { text: 'blurry', pages: [{ confidence: OCR_MIN_PAGE_CONFIDENCE - 0.01 }] } }, 2),
-  null,
-  'a page read too faintly to trust is unread rather than read badly',
-);
+{
+  // THE CONTRACT CHANGE. This assertion used to demand null, on the principle
+  // that a page we cannot trust is a page we did not read. The principle still
+  // holds — but it is enforced by COVERAGE (a low-confidence page stays out of
+  // the read-page list, so it still blocks every negative claim), not by
+  // throwing the words away. Deleting the text made the app say "I couldn't
+  // make out any words" about a card the owner can read perfectly, which is a
+  // false statement no one downstream can detect or appeal.
+  const faint = pageFromVisionResponse(
+    { fullTextAnnotation: { text: 'blurry', pages: [{ confidence: OCR_MIN_PAGE_CONFIDENCE - 0.01 }] } },
+    2,
+  );
+  check(faint?.text === 'blurry', 'a faintly-read page keeps its text instead of vanishing');
+  check(faint?.lowConfidence === true, 'and is flagged, so the UI can badge it and coverage can exclude it');
+  // The CONTROL: the flag must actually depend on the threshold, not be
+  // hardcoded true. Without this, a bug that flagged every page — silently
+  // dropping all of them from coverage — would pass the assertion above.
+  const clear = pageFromVisionResponse(
+    { fullTextAnnotation: { text: 'sharp', pages: [{ confidence: OCR_MIN_PAGE_CONFIDENCE + 0.01 }] } },
+    2,
+  );
+  check(clear?.lowConfidence === false, 'a page just above the floor is NOT flagged');
+}
 check(
   pageFromVisionResponse({ fullTextAnnotation: { text: 'fine', pages: [{}] } }, 7)?.n === 7,
   'a missing (optional) confidence does not throw away a good read',
+);
+check(
+  pageFromVisionResponse({ textAnnotations: [{ description: 'card' }] }, 3)?.lowConfidence === false,
+  'a flat-annotation read has no confidence to check and must not be flagged as doubtful',
 );
 
 console.log(failures === 0 ? '\nAll docOcr tests passed.' : `\n${failures} docOcr test(s) FAILED.`);

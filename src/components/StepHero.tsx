@@ -48,28 +48,40 @@ export default function StepHero({ icon: Icon, tone, eyebrow, title, body, title
   return (
     <div className={`rounded-2xl bg-ink-900 text-white p-4 sm:p-5 overflow-hidden relative ${className}`}>
       <div className={`absolute -right-5 -top-7 w-20 h-20 rounded-full ${t.accent}`} aria-hidden="true" />
-      <div className="relative flex items-start gap-3">
+      {/* A GRID, not a flex row, for one reason: on a phone the title needs the
+          card's FULL width. Beside a 40px badge and its 12px gap, the headline
+          had 211px to work with at 375px — and "Welcome back — you're partway
+          through" broke to three ragged lines with "Welcome" alone on the
+          first. text-balance cannot fix a column that narrow; only giving the
+          words more room can. So below sm the title drops to its own row
+          spanning both columns (263px, two clean lines), while the badge keeps
+          the eyebrow company above it. From sm up nothing moves: the title
+          returns to column two and the card looks exactly as it always has. */}
+      <div className="relative grid grid-cols-[2.5rem_minmax(0,1fr)] items-start gap-x-3">
         <div className={`w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center ${t.badge}`}>
           <Icon className="w-5 h-5" />
         </div>
-        <div className="min-w-0 pt-0.5">
+        <div className="min-w-0 self-center sm:self-start sm:pt-0.5">
           {/* .step-eyebrow (index.css) paints itself with a gradient via
               background-clip. NEVER put a text-* utility on it — Tailwind's
               utilities layer sorts after @layer components, so a colour class
               here silently repaints the glyphs opaque and hides the gradient. */}
           <span className="step-eyebrow">{eyebrow}</span>
-          {/* Rory (2026-08-20): "should the GUIDED SETUP part be bigger than
-              the Welcome back?" — no. The eyebrow says which flow you are in;
-              the title is the thing you are being told. Growing the eyebrow to
-              13px put them close enough to compete (13/18 = 72%, where an
-              eyebrow normally sits nearer 60%), so the fix went on this side:
-              the headline of the card that IS the screen was only text-lg.
-              text-balance because the wrap left the last word stranded on its
-              own line ("…you're partway / through"). */}
-          <h3 id={titleId} className="font-display text-xl font-semibold text-white leading-snug text-balance mt-1.5">
-            {title}
-          </h3>
         </div>
+        {/* Rory (2026-08-20): "should the GUIDED SETUP part be bigger than
+            the Welcome back?" — no. The eyebrow says which flow you are in;
+            the title is the thing you are being told. Growing the eyebrow to
+            13px put them close enough to compete (13/18 = 72%, where an
+            eyebrow normally sits nearer 60%), so the fix went on this side:
+            the headline of the card that IS the screen was only text-lg.
+            text-balance because the wrap left the last word stranded on its
+            own line ("…you're partway / through"). */}
+        <h3
+          id={titleId}
+          className="col-span-2 sm:col-span-1 sm:col-start-2 font-display text-xl font-semibold text-white leading-snug text-balance mt-2 sm:mt-1.5"
+        >
+          {title}
+        </h3>
       </div>
       <p className="relative text-[13.5px] text-white/70 leading-relaxed mt-2.5">{body}</p>
     </div>

@@ -23,7 +23,7 @@
 // KEEP IN SYNC with server/docRead.mjs isEligible(). If you change a rule here,
 // change it there in the same commit; the server copy is the one that matters.
 
-import { INSURANCE_READER_ENABLED } from '../config/features';
+import { INSURANCE_READER_ENABLED, MEDICAL_READER_ENABLED } from '../config/features';
 
 /**
  * Document names that look like an insurance policy.
@@ -87,7 +87,7 @@ export function canAskAboutDocument(input: {
   // only rejects 'Medical', the two disagree in the SAFE direction (button
   // hidden, no request made, no 403). Flagged for the server owner to align.
   const category = (input.category || '').trim().toLowerCase();
-  if (category === 'medical' || category === 'health') return false;
+  if (!MEDICAL_READER_ENABLED && (category === 'medical' || category === 'health')) return false;
 
   // NOT excluded here: images — and as of v186 they are fully readable.
   //

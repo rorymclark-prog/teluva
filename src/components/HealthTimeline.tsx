@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X, HeartPulse, TrendingUp, Stethoscope, CalendarClock, Printer, Ruler, Scale, Users,
-  Droplet, AlertTriangle, Pill, Leaf, Building2, ShieldAlert, Syringe, Clock,
+  Droplet, AlertTriangle, Pill, Leaf, Building2, ShieldAlert, Syringe, Clock, Bandage,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { FamilyMember, CalendarEvent } from '../types';
+import { FamilyMember, CalendarEvent, FamilyTimeline, TimelineEntry } from '../types';
+import { loadTimeline } from '../utils/db';
+import { useSharedDoc } from '../hooks/useSharedDoc';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { relativeDayLabel, todayIsoLocal } from '../utils/memberAppointments';
@@ -54,6 +56,9 @@ const KIND_META: Record<Exclude<HealthTimelineKind, 'referral'>, { label: string
   care: { label: 'Check-up', chip: 'bg-dusk-100 text-dusk-700', dot: 'bg-dusk-100 text-dusk-700', Icon: Stethoscope },
   growth: { label: 'Growth', chip: 'bg-sage-100 text-sage-700', dot: 'bg-sage-100 text-sage-700', Icon: TrendingUp },
   appointment: { label: 'Appointment', chip: 'bg-rosa-100 text-rosa-700', dot: 'bg-rosa-100 text-rosa-700', Icon: CalendarClock },
+  // A medical moment typed into the life timeline ("broke her arm") — see
+  // healthTimeline.ts rule 7. Edited on the Timeline, only shown here.
+  moment: { label: 'Moment', chip: 'bg-cream-200 text-ink-700', dot: 'bg-cream-200 text-ink-700', Icon: Bandage },
 };
 const REFERRAL_DOT = 'bg-honey-100 text-honey-700';
 
@@ -68,7 +73,7 @@ const FILTERS: { id: FilterKind; label: string }[] = [
 
 function matchesFilter(item: HealthTimelineItem, filter: FilterKind): boolean {
   if (filter === 'all') return true;
-  if (filter === 'visits') return item.kind === 'care' || item.kind === 'referral';
+  if (filter === 'visits') return item.kind === 'care' || item.kind === 'referral' || item.kind === 'moment';
   return item.kind === filter;
 }
 
@@ -153,6 +158,16 @@ export default function HealthTimeline({ members, events, onClose, initialMember
 
   const member = members.find((m) => m.id === selectedId) || null;
 
+  // Medical moments live on the life timeline (TimelineView). Read, never
+  // written, from here — same as the calendar's appointments.
+  const [moments, setMoments] = useState<TimelineEntry[]>([]);
+  useEffect(() => {
+    let active = true;
+    void loadTimeline().then((t) => { if (active) setMoments(t?.entries || []); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  useSharedDoc<FamilyTimeline>('timeline', (v) => setMoments(v.entries || []));
+
   // One "now" for this whole render — computed once, not read from the clock
   // inside buildHealthTimeline — so every source it merges (care due dates,
   // upcoming-vs-past appointments, referral staleness) agrees on what "today"
@@ -162,8 +177,8 @@ export default function HealthTimeline({ members, events, onClose, initialMember
 
   const timeline = useMemo(() => {
     if (!member) return null;
-    return buildHealthTimeline({ member, events, members, now });
-  }, [member, events, members, now]);
+    return buildHealthTimeline({ member, events, members, now, moments });
+  }, [member, events, members, now, moments]);
 
   const filteredUpcoming = useMemo(
     () => (timeline ? timeline.upcoming.filter((i) => matchesFilter(i, filter)) : []),

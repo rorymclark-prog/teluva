@@ -1,16 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { VaultDocument, VaultCategory, FamilyMember, FamilyDocument } from '../types';
-import { loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, uploadVaultPhoto, deleteDocumentEverywhere } from '../utils/db';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { VaultDocument, VaultCategory, FamilyMember, FamilyDocument, HouseholdInfo, AssetItem } from '../types';
+import { loadHousehold, loadAssets, loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, uploadVaultPhoto, deleteDocumentEverywhere, fetchInboundMailAddress, fetchGmailBridgeStatus, createGmailBridgeToken, revokeGmailBridgeToken } from '../utils/db';
+import type { GmailBridgeStatus } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import { auth } from '../lib/firebase';
 import DocumentViewer from './DocumentViewer';
 import DocumentAskModal from './DocumentAskModal';
 import { canAskAboutDocument } from '../utils/docReadEligibility';
+import { toFamilyDoc } from '../utils/vaultDoc';
+import { filedWithIndex, filedWithText } from '../utils/serviceDocs';
+import { extractKeyFacts, saveKeyFacts, vaultDocToReaderTarget } from '../utils/docKeyFacts';
+import { keyFactsCurrent } from '../utils/trip';
 import {
   FolderLock, Upload, Search, Eye, Cloud, CloudOff,
   Plus, X, Check, Loader2, File, AlertCircle, AlertTriangle,
-  CheckSquare, Share2, Download, ImagePlus, MessageCircleQuestion
+  CheckSquare, Share2, Download, ImagePlus, MessageCircleQuestion, Mail, Wrench, CalendarHeart
 } from 'lucide-react';
+import { lifeDateLabel } from '../utils/lifeTimeline';
 import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch } from '../utils/documentDedup';
 import { canShare, shareMultiple, downloadZip } from '../utils/share';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -19,6 +25,41 @@ import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { SkeletonHeader, SkeletonRows } from './Skeleton';
 
 const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
+
+// The date printed on a document — what places it on the timeline. Shown as a
+// quiet link until someone sets it, then as the date; either way one tap edits.
+function DocDate({ value, onChange }: { value?: string; onChange: (next: string | undefined) => void }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <input
+        type="date"
+        className="field text-[12px] py-1 px-2 w-auto"
+        autoFocus
+        defaultValue={value || ''}
+        aria-label="Date on the document"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setEditing(false); }}
+        onBlur={(e) => {
+          setEditing(false);
+          const next = e.target.value;
+          if (next !== (value || '')) onChange(next || undefined);
+        }}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+      className={`text-[12px] inline-flex items-center gap-1 hover:text-clay-700 ${value ? 'text-sage-700 font-medium' : 'text-ink-400'}`}
+      title="The date printed on the document. It puts the document on the timeline."
+    >
+      <CalendarHeart className="w-3 h-3" />
+      {value ? `On the timeline · ${lifeDateLabel({ date: value, precision: 'day' })}` : 'Add the date on it'}
+    </button>
+  );
+}
 
 // Family-oriented categories that don't make sense inside a Business space
 // (mirrors the HIDDEN_IN_BUSINESS pattern in Dashboard.tsx).
@@ -62,20 +103,29 @@ function readFile(file: File): Promise<string> {
 /* ------------------------------------------------------------------ */
 
 interface UploadPanelProps {
+  isBusinessSpace?: boolean;
   members: FamilyMember[];
   existingDocs: VaultDocument[];
   categories: VaultCategory[];
   onUpload: (doc: VaultDocument, replaceId?: string) => void;
   onCancel: () => void;
+  /* A file that arrived without anyone opening the file picker — shared in
+   * from another app's share sheet, dropped onto the window, or pasted. The
+   * rest of the form is deliberately NOT pre-filled beyond the name: which
+   * person and which category a document belongs to is the judgement the vault
+   * exists to capture, and guessing it produces a vault full of things filed
+   * under Other against nobody. */
+  initialFile?: File | null;
 }
 
-function UploadPanel({ members, existingDocs, categories, onUpload, onCancel }: UploadPanelProps) {
+function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, isBusinessSpace = false, initialFile = null }: UploadPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [name, setName] = useState('');
+  const [file, setFile] = useState<File | null>(initialFile);
+  const [name, setName] = useState(initialFile ? initialFile.name.replace(/\.[^.]+$/, '') : '');
   const [category, setCategory] = useState<VaultCategory>('Other');
   const [memberId, setMemberId] = useState('');
   const [notes, setNotes] = useState('');
+  const [docDate, setDocDate] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [duplicateMatch, setDuplicateMatch] = useState<DupMatch<VaultDocument> | null>(null);
@@ -88,6 +138,20 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel }: 
     setError(null);
     setDuplicateMatch(null);
   };
+
+  /* A share or a drop while the panel is ALREADY open replaces what is in it.
+   * The alternative — ignoring the new file because the panel is mounted — is
+   * the worse failure: the person watches their document arrive, sees the
+   * previous one still named in the form, and has no way to tell which set of
+   * bytes the Upload button is about to send. The name follows the file unless
+   * it has been typed over. */
+  useEffect(() => {
+    if (!initialFile) return;
+    setFile(initialFile);
+    setName((prev) => (prev.trim() ? prev : initialFile.name.replace(/\.[^.]+$/, '')));
+    setError(null);
+    setDuplicateMatch(null);
+  }, [initialFile]);
 
   const doUpload = async (contentHash: string, replaceId?: string) => {
     if (!file) return;
@@ -110,6 +174,7 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel }: 
         uploadedBy: auth.currentUser?.displayName || auth.currentUser?.email || undefined,
         memberId: memberId || undefined,
         notes: notes.trim() || undefined,
+        docDate: docDate || undefined,
         contentHash,
       };
       onUpload(newDoc, replaceId);
@@ -234,7 +299,7 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel }: 
             value={memberId}
             onChange={e => setMemberId(e.target.value)}
           >
-            <option value="">Whole family</option>
+            <option value="">{isBusinessSpace ? 'Whole team' : 'Whole family'}</option>
             {members.map(m => (
               <option key={m.id} value={m.id}>{m.name}</option>
             ))}
@@ -250,6 +315,18 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel }: 
             value={notes}
             onChange={e => setNotes(e.target.value)}
           />
+        </div>
+
+        {/* The date printed on it — never the upload date */}
+        <div>
+          <label className="field-label">Date on the document <span className="text-ink-400 font-normal">(optional)</span></label>
+          <input
+            type="date"
+            className="field"
+            value={docDate}
+            onChange={e => setDocDate(e.target.value)}
+          />
+          <p className="text-[12px] text-ink-400 mt-1">Puts it on the timeline on that day.</p>
         </div>
       </div>
 
@@ -310,13 +387,14 @@ interface ImportItem {
 }
 
 interface BulkPhotoImportPanelProps {
+  isBusinessSpace?: boolean;
   members: FamilyMember[];
   categories: VaultCategory[];
   onImport: (docs: VaultDocument[]) => void;
   onCancel: () => void;
 }
 
-function BulkPhotoImportPanel({ members, categories, onImport, onCancel }: BulkPhotoImportPanelProps) {
+function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusinessSpace = false }: BulkPhotoImportPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<ImportItem[]>([]);
   const [category, setCategory] = useState<VaultCategory>('Other');
@@ -472,7 +550,7 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel }: BulkP
           <div>
             <label className="field-label">Belongs to</label>
             <select className="field" value={memberId} disabled={importing} onChange={e => setMemberId(e.target.value)}>
-              <option value="">Whole family</option>
+              <option value="">{isBusinessSpace ? 'Whole team' : 'Whole family'}</option>
               {members.map(m => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
@@ -555,7 +633,7 @@ function FilterBar({ active, counts, categories, onChange }: FilterBarProps) {
 /* Main component                                                       */
 /* ------------------------------------------------------------------ */
 
-export default function DocumentVault({ members, isBusinessSpace, onMembersChange, emberMode = false, openUploadSignal = 0 }: { members: FamilyMember[]; isBusinessSpace?: boolean; onMembersChange?: (members: FamilyMember[]) => Promise<void> | void; emberMode?: boolean; openUploadSignal?: number }) {
+export default function DocumentVault({ members, isBusinessSpace, onMembersChange, emberMode = false, openUploadSignal = 0, incomingFile = null, onIncomingConsumed }: { members: FamilyMember[]; isBusinessSpace?: boolean; onMembersChange?: (members: FamilyMember[]) => Promise<void> | void; emberMode?: boolean; openUploadSignal?: number; incomingFile?: File | null; onIncomingConsumed?: () => void }) {
   const [docs, setDocs] = useState<VaultDocument[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -567,6 +645,48 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState<'share' | 'zip' | null>(null);
+  /* A file that arrived without the file picker. THREE doors lead here and
+   * they are all the same door once the file exists:
+   *
+   *  - shared in from another app's share sheet (Dashboard hands it down as
+   *    `incomingFile`; see utils/sharedInbox.ts for how it survives the POST),
+   *  - dragged onto the window from a desktop or a mail client,
+   *  - pasted.
+   *
+   * Before this, the only way in was the picker — which on a phone means
+   * leaving Teluva, finding the app the document is in, saving it to Files,
+   * coming back, and going looking for it. Every one of those steps is a
+   * chance to give up, and the document that never gets filed is the one that
+   * is needed at a border. */
+  const [droppedFile, setDroppedFile] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  /* The family's forward-to-file address, or null when inbound mail is not
+   * switched on for this deployment — which is the case in production today,
+   * because it needs a domain with an MX record and the app runs on
+   * *.run.app. Rendered only when it exists: an address people cannot use is
+   * worse than no row, because someone WILL forward a document to it. */
+  const [inboundAddress, setInboundAddress] = useState<string | null>(null);
+  const [copiedAddress, setCopiedAddress] = useState(false);
+  /* The Gmail bridge. Teluva cannot read Gmail — every scope that can is a
+   * Google RESTRICTED scope needing an annual CASA assessment — so the reading
+   * happens in an Apps Script in the person's own account, which pushes
+   * attachments in with a bridge token.
+   *
+   * `gmailToken` is the raw token and exists in this component for exactly as
+   * long as the person needs to copy it. The server never returns it again:
+   * only its hash is stored. That is deliberate, and it is why the panel says
+   * so out loud rather than letting someone close it and come back. */
+  const [gmailStatus, setGmailStatus] = useState<GmailBridgeStatus | null>(null);
+  const [gmailToken, setGmailToken] = useState<string | null>(null);
+  const [gmailBusy, setGmailBusy] = useState(false);
+  const [gmailError, setGmailError] = useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = useState(false);
+  /* Nested dragenter/dragleave pairs fire for every child element the pointer
+   * crosses, so a boolean toggled on each one flickers the overlay off the
+   * moment the file passes over a card. Counting them is the standard cure. */
+  const dragDepth = useRef(0);
+
+  const pendingFile = incomingFile || droppedFile;
 
   // Business spaces don't need family-oriented categories like Education/Medical.
   const categories = isBusinessSpace ? CATEGORIES.filter(c => !HIDDEN_IN_BUSINESS.includes(c)) : CATEGORIES;
@@ -577,6 +697,46 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
     setShowBulkImport(false);
     setSelectMode(false);
   }, [openUploadSignal]);
+
+  /* A file arriving IS the intent to upload it — opening the panel is not a
+   * guess. Bulk import and select mode close, because all three fight for the
+   * same region of the screen and the arriving file is the most recent thing
+   * the person did. */
+  useEffect(() => {
+    if (!pendingFile) return;
+    setShowUpload(true);
+    setShowBulkImport(false);
+    setSelectMode(false);
+  }, [pendingFile]);
+
+  /* Paste. Bound to the document rather than a field because there is nothing
+   * sensible to focus first — the gesture is "I copied a PDF, put it here".
+   * Skipped while typing, or pasting a filename into the search box would
+   * open the upload form instead of searching.
+   *
+   * clipboardData.files, not .items: a file copied in Finder or Explorer
+   * reports an EMPTY types list, so anything keyed on types misses exactly the
+   * case this is for. */
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      const f = e.clipboardData?.files?.[0];
+      if (!f || !f.size) return;
+      e.preventDefault();
+      setDroppedFile(f);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchInboundMailAddress().then((a) => { if (active) setInboundAddress(a); });
+    fetchGmailBridgeStatus().then((st) => { if (active) setGmailStatus(st); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -599,6 +759,30 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
     (v) => setDocs(v.docs || []),
     { hold: showUpload || showBulkImport || !!deletingId || selectMode || exporting !== null },
   );
+
+  /* "Filed with Trek FX · service 10 Sep" — Rory asked where a service
+   * receipt LIVES; this is the vault answering "and what is it for?". DERIVED
+   * from the household doc's service logs (utils/serviceDocs.filedWithIndex),
+   * never stored on the document, so there is no back-pointer to go stale.
+   * Read-only: this screen never writes the household doc. */
+  const [household, setHousehold] = useState<HouseholdInfo | null>(null);
+  const [assetNames, setAssetNames] = useState<Pick<AssetItem, 'id' | 'name'>[]>([]);
+  useEffect(() => {
+    let active = true;
+    loadHousehold().then((h) => { if (active) setHousehold(h || {}); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  useSharedDoc<HouseholdInfo>('household', (h) => setHousehold(h || {}));
+  // Item names only matter for a work-log receipt linked to an appliance;
+  // skip the whole Belongings read when nothing is.
+  const needsAssetNames = !!household?.homeServiceLog?.some((r) => r?.assetId && r.docIds?.length);
+  useEffect(() => {
+    if (!needsAssetNames) return;
+    let active = true;
+    loadAssets().then((a) => { if (active) setAssetNames((a || []).map(({ id, name }) => ({ id, name }))); }).catch(() => {});
+    return () => { active = false; };
+  }, [needsAssetNames]);
+  const filedWith = useMemo(() => filedWithIndex(household, assetNames), [household, assetNames]);
 
   const persist = async (next: VaultDocument[]) => {
     setDocs(next);
@@ -625,8 +809,26 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
     }
     const next = [doc, ...base];
     await persist(next);
-    setShowUpload(false);
+    closeUpload();
   };
+
+  const closeUpload = () => setShowUpload(false);
+
+  /* The panel closing is what SPENDS an arriving file — however it closed.
+   * Written as an effect on `showUpload` rather than inside the cancel
+   * handler because there are FOUR ways it closes: cancel, a completed
+   * upload, the toggle button pressed a second time, and switching to Import
+   * photos. Clearing in only the first two leaves the file set, so the next
+   * press of "Upload document" silently reopens holding the document the
+   * person just decided not to file — a form that looks like a fresh upload
+   * and is not one. */
+  useEffect(() => {
+    if (showUpload) return;
+    setDroppedFile(null);
+    if (incomingFile) onIncomingConsumed?.();
+    // onIncomingConsumed is the parent's setState; incomingFile is what it clears.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showUpload]);
 
   // Deletes the vault row, the Storage file AND any copy of the same document
   // filed on a family member's profile — the two stores used to be cleaned up
@@ -716,15 +918,6 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   // a bare new-tab download link — same PDF/image rendering, same layout.
   const [viewingDoc, setViewingDoc] = useState<VaultDocument | null>(null);
   const [askingDoc, setAskingDoc] = useState<VaultDocument | null>(null);
-  const VAULT_CATEGORY_TO_FAMILY: Record<VaultCategory, FamilyDocument['category']> = {
-    Identity: 'ID', Education: 'Education', Medical: 'Health',
-    Financial: 'Other', Legal: 'Other', Travel: 'Travel', Other: 'Other',
-  };
-  const toFamilyDoc = (v: VaultDocument): FamilyDocument => ({
-    id: v.id, name: v.name, category: VAULT_CATEGORY_TO_FAMILY[v.category],
-    fileType: v.fileType, fileName: v.fileName, fileSize: v.fileSize,
-    uploadedAt: v.uploadedAt, notes: v.notes, fileData: v.downloadUrl,
-  });
 
   if (!loaded) {
     return (
@@ -739,8 +932,50 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
     );
   }
 
+  /* Drop handlers on the vault root. dragover MUST preventDefault or the
+   * browser navigates away to display the file, which loses the whole page —
+   * the single most common way a drop target silently does not work. */
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    dragDepth.current += 1;
+    setDragActive(true);
+  };
+  const onDragLeave = () => {
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragActive(false);
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const onDrop = (e: React.DragEvent) => {
+    const f = e.dataTransfer?.files?.[0];
+    dragDepth.current = 0;
+    setDragActive(false);
+    if (!f || !f.size) return;
+    e.preventDefault();
+    setDroppedFile(f);
+  };
+
   return (
-    <div className="space-y-6 font-sans">
+    <div
+      className="space-y-6 font-sans relative"
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      {/* Only while a file is actually over the window. A permanent "drop
+        * files here" zone would be a lie on a phone, where there is no drag. */}
+      {dragActive && (
+        <div className="fixed inset-0 z-[90] pointer-events-none flex items-center justify-center bg-ink-900/30 backdrop-blur-sm">
+          <div className="card px-6 py-5 flex items-center gap-3 border-2 border-dashed border-terra-400">
+            <Upload className="w-5 h-5 text-terra-500" />
+            <p className="text-[15px] font-semibold text-ink-800">Drop it here to file it</p>
+          </div>
+        </div>
+      )}
 
       {/* Search is the Ember front door; Classic keeps the compact header. */}
       {emberMode ? (
@@ -846,19 +1081,154 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
       )}
 
       {/* Upload panel (inline, collapsible) */}
+      {inboundAddress && (
+        <div className="card p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-sage-100 text-sage-700 flex items-center justify-center shrink-0">
+            <Upload className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-semibold text-ink-800">Email documents in</p>
+            <p className="text-[12px] text-ink-500 mt-0.5">
+              Forward an email to this address and its attachments are filed here. Only messages from
+              a member of {isBusinessSpace ? 'this business' : 'your family'} are accepted.
+            </p>
+            <p className="text-[12.5px] font-mono break-all text-ink-800 mt-1.5">{inboundAddress}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              /* A tick only after the clipboard write RESOLVES — a denied
+               * clipboard permission must not claim a copy that did not
+               * happen, or someone forwards a document to nothing. */
+              navigator.clipboard?.writeText(inboundAddress).then(() => {
+                setCopiedAddress(true);
+                setTimeout(() => setCopiedAddress(false), 1600);
+              }).catch(() => { /* silent — no false tick */ });
+            }}
+            className="btn-quiet text-xs px-3 py-1.5 shrink-0"
+          >
+            {copiedAddress ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      )}
+
+      {gmailStatus && (
+        <div className="card p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-sage-100 text-sage-700 flex items-center justify-center shrink-0">
+              <Mail className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-semibold text-ink-800">File documents from your email</p>
+              {gmailStatus.connected ? (
+                <p className="text-[12px] text-ink-500 mt-0.5">
+                  Connected. {gmailStatus.filedCount || 0} document{(gmailStatus.filedCount || 0) === 1 ? '' : 's'} filed so far
+                  {gmailStatus.lastUsedAt ? `, last checked ${new Date(gmailStatus.lastUsedAt).toLocaleDateString()}` : ' — waiting for its first run'}.
+                </p>
+              ) : (
+                <p className="text-[12px] text-ink-500 mt-0.5">
+                  A small script runs in your own Gmail, finds photos and PDFs attached to your mail,
+                  and files them here. It never reads the text of your messages.
+                </p>
+              )}
+
+              {/* The raw token, for as long as it takes to copy it. Saying the
+                * words "shown once" beside it is not decoration: the server
+                * keeps only a hash, so someone who closes this without copying
+                * has to create a new one, and a person who does not know that
+                * will assume they can come back for it. */}
+              {gmailToken && (
+                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                  <p className="text-[12px] font-semibold text-amber-900">Copy this now — it is shown once.</p>
+                  <p className="text-[12.5px] font-mono break-all text-ink-800 mt-1">{gmailToken}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(gmailToken).then(() => {
+                          setCopiedToken(true);
+                          setTimeout(() => setCopiedToken(false), 1600);
+                        }).catch(() => { /* silent — never a tick for a copy that did not happen */ });
+                      }}
+                      className="btn-quiet text-xs px-3 py-1.5"
+                    >
+                      {copiedToken ? 'Copied' : 'Copy token'}
+                    </button>
+                    <button type="button" onClick={() => setGmailToken(null)} className="text-xs text-ink-500 underline">
+                      I have copied it
+                    </button>
+                  </div>
+                  <p className="text-[11.5px] text-ink-500 mt-2">
+                    Paste it into the bridge script's <span className="font-mono">TELUVA_TOKEN</span> property —
+                    setup steps are in <span className="font-mono">apps-script/teluva-gmail-bridge/README.md</span>.
+                  </p>
+                </div>
+              )}
+
+              {gmailError && <p className="text-[12px] text-rose-600 mt-1.5">{gmailError}</p>}
+
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  type="button"
+                  disabled={gmailBusy}
+                  onClick={async () => {
+                    setGmailBusy(true); setGmailError(null);
+                    try {
+                      const t = await createGmailBridgeToken();
+                      setGmailToken(t);
+                      setGmailStatus(await fetchGmailBridgeStatus());
+                    } catch (e) {
+                      setGmailError(e instanceof Error ? e.message : 'Could not create the token.');
+                    } finally { setGmailBusy(false); }
+                  }}
+                  className="btn-quiet text-xs px-3 py-1.5 disabled:opacity-50"
+                >
+                  {gmailStatus.connected ? 'Create a new token' : 'Connect Gmail'}
+                </button>
+                {gmailStatus.connected && (
+                  <button
+                    type="button"
+                    disabled={gmailBusy}
+                    onClick={async () => {
+                      setGmailBusy(true); setGmailError(null);
+                      try {
+                        await revokeGmailBridgeToken();
+                        setGmailToken(null);
+                        setGmailStatus(await fetchGmailBridgeStatus());
+                      } catch (e) {
+                        setGmailError(e instanceof Error ? e.message : 'Could not disconnect.');
+                      } finally { setGmailBusy(false); }
+                    }}
+                    className="text-xs text-rose-600 underline disabled:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+              {gmailStatus.connected && (
+                <p className="text-[11.5px] text-ink-500 mt-1.5">
+                  Creating a new token immediately stops the old one working.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showUpload && (
-        <UploadPanel
+        <UploadPanel isBusinessSpace={isBusinessSpace}
+          initialFile={pendingFile}
           members={members}
           existingDocs={docs}
           categories={categories}
           onUpload={handleUpload}
-          onCancel={() => setShowUpload(false)}
+          onCancel={closeUpload}
         />
       )}
 
       {/* Bulk photo import panel (inline, collapsible) */}
       {showBulkImport && (
-        <BulkPhotoImportPanel
+        <BulkPhotoImportPanel isBusinessSpace={isBusinessSpace}
           members={members}
           categories={categories}
           onImport={handleBulkImport}
@@ -917,6 +1287,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
             const mName = memberName(doc.memberId);
             const isDeleting = deletingId === doc.id;
             const isSelected = selectedIds.has(doc.id);
+            const filedText = (filedWith.get(doc.id) || []).map((f) => filedWithText(f)).join('; ');
 
             return (
               <div
@@ -964,11 +1335,22 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
                       )}
                     </div>
                     <p className="text-[12px] text-ink-400 truncate" title={doc.fileName}>{doc.fileName}</p>
+                    {filedText && (
+                      <p className="text-[12px] text-sage-700 font-medium mt-0.5 flex items-center gap-1 min-w-0">
+                        <Wrench className="w-3 h-3 shrink-0" /><span className="truncate">Filed with {filedText}</span>
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 tabular-nums">
                       <span className="text-[12px] text-ink-400">{formatBytes(doc.fileSize)}</span>
                       <span className="text-[12px] text-ink-400">{doc.uploadedAt}</span>
                       {doc.uploadedBy && (
                         <span className="text-[12px] text-ink-400">by {doc.uploadedBy.split(' ')[0]}</span>
+                      )}
+                      {!selectMode && (
+                        <DocDate
+                          value={doc.docDate}
+                          onChange={(docDate) => persist(docs.map((d) => (d.id === doc.id ? { ...d, docDate } : d)))}
+                        />
                       )}
                     </div>
                     {doc.notes && (
@@ -1013,7 +1395,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
                     <ConfirmDeleteButton
                       onConfirm={() => handleDelete(doc)}
                       ariaLabel={`Delete "${doc.name}" everywhere`}
-                      hint="Removes the file from the vault and from any family member's profile it was filed on."
+                      hint={`Removes the file from the vault and from any ${isBusinessSpace ? 'team' : 'family'} member's profile it was filed on.${filedText ? ` It is also filed with ${filedText} — that entry keeps its details, just not this file.` : ''}`}
                       busy={isDeleting}
                       className="rounded-xl"
                     />
@@ -1040,6 +1422,21 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
         document={viewingDoc ? toFamilyDoc(viewingDoc) : null}
         memberName={viewingDoc ? (memberName(viewingDoc.memberId) ?? (isBusinessSpace ? 'the team' : 'the family')) : ''}
         onClose={() => setViewingDoc(null)}
+        onExtractKeyFacts={viewingDoc ? async () => {
+          // Same pipeline as the trip pack's button (utils/docKeyFacts.ts).
+          // saveKeyFacts returns the post-merge doc list; adopting it keeps
+          // this screen honest about what was actually stored, and updating
+          // viewingDoc re-renders the open viewer with its new chips.
+          const res = await extractKeyFacts(vaultDocToReaderTarget(viewingDoc));
+          if (res.kind !== 'result') return { ok: false, message: res.message };
+          const next = await saveKeyFacts(viewingDoc.id, res.facts);
+          if (!next) return { ok: false, message: 'Could not save the facts — please try again.' };
+          setDocs(next);
+          const fresh = next.find((d) => d.id === viewingDoc.id);
+          if (fresh) setViewingDoc(fresh);
+          return { ok: true };
+        } : undefined}
+        factsStale={viewingDoc ? !keyFactsCurrent(viewingDoc) : false}
       />
 
       <DocumentAskModal

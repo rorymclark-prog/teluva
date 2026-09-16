@@ -83,6 +83,7 @@ const COUNTRY_ID_FIELD: Record<IdCountry, { key: keyof IdentityRecord; label: st
   ZA: { key: 'nationalIdNumber', label: 'SA ID number', placeholder: 'e.g. 9001015800086' },
   UK: { key: 'medicalAidNumber', label: 'NHS number', placeholder: 'NHS number' },
   US: { key: 'nationalIdNumber', label: 'Social Security number', placeholder: 'e.g. 123-45-6789' },
+  RO: { key: 'nationalIdNumber', label: 'CNP (Cod Numeric Personal)', placeholder: '13 digits, e.g. 1900101123456' },
   other: { key: 'nationalIdNumber', label: 'National ID number', placeholder: 'National ID / equivalent' },
 };
 

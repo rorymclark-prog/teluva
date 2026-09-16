@@ -1,6 +1,12 @@
-import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
-import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, ExtendedBirthday, VaultDocument, ReferralRecord, HealthcareProvider, MemberRole } from '../types';
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
+import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, ExtendedBirthday, VaultDocument, ReferralRecord, HealthcareProvider, MemberRole, TripDocRole } from '../types';
 import { withContactBirthdays } from '../utils/extendedBirthdaySources';
+import { hubDisplayName } from '../utils/hubName';
+import ConnectedFamilies from './ConnectedFamilies';
+import ConnectedInline from './ConnectedInline';
+import SharedHousehold from './SharedHousehold';
+import SharedProfile from './SharedProfile';
+import type { SharedMember, NamedByThem, FamilyLink } from '../utils/familyLink';
 import { useT } from '../i18n/LangContext';
 import { Strings } from '../i18n/locales';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -25,8 +31,10 @@ import {
   loadInMemory,
   leaveFamily,
   deleteDocumentEverywhere,
+  loadFamilyRoles,
 } from '../utils/db';
 import { downloadZip } from '../utils/share';
+import { appConfirm } from '../utils/appConfirm';
 import {
   applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
   applyCalendarEdits, applyHouseholdEdits, applyFinancesEdits, applyTimelineEdits,
@@ -43,6 +51,7 @@ import {
   hasServiceRecordEdits, applyServiceRecordEdits,
   hasHomeServiceEdits, applyHomeServiceEdits,
   hasPetHealthEdits, applyPetHealthEdits,
+  hasTripAttachEdits, applyTripAttachEdits,
 } from '../utils/aiApply';
 // EDIT/DELETE existing records (confirm-before-destroy) — real logic lives here.
 import { hasDestructiveEdits, applyDestructiveEdits } from '../utils/aiDestructive';
@@ -62,7 +71,7 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import HubSettingsModal from './HubSettingsModal';
 import FamilyStatus from './FamilyStatus';
 import ImageLightbox from './ImageLightbox';
-import { HubSettings } from '../types';
+import { HubSettings, HiddenDatePerson, HiddenDatePersonFor } from '../types';
 import { auth, loginWithGoogle, logout } from '../lib/firebase';
 // getAccessToken reads the SAME module-level Google OAuth token cache that
 // FamilyCalendar.tsx's connect/import/export UI already populates via
@@ -72,11 +81,22 @@ import { auth, loginWithGoogle, logout } from '../lib/firebase';
 // screen — see that effect's comment for why) read the same cached token
 // FamilyCalendar uses. invalidateAccessToken clears that shared cache on a
 // 401 so neither component keeps retrying a token already known to be dead.
-import { getAccessToken, invalidateAccessToken } from '../utils/firebase';
+import { getAccessToken, invalidateAccessToken, connectGoogleAccess, isGoogleDisconnected } from '../utils/firebase';
+import {
+  importGoogleEvents, readLastGoogleImport, writeLastGoogleImport, shouldImportOnStartup,
+  hasGoogleImportedEvents, staleSyncNote, GoogleImportAuthError, isGoogleImportStale,
+} from '../utils/googleCalendarImport';
+import { tagEventToMember } from '../utils/untaggedAppointments';
 import { pushEventToGoogleCalendar, isEligibleForAutoSync, GoogleCalendarAuthError } from '../utils/googleCalendarSync';
 import { onAuthStateChanged } from 'firebase/auth';
-import { DEMO_MEMBERS, DEMO_EVENTS, DEMO_CONTACTS, isDemoMode } from '../utils/demoData';
+import {
+  DEMO_MEMBERS, DEMO_EVENTS, DEMO_CONTACTS, DEMO_EXTENDED_BIRTHDAYS, isDemoMode,
+  DEMO_BUSINESS_MEMBERS, DEMO_BUSINESS_EVENTS, DEMO_BUSINESS_CONTACTS,
+  DEMO_BUSINESS_NAME, demoSpaceType, demoIsOwner, DEMO_ACCOUNT_ROLES, DEMO_ACCOUNT_UID,
+} from '../utils/demoData';
 import { warmAvatarColor, AVATAR_COLORS } from '../utils/avatarPalette';
+import { HiddenPeopleProvider, HideDatesButton, memberDates } from '../contexts/HiddenPeopleContext';
+import { hiddenKey, type SettingsHiddenLists } from '../utils/hiddenPeople';
 import AddMemberModal from './AddMemberModal';
 import EditMemberModal from './EditMemberModal';
 import MemberSizing from './MemberSizing';
@@ -91,6 +111,9 @@ import MemberGuardians from './MemberGuardians';
 import MemberOverview from './MemberOverview';
 import NeedsAttention from './NeedsAttention';
 import ReadinessCard from './ReadinessCard';
+import ImportantComingUp from './ImportantComingUp';
+import { importantComingUp } from '../utils/importantEvents';
+import { todayIsoLocal } from '../utils/memberAppointments';
 import MemberIDs from './MemberIDs';
 import MemberTravel from './MemberTravel';
 import CareSchedule from './CareSchedule';
@@ -106,6 +129,13 @@ import FlashbackCard from './FlashbackCard';
 import EmergencyCard from './EmergencyCard';
 import BabysitterMode from './BabysitterMode';
 import TravelPack from './TravelPack';
+import TripPack from './TripPack';
+import { buildTrips, currentTrips, keyFactsCurrent, moveTripDoc } from '../utils/trip';
+import { extractKeyFacts, saveKeyFacts, vaultDocToReaderTarget } from '../utils/docKeyFacts';
+import { uploadTripDocFile } from '../utils/tripDocUpload';
+import { resolveMe } from '../utils/me';
+import TeamDirectory from './TeamDirectory';
+import RecentActivity from './RecentActivity';
 import FamilyStats from './FamilyStats';
 import FamilyQuiz from './FamilyQuiz';
 import HealthTimeline from './HealthTimeline';
@@ -118,6 +148,7 @@ import InstallPrompt from './InstallPrompt';
 import FirstRunTour from './FirstRunTour';
 import FamilyInterview from './FamilyInterview';
 import AppearanceControls from './AppearanceControls';
+import FeedbackModal from './FeedbackModal';
 import EmberNavigation, { EmberDestination } from './EmberNavigation';
 import FamilyPulse, { PulseExpiryWarning } from './FamilyPulse';
 import CaptureMenu from './CaptureMenu';
@@ -130,7 +161,7 @@ import {
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt, PawPrint, Network,
-  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck, HeartHandshake, Cake} from 'lucide-react';
+  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck, HeartHandshake, Cake, MessageSquare, Link2, Camera, Lock} from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
 // Lazy-loaded main-view screens — audit finding, 2026-07-30. Exactly one of
@@ -166,6 +197,7 @@ const DocumentVault = React.lazy(() => import('./DocumentVault'));
 const ShoppingList = React.lazy(() => import('./ShoppingList'));
 const FamilyChat = React.lazy(() => import('./FamilyChat'));
 const GoogleDriveSync = React.lazy(() => import('./GoogleDriveSync'));
+import { takeSharedFiles, shareOutcome, clearShareFlag } from '../utils/sharedInbox';
 const Assets = React.lazy(() => import('./Assets'));
 const RecipeBook = React.lazy(() => import('./RecipeBook'));
 const InMemoryView = React.lazy(() => import('./InMemoryView'));
@@ -220,7 +252,7 @@ function isJoinLinkVisit(): boolean {
   return /^\/join\/.+/.test(window.location.pathname);
 }
 
-type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians';
+type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians' | 'timeline';
 type ViewId = 'pulse' | 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -236,6 +268,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'travel', label: 'Travel', icon: Plane },
   { id: 'preferences', label: 'Likes', icon: Sparkles },
   { id: 'sayings', label: 'Sayings', icon: Quote },
+  { id: 'timeline', label: 'Timeline', icon: CalendarHeart },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'secrets', label: 'Secrets', icon: Key },
   { id: 'cv', label: 'CV', icon: Briefcase },
@@ -246,7 +279,7 @@ const PROFILE_LENSES: { id: ProfileLens; label: string; note: string; tabs: TabI
   { id: 'essentials', label: 'Essentials', note: 'Identity, access and records', tabs: ['overview', 'ids', 'guardians', 'documents', 'secrets'] },
   { id: 'health', label: 'Health', note: 'Care, check-ups and growth', tabs: ['medical', 'care', 'growth', 'timelapse'] },
   { id: 'life', label: 'Life', note: 'Daily needs, travel and wishes', tabs: ['sizes', 'favorites', 'travel', 'preferences', 'cv'] },
-  { id: 'story', label: 'Story', note: 'Words and moments worth keeping', tabs: ['sayings'] },
+  { id: 'story', label: 'Story', note: 'Words and moments worth keeping', tabs: ['timeline', 'sayings'] },
 ];
 
 function profileLensFor(tab: TabId): ProfileLens {
@@ -256,7 +289,9 @@ function profileLensFor(tab: TabId): ProfileLens {
 // Kid/family-specific tabs that make no sense for an employee in a business space.
 // 'guardians' joins this list for the same reason: a non-resident PARENT is a
 // family-custody concept with no equivalent for an employee's HR record.
-const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse', 'guardians'];
+// 'timeline' too: a person's life timeline carries their health history,
+// which has no place in an employee's record (lifeTimeline.ts rule 4).
+const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse', 'guardians', 'timeline'];
 // Mirror image: tabs that only make sense for an employee in a business space
 // (a CV/résumé — career history, qualifications) have no family equivalent.
 const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
@@ -269,7 +304,9 @@ const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
 // 'emergency' is a medical/allergy/blood-type card — no business equivalent
 // exists yet (a real workplace-incident log would be a distinct feature, not
 // a relabel of this one) so it's hidden rather than mislabeled.
-const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'timeline', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate', 'gifts', 'anniversaries', 'extendedBirthdays', 'pets', 'familyTree'];
+// 'timeline' is NOT in this list: in a business space it becomes the Business
+// timeline — milestones, moments and dated papers, never anyone's health.
+const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate', 'gifts', 'anniversaries', 'extendedBirthdays', 'pets', 'familyTree'];
 
 // A persisted astrology blurb older than this is treated as stale and quietly
 // regenerated next time that member's Overview is viewed — keeps the card
@@ -313,7 +350,7 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     info: isBusinessSpace ? 'Compliance' : t.nav_info,
     household: isBusinessSpace ? 'Locations' : t.nav_household,
     finances: t.nav_finances,
-    timeline: t.nav_timeline,
+    timeline: isBusinessSpace ? 'Business timeline' : t.nav_timeline,
     travelTimeline: 'Travel timeline',
     vault: t.nav_documents,
     assets: t.nav_assets,
@@ -383,13 +420,28 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const demo = isDemoMode();
   const { interfacePreference } = useAppearance();
   const emberInterface = interfacePreference === 'ember';
-  const { isAdmin, canWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId, uid: accountUid, loading: ctxLoading } = useFamilyCtx();
+  const { isAdmin: ctxIsAdmin, canWrite: ctxCanWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId, uid: accountUid, loading: ctxLoading } = useFamilyCtx();
   // Wills & Estate has its own access answer, separate from role — see
   // hooks/useWillsAccess.ts and the carve-out in firestore.rules.
   const { mayRead: mayReadWills, mayWrite: mayWriteWills } = useWillsAccess();
 
-  const activeSpaceType = spaces.find((s) => s.id === activeSpaceId)?.type || 'family';
+  /* The demo has no account, so it has no spaces list to look itself up in —
+     ?demo=business is the only way to see a business space without buying one. */
+  const activeSpaceType = demo
+    ? demoSpaceType()
+    : spaces.find((s) => s.id === activeSpaceId)?.type || 'family';
   const isBusinessSpace = activeSpaceType === 'business';
+
+  /* A demo has no account and so no role. In a BUSINESS space that silently
+     picks a side — see demoIsOwner(). Real spaces are untouched: `demo` is
+     false for every signed-in user, so ctxIsAdmin is the only answer that
+     ever reaches them. */
+  const isAdmin = demo ? demoIsOwner() : ctxIsAdmin;
+  /* An owner writes. Without this the business demo hid Money and Insurance
+     from the person who owns the company — both are filtered on canWrite, not
+     on isAdmin (see availableViewItems). Family demos keep ctxCanWrite, which
+     is false, exactly as they always have. */
+  const canWrite = demo && demoIsOwner() ? true : ctxCanWrite;
 
   const handleSwitchSpace = async (spaceId: string) => {
     await switchSpace(spaceId);
@@ -453,6 +505,19 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [contacts, setContacts] = useState<ContactEntry[]>([]);
   const [extendedBirthdayRecords, setExtendedBirthdayRecords] = useState<ExtendedBirthday[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
+  /* A person from a connected household, shown in the SAME panel as a member.
+   * Kept beside selectedMemberId rather than folded into it: a shared person is
+   * not a FamilyMember and must never reach the tabs, editors or AI paths that
+   * assume one. Selecting either clears the other — one panel, one subject. */
+  const [sharedView, setSharedView] = useState<{ member: SharedMember; household: string; linkId?: string } | null>(null);
+  /* The connected household as a subject in its own right. Same panel, same
+   * one-subject rule: opening a household clears the person and vice versa. */
+  const [householdView, setHouseholdView] = useState<{
+    link: FamilyLink;
+    members: SharedMember[];
+    photoUrl?: string;
+    namedByThem: NamedByThem | null;
+  } | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
 
@@ -484,7 +549,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     setListCollapsed(next);
   };
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [peoplePane, setPeoplePane] = useState<'profiles' | 'todo'>('profiles');
+  // Linked households (cousins, nieces, nephews). Everyone can OPEN it — that
+  // is the point of it; only an admin sees the connect/share controls inside.
+  const [connectedOpen, setConnectedOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addMemberInitialRole, setAddMemberInitialRole] = useState<MemberRole | undefined>();
   const [addingChildFromTree, setAddingChildFromTree] = useState(false);
@@ -492,6 +561,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [isCaptureOpen, setIsCaptureOpen] = useState(false);
   const [capturePlanSignal, setCapturePlanSignal] = useState(initialFirstJob === 'week' ? 1 : 0);
   const [captureVaultSignal, setCaptureVaultSignal] = useState(initialFirstJob === 'vault' ? 1 : 0);
+  /* A document shared into Teluva from another app's share sheet. It reached
+   * the service worker as a POST (see utils/sharedInbox.ts) and is collected
+   * here on the load that follows. */
+  const [sharedFile, setSharedFile] = useState<File | null>(null);
   const [captureStorySignal, setCaptureStorySignal] = useState(initialFirstJob === 'story' ? 1 : 0);
   const [captureHouseSignal, setCaptureHouseSignal] = useState(0);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -499,6 +572,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [settings, setSettings] = useState<HubSettings>({});
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  /* One control on the avatar, not two. Every app that does this well — Apple,
+   * WhatsApp, Facebook, Google — puts a SINGLE small badge on the picture and
+   * opens a sheet of labelled options from it; two competing badges on one
+   * 96px circle was ours alone. Tapping the photo opens the same sheet, so the
+   * obvious gesture works, and "See full size" is the first item rather than
+   * something a mis-tap replaces. */
+  const [photoMenuFor, setPhotoMenuFor] = useState<string | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<FamilyDocument | null>(null);
   const [selectedDocumentMemberName, setSelectedDocumentMemberName] = useState<string>('');
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
@@ -589,6 +669,46 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
      There is no ?do=scan case: the scanner lives inside a member's Documents
      tab and needs a member chosen first, so that shortcut deliberately opens
      the app rather than pretending. */
+  /* Web Share Target arrivals. Mirrors the ?do= handler below — read once on
+   * mount, strip the flag from the URL immediately — but the payload lives in
+   * the Cache API rather than the query string, because a file cannot travel
+   * in a URL.
+   *
+   * The vault opens with the upload form holding the document. Deliberately
+   * NOT filed automatically: which person and which category it belongs to is
+   * the whole judgement the vault exists to record, and a share sheet cannot
+   * know either. Filing it silently under "Other" against nobody would
+   * produce a vault that looks full and answers nothing.
+   *
+   * Android and ChromeOS only. iOS Safari does not implement Web Share Target
+   * at all, so on an iPhone Teluva never appears in the share sheet and this
+   * effect simply never fires — which is why the file picker and the
+   * drop/paste routes in DocumentVault.tsx are not redundant with it. */
+  useEffect(() => {
+    const outcome = shareOutcome(window.location.search);
+    if (!outcome) return;
+    clearShareFlag();
+    if (outcome === 'lost') {
+      /* The share reached the server instead of the service worker, so the
+       * file is gone. Say so — the alternative is opening on a home screen
+       * that looks completely normal while the document is nowhere. */
+      setToast('That share didn\u2019t reach Teluva. Open the app once, then share it again.');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const files = await takeSharedFiles();
+      if (cancelled || !files.length) return;
+      setSharedFile(files[0]);
+      setMainView('vault');
+      setCaptureVaultSignal((signal) => signal + 1);
+      if (files.length > 1) {
+        setToast(`Filing the first of ${files.length} — share the rest one at a time.`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     const want = new URLSearchParams(window.location.search).get('do');
     if (!want) return;
@@ -636,11 +756,14 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
   useEffect(() => {
     if (demo) {
-      setCurrentUser({ displayName: 'Demo family', isDemo: true });
-      setMembers(DEMO_MEMBERS);
-      setEvents(DEMO_EVENTS);
-      setContacts(DEMO_CONTACTS);
-      setSelectedMemberId(DEMO_MEMBERS[0].id);
+      const biz = demoSpaceType() === 'business';
+      const demoMembers = biz ? DEMO_BUSINESS_MEMBERS : DEMO_MEMBERS;
+      setCurrentUser({ displayName: biz ? 'Demo business' : 'Demo family', isDemo: true });
+      setMembers(demoMembers);
+      setEvents(biz ? DEMO_BUSINESS_EVENTS : DEMO_EVENTS);
+      setContacts(biz ? DEMO_BUSINESS_CONTACTS : DEMO_CONTACTS);
+      setExtendedBirthdayRecords(biz ? [] : DEMO_EXTENDED_BIRTHDAYS);
+      setSelectedMemberId(demoMembers[0].id);
       // The demo exists to show what the app looks like, and the star-sign card
       // is off by default for real vaults (it's opt-in, and not everyone wants
       // it). Switching it on here is the only way anybody sees it before
@@ -766,7 +889,20 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     [extendedBirthdayRecords, contacts],
   );
 
-  const hubName = settings.hubName || (isBusinessSpace ? 'Business Hub' : 'Family Hub');
+  // The name a family typed at sign-up lives on the membership record, not in
+  // HubSettings — see utils/hubName.ts for why the header must read both.
+  const activeSpaceName = spaces.find((s) => s.id === activeSpaceId)?.name;
+  // The demo has no membership record to carry a creation name, so without this
+  // the business demo would head every screen "Business Hub" and demonstrate
+  // the generic fallback rather than the product.
+  /* The demo company's name is fed in as the space's chosen name rather than
+     short-circuiting past hubDisplayName — one derivation path, so the demo
+     cannot drift away from the fallback behaviour everyone else gets. */
+  const hubName = hubDisplayName(
+    demo && isBusinessSpace ? DEMO_BUSINESS_NAME : settings.hubName,
+    activeSpaceName,
+    isBusinessSpace,
+  );
   const emergencyPackScope = {
     ownerUid: accountUid || (demo ? 'demo' : 'unknown-account'),
     spaceId: activeSpaceId || (demo ? 'demo-family' : 'unknown-space'),
@@ -780,6 +916,67 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     if (mode === 'real') return m.name;
     return m.nickname ? `${m.name} “${m.nickname}”` : m.name;
   };
+
+  /* The family's list of people whose dates nobody sees
+   * (HubSettings.hiddenDatePeople — see contexts/HiddenPeopleContext.tsx).
+   * Saved with the settings it was read from as the merge base, so the save
+   * says "this list changed" and nothing else: a feed another member added a
+   * minute ago, or someone they hid on their own phone, is kept. Read through a
+   * ref so a hide straight after another settings change never works from the
+   * copy before it. */
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const saveFamilyHiddenDates = useCallback(async (change: (list: HiddenDatePerson[]) => HiddenDatePerson[]) => {
+    if (demo) return false;
+    const base = settingsRef.current;
+    const next: HubSettings = { ...base, hiddenDatePeople: change(base.hiddenDatePeople || []) };
+    const ok = await saveSettings(next, base);
+    if (ok) {
+      settingsRef.current = next;
+      setSettings(next);
+    }
+    return ok;
+  }, [demo]);
+
+  /* "Choose who" — people an admin has hidden from chosen accounts only
+   * (HubSettings.hiddenDatePeopleFor, v355). Exactly the same shape as the
+   * family list above and for the same reason: the base it was read from goes
+   * in as the merge base and the rest of the settings are spread through, so
+   * the only thing this save can change is this one list. A rebuilt settings
+   * object that forgot a key would be read by the merge as a DELETE of it. */
+  const saveHiddenDatesFor = useCallback(async (change: (list: HiddenDatePersonFor[]) => HiddenDatePersonFor[]) => {
+    if (demo) return false;
+    const base = settingsRef.current;
+    const next: HubSettings = { ...base, hiddenDatePeopleFor: change(base.hiddenDatePeopleFor || []) };
+    const ok = await saveSettings(next, base);
+    if (ok) {
+      settingsRef.current = next;
+      setSettings(next);
+    }
+    return ok;
+  }, [demo]);
+  /* "Change who" (v356) moves a person between the family list and the
+   * chosen-accounts list, so both change in ONE save: the same base-plus-spread
+   * as the two saves above, with both keys set from the same base. Two saves
+   * in a row could leave the person on both lists, or on neither. */
+  const saveHiddenDateLists = useCallback(async (change: (lists: SettingsHiddenLists) => SettingsHiddenLists) => {
+    if (demo) return false;
+    const base = settingsRef.current;
+    const lists = change({ family: base.hiddenDatePeople || [], forSome: base.hiddenDatePeopleFor || [] });
+    const next: HubSettings = { ...base, hiddenDatePeople: lists.family, hiddenDatePeopleFor: lists.forSome };
+    const ok = await saveSettings(next, base);
+    if (ok) {
+      settingsRef.current = next;
+      setSettings(next);
+    }
+    return ok;
+  }, [demo]);
+  /* The family's sign-in accounts for the "Choose who" checklist: the roles
+     collection a member may read (firestore.rules), or the demo's four. */
+  const loadHideAccounts = useCallback(
+    () => (demo ? Promise.resolve(DEMO_ACCOUNT_ROLES) : activeSpaceId ? loadFamilyRoles(activeSpaceId) : Promise.resolve({})),
+    [demo, activeSpaceId],
+  );
 
   const handleSaveSettings = async (next: HubSettings) => {
     const trimmedName = (next.hubName || '').trim();
@@ -803,6 +1000,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   // new order (the saved metadata.ids array preserves it) when the drag ends.
   const membersRef = useRef(members);
   useEffect(() => { membersRef.current = members; }, [members]);
+  // Same stale-closure defence for events: AIChatbot's Apply now calls
+  // handleApplyAiEdits TWICE in one tick (data edits, then trip_attach after
+  // fileScans), and the second call's `events` closure would still be the
+  // pre-first-call state. Kept fresh eagerly at every write, like membersRef.
+  const eventsRef = useRef(events);
+  useEffect(() => { eventsRef.current = events; }, [events]);
 
   const handleReorder = (newOrder: FamilyMember[]) => {
     setMembers(newOrder);
@@ -1048,6 +1251,15 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     if (!ok) showToast("Saved on this device — couldn't back up to the cloud. Check your connection and re-save.");
   };
 
+  // "Whose is this?" answered on a person's Medical / Check-ups screen. Built
+  // on eventsRef (fresh at every write) so two quick taps on two different
+  // appointments don't each save a list missing the other's tag.
+  const handleTagEventToMember = (eventId: string, memberId: string) => {
+    const next = tagEventToMember(eventsRef.current, eventId, memberId);
+    eventsRef.current = next;
+    void handleSaveEvents(next);
+  };
+
   // Pure UX de-dupe for the batch-cap warning below — stops it re-toasting
   // on every unrelated `events` change while the app is "stuck" above the
   // cap, and resets once the stuck condition clears. It plays no part in
@@ -1138,7 +1350,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       let authExpired = false;
       for (const ev of eligible) {
         try {
-          await pushEventToGoogleCalendar(ev, token);
+          await pushEventToGoogleCalendar(ev, token, { business: isBusinessSpace });
           syncedIds.add(ev.id);
         } catch (err) {
           console.error('Auto-sync to Google Calendar failed for event ' + ev.id, err);
@@ -1169,7 +1381,110 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     // drops out of `eligible` on the very next run), not via a dependency
     // omission trick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, settings.autoSyncEventsToGoogle, settings.autoSyncBaselineIds, demo]);
+  }, [events, settings.autoSyncEventsToGoogle, settings.autoSyncBaselineIds, demo, isBusinessSpace]);
+
+  // START-UP GOOGLE CALENDAR IMPORT (inbound — the reverse of the above).
+  //
+  // Rory, 2026-09-13: two appointments in his Google Calendar never reached
+  // Teluva, because the import only ran when the Calendar SCREEN mounted, and
+  // he lives on the dashboard and the chat. So the same import now also runs
+  // here, once per space load, when the last one on this device is older
+  // than a few hours — see shouldImportOnStartup in
+  // utils/googleCalendarImport.ts for exactly who it runs for.
+  //
+  // SILENT OR NOT AT ALL. getAccessToken() is the silent path only (GIS
+  // `prompt: ''`, the scopes already granted, no new scopes): no consent
+  // screen, no popup. When Google won't hand a token over silently — no
+  // Google session in this browser, or the grant was withdrawn — nothing is
+  // imported and a quiet line says how stale the calendar is, with a Refresh
+  // button. Only that button, pressed by the person, may open a popup.
+  const [googleSyncNote, setGoogleSyncNote] = useState<string | null>(null);
+  const [googleRefreshing, setGoogleRefreshing] = useState(false);
+  const startupImportKeyRef = useRef<string | null>(null);
+  const activeSpaceRef = useRef(activeSpaceId);
+  useEffect(() => { activeSpaceRef.current = activeSpaceId; }, [activeSpaceId]);
+
+  /** Import into the space that was active when it started; true when it ran. */
+  const runGoogleImport = async (token: string): Promise<boolean> => {
+    const spaceAtStart = activeSpaceRef.current;
+    const uid = auth.currentUser?.uid;
+    try {
+      const res = await importGoogleEvents(token, eventsRef.current, membersRef.current);
+      if (!res) return true; // the Calendar screen is importing right now — that counts
+      // Switched space mid-import: these belong to the space the person left,
+      // and saving them now would write them into the one they switched to.
+      if (activeSpaceRef.current !== spaceAtStart) return false;
+      writeLastGoogleImport(uid, spaceAtStart);
+      // Re-checked against the list as it is NOW, not as it was when the
+      // fetch began: the seconds in between are enough for another write.
+      const have = new Set(eventsRef.current.map((e) => e.id));
+      const fresh = res.fresh.filter((e) => !have.has(e.id));
+      if (fresh.length > 0) {
+        const next = [...eventsRef.current, ...fresh];
+        eventsRef.current = next;
+        await handleSaveEvents(next);
+      }
+      return true;
+    } catch (err) {
+      console.error('Google Calendar import failed', err);
+      if (err instanceof GoogleImportAuthError) invalidateAccessToken();
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    if (!initialLoadDone) return;
+    const uid: string | undefined = currentUser?.uid;
+    const key = `${uid || ''}:${activeSpaceId || ''}`;
+    if (startupImportKeyRef.current === key) return;
+    startupImportKeyRef.current = key;
+    const lastIso = readLastGoogleImport(uid, activeSpaceId);
+    const due = shouldImportOnStartup({
+      demo,
+      uid,
+      isBusinessSpace,
+      disconnected: isGoogleDisconnected(),
+      lastIso,
+      hasGoogleEvents: hasGoogleImportedEvents(eventsRef.current),
+      nowMs: Date.now(),
+    });
+    if (!due) { setGoogleSyncNote(null); return; }
+    void (async () => {
+      const token = await getAccessToken(); // silent only — never a popup
+      const ok = token ? await runGoogleImport(token) : false;
+      if (startupImportKeyRef.current !== key) return; // space or person changed meanwhile
+      setGoogleSyncNote(ok ? null : staleSyncNote(lastIso, Date.now()));
+    })();
+    // runGoogleImport reads everything through refs; listing it would re-run
+    // this on every render for nothing (the key ref makes it once per load).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLoadDone, currentUser, activeSpaceId, isBusinessSpace, demo]);
+
+  // The Calendar screen's own import (on opening it, or its Import button)
+  // also records the time — once it has, the stale line has nothing to say.
+  useEffect(() => {
+    if (!googleSyncNote) return;
+    if (!isGoogleImportStale(readLastGoogleImport(currentUser?.uid, activeSpaceId), Date.now())) setGoogleSyncNote(null);
+  }, [events, mainView, googleSyncNote, currentUser, activeSpaceId]);
+
+  // The Refresh on the quiet line. A click, so a popup is allowed here if
+  // that is the only way Google will give a token.
+  const handleGoogleRefresh = async () => {
+    setGoogleRefreshing(true);
+    try {
+      const token = await connectGoogleAccess();
+      if (!token) { showToast('Google didn’t connect — try again from the Calendar screen.'); return; }
+      const ok = await runGoogleImport(token);
+      if (ok) {
+        setGoogleSyncNote(null);
+        showToast('Google Calendar is up to date.');
+      } else {
+        showToast('Couldn’t bring in your Google Calendar just now.');
+      }
+    } finally {
+      setGoogleRefreshing(false);
+    }
+  };
 
   const handleAddMember = async (newMember: Omit<FamilyMember, 'documents'>) => {
     const shouldReturnToTree = addingChildFromTree && newMember.role === 'Child';
@@ -1262,11 +1577,33 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       // same batch already landed there (line 1078) but won't reach the
       // `members` state variable until the next render, so a calendar_event
       // for that brand-new person would fail to tag them (2026-08-17 audit).
-      const next = applyCalendarEdits(events, edits, membersRef.current);
+      const before = eventsRef.current;
+      const next = applyCalendarEdits(before, edits, membersRef.current, { business: isBusinessSpace });
+      eventsRef.current = next; // fresh NOW — a trip_attach in the same tick builds on this
       setEvents(next);
       const ok = await saveCalendarEvents(next);
       if (!ok) failures.push('calendar');
-      else undo.push(...mapNewIds(events, next, 'calendar', (e) => e.title || 'event'));
+      else undo.push(...mapNewIds(before, next, 'calendar', (e) => e.title || 'event'));
+    }
+    if (hasTripAttachEdits(edits)) {
+      // Attach EXISTING vault documents to a trip's travel pack. Vault docs are
+      // loaded fresh (not from tripVaultDocs state — the pack may never have
+      // been opened, and a document filed by fileScans milliseconds ago must be
+      // visible). eventsRef, not `events`: this runs as AIChatbot's SECOND
+      // onApplyEdits call in one tick, after the calendar block above may have
+      // already advanced the events in the first call.
+      let vault: VaultDocument[] = [];
+      try { vault = await loadDocuments(); } catch { vault = []; }
+      const res = applyTripAttachEdits(eventsRef.current, edits, membersRef.current, vault);
+      if (res.attached.length) {
+        eventsRef.current = res.events;
+        setEvents(res.events);
+        const ok = await saveCalendarEvents(res.events);
+        if (!ok) failures.push('travel pack');
+        // Attaching mutates an existing event rather than creating a record, so
+        // there's nothing for the undo manifest — Remove on the pack card is the undo.
+      }
+      if (res.notes.length) showToast(res.notes.join(' '));
     }
     if (hasHouseholdEdits(edits) || hasServiceRecordEdits(edits) || hasHomeServiceEdits(edits) || hasPetHealthEdits(edits)) {
       const h = (await loadHousehold()) || {};
@@ -1315,10 +1652,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     }
     if (hasTimelineEdits(edits)) {
       const t = (await loadTimeline()) || { entries: [] };
-      const after = applyTimelineEdits(t, edits);
-      const ok = await saveTimeline(after);
+      const { timeline: after, notes } = applyTimelineEdits(t, edits, membersRef.current);
+      // `t` is the base: only the rows added here are this write's change.
+      const ok = await saveTimeline(after, t);
       if (!ok) failures.push('timeline');
       else undo.push(...mapNewIds(t.entries, after.entries, 'timeline', (e: any) => e.title || e.type || 'timeline entry'));
+      if (notes.length) { console.warn('AI timeline edit:', notes.join(' ')); showToast(notes.join(' ')); }
     }
     if (hasFamilyWordsEdits(edits)) {
       const doc = (await loadFamilyWords()) || { words: [] };
@@ -1335,7 +1674,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       else undo.push(...mapNewIds(s, after, 'shopping', (x: any) => x.name || 'item'));
     }
     if (hasAssetEdits(edits)) {
-      const VALID_CATS: AssetItem['category'][] = ['Electronics', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other'];
+      const VALID_CATS: AssetItem['category'][] = ['Electronics', 'Appliance', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other'];
       for (const e of edits) {
         if (e.kind !== 'asset') continue;
         const cat = VALID_CATS.includes(e.category as AssetItem['category'])
@@ -1661,7 +2000,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     if (tlIds.size) {
       const doc = (await loadTimeline()) || { entries: [] };
       tally(new Set((doc.entries || []).map(e => e.id)), tlIds);
-      await saveTimeline({ ...doc, entries: (doc.entries || []).filter(e => !tlIds.has(e.id)) });
+      await saveTimeline({ ...doc, entries: (doc.entries || []).filter(e => !tlIds.has(e.id)) }, doc);
     }
     const fwIds = idsFor('familyWord');
     if (fwIds.size) {
@@ -1922,7 +2261,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   // Server refuses if the caller is the family's only admin (or only member).
   const handleLeaveFamily = async () => {
     const label = isBusinessSpace ? 'this business' : 'this family';
-    const ok = window.confirm(`Leave ${label}? You'll lose access to its data — this cannot be undone from your side. Everyone else's data stays intact.`);
+    const ok = await appConfirm(`Leave ${label}? You'll lose access to its data — this cannot be undone from your side. Everyone else's data stays intact.`, { danger: true, confirmLabel: 'Leave' });
     if (!ok) return;
     try {
       await leaveFamily();
@@ -1956,7 +2295,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     return JSON.parse(await entry.async('string'));
   };
 
-  const handleImportAllData = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportAllData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -1965,10 +2304,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     // because the save layer merges rather than replacing wholesale (that change
     // is what stopped two family members overwriting each other). Promising a
     // clean "replace" here would be a lie, and a costly one to act on.
-    const ok = window.confirm(
+    const ok = await appConfirm(
       'Restore from this backup?\n\n'
       + 'Anything in the file will be written over what you have now. Records you added since the backup was taken are kept, not removed.\n\n'
-      + 'This cannot be undone.'
+      + 'This cannot be undone.',
+      { danger: true, confirmLabel: 'Restore' }
     );
     if (!ok) { event.target.value = ''; return; }
 
@@ -2114,6 +2454,144 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   };
 
   // Renewal notices across passports, permits, licenses and visas (real date)
+  // --- Trips -------------------------------------------------------------
+  //
+  // A trip is a Travel calendar event with a return date (see utils/trip.ts) —
+  // no second store, no sync. Everything below is derived from `events`, which
+  // is already loaded, so this costs nothing on a family that never travels:
+  // pulseTrips is empty and the banner does not render.
+  const trips = useMemo(() => buildTrips(events), [events]);
+  const pulseTrips = useMemo(() => currentTrips(trips), [trips]);
+
+  // "Important — coming up" on both homes (Pulse and the classic one). Derived
+  // from `events` like the trips above; booked referral visits follow the
+  // calendar's own Medical checks switch, and a business space lists nothing
+  // medical at all (utils/importantEvents.ts).
+  const importantItems = useMemo(() => importantComingUp(events, members, todayIsoLocal(), {
+    days: 30,
+    business: isBusinessSpace,
+    includeReferrals: settings.calendarDivisions?.medicalChecks !== false,
+  }), [events, members, isBusinessSpace, settings.calendarDivisions?.medicalChecks]);
+
+  // Who the signed-in account IS, as opposed to what it may do. Personalisation
+  // only — see the boundary note in utils/me.ts. Never gate on this.
+  const me = useMemo(
+    () => resolveMe(members, accountUid, currentUser?.email).member,
+    [members, accountUid, currentUser?.email],
+  );
+
+  const [openTripId, setOpenTripId] = useState<string | null>(null);
+  const [tripFocusMemberId, setTripFocusMemberId] = useState<string | null>(null);
+  // The vault is not loaded on the dashboard (it is a separate view, and the
+  // documents list can be large), so the pack fetches it the first time a trip
+  // is opened. A failure is survivable: the checklist still shows passports,
+  // insurance details and the gaps — it just cannot show file links.
+  const [tripVaultDocs, setTripVaultDocs] = useState<VaultDocument[]>([]);
+
+  const openTripPack = useCallback((tripId: string, memberId?: string) => {
+    setOpenTripId(tripId);
+    setTripFocusMemberId(memberId || null);
+    void loadDocuments().then((docs) => setTripVaultDocs(docs || [])).catch(() => setTripVaultDocs([]));
+  }, []);
+
+  // Attaching writes onto the Travel event itself, through the same save path
+  // every other calendar change uses — so a trip's papers sync, export and
+  // restore with the event, and there is no second thing to keep consistent.
+  const handleAttachTripDoc = (docId: string, role: TripDocRole, memberId?: string) => {
+    if (!openTripId) return;
+    void handleSaveEvents(events.map((event) => {
+      if (event.id !== openTripId) return event;
+      const existing = event.tripDocs || [];
+      // Attaching is the "bring it back" for a card removed with ✕ — an
+      // explicit attach always wins over the hidden list, so clear the id.
+      // Built without an explicit `tripDocsHidden: undefined` key: Firestore
+      // rejects undefined field values.
+      const next = { ...event };
+      const hidden = (event.tripDocsHidden || []).filter((id) => id !== docId);
+      if (hidden.length) next.tripDocsHidden = hidden; else delete next.tripDocsHidden;
+      // Same document, same role, same person = already attached. Re-adding it
+      // would render the row twice and make "Remove" ambiguous.
+      if (!existing.some((ref) => ref.id === docId && ref.role === role && ref.memberId === memberId)) {
+        next.tripDocs = [...existing, { id: docId, role, ...(memberId ? { memberId } : {}) }];
+      }
+      return next;
+    }));
+  };
+
+  // "Remove from this travel pack" for an AUTO-PULLED card: nothing is
+  // attached, so removal is recorded as a per-trip hidden id the checklist's
+  // auto-pull skips. The file itself is untouched — that was the whole
+  // complaint with delete-as-default.
+  const handleHideTripDoc = (docId: string) => {
+    if (!openTripId) return;
+    void handleSaveEvents(events.map((event) => (
+      event.id === openTripId && !(event.tripDocsHidden || []).includes(docId)
+        ? { ...event, tripDocsHidden: [...(event.tripDocsHidden || []), docId] }
+        : event
+    )));
+  };
+
+  const handleDetachTripDoc = (docId: string, role: TripDocRole) => {
+    if (!openTripId) return;
+    void handleSaveEvents(events.map((event) => (
+      event.id === openTripId
+        ? { ...event, tripDocs: (event.tripDocs || []).filter((ref) => !(ref.id === docId && ref.role === role)) }
+        : event
+    )));
+  };
+
+  // Extract key facts for one attached vault document and persist them. The
+  // fresh doc list from saveKeyFacts (post-merge truth, not our guess) becomes
+  // the new tripVaultDocs so the glance card and the open viewer re-render
+  // with the facts immediately.
+  const handleExtractDocFacts = async (docId: string): Promise<{ ok: boolean; message?: string }> => {
+    const doc = tripVaultDocs.find((d) => d.id === docId);
+    if (!doc) return { ok: false, message: 'That document is no longer in the vault.' };
+    if (keyFactsCurrent(doc)) return { ok: true };
+    const res = await extractKeyFacts(vaultDocToReaderTarget(doc));
+    if (res.kind !== 'result') return { ok: false, message: res.message };
+    const next = await saveKeyFacts(docId, res.facts);
+    if (!next) return { ok: false, message: 'Could not save the facts — please try again.' };
+    setTripVaultDocs(next);
+    return { ok: true };
+  };
+
+  // Upload a NEW file from the trip pack's picker (device file or clipboard
+  // image): into the vault, then attached — or, when the bytes already exist
+  // in the vault, attach the existing copy instead of duplicating it. The
+  // pack decides the role (including the name-over-picker-scope redirect);
+  // this host only moves the bytes and refreshes its copy of the vault.
+  const handleUploadTripDoc = async (file: File, role: TripDocRole, memberId?: string): Promise<{ ok: boolean; message?: string; docId?: string; docName?: string; deduped?: boolean }> => {
+    if (!openTripId) return { ok: false, message: 'The trip is no longer open.' };
+    const res = await uploadTripDocFile(file, role, memberId);
+    if (res.kind === 'error') return { ok: false, message: res.message };
+    setTripVaultDocs(res.allDocs);
+    handleAttachTripDoc(res.doc.id, role, memberId);
+    return { ok: true, docId: res.doc.id, docName: res.doc.name, deduped: res.deduped };
+  };
+
+  // NOTE deliberately ABSENT: a per-card file delete in the trip pack
+  // (v274/v275's handleDeleteTripDoc) — rejected twice by the owner. The pack
+  // only ever removes trip-scoped links (detach/hide); files are deleted in
+  // the Document Vault.
+
+  // Re-filing is ONE save, not a detach followed by an attach: two sequential
+  // handleSaveEvents calls would both map over the same stale `events` closure
+  // and the second would silently undo the first.
+  const handleMoveTripDoc = (docId: string, fromRole: TripDocRole, toRole: TripDocRole) => {
+    if (!openTripId) return;
+    void handleSaveEvents(events.map((event) => (
+      event.id === openTripId
+        ? { ...event, tripDocs: moveTripDoc(event.tripDocs || [], docId, fromRole, toRole) }
+        : event
+    )));
+  };
+
+  const openTrip = openTripId ? trips.find((trip) => trip.id === openTripId) || null : null;
+  const openTripTravellers = openTrip
+    ? (openTrip.memberIds.length ? members.filter((member) => openTrip.memberIds.includes(member.id)) : members)
+    : [];
+
   const expiryWarnings = (() => {
     const today = new Date();
     const items: PulseExpiryWarning[] = [];
@@ -2197,6 +2675,26 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             <span>{signingIn ? 'Signing in…' : 'Sign in with Google'}</span>
           </button>
 
+          {/* The way out of "it just signs me back into the same account".
+              Quiet by design — it sits under the primary button and only
+              matters to the minority who need it — but visible and labelled
+              rather than a hidden gesture, because the people who need it are
+              precisely the ones who cannot get past this screen. */}
+          <button
+            type="button"
+            onClick={async () => {
+              setSigningIn(true);
+              setSignInError(null);
+              const problem = await loginWithGoogle({ chooseAccount: true });
+              setSignInError(problem);
+              setSigningIn(false);
+            }}
+            disabled={signingIn}
+            className="mt-3 w-full text-[12.5px] text-ink-500 underline underline-offset-2 hover:text-ink-700 disabled:opacity-60 cursor-pointer"
+          >
+            Use a different Google account
+          </button>
+
           {/* A failure used to be console-only, so the button just did nothing. */}
           {signInError && (
             <p role="alert" className="mt-3 rounded-2xl border border-rosa-200 bg-rosa-50 px-3 py-2 text-left text-[12.5px] text-rosa-700">
@@ -2205,10 +2703,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           )}
           {/* Google's "hasn't verified this app" screen genuinely frightens
               people, and until now the only place we explained it was an
-              external pamphlet. The invite mechanic actively encourages
-              forwarding a bare link, so most arrivals never read that. Kept
-              collapsed so it doesn't compete with the button — and a plain
-              <details> so it needs no state and works before hydration. */}
+              external pamphlet. Honest framing only (design-audit P0): the
+              warning is real — Google has not reviewed this app yet — so we
+              explain WHY it appears and who should proceed, and never walk
+              people through the bypass taps or tell them a security warning
+              "is safe". Kept collapsed so it doesn't compete with the button —
+              and a plain <details> so it needs no state and works before
+              hydration. */}
           <details className="group mt-4 text-left">
             <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[12.5px] text-ink-400 transition-colors hover:text-ink-600">
               <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" />
@@ -2216,11 +2717,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             </summary>
             <div className="mt-2 space-y-2 rounded-2xl bg-cream-50 px-3.5 py-3 text-[12.5px] leading-relaxed text-ink-500">
               <p>
-                Google will probably show a screen saying &ldquo;Google hasn&rsquo;t verified this app.&rdquo; That&rsquo;s normal for a
-                small, new app like this one — it just means we haven&rsquo;t paid Google to formally review it yet. Tap{' '}
-                <strong className="font-medium text-ink-700">Advanced</strong>, then{' '}
-                <strong className="font-medium text-ink-700">Go to Teluva (unsafe)</strong>. It&rsquo;s safe; that wording is
-                Google&rsquo;s generic warning, not a judgement about Teluva.
+                Google may show a screen saying &ldquo;Google hasn&rsquo;t verified this app.&rdquo; That warning is genuine:
+                Teluva hasn&rsquo;t completed Google&rsquo;s app-verification review yet, so Google can&rsquo;t vouch for it and
+                says so. Verification is in progress; until it&rsquo;s done, only continue past that screen if you were
+                personally invited by someone you know and trust who runs this space.
               </p>
               <p>
                 If sign-in fails outright instead, send Rory the Gmail address you&rsquo;re using and he&rsquo;ll add you — it takes
@@ -2248,7 +2748,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             </span>
           </div>
         </div>
-        {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
+      {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
       </div>
     );
   }
@@ -2292,7 +2792,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
       {familySettingsButton}
 
-      <div className="px-3 py-2">
+      {/* stopPropagation: SpaceSwitcher closes the menu on any click in this
+          footer, which is right for "download a backup" and wrong for these —
+          you pick a palette by looking at it, and with the phone's floating
+          Appearance pill gone this menu is the only way in. Changing a swatch
+          must not slam the door on the next one. */}
+      <div className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
         <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.14em] text-ink-400">Appearance</p>
         <AppearanceControls compact />
       </div>
@@ -2307,6 +2812,14 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         <span className="flex-1 text-left">Restore from a backup</span>
         <input type="file" accept=".zip,.json,application/zip,application/json" onChange={handleImportAllData} className="hidden" />
       </label>
+
+      {/* Above the divider deliberately: the rows below it leave the family or
+          the session, and "tell us what's broken" must never sit a mis-tap
+          away from "Leave this family". */}
+      <button type="button" onClick={() => setIsFeedbackOpen(true)} className={menuRow}>
+        <MessageSquare className="w-4 h-4 shrink-0" />
+        <span className="flex-1 text-left">Send feedback</span>
+      </button>
 
       <div className="my-1.5 border-t border-cream-200" />
 
@@ -2323,7 +2836,21 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   ) : null;
 
   const availableViewItems = VIEWS
-    .filter(view => !(view.id === 'finances' && !canWrite) && !(view.id === 'passwords' && !isAdmin))
+    // Insurance is hidden alongside Finances for child accounts: its data
+    // lives IN the finances document, which firestore.rules now denies to
+    // children outright (role matrix, 2026-08-24) — showing the section
+    // would render an empty view.
+    .filter(view => !((view.id === 'finances' || view.id === 'insurance') && !canWrite) && !(view.id === 'passwords' && !isAdmin))
+    // Same reasoning, business-space edition (v333): firestore.rules now
+    // refuses reference/finances to any non-admin in a business space — the
+    // adults-only rule was written for a household where every adult
+    // genuinely shares the bank accounts, and in a business the identical
+    // words meant every employee could read the company's IBANs. Hiding the
+    // tab keeps the UI honest about what the rule already refuses instead of
+    // sending an employee to an empty screen (loadReferenceDoc purges to
+    // null on permission-denied — see db.ts — so nothing crashes, it just
+    // looks broken).
+    .filter(view => !((view.id === 'finances' || view.id === 'insurance') && isBusinessSpace && !isAdmin))
     .filter(view => !(view.id === 'willsEstate' && !mayReadWills))
     .filter(view => !(isBusinessSpace && HIDDEN_VIEWS_IN_BUSINESS.includes(view.id)))
     .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t, isBusinessSpace) }));
@@ -2338,6 +2865,33 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const emergencyFocus = emberInterface && mainView === 'emergency';
 
   return (
+    /* Whose dates this account has chosen not to see. A family-only idea —
+       business spaces get no provider, so every filter below is a no-op there
+       and no Hide action is drawn (the birthday, anniversary and pet views
+       are hidden in business spaces anyway). */
+    <HiddenPeopleProvider
+      enabled={!isBusinessSpace && (demo || !!accountUid)}
+      readOnly={demo}
+      // The demo has no account; it plays Mama's so "Choose who" can say
+      // "(you)" on one row. readOnly keeps it from loading or saving anything.
+      uid={accountUid || (demo ? DEMO_ACCOUNT_UID : null)}
+      spaceId={activeSpaceId || null}
+      // The demo shows every choice as an owner would see them; readOnly
+      // already stops it saving any.
+      canHideForFamily={canWrite || demo}
+      familyList={settings.hiddenDatePeople}
+      saveFamilyList={saveFamilyHiddenDates}
+      // "Choose who" — hide someone from chosen accounts, other admins
+      // included. Offered to admins; a policy the app keeps, not a rules
+      // boundary (any settings writer could write the key).
+      canHideForSome={isAdmin || demo}
+      forList={settings.hiddenDatePeopleFor}
+      saveForList={saveHiddenDatesFor}
+      saveSettingsLists={saveHiddenDateLists}
+      loadAccounts={loadHideAccounts}
+      members={members}
+      extendedBirthdays={homeExtendedBirthdays}
+    >
     <div className={`min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans ${emberInterface ? 'ember-app' : ''} ${emergencyFocus ? 'ember-emergency-mode' : ''}`}>
       {emberInterface && !emergencyFocus && (
         <EmberNavigation
@@ -2431,6 +2985,23 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             isBusinessSpace={isBusinessSpace}
           />
         )}
+        {/* Quiet, not a banner: start-up couldn't bring Google Calendar in
+            without asking (see the start-up import effect), so say how stale
+            it is and offer the one button that may ask. Only on the screens
+            where appointments are looked for. */}
+        {googleSyncNote && (mainView === 'pulse' || mainView === 'profiles' || mainView === 'calendar') && (
+          <p className="text-[12px] text-ink-500 flex flex-wrap items-center gap-x-1.5" role="status">
+            <span>{googleSyncNote} —</span>
+            <button
+              type="button"
+              onClick={() => void handleGoogleRefresh()}
+              disabled={googleRefreshing}
+              className="font-semibold text-clay-600 hover:text-clay-700 underline underline-offset-2 disabled:opacity-50"
+            >
+              {googleRefreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </p>
+        )}
         {/* Suspense wraps every lazy-loaded mainView branch below — see the
             React.lazy declarations near the top of this file for why. It also
             wraps 'profiles' further down, harmlessly: nothing inside that
@@ -2444,6 +3015,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             openAddSignal={capturePlanSignal}
             isBusinessSpace={isBusinessSpace}
             onSaveEvents={handleSaveEvents}
+            meMemberId={me?.id}
             // Per-division show/hide for the nine "at a glance" panels
             // (HubSettings.calendarDivisions) — same shared settings doc as
             // every toggle on this screen; FamilySettings writes it, this
@@ -2492,16 +3064,16 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             (empty) vault on mount and would push [] up, wiping the demo family's
             contacts — and with them Oma's birthday off the home screen the
             moment you looked at the Info tab. */}
-        {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onContactsChange={demo ? undefined : setContacts} />}
+        {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} country={settings.country || 'AT'} onContactsChange={demo ? undefined : setContacts} />}
 
-        {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} emberMode={emberInterface} packScope={emergencyPackScope} onExit={emberInterface ? () => setMainView('profiles') : undefined} />}
+        {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} emberMode={emberInterface} packScope={emergencyPackScope} trips={pulseTrips} onOpenTrip={openTripPack} onExit={emberInterface ? () => setMainView('profiles') : undefined} />}
 
-        {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} openAddSignal={captureHouseSignal} emberMode={emberInterface} />}
+        {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} country={settings.country || 'AT'} openAddSignal={captureHouseSignal} emberMode={emberInterface} demo={demo} />}
 
         {mainView === 'finances' && <FinancesView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onOpenPrivacy={() => setLegalTab('privacy')} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} isBusinessSpace={isBusinessSpace} />}
         {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
-        {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} canUseAI={canUseAI} />}
+        {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} canUseAI={canUseAI} isBusinessSpace={isBusinessSpace} />}
         {mainView === 'pets' && <PetsView refreshKey={aiDataVersion} />}
         {mainView === 'familyTree' && (
           <FamilyTreeView
@@ -2513,21 +3085,34 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           />
         )}
 
-        {mainView === 'timeline' && <TimelineView key={aiDataVersion} openAddSignal={captureStorySignal} emberMode={emberInterface} />}
+        {mainView === 'timeline' && (
+          <TimelineView
+            key={aiDataVersion}
+            openAddSignal={captureStorySignal}
+            emberMode={emberInterface}
+            members={members}
+            events={events}
+            isBusinessSpace={isBusinessSpace}
+            canEdit={demo || canWrite}
+            demo={demo}
+            onOpenHealth={(id) => { setHealthTimelineMemberId(id); setShowHealthTimeline(true); }}
+            onOpenView={(view) => setMainView(view)}
+          />
+        )}
 
         {mainView === 'travelTimeline' && (
-          demo ? <DemoUnavailable label="The travel timeline" /> : <TravelTimelineView key={aiDataVersion} />
+          demo ? <DemoUnavailable label="The travel timeline" isBusinessSpace={isBusinessSpace} /> : <TravelTimelineView key={aiDataVersion} />
         )}
 
         {mainView === 'vault' && (
           // onMembersChange lets a vault delete also strip the per-member copy
           // of the same document — the vault component has no other way to
           // persist member records (Dashboard owns that write).
-          demo ? <DemoUnavailable label="The document vault" /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} onMembersChange={persistChanges} emberMode={emberInterface} openUploadSignal={captureVaultSignal} />
+          demo ? <DemoUnavailable label="The document vault" isBusinessSpace={isBusinessSpace} /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} onMembersChange={persistChanges} emberMode={emberInterface} openUploadSignal={captureVaultSignal} incomingFile={sharedFile} onIncomingConsumed={() => setSharedFile(null)} />
         )}
 
         {mainView === 'shopping' && (
-          demo ? <DemoUnavailable label="The shopping list" /> : <ShoppingList key={aiDataVersion} />
+          demo ? <DemoUnavailable label="The shopping list" isBusinessSpace={isBusinessSpace} /> : <ShoppingList key={aiDataVersion} />
         )}
 
         {mainView === 'gifts' && (
@@ -2539,46 +3124,46 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
         {mainView === 'chat' && (
           demo ? (
-            <DemoUnavailable label="Family chat" />
+            <DemoUnavailable label={isBusinessSpace ? 'Team chat' : 'Family chat'} isBusinessSpace={isBusinessSpace} />
           ) : (
             <FamilyChat members={members} selectedMemberId={selectedMemberId} isBusinessSpace={isBusinessSpace} />
           )
         )}
 
         {mainView === 'drive' && (
-          demo ? <DemoUnavailable label="Drive sync" /> : <GoogleDriveSync />
+          demo ? <DemoUnavailable label="Drive sync" isBusinessSpace={isBusinessSpace} /> : <GoogleDriveSync />
         )}
 
         {mainView === 'assets' && (
-          demo ? <DemoUnavailable label="Family assets" /> : <Assets key={aiDataVersion} />
+          demo ? <DemoUnavailable label={isBusinessSpace ? 'Business assets' : 'Family assets'} isBusinessSpace={isBusinessSpace} /> : <Assets key={aiDataVersion} />
         )}
 
         {mainView === 'recipes' && (
-          demo ? <DemoUnavailable label="The recipe book" /> : <RecipeBook key={aiDataVersion} />
+          demo ? <DemoUnavailable label="The recipe book" isBusinessSpace={isBusinessSpace} /> : <RecipeBook key={aiDataVersion} />
         )}
 
         {mainView === 'anniversaries' && (
-          demo ? <DemoUnavailable label="Anniversaries & special days" /> : <AnniversariesView key={aiDataVersion} members={members} />
+          demo ? <DemoUnavailable label="Anniversaries & special days" isBusinessSpace={isBusinessSpace} /> : <AnniversariesView key={aiDataVersion} members={members} />
         )}
 
         {mainView === 'extendedBirthdays' && (
-          demo ? <DemoUnavailable label="Extended birthdays" /> : <ExtendedBirthdaysView key={aiDataVersion} onChange={setExtendedBirthdayRecords} />
+          demo ? <DemoUnavailable label="Extended birthdays" isBusinessSpace={isBusinessSpace} /> : <ExtendedBirthdaysView key={aiDataVersion} onChange={setExtendedBirthdayRecords} />
         )}
 
         {mainView === 'inMemory' && (
-          demo ? <DemoUnavailable label="In Memory" /> : <InMemoryView key={aiDataVersion} emberMode={emberInterface} />
+          demo ? <DemoUnavailable label="In Memory" isBusinessSpace={isBusinessSpace} /> : <InMemoryView key={aiDataVersion} emberMode={emberInterface} />
         )}
 
         {mainView === 'willsEstate' && (
-          demo ? <DemoUnavailable label="Wills & estate" /> : <WillsEstateView refreshKey={aiDataVersion} members={members} />
+          demo ? <DemoUnavailable label="Wills & estate" isBusinessSpace={isBusinessSpace} /> : <WillsEstateView refreshKey={aiDataVersion} members={members} hubName={hubName} />
         )}
 
         {mainView === 'slips' && (
-          demo ? <DemoUnavailable label="Purchase slips" /> : <SlipsView key={aiDataVersion} />
+          demo ? <DemoUnavailable label="Purchase slips" isBusinessSpace={isBusinessSpace} /> : <SlipsView key={aiDataVersion} isBusinessSpace={isBusinessSpace} />
         )}
 
         {mainView === 'passwords' && (
-          demo ? <DemoUnavailable label={isBusinessSpace ? 'Business passwords' : 'Family passwords'} /> : <FamilyPasswords isBusinessSpace={isBusinessSpace} />
+          demo ? <DemoUnavailable label={isBusinessSpace ? 'Business passwords' : 'Family passwords'} isBusinessSpace={isBusinessSpace} /> : <FamilyPasswords isBusinessSpace={isBusinessSpace} />
         )}
 
         {mainView === 'pulse' && (
@@ -2587,11 +3172,16 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             events={events}
             status={settings.status}
             familyPhotoUrl={settings.familyPhotoUrl}
+            onViewPhoto={(url) => setLightboxImage(url)}
             expiryWarnings={expiryWarnings}
             onOpenCalendar={() => setMainView('calendar')}
             onOpenMemberIds={(memberId) => goToMemberTab(memberId, 'ids')}
             onOpenPeople={() => setMainView('profiles')}
             isBusinessSpace={isBusinessSpace}
+            trips={pulseTrips}
+            me={me}
+            onOpenTrip={openTripPack}
+            importantItems={importantItems}
           />
         )}
 
@@ -2656,7 +3246,20 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
               />
             )}
 
+            {/* Pulse carries its own copy of this card; the classic home gets
+                it here, above what needs doing, as the thing to see first. */}
+            {!emberInterface && (
+              <ImportantComingUp variant="classic" items={importantItems} members={members} onOpenCalendar={() => setMainView('calendar')} />
+            )}
+
             <NeedsAttention members={members} extendedBirthdays={homeExtendedBirthdays} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
+
+            {/* BELOW Needs attention, never above it. One card is what you must
+                do and the other is what already happened; a trail that pushed
+                an expiring passport under the fold would be a feed competing
+                with the thing the app is for. Not shown in the demo, where
+                nothing anybody did is real. */}
+            {!demo && <RecentActivity />}
               </>
             )}
             <CelebrationOverlay members={members} />
@@ -2668,7 +3271,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                 <div className="w-16 h-16 rounded-2xl bg-clay-50 text-clay-600 flex items-center justify-center mx-auto mb-5">
                   <Users className="w-8 h-8" />
                 </div>
-                <h2 className="text-display-sm text-ink-900 mb-2">Welcome to your {hubName}</h2>
+                <h2 className="text-display-sm text-ink-900 mb-2">Welcome to {hubName}</h2>
                 <p className="text-sm text-ink-500 max-w-md mx-auto mb-7">
                   {isBusinessSpace
                     ? 'Keep your team, vehicles, leases, insurance and documents in one tidy, private place.'
@@ -2685,7 +3288,32 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
               <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 items-start ${emberInterface ? 'ember-people-layout' : ''}`}>
                 {/* Family directory */}
                 <section className={`lg:col-span-4 space-y-5 ${emberInterface ? 'ember-people-directory' : ''}`}>
+
                   <div data-tour="family-list" className="card p-5 space-y-4">
+                    {/* An employee in a business space sees only their own
+                        record — firestore.rules treats a colleague's as an HR
+                        file. Said out loud, because a team list containing one
+                        person otherwise reads as a broken app or an empty
+                        company, and the person most likely to conclude that is
+                        a new employee on their first day. */}
+                    {isBusinessSpace && !isAdmin && (
+                      <div className="rounded-xl border border-cream-200 bg-cream-50 p-3 flex items-start gap-2">
+                        <Lock className="w-4 h-4 text-ink-400 mt-0.5 shrink-0" />
+                        <p className="text-[12px] text-ink-600 leading-relaxed">
+                          You can see your own record here. Colleagues&rsquo; records hold things like
+                          medical details and home addresses, so they stay between each person and an
+                          owner of this space &mdash; nothing is missing or broken.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* …and then the answer, rather than only the apology. The
+                        directory is the small question — who works here, how
+                        do I reach them at work — answered by the server from
+                        an allowlist (server/directory.mjs), because rules gate
+                        documents and this needs a field boundary. */}
+                    {isBusinessSpace && !isAdmin && <TeamDirectory selfMemberId={me?.id} />}
+
                     <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
                       <h4 className="section-label flex-1">{isBusinessSpace ? 'Your team' : 'Your family'}</h4>
                       {/* Adding a person belongs beside the list of people, not
@@ -2748,51 +3376,188 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                             key={member.id}
                             member={member}
                             className={`${cardClass(member)} cursor-pointer`}
-                            onSelect={() => { setSelectedMemberId(member.id); setDeleteConfirmMemberId(null); }}
+                            onSelect={() => { setSelectedMemberId(member.id); setSharedView(null); setHouseholdView(null); setDeleteConfirmMemberId(null); }}
                             onDragEnd={saveOrder}
                             renderInner={memberCardInner}
                           />
                         ))}
                       </Reorder.Group>
                     )}
+
+                    {/* Cousins, nieces and nephews — the other half of "who is
+                        family", and Rory's own placement: "the extended family
+                        should be at the bottom of the profile pack". Third
+                        position in three versions, so the history matters. As a
+                        SIBLING of this card it picked up the directory's sticky
+                        rule and covered the list; moved above the list and
+                        un-stuck it scrolled out of reach; at the top of the card
+                        it read as though the cousins outranked the family. Here
+                        it is under the people, still INSIDE the card that pins,
+                        so it travels with the list rather than away from it.
+                        Deliberately visible to children, who are the ones who
+                        want to see their cousins. */}
+                    <ConnectedInline
+                      onManage={() => setConnectedOpen(true)}
+                      members={members}
+                      openPersonId={sharedView?.member.id || null}
+                      openHouseholdId={householdView?.link.id || null}
+                      onOpenPerson={(m, household, linkId) => {
+                        setSharedView({ member: m, household, linkId });
+                        setHouseholdView(null);
+                        setDeleteConfirmMemberId(null);
+                        // Same move the member rows make, so the panel is on
+                        // screen on a phone where it sits below the list.
+                        memberPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
+                      onOpenHousehold={(payload) => {
+                        setHouseholdView(payload);
+                        setSharedView(null);
+                        setSelectedMemberId('');
+                        setDeleteConfirmMemberId(null);
+                        memberPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
+                    />
                   </div>
+
                 </section>
 
                 {/* Selected member detail */}
                 <section ref={memberPanelRef} className={`lg:col-span-8 space-y-5 scroll-mt-24 ${emberInterface ? 'ember-living-profile' : ''}`}>
-                  {selectedMember ? (
+                  {householdView ? (
+                    <SharedHousehold
+                      householdName={householdView.link.otherName || 'Connected family'}
+                      photoUrl={householdView.photoUrl}
+                      members={householdView.members}
+                      linkId={householdView.link.id}
+                      sharedByMeCount={householdView.link.sharedByMe.length}
+                      connectedAt={householdView.link.connectedAt}
+                      namedByThem={householdView.namedByThem}
+                      memberName={(id) => members.find((m) => m.id === id)?.name || 'someone in your family'}
+                      onOpenPerson={(m) => {
+                        setSharedView({ member: m, household: householdView.link.otherName || 'Connected family', linkId: householdView.link.id });
+                        setHouseholdView(null);
+                      }}
+                      onClose={() => setHouseholdView(null)}
+                      onViewPhoto={(url) => setLightboxImage(url)}
+                    />
+                  ) : sharedView ? (
+                    <SharedProfile
+                      member={sharedView.member}
+                      householdName={sharedView.household}
+                      linkId={sharedView.linkId}
+                      onClose={() => setSharedView(null)}
+                      onViewPhoto={(url) => setLightboxImage(url)}
+                    />
+                  ) : selectedMember ? (
                     <div className="card overflow-hidden min-h-[500px] flex flex-col">
                       <div className={`p-5 sm:p-6 border-b border-cream-200 flex flex-col gap-5 ${emberInterface ? 'ember-profile-hero' : 'xl:flex-row xl:items-center justify-between gap-4'}`}>
                         <div className="flex items-center gap-4 min-w-0">
                           <div className="relative shrink-0">
                             {selectedMember.avatarUrl ? (
                               <div className="avatar-ring">
+                                {/* ONE PRESS. Rory: "i dont want to have to
+                                    press twice if i press on the image it must
+                                    open up the photo if i press on the icon it
+                                    must open the pickers". Routing an admin's
+                                    tap into the menu made the most obvious
+                                    gesture on the screen — tap the face, see
+                                    the face — cost two presses, which is the
+                                    lightbox bug in a different shape. The
+                                    picture is the picture; the badge is the
+                                    options. Same for everyone, admin or not. */}
                                 <button
                                   type="button"
                                   onClick={() => setLightboxImage(selectedMember.avatarUrl!)}
                                   className="block w-24 h-24 lg:w-28 lg:h-28 rounded-full overflow-hidden bg-white cursor-zoom-in"
-                                  title="View photo"
+                                  title="See the photo full size"
+                                  aria-label={`See ${selectedMember.name}'s photo full size`}
                                 >
                                   <img src={selectedMember.avatarUrl} alt={selectedMember.name} className="w-full h-full object-cover" />
                                 </button>
                               </div>
                             ) : (
+                              /* NO PHOTO YET: the circle IS the way in. Rory,
+                                 looking straight at this: "probably more
+                                 importantly by clicking the profile picker
+                                 image". An initials circle reads as a slot
+                                 waiting to be filled, so tapping it should fill
+                                 it rather than do nothing. Non-admins get the
+                                 plain circle — the same people who have no Edit
+                                 button beside the name. */
                               <div className="avatar-ring">
-                                <div className={`w-24 h-24 lg:w-28 lg:h-28 rounded-full ${warmAvatarColor(selectedMember.avatarColor)} text-white font-bold text-3xl flex items-center justify-center uppercase`}>
-                                  {selectedMember.name.charAt(0).toUpperCase()}
-                                </div>
+                                {isAdmin ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsEditingProfile(true)}
+                                    className={`group w-24 h-24 lg:w-28 lg:h-28 rounded-full ${warmAvatarColor(selectedMember.avatarColor)} text-white font-bold text-3xl flex items-center justify-center uppercase cursor-pointer relative overflow-hidden`}
+                                    title={`Add a photo for ${selectedMember.name}`}
+                                    aria-label={`Add a photo for ${selectedMember.name}`}
+                                  >
+                                    {selectedMember.name.charAt(0).toUpperCase()}
+                                    <span className="absolute inset-0 bg-ink-900/45 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity flex items-center justify-center">
+                                      <Camera className="w-7 h-7" />
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <div className={`w-24 h-24 lg:w-28 lg:h-28 rounded-full ${warmAvatarColor(selectedMember.avatarColor)} text-white font-bold text-3xl flex items-center justify-center uppercase`}>
+                                    {selectedMember.name.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
                               </div>
                             )}
                             {selectedMember.avatarUrl && isAdmin && (
                               <button
                                 type="button"
-                                onClick={() => canUseAI ? setRestyleMemberId(selectedMember.id) : setConsentOpen(true)}
-                                className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-clay-500 hover:bg-clay-600 text-white flex items-center justify-center shadow-lift border-2 border-white transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                                title="Make a fun avatar"
-                                aria-label="Make a fun avatar"
+                                onClick={() => setPhotoMenuFor(selectedMember.id)}
+                                /* SIZED OFF THE APPS THAT DO THIS WELL. Rory,
+                                   on the 36px version: "camera icon is way to
+                                   big … make it like other apps size". A badge
+                                   on a profile photo sits at roughly a quarter
+                                   of the avatar — WhatsApp, Instagram and
+                                   Facebook all land in that band — so on a
+                                   96px circle that is 28px, not 36. It keeps
+                                   the clay and the white ring, which are what
+                                   make it read as a control rather than
+                                   decoration; only the scale was wrong. */
+                                className="absolute bottom-0.5 right-0.5 w-7 h-7 rounded-full bg-clay-500 hover:bg-clay-600 text-white flex items-center justify-center shadow-soft ring-2 ring-white transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+                                title="Change photo, or make a fun avatar"
+                                aria-label={`Photo options for ${selectedMember.name}`}
+                                aria-haspopup="menu"
                               >
-                                <Sparkles className="w-4 h-4" />
+                                <Camera className="w-3.5 h-3.5" strokeWidth={2.25} />
                               </button>
+                            )}
+                            {photoMenuFor === selectedMember.id && selectedMember.avatarUrl && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setPhotoMenuFor(null)}
+                                  aria-hidden="true"
+                                />
+                                <div
+                                  role="menu"
+                                  className="absolute z-50 top-full left-0 mt-2 w-56 rounded-2xl border border-cream-200 bg-white shadow-lift overflow-hidden py-1"
+                                >
+                                  {[
+                                    /* "See full size" used to live here. It is
+                                       what tapping the photo does now, so
+                                       keeping it would be a menu item for a
+                                       gesture the user already made. */
+                                    { icon: Camera, label: 'Change photo', run: () => setIsEditingProfile(true) },
+                                    { icon: Sparkles, label: 'Make a fun avatar', run: () => (canUseAI ? setRestyleMemberId(selectedMember.id) : setConsentOpen(true)) },
+                                  ].map(({ icon: Icon, label, run }) => (
+                                    <button
+                                      key={label}
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setPhotoMenuFor(null); run(); }}
+                                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left text-[13.5px] font-semibold text-ink-800 hover:bg-cream-100 transition-colors cursor-pointer"
+                                    >
+                                      <Icon className="w-4 h-4 text-ink-400 shrink-0" /> {label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
                             )}
                           </div>
                           <div className="min-w-0">
@@ -2832,6 +3597,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                 <span className="text-ink-400">
                                   · {[selectedMember.placeOfBirth, selectedMember.birthHospital].filter(Boolean).join(', ')}
                                 </span>
+                              )}
+                              {(selectedMember.birthdate || selectedMember.nameDay || (selectedMember.nameCelebrations || []).length > 0) && (
+                                <HideDatesButton
+                                  showHiddenState
+                                  className="-my-1"
+                                  target={{ key: hiddenKey.member(selectedMember.id), name: selectedMember.name, dates: memberDates(selectedMember) }}
+                                />
                               )}
                             </p>
                             {/* Contact & address — visible to every family member.
@@ -2959,6 +3731,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                 <MemberOverview
                                   member={selectedMember}
                                   canEdit={!demo && canWrite}
+                                  isBusinessSpace={isBusinessSpace}
                                   showAstrology={!!settings.astrology}
                                   onShuffleAstrology={isAdmin ? () => (canUseAI ? shuffleAstrology(selectedMember.id) : setConsentOpen(true)) : undefined}
                                   astrologyBlurb={astroBlurb[selectedMember.id]}
@@ -2984,6 +3757,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                   members={members}
                                   onOpenCalendar={() => setMainView('calendar')}
                                   onOpenHistory={() => { setHealthTimelineMemberId(selectedMember.id); setShowHealthTimeline(true); }}
+                                  onTagEvent={!demo && canWrite && !isBusinessSpace ? handleTagEventToMember : undefined}
+                                  meMemberId={me?.id}
+                                  spaceId={activeSpaceId || ''}
+                                  isBusinessSpace={isBusinessSpace}
                                 />
                               )}
                               {activeTab === 'care' && (
@@ -2993,10 +3770,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                   events={events}
                                   members={members}
                                   onOpenCalendar={() => setMainView('calendar')}
+                                  onTagEvent={!demo && canWrite && !isBusinessSpace ? handleTagEventToMember : undefined}
+                                  meMemberId={me?.id}
+                                  spaceId={activeSpaceId || ''}
                                 />
                               )}
                               {activeTab === 'ids' && (
-                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} onAddDocument={handleAddDocument} country={settings.country || 'AT'} onOpenPrivacy={() => setLegalTab('privacy')} isBusinessSpace={isBusinessSpace} />
+                                <MemberIDs member={selectedMember} onUpdate={handlePatchSelectedMember} onAddDocument={handleAddDocument} country={settings.country || 'AT'} onOpenPrivacy={() => setLegalTab('privacy')} isBusinessSpace={isBusinessSpace} onViewDocument={handleViewDocument} />
                               )}
                               {activeTab === 'guardians' && (
                                 <MemberGuardians member={selectedMember} onUpdate={handlePatchSelectedMember} />
@@ -3020,6 +3800,20 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                 isBusinessSpace
                                   ? <MemberEmployeePreferences member={selectedMember} onUpdate={handlePatchSelectedMember} canEdit={demo || canWrite} />
                                   : <MemberPreferences member={selectedMember} onUpdate={handlePatchSelectedMember} />
+                              )}
+                              {activeTab === 'timeline' && (
+                                <Suspense fallback={<div className="py-16 text-center text-[13px] text-ink-400">Loading…</div>}>
+                                  <TimelineView
+                                    key={aiDataVersion}
+                                    memberId={selectedMember.id}
+                                    members={members}
+                                    events={events}
+                                    canEdit={demo || canWrite}
+                                    demo={demo}
+                                    onOpenHealth={(id) => { setHealthTimelineMemberId(id); setShowHealthTimeline(true); }}
+                                    onOpenView={(view) => setMainView(view)}
+                                  />
+                                </Suspense>
                               )}
                               {activeTab === 'sayings' && (
                                 <>
@@ -3216,6 +4010,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         isOpen={isSettingsOpen}
         settings={settings}
         isBusinessSpace={isBusinessSpace}
+        namePlaceholder={activeSpaceName}
         onClose={() => setIsSettingsOpen(false)}
         onSave={handleSaveSettings}
         onReplayTour={() => { setIsSettingsOpen(false); setTourReplayKey((k) => k + 1); }}
@@ -3308,6 +4103,21 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         onOpenPrivacy={() => setLegalTab('privacy')}
       />
 
+      <FeedbackModal
+        open={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
+        screen={mainView}
+        screenLabel={viewLabel(mainView, t, isBusinessSpace)}
+      />
+
+      <ConnectedFamilies
+        open={connectedOpen}
+        onClose={() => setConnectedOpen(false)}
+        isAdmin={isAdmin}
+        members={members}
+        hubName={hubName}
+      />
+
       {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
 
       {restyleMemberId && (() => {
@@ -3331,6 +4141,28 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       {showTravelPack && (
         <TravelPack members={members} events={events} onClose={() => setShowTravelPack(false)} />
       )}
+      {openTrip && (
+        <TripPack
+          trip={openTrip}
+          travellers={openTripTravellers}
+          vaultDocs={tripVaultDocs}
+          focusMemberId={tripFocusMemberId}
+          canWrite={!demo && canWrite}
+          onAttach={handleAttachTripDoc}
+          onUploadAttach={!demo && canWrite ? handleUploadTripDoc : undefined}
+          onDetach={handleDetachTripDoc}
+          onHideDoc={handleHideTripDoc}
+          onMove={handleMoveTripDoc}
+          onExtractKeyFacts={!demo && canWrite ? handleExtractDocFacts : undefined}
+          onGoProfile={(memberId, tab) => {
+            // Close the pack BEFORE navigating — the point is to take the
+            // person to the fix, not to stack a profile under a modal.
+            setOpenTripId(null); setTripFocusMemberId(null);
+            goToMemberTab(memberId, tab);
+          }}
+          onClose={() => { setOpenTripId(null); setTripFocusMemberId(null); }}
+        />
+      )}
       {showFamilyStats && (
         <FamilyStats members={members} events={events} onClose={() => setShowFamilyStats(false)} />
       )}
@@ -3346,16 +4178,17 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         />
       )}
     </div>
+    </HiddenPeopleProvider>
   );
 }
 
-function DemoUnavailable({ label }: { label: string }) {
+function DemoUnavailable({ label, isBusinessSpace = false }: { label: string; isBusinessSpace?: boolean }) {
   return (
     <div className="card ember-honest-state text-center py-20 px-6">
       <p className="ember-kicker">Private by design</p>
       <h3 className="font-display text-xl font-semibold text-ink-900 mt-2 mb-2">{label} stays out of the public demo</h3>
       <p className="text-[13px] text-ink-500 max-w-sm mx-auto leading-relaxed">
-        Sign in with Google to use this space with your own family. Teluva won&apos;t invent example records for sensitive information.
+        Sign in with Google to use this space with your own {isBusinessSpace ? 'team' : 'family'}. Teluva won&apos;t invent example records for sensitive information.
       </p>
     </div>
   );

@@ -155,7 +155,11 @@ const MANUALLY_INCLUDED_FIELDS = ['cv'];
 // 'FamilyTreeDoc' added 2026-08-21 with the family tree. Listed on the day the
 // document was created rather than months later, precisely because the two
 // entries above are both records of a blind spot that was found by accident.
-const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc', 'ExtendedBirthdaysDoc', 'FamilyInfo', 'HouseholdInfo', 'Pet', 'Vehicle', 'FamilyTreeDoc'];
+//
+// 'FamilyTimeline' added 2026-09-13 with the timeline import: its one list
+// (`entries`) is written by list_add "timeline", and the fields INSIDE a
+// TimelineEntry are held to account one by one in their own block below.
+const SHARED_DOC_INTERFACES = ['WillsEstateDoc', 'HubSettings', 'FamilyWordsDoc', 'RecipeBookDoc', 'AnniversariesDoc', 'ExtendedBirthdaysDoc', 'FamilyInfo', 'HouseholdInfo', 'Pet', 'Vehicle', 'FamilyTreeDoc', 'FamilyTimeline'];
 
 function extractRecordFields(body: string): string[] {
   const out: string[] = [];
@@ -171,10 +175,39 @@ const sharedDocCollections = SHARED_DOC_INTERFACES.flatMap((docName) =>
   extractRecordFields(extractInterfaceBody(typesSrc, docName)).map((f) => `${docName}.${f}`),
 );
 
+// --- Step 2c: link fields on service entries -------------------------------
+// Added 2026-09-12 with receipts on service entries (Rory: "i just had a
+// bicycle service for example where does the receiot and document of the
+// service live?"). ServiceRecord.docIds, HomeServiceRecord.docIds and
+// HomeServiceRecord.assetId are plain `string` / `string[]` POINTERS, which
+// step 2b's PascalCase regex can never see — so without this pass they would
+// be neither covered nor declared, just invisible. Every `…Id` / `…Ids` field
+// on these rows must now say whether the assistant can write it, and why not.
+const LINK_FIELD_INTERFACES = ['ServiceRecord', 'HomeServiceRecord'];
+function extractLinkFields(body: string): string[] {
+  const out: string[] = [];
+  const re = /^\s*(\w+Ids?)\??:\s*string(\[\])?;/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body))) out.push(m[1]);
+  return out;
+}
+const linkFields = LINK_FIELD_INTERFACES.flatMap((name) =>
+  extractLinkFields(extractInterfaceBody(typesSrc, name)).map((f) => `${name}.${f}`),
+);
+// CONTROL: the pass must find the fields it was written for. If a reflow of
+// types.ts stopped the regex matching, the map entries below would go stale
+// and fail — but assert it directly too, so the reason is obvious.
+assert.ok(linkFields.includes('HomeServiceRecord.assetId') && linkFields.includes('ServiceRecord.docIds'),
+  `step 2c found ${JSON.stringify(linkFields)} — expected at least ServiceRecord.docIds and HomeServiceRecord.assetId`);
+// CONTROL the other way: a plain text field is NOT a link.
+assert.ok(!linkFields.includes('HomeServiceRecord.work') && !linkFields.includes('HomeServiceRecord.id'),
+  'step 2c must only pick up …Id/…Ids link fields, not every string');
+
 const discoveredFields = [
   ...topLevelCollections,
   ...nestedCollections,
   ...sharedDocCollections,
+  ...linkFields,
   ...MANUALLY_INCLUDED_FIELDS,
 ];
 
@@ -368,8 +401,39 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   // unmatched pet is reported rather than filed against whichever animal comes
   // first — a vet bill on the wrong dog is worse than one that didn't save,
   // because nobody goes looking for it.
+  // The life timeline's own moments. Which fields of a moment the assistant
+  // may write — and that source/importBatchId are never the model's to set —
+  // is asserted field by field in the TimelineEntry block below.
+  'FamilyTimeline.entries': covered('list_add', 'list "timeline"; update_record/delete_record targetKind "timeline"'),
   'Pet.healthLog': covered('pet_health'),
   'Vehicle.serviceLog': covered('service_record'),
+  // Rory, 2026-09-12: "can we add scooters, bicycles etc". Written by the
+  // vehicles list_add (item.kind, normalised by aiApply) and corrected by
+  // update_record (UPDATE_FIELDS.vehicle.kind, normalised by buildPatch).
+  // Both halves and the prompt are asserted by name further down.
+  'Vehicle.kind': covered('list_add', 'list "vehicles" item.kind; update_record vehicle fields.kind'),
+
+  // Service-entry links (step 2c). All three are POINTERS to things the
+  // assistant has no id for at the moment it files an entry.
+  'ServiceRecord.docIds': manual(
+    'A receipt is linked by the person filing it (Scan / Choose a file / From the vault on the ' +
+    'service entry). The model never holds a VaultDocument id for a file it has only just read, ' +
+    'and guessing one would pin the wrong invoice to a service with no visible sign it happened.',
+  ),
+  'HomeServiceRecord.docIds': manual(
+    'Same boundary as ServiceRecord.docIds: attached by hand on the house work log entry, where the ' +
+    'person can see which file they are pinning. The document itself is still AI-fileable via the ' +
+    "'document' kind — only the link is manual.",
+  ),
+  'HomeServiceRecord.assetId': manual(
+    'The "Which appliance or item?" picker on the house work log. The assistant does not see asset ids ' +
+    'for this, and two "Dishwasher" rows (old and new) is exactly the ambiguity a name match gets wrong. ' +
+    'The prompt tells it to name the appliance in "area" instead, which the entry shows as text.',
+  ),
+  'HomeServiceRecord.vendorId': manual(
+    'Never emitted by the model: aiApply links it by matching the entry\'s "by" against the vendor ' +
+    'directory (home_service), and UPDATE_FIELDS.home_service deliberately leaves it out.',
+  ),
   'HouseholdInfo.locations': knownGap(
     'Business-space only: the extra premises of a multi-site business, shown '
     + 'in HouseholdView behind isBusinessSpace. The assistant has no business-'
@@ -406,6 +470,29 @@ const COVERAGE_MAP: Record<string, Coverage> = {
     "show), changed in FamilySettings.tsx. Not a collection a user accumulates by " +
     "scanning documents, and there is no sensible 'file this from a document' flow " +
     "for a family's own country — it is chosen once, by hand, not extracted."
+  ),
+
+  // Whose dates the family has chosen not to see. The AI can SEE the choice
+  // (buildContext() marks hidden people's dates `datesHidden`, so it stops
+  // volunteering them) but deliberately cannot make it: hiding an ex-partner's
+  // birthday for the whole family is a decision a person makes on the Hide
+  // sheet, with the scope in front of them, not something to infer from a
+  // passing remark in chat.
+  'HubSettings.hiddenDatePeople': manual(
+    "Hiding someone's dates for the whole family is a deliberate choice made on " +
+    "the Hide sheet (HideDatesSheet.tsx), where the scope is shown. The assistant " +
+    "reads it (datesHidden in buildContext()) so it stops volunteering those dates, " +
+    "but must never set it from a passing remark."
+  ),
+  // v355 "Choose who": the same decision, narrowed to chosen accounts — and
+  // more sensitive, not less: it hides a date from one named person (often
+  // another parent) and not the rest. Inferring that from chat would be the
+  // assistant quietly taking a side in a family.
+  'HubSettings.hiddenDatePeopleFor': manual(
+    "Hiding someone's dates from chosen accounts is an admin's deliberate choice " +
+    "made on the Hide sheet's \"Choose who\" checklist (HiddenPeopleContext.tsx), " +
+    "with every account named in front of them. The assistant only reads the " +
+    "result (the asking account's datesHidden) and must never set it."
   ),
 };
 
@@ -467,6 +554,63 @@ assert.ok(aiEditUnionText.includes('referralKind'),
   "COVERAGE_MAP says 'referrals' is covered via the 'document' kind's referral* " +
   "fields, but 'referralKind' no longer appears on the 'document' AiEdit variant in " +
   "AIChatbot.tsx. Referrals filing is broken again — see PROBLEM at the top of this file.");
+
+// --- A referral's APPOINTMENT, end to end (2026-09-13) ----------------------
+//
+// Rory: an orthopaedic-surgeon and a psychiatry appointment, both on paper,
+// neither on the calendar nor known to the chat. A scanned letter that said
+// "Termin am 22.09. um 10:30" filed as an 'open' referral with no appointment,
+// because no layer had anywhere to put that date. The date now travels
+// through five places, and dropping it from any ONE of them is silent: the
+// model can still say it, and it lands nowhere. So all five are named here.
+{
+  const serverSrc = fs.readFileSync(path.join(repoRoot, 'server.js'), 'utf8');
+  const destructiveSrc = fs.readFileSync(path.join(repoRoot, 'src/utils/aiDestructive.ts'), 'utf8');
+
+  function appointmentWiringGaps(src: { chatbot: string; server: string; destructive: string; types: string }): string[] {
+    const gaps: string[] = [];
+    const union = src.chatbot.slice(src.chatbot.indexOf('export type AiEdit ='), src.chatbot.indexOf('\ninterface Attachment'));
+    const docStart = union.indexOf("{ kind: 'document'");
+    const docVariant = docStart < 0 ? '' : union.slice(docStart, union.indexOf('\n  | {', docStart + 1));
+    const schemaLine = src.server.split('\n').find((l) => l.startsWith('- {"kind":"document"')) || '';
+    const scanStart = src.chatbot.indexOf('if (e.referralKind) {');
+    const scanApply = scanStart < 0 ? '' : src.chatbot.slice(scanStart, src.chatbot.indexOf('onAddReferral(', scanStart));
+    const referralBody = (/export interface ReferralRecord \{\n([\s\S]*?)\n\}\n/.exec(src.types) || [])[1] || '';
+    const updateRow = (/^\s*referral: \{ kind: 'kind'.*$/m.exec(src.destructive) || [])[0] || '';
+    for (const f of ['appointmentDate', 'appointmentTime']) {
+      if (!new RegExp(`\\b${f}\\?:`).test(docVariant)) gaps.push(`AIChatbot AiEdit 'document' variant lacks ${f}`);
+      if (!schemaLine.includes(`"${f}"`)) gaps.push(`server.js document schema line lacks "${f}"`);
+      if (!scanApply.includes(`e.${f}`)) gaps.push(`AIChatbot fileScans referral apply never reads e.${f}`);
+      if (!new RegExp(`^\\s*${f}\\?:`, 'm').test(referralBody)) gaps.push(`types.ts ReferralRecord lacks ${f}`);
+      if (!updateRow.includes(`${f}: '${f}'`)) gaps.push(`aiDestructive UPDATE_FIELDS.referral lacks ${f}`);
+    }
+    if (!scanApply.includes('referralStatusForAppointment(')) gaps.push('fileScans files a dated referral without the booked-status rule');
+    if (!/\.\.\.patchForRecord\(e\.targetKind, r, patch\)/.test(src.destructive)) gaps.push('aiDestructive merges a referral patch without the booked-status rule');
+    return gaps;
+  }
+
+  const real = { chatbot: chatbotSrc, server: serverSrc, destructive: destructiveSrc, types: typesSrc };
+  assert.deepStrictEqual(appointmentWiringGaps(real), [],
+    "a referral's appointment date/time is no longer wired end to end — a scanned letter's appointment would land nowhere");
+
+  // CONTROL: every check must be able to fail. Break ONE source at a time and
+  // the guard has to name exactly that gap.
+  const strip = (text: string, what: string) => text.split(what).join('xxxx');
+  const cases: [string, typeof real][] = [
+    ["'document' variant lacks appointmentTime", { ...real, chatbot: chatbotSrc.replace('appointmentDate?: string; appointmentTime?: string }', 'appointmentDate?: string }') }],
+    ['document schema line lacks "appointmentTime"', { ...real, server: serverSrc.replace(',"appointmentTime":"<HH:MM of that appointment, only when stated>"', '') }],
+    ['never reads e.appointmentDate', { ...real, chatbot: strip(chatbotSrc, 'e.appointmentDate') }],
+    ['ReferralRecord lacks appointmentTime', { ...real, types: typesSrc.replace('appointmentTime?: string;', '') }],
+    ['UPDATE_FIELDS.referral lacks appointmentTime', { ...real, destructive: destructiveSrc.replace("appointmentTime: 'appointmentTime', ", '') }],
+    ['fileScans files a dated referral without', { ...real, chatbot: strip(chatbotSrc, 'referralStatusForAppointment(') }],
+    ['aiDestructive merges', { ...real, destructive: strip(destructiveSrc, '...patchForRecord(') }],
+  ];
+  for (const [expect, broken] of cases) {
+    const gaps = appointmentWiringGaps(broken);
+    assert.ok(gaps.some((g) => g.includes(expect)), `CONTROL: breaking "${expect}" must be reported, got ${JSON.stringify(gaps)}`);
+  }
+  console.log(`  referral appointment date/time: wired through 5 layers (${cases.length} controls fail as they should)`);
+}
 
 // manual/known_gap entries must carry a real explanation, not a placeholder.
 for (const [field, entry] of Object.entries(COVERAGE_MAP)) {
@@ -571,6 +715,136 @@ for (const [field, entry] of Object.entries(COVERAGE_MAP)) {
   // being empty.
   assert.ok(mapKeys.has('spouse') && promptKeys.has('spouse'), 'spouse must be AI-writable on both sides');
   console.log(`  member field keys (${mapKeys.size}): map and prompt agree`);
+}
+
+// --- Vehicle.kind: the type, the prompt, and both write paths agree ---------
+//
+// 'Vehicle.kind' is marked covered above via list_add. That is only true if
+// (1) the prompt offers every VehicleKind value, (2) the list_add path
+// normalises it and (3) update_record can change it. Checked by name, so the
+// covered() line cannot be true on paper only.
+{
+  const applySrc = fs.readFileSync(path.join(repoRoot, 'src/utils/aiApply.ts'), 'utf8');
+  const destructiveSrc = fs.readFileSync(path.join(repoRoot, 'src/utils/aiDestructive.ts'), 'utf8');
+  const serverSrc = fs.readFileSync(path.join(repoRoot, 'server.js'), 'utf8');
+
+  const typeMatch = /export type VehicleKind =([^;]+);/.exec(typesSrc);
+  assert.ok(typeMatch, "couldn't find `export type VehicleKind` in types.ts");
+  const typeKinds = [...typeMatch[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+
+  const promptMatch = /vehicles \(fields: kind \[one of ([a-z_|]+)/.exec(serverSrc);
+  assert.ok(promptMatch, "server.js's vehicles list_add no longer offers `kind [one of …]`");
+  const promptKinds = promptMatch[1].split('|').sort();
+  assert.deepStrictEqual(promptKinds, typeKinds, 'the prompt\'s vehicle kinds and VehicleKind have drifted apart');
+  // CONTROL: the parity above cannot pass by both sides being empty.
+  assert.ok(typeKinds.includes('bicycle') && typeKinds.length >= 5, 'VehicleKind must include bicycle');
+
+  assert.ok(/list === 'vehicles'[\s\S]{0,400}normalizeVehicleKind/.test(applySrc),
+    "aiApply's vehicles list_add must normalise item.kind with normalizeVehicleKind");
+  const vehFields = /\n\s*vehicle: \{([\s\S]*?)\},\n/.exec(destructiveSrc);
+  assert.ok(vehFields, "couldn't find UPDATE_FIELDS.vehicle in aiDestructive.ts");
+  assert.ok(/\bkind: 'kind'/.test(vehFields[1]), 'UPDATE_FIELDS.vehicle must accept kind');
+  // CONTROL: the same regex over a neighbour that has no kind must NOT match,
+  // or the check above proves nothing.
+  const petFields = /\n\s*pet: \{([\s\S]*?)\},\n/.exec(destructiveSrc);
+  assert.ok(petFields && !/\bkind: 'kind'/.test(petFields[1]), 'control: UPDATE_FIELDS.pet has no kind');
+  console.log(`  vehicle kinds (${typeKinds.length}): type, prompt, list_add and update_record agree`);
+}
+
+// --- TimelineEntry: every field is the assistant's to write, or says why not --
+//
+// FamilyTimeline.entries is covered above, but "the list is writable" says
+// nothing about the fields inside a moment. Two go wrong in opposite
+// directions: a field the model is offered but aiApply never copies (the Apply
+// card says done, nothing lands), and a field the MODEL could set that only
+// the app should — `source` and `importBatchId`. An import's Undo removes
+// every row carrying its batch id; a model that could write one could make a
+// family's Undo take its own moments with it. So every key of TimelineEntry
+// is named here as model-written (with the prompt's key for it) or app-only
+// (with the reason), and both halves are checked against the prompt, the
+// update whitelist and a real run of applyTimelineEdits.
+{
+  const serverSrc = fs.readFileSync(path.join(repoRoot, 'server.js'), 'utf8');
+  const destructiveSrc = fs.readFileSync(path.join(repoRoot, 'src/utils/aiDestructive.ts'), 'utf8');
+
+  // entry field → the item key the prompt offers for it.
+  const MODEL_WRITES: Record<string, string> = {
+    title: 'title', date: 'date', category: 'category', memberIds: 'members',
+    place: 'place', endDate: 'endDate', note: 'note',
+  };
+  const APP_ONLY: Record<string, string> = {
+    id: 'Generated by applyTimelineEdits; the model never chooses an id.',
+    datePrecision: 'Derived from the shape of "date" (YYYY or YYYY-MM); an explicit value may only make a date coarser.',
+    type: 'The legacy kind, read through categoryOfEntry() and never written by anything new.',
+    photos: 'Uploaded from the moment form into Storage; the model never holds image bytes or a Storage path.',
+    docIds: 'Linked by hand on the moment form, where the person can see which paper they are pinning.',
+    source: 'Set by the app: always "assistant" on this path, "import" from the dates import, "manual" from the form.',
+    importBatchId: 'Set only by the dates import, so its Undo removes exactly that batch; never the model\'s to claim.',
+  };
+
+  function timelineFieldGaps(src: { types: string; server: string; destructive: string }): string[] {
+    const gaps: string[] = [];
+    const body = (/export interface TimelineEntry \{\n([\s\S]*?)\n\}\n/.exec(src.types) || [])[1] || '';
+    const keys = [...body.matchAll(/^\s*(\w+)\??:/gm)].map((m) => m[1]);
+    if (!keys.length) gaps.push('could not read TimelineEntry from types.ts');
+    for (const k of keys) {
+      if (!(k in MODEL_WRITES) && !(k in APP_ONLY)) gaps.push(`TimelineEntry.${k} is neither model-written nor app-only`);
+    }
+    for (const k of [...Object.keys(MODEL_WRITES), ...Object.keys(APP_ONLY)]) {
+      if (!keys.includes(k)) gaps.push(`map names TimelineEntry.${k}, which no longer exists`);
+    }
+    const at = src.server.indexOf('life timeline → list="timeline" (');
+    const prompt = at < 0 ? '' : src.server.slice(at, src.server.indexOf(');', at));
+    if (!prompt) gaps.push('server.js no longer describes list="timeline"');
+    for (const [field, itemKey] of Object.entries(MODEL_WRITES)) {
+      if (!new RegExp(`[(,] ?${itemKey}\\b`).test(prompt)) gaps.push(`the timeline prompt never offers "${itemKey}" (for ${field})`);
+    }
+    for (const k of ['source', 'importBatchId', 'photos', 'docIds', 'id']) {
+      if (new RegExp(`[(,] ?${k}\\b`).test(prompt)) gaps.push(`the timeline prompt offers app-only "${k}"`);
+    }
+    const row = (/^\s*timeline: \{([^}]*)\},?$/m.exec(src.destructive) || [])[1] || '';
+    if (!row) gaps.push('could not read UPDATE_FIELDS.timeline from aiDestructive.ts');
+    for (const k of ['source', 'importBatchId', 'photos', 'docIds', 'id']) {
+      if (new RegExp(`\\b${k}:`).test(row)) gaps.push(`UPDATE_FIELDS.timeline lets the model patch app-only "${k}"`);
+    }
+    return gaps;
+  }
+
+  const real = { types: typesSrc, server: serverSrc, destructive: destructiveSrc };
+  assert.deepStrictEqual(timelineFieldGaps(real), [], 'TimelineEntry fields and the assistant\'s timeline paths have drifted apart');
+
+  // CONTROL: every check must be able to fail.
+  const cases: [string, typeof real][] = [
+    ['TimelineEntry.mood is neither', { ...real, types: typesSrc.replace('export interface TimelineEntry {\n', 'export interface TimelineEntry {\n  mood?: string;\n') }],
+    ['never offers "place"', { ...real, server: serverSrc.replace('], place, endDate [', '], endDate [') }],
+    ['prompt offers app-only "importBatchId"', { ...real, server: serverSrc.replace('], place, endDate [', '], place, importBatchId, endDate [') }],
+    ['patch app-only "source"', { ...real, destructive: destructiveSrc.replace("timeline: { date: 'date',", "timeline: { source: 'source', date: 'date',") }],
+    ['map names TimelineEntry.importBatchId', { ...real, types: typesSrc.replace(/\n\s*importBatchId\?: string;[^\n]*/, '') }],
+  ];
+  for (const [expect, broken] of cases) {
+    const gaps = timelineFieldGaps(broken);
+    assert.ok(gaps.some((g) => g.includes(expect)), `CONTROL: breaking "${expect}" must be reported, got ${JSON.stringify(gaps)}`);
+  }
+
+  // And a real run: what the model sends beyond the whitelist never lands,
+  // and the row says it came from the assistant.
+  const { applyTimelineEdits } = await import('./aiApply');
+  const item: Record<string, string> = {
+    title: 'Moved house', date: '2019-06-14', category: 'home', members: '', place: 'Graz',
+    endDate: '2019-06-20', note: 'Rainy', source: 'import', importBatchId: 'batch-x', id: 'tl-x', docIds: 'd1', photos: 'p',
+  };
+  const { timeline } = applyTimelineEdits({ entries: [] }, [{ kind: 'list_add', list: 'timeline', item }], []);
+  const row = timeline.entries[0] as unknown as Record<string, unknown>;
+  assert.equal(row.source, 'assistant', 'an assistant row is marked source "assistant", whatever the model sent');
+  assert.equal('importBatchId' in row, false, 'the model can never put a row into an import batch');
+  assert.notEqual(row.id, 'tl-x', 'the model never chooses the id');
+  for (const k of Object.keys(row)) {
+    assert.ok(k in MODEL_WRITES || k === 'id' || k === 'source' || k === 'datePrecision', `applyTimelineEdits wrote unexpected key "${k}"`);
+  }
+  for (const k of ['title', 'date', 'category', 'place', 'endDate', 'note']) {
+    assert.ok(k in row, `CONTROL: a full item must reach the store with "${k}" — the whitelist check above proves nothing on an empty row`);
+  }
+  console.log(`  TimelineEntry fields: ${Object.keys(MODEL_WRITES).length} model-written, ${Object.keys(APP_ONLY).length} app-only (${cases.length} controls fail as they should)`);
 }
 
 // --- Report -----------------------------------------------------------------

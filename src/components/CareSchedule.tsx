@@ -18,6 +18,12 @@ interface CareScheduleProps {
   /** Everyone in the space — lets an untagged calendar appointment be matched to a person by name. */
   members?: readonly FamilyMember[];
   onOpenCalendar?: () => void;
+  /** Tag an untagged calendar appointment to a person — shows the "whose is this?" question (MemberAppointments). */
+  onTagEvent?: (eventId: string, memberId: string) => void;
+  /** Signed-in person's member id; cosmetic (utils/me.ts). */
+  meMemberId?: string;
+  /** Active space id, for the per-device "Not now" list. */
+  spaceId?: string;
 }
 
 /* ---- Due chip ---- */
@@ -166,7 +172,7 @@ function CareForm({
 }
 
 /* ---- Main component ---- */
-export default function CareSchedule({ member, onUpdate, events = [], members = [], onOpenCalendar }: CareScheduleProps) {
+export default function CareSchedule({ member, onUpdate, events = [], members = [], onOpenCalendar, onTagEvent, meMemberId, spaceId }: CareScheduleProps) {
   const [items, setItems] = useState<CareItem[]>(() => member.careSchedule || []);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -221,6 +227,9 @@ export default function CareSchedule({ member, onUpdate, events = [], members = 
         events={events}
         members={members}
         onOpenCalendar={onOpenCalendar}
+        onTagEvent={onTagEvent}
+        meMemberId={meMemberId}
+        spaceId={spaceId}
       />
 
       <section className="card p-5 space-y-4">

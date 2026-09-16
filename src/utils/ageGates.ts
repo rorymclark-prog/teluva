@@ -30,6 +30,9 @@ import { IdCountry } from '../types';
 //   ZA  15  Basic Conditions of Employment Act — no child under 15 employed
 //   UK  13  part-time light work under local byelaws (16 is school-leaving)
 //   US  14  FLSA, non-agricultural employment
+//   RO  15  Codul Muncii art. 13 — 16 is the general age, but 15 is permitted
+//           for light work with the parents' consent, so 15 is the floor at
+//           which this app should stop treating someone as unable to work.
 //   other 15  the ILO Minimum Age Convention floor
 //
 // The country comes from HubSettings.country — the family's own setting, and
@@ -43,6 +46,7 @@ export const MIN_WORKING_AGE: Record<IdCountry, number> = {
   ZA: 15,
   UK: 13,
   US: 14,
+  RO: 15,
   other: 15,
 };
 

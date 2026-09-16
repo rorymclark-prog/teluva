@@ -4,12 +4,49 @@
 // Download button already covers that case, so hiding is the right fallback.
 export const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
+/* The extension decides what the receiving app thinks it has been given.
+ * `blob.type.split('/')[1]` was right for image/jpeg and wrong for everything
+ * else: application/pdf came back as "pdf" only by luck, and a blob served
+ * with NO content-type — which Storage does — fell through to "jpg", so a
+ * lease arrived at ChatGPT named lease.jpg and was rejected or read as a
+ * broken image. Prefer the extension the document already has in its name,
+ * then a known MIME type, and only then guess. */
+const MIME_EXT: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'image/tiff': 'tiff',
+  'text/plain': 'txt',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+};
+
+export function fileExtensionFor(name: string, mime: string, src = ''): string {
+  const fromName = /\.([A-Za-z0-9]{2,5})$/.exec((name || '').trim());
+  if (fromName) return fromName[1].toLowerCase().replace('jpeg', 'jpg');
+  const known = MIME_EXT[(mime || '').split(';')[0].trim().toLowerCase()];
+  if (known) return known;
+  // A signed Storage URL keeps the original name in its path; a data: URL
+  // does not, and neither carries a query string worth reading.
+  const fromUrl = /\.([A-Za-z0-9]{2,5})(?:[?#]|$)/.exec(src.split('?')[0]);
+  if (fromUrl) return fromUrl[1].toLowerCase().replace('jpeg', 'jpg');
+  return 'jpg';
+}
+
 export async function srcToFile(src: string, name: string): Promise<File> {
   const res = await fetch(src);
   const blob = await res.blob();
-  const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+  const ext = fileExtensionFor(name, blob.type, src);
   const safe = (name || 'document').replace(/[^\w\s.-]/g, '').trim() || 'document';
-  return new File([blob], `${safe}.${ext}`, { type: blob.type || 'image/jpeg' });
+  // Don't end up with "lease.pdf.pdf" when the name already carries it.
+  const base = safe.toLowerCase().endsWith(`.${ext}`) ? safe : `${safe}.${ext}`;
+  const type = blob.type || (ext === 'pdf' ? 'application/pdf' : 'image/jpeg');
+  return new File([blob], base, { type });
 }
 
 export async function shareFile(src: string, name: string): Promise<void> {

@@ -6,9 +6,9 @@ import {
   Users, Check, Bell, ChevronLeft, ChevronRight, AlertCircle, X,
   Cloud, RefreshCcw, Loader2, LogIn, Send, Download, ScanLine, Link2,
   ChevronDown, IdCard, ShieldCheck, Cake, PartyPopper, Info, Stethoscope,
-  Heart, GraduationCap, Plane, PawPrint
+  Heart, GraduationCap, Plane, PawPrint, Star, EyeOff
 } from 'lucide-react';
-import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken, connectGoogleAccess } from '../utils/firebase';
+import { initAuth, googleSignIn, logout, getAccessToken, invalidateAccessToken, connectGoogleAccess, disconnectGoogleAccess } from '../utils/firebase';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import SheetGrabber from './SheetGrabber';
@@ -42,6 +42,15 @@ import {
   OCCASION_WATCH_DAYS,
 } from '../utils/familyDates';
 import { buildVirtualEvents, buildOccasionSeries, groupVirtualEventsByDate } from '../utils/virtualEvents';
+import { buildReferralAppointments } from '../utils/referralAppointment';
+import {
+  isUntaggedMedicalAppointment, suggestAppointmentOwner, tagEventToMember,
+  readDismissedUntagged, writeDismissedUntagged,
+} from '../utils/untaggedAppointments';
+import UntaggedAppointmentPrompt from './UntaggedAppointmentPrompt';
+import ImportantChip from './ImportantChip';
+import { isAutoImportant, isImportantEvent, importantOverride, withImportant } from '../utils/importantEvents';
+import { importGoogleEvents, writeLastGoogleImport, GoogleImportAuthError } from '../utils/googleCalendarImport';
 import type { VirtualCalendarEvent } from '../utils/virtualEvents';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import { parseIcs, buildIcs } from '../utils/ics';
@@ -49,6 +58,13 @@ import {
   CalendarFeed, mergeFeedEvents, removeFeedEvents, feedIdForUrl, describeSync, suggestFeedLabel,
 } from '../utils/calendarFeeds';
 import { loadAnniversaries, loadExtendedBirthdays, loadHousehold } from '../utils/db';
+import { useHiddenPeople, HideDatesButton, HiddenDatesLine, memberDates, extendedDates, petDates, type HideTarget } from '../contexts/HiddenPeopleContext';
+import {
+  visibleDateMembers, visibleEvents as withoutHiddenDates, visibleAnniversaries, visibleExtendedBirthdays, visiblePets,
+  occasionPersonKey,
+} from '../utils/hiddenPeople';
+import { DEMO_EXTENDED_BIRTHDAYS, isDemoMode } from '../utils/demoData';
+import { appConfirm } from '../utils/appConfirm';
 
 // Bug fix #1: local-date helper avoids UTC-day-shift for Vienna (UTC+1/+2)
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
@@ -91,7 +107,9 @@ function dayDotClass(item: CalendarEvent | VirtualCalendarEvent, isSelected: boo
       // than falling through to dusk, which means "extended birthday / name
       // day" on this grid. At 6px a sixth hue would not be legible anyway.
       : item.kind === 'birthday' || item.kind === 'petBirthday' ? 'border-sage-500'
-        : item.kind === 'anniversary' ? 'border-rosa-500'
+        // A booked referral appointment is an appointment: the Appointment
+        // rosa, as a ring because the calendar derived it from the referral.
+        : item.kind === 'anniversary' || item.kind === 'referralAppointment' ? 'border-rosa-500'
           : 'border-dusk-500'; // extended birthdays and name days both sit in the dusk-toned sections
     return `w-1.5 h-1.5 rounded-full border ${ring}`;
   }
@@ -103,6 +121,19 @@ function dayDotClass(item: CalendarEvent | VirtualCalendarEvent, isSelected: boo
           : item.category === 'Milestone' ? 'bg-sage-500'
             : 'bg-ink-400';
   return `w-1 h-1 rounded-full ${fill}`;
+}
+
+/** In place of an empty panel's "add one" hint when the panel is empty because of a Hide. */
+function HiddenHereNote({ onManage }: { onManage: () => void }) {
+  return (
+    <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
+      <EyeOff className="w-4 h-4 shrink-0" />
+      <span>These dates are hidden.</span>
+      <button type="button" onClick={onManage} className="font-semibold text-dusk-700 hover:underline cursor-pointer">
+        Manage
+      </button>
+    </div>
+  );
 }
 
 function DivisionIconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'rosa' | 'ink' | 'clay' | 'dusk' | 'honey' | 'sage' }) {
@@ -165,10 +196,41 @@ interface FamilyCalendarProps {
   /** Opens the real new-event flow when Quick Capture targets Plan. */
   openAddSignal?: number;
   isBusinessSpace?: boolean;
+  /**
+   * The signed-in person's member id (utils/me.ts resolveMe). Cosmetic only:
+   * it highlights their button in the "whose is this?" prompt, it never tags
+   * anything by itself and never gates anything.
+   */
+  meMemberId?: string;
 }
 
-export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings, emberMode = false, openAddSignal = 0, isBusinessSpace = false }: FamilyCalendarProps) {
-  const { isAdmin, canWrite, aiEligible, aiConsent } = useFamilyCtx();
+export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings, emberMode = false, openAddSignal = 0, isBusinessSpace = false, meMemberId }: FamilyCalendarProps) {
+  const { isAdmin, canWrite, aiEligible, aiConsent, familyId } = useFamilyCtx();
+  // People whose dates this account (or the whole family) has chosen not to
+  // see — utils/hiddenPeople.ts. Every date-showing part of this screen reads
+  // `dateMembers` / `shownEvents` and the filtered records below instead of
+  // the raw props. `members` and `events` themselves stay whole: they are
+  // what gets edited and saved, and a hidden birthday is still a real event.
+  const { hidden: hiddenPeople, openManager: manageHiddenDates } = useHiddenPeople();
+  const dateMembers = useMemo(() => visibleDateMembers(members, hiddenPeople), [members, hiddenPeople]);
+  const shownEvents: CalendarEvent[] = useMemo(() => withoutHiddenDates(events, hiddenPeople), [events, hiddenPeople]);
+  // A birthday panel that is empty only because of a Hide says so, instead of
+  // asking the family to add a birthday that is already there.
+  const birthdaysHiddenHere = useMemo(
+    () => members.some((m) => m.birthdate && !dateMembers.includes(m)),
+    [members, dateMembers],
+  );
+  // "Whose is this?" on untagged medical appointments — see
+  // utils/untaggedAppointments.ts. "Not now" is per device and per space.
+  const [dismissedUntagged, setDismissedUntagged] = useState<Set<string>>(() => readDismissedUntagged(familyId || ''));
+  useEffect(() => { setDismissedUntagged(readDismissedUntagged(familyId || '')); }, [familyId]);
+  const dismissUntagged = (eventId: string) => {
+    const next = new Set<string>(dismissedUntagged);
+    next.add(eventId);
+    setDismissedUntagged(next);
+    writeDismissedUntagged(familyId || '', next);
+  };
+  const suggestedOwnerId = useMemo(() => suggestAppointmentOwner(members, meMemberId), [members, meMemberId]);
   const aiOn = aiEligible && aiConsent;  // AI scan is off until the user opts in
   // Bug fix #1: replaced hardcoded new Date('2026-05-22') with real today
   const today = new Date();
@@ -218,9 +280,41 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   useEffect(() => {
     if (token && !hasAutoImported.current) {
       hasAutoImported.current = true;
-      handleImportFromGoogle();
+      handleImportFromGoogle(true);
     }
   }, [token]);
+
+  // Detaching the account is a member-level action, not an admin one: the token
+  // being detached is this person's own, minted in this browser, and nobody
+  // else's connection is affected by it.
+  const handleDisconnectGoogle = () => {
+    disconnectGoogleAccess();
+    setToken(null);
+    setNeedsAuth(true);
+    setCalendarSyncError(null);
+    triggerReminderNotification('Google Calendar disconnected. Nothing more is read or sent until you connect again.');
+  };
+
+  // "Use a different account" is NOT the same as reconnecting: it must force
+  // Google's account chooser, or the person is handed back the very account
+  // they are trying to move away from.
+  const handleSwitchGoogleAccount = async () => {
+    setIsLoggingIn(true);
+    setCalendarSyncError(null);
+    try {
+      const t = await connectGoogleAccess({ chooseAccount: true });
+      if (t) {
+        setToken(t);
+        setUser(auth.currentUser);
+        setNeedsAuth(false);
+        triggerReminderNotification('Connected. Import to pull this account\u2019s appointments in.');
+      }
+    } catch {
+      setCalendarSyncError('Could not switch account — try again.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
 
   const handleLoginGoogle = async () => {
     setIsLoggingIn(true);
@@ -408,7 +502,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   };
 
   const handleRevokePublish = async (link: PublishedLink) => {
-    if (!window.confirm('Turn this link off? Anyone using it — including your own Apple or Outlook calendar — will stop receiving these events.')) return;
+    if (!(await appConfirm('Turn this link off? Anyone using it — including your own Apple or Outlook calendar — will stop receiving these events.', { danger: true, confirmLabel: 'Turn off' }))) return;
     setPublishBusy(link.token);
     try {
       await publishApi('/api/calendar-publish/revoke', { method: 'POST', body: JSON.stringify({ token: link.token }) });
@@ -441,12 +535,13 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [duplicatesDismissed, setDuplicatesDismissed] = useState(false);
 
-  const handleRemoveDuplicates = () => {
+  const handleRemoveDuplicates = async () => {
     const summary = duplicateGroups.map(describeGroup).join('\n');
-    if (!window.confirm(
+    if (!(await appConfirm(
       `Remove ${duplicatesToRemove} duplicate ${duplicatesToRemove === 1 ? 'entry' : 'entries'}?\n\n`
       + `${summary}\n\nOne copy of each is kept — the one with the most detail on it.`,
-    )) return;
+      { danger: true, confirmLabel: 'Remove' },
+    ))) return;
     const { events: cleaned, removed } = removeDuplicates(events, duplicateGroups);
     onSaveEvents(cleaned);
     setShowDuplicates(false);
@@ -532,7 +627,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         anniversaries: !isBusinessSpace && settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
         petBirthdays: !isBusinessSpace && settings.calendarDivisions?.petBirthdays !== false ? petBirthdays : [],
       });
-      const ics = buildIcs(events, 'Teluva', new Date(), occasions);
+      const ics = buildIcs(shownEvents, 'Teluva', new Date(), occasions);
       const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
       const a = document.createElement('a');
       a.href = url;
@@ -543,7 +638,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       // Revoked on a tick, not immediately — Safari cancels an in-flight
       // download if the object URL disappears the moment the click returns.
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      const eventBit = `${events.length} ${events.length === 1 ? 'event' : 'events'}`;
+      const eventBit = `${shownEvents.length} ${shownEvents.length === 1 ? 'event' : 'events'}`;
       const occasionBit = occasions.length
         ? ` and ${occasions.length} ${occasions.length === 1 ? 'birthday or anniversary' : 'birthdays and anniversaries'} that repeat every year`
         : '';
@@ -579,7 +674,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setIsGoogleCalendarSyncing(true);
     setCalendarSyncError(null);
     try {
-      await pushEventToGoogleCalendar(ev, token);
+      await pushEventToGoogleCalendar(ev, token, { business: isBusinessSpace });
       // Mark this event as synced so it's never pushed a second time — by a
       // repeat click of this same button, or by the auto-sync effect if the
       // opt-in toggle is also on for future events.
@@ -650,7 +745,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       return;
     }
     const skipped = events.length - eligible.length;
-    const confirmPush = window.confirm(
+    const confirmPush = await appConfirm(
       `Ready to push ${eligible.length} event${eligible.length !== 1 ? 's' : ''} to your Google Calendar?` +
       (skipped > 0 ? ` (${skipped} already came from Google or were exported before, so they'll be skipped.)` : '')
     );
@@ -662,7 +757,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     let authExpired = false;
     for (const ev of eligible) {
       try {
-        await pushEventToGoogleCalendar(ev, token);
+        await pushEventToGoogleCalendar(ev, token, { business: isBusinessSpace });
         syncedIds.add(ev.id);
       } catch (e) {
         console.error('Batch sync failure for event id ' + ev.id, e);
@@ -690,7 +785,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     }
   };
 
-  const handleImportFromGoogle = async () => {
+  // `auto` is the once-per-mount run below: when the dashboard's start-up
+  // import is already in flight it steps aside without a word, rather than
+  // toasting about an import the person never asked for.
+  const handleImportFromGoogle = async (auto = false) => {
     if (!token) return;
     setIsGoogleCalendarSyncing(true);
     setCalendarSyncError(null);
@@ -710,99 +808,24 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         if (e instanceof Error && e.message.includes('permissions')) throw e;
       }
 
-      // A genuine backfill needs to reach back before the user started using this
-      // app, not just forward from today — this was previously a hardcoded
-      // absolute date (2026-01-01), which both missed anything entered before
-      // that and would silently drift further wrong every year it wasn't
-      // updated. One year back is enough to catch "I already had this on my
-      // Google Calendar" appointments without pulling in irrelevant ancient
-      // history. maxResults raised from 30 to 250 (a higher one-time cap, not
-      // full pageToken pagination) so a real year-plus backfill isn't silently
-      // truncated on the very first import.
-      //
-      // Past and future are fetched as TWO SEPARATE requests, each with their
-      // own 250 cap. A single request spanning both (timeMin=1yr-ago, no
-      // timeMax) sorts oldest-first, so an active calendar's past events alone
-      // could exhaust the entire cap and silently crowd out every upcoming
-      // appointment — the opposite of what an import is for. The future
-      // request has no timeMax, so it reaches at least a year out and further
-      // for anything already on the calendar beyond that.
-      const now = new Date();
-      const oneYearAgo = new Date(now);
-      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-      const nowIso = now.toISOString();
-      const gcalHeaders = { headers: { 'Authorization': `Bearer ${token}` } };
-      const [pastRes, futureRes] = await Promise.all([
-        fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${oneYearAgo.toISOString()}&timeMax=${nowIso}&maxResults=250&orderBy=startTime&singleEvents=true`, gcalHeaders),
-        fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${nowIso}&maxResults=250&orderBy=startTime&singleEvents=true`, gcalHeaders),
-      ]);
+      // The fetch, the transform and the duplicate check live in
+      // utils/googleCalendarImport.ts, shared with the dashboard's start-up
+      // import so both make identical events. Same windows as before (the past
+      // year, and everything from now on, as two queries so history can't
+      // crowd out upcoming appointments) — but each is now paged to the end
+      // through nextPageToken instead of stopping at Google's first 250.
+      const result = await importGoogleEvents(token, events, members);
+      if (!result) {
+        if (!auto) triggerReminderNotification('Already bringing in your Google Calendar — one moment.');
+        return;
+      }
+      writeLastGoogleImport(auth.currentUser?.uid, familyId);
+      const { fresh, duplicates, fetched, truncated } = result;
 
-      if (!pastRes.ok) throw new Error(`Google Calendar API error: ${pastRes.status}`);
-      if (!futureRes.ok) throw new Error(`Google Calendar API error: ${futureRes.status}`);
-
-      const [pastData, futureData] = await Promise.all([pastRes.json(), futureRes.json()]);
-      const googleEvents = [...(pastData.items || []), ...(futureData.items || [])];
-
-      if (googleEvents.length === 0) {
+      if (fetched === 0) {
         triggerReminderNotification('No events found in Google Calendar.');
         return;
       }
-
-      const importedEvents: CalendarEvent[] = [];
-      const seenThisRun = new Set<string>();
-      googleEvents.forEach((gEv: any) => {
-        // Bug fix #5: skip events previously exported from Family Hub
-        if ((gEv.summary || '').startsWith('[Family Hub]')) return;
-
-        // The past/future requests' boundaries could in principle both return
-        // the same event; guard against double-adding it in this run.
-        if (seenThisRun.has(gEv.id)) return;
-        seenThisRun.add(gEv.id);
-
-        // Bug fix #5: dedupe by Google event id instead of case-insensitive title
-        const exists = events.some(e => e.id === 'gcal-' + gEv.id);
-        if (exists) return;
-
-        const startVal = gEv.start?.dateTime || gEv.start?.date || '';
-        if (!startVal) return;
-
-        const datePart = startVal.substring(0, 10); // YYYY-MM-DD
-        let timePart = '12:00';
-        if (gEv.start?.dateTime) {
-          timePart = startVal.substring(11, 16); // HH:MM
-        }
-
-        importedEvents.push({
-          // Bug fix #5: id is now 'gcal-' + gEv.id so dedup works on next run
-          id: 'gcal-' + gEv.id,
-          title: gEv.summary || 'Google Appointment',
-          date: datePart,
-          time: timePart,
-          description: gEv.description || 'Imported from Google Calendar',
-          category: 'Appointment',
-          remindMe: true,
-          // Google has no idea who lives in this house, so every imported
-          // event used to arrive tagged to nobody — which meant a real
-          // appointment titled "Ganga - Orthodontist" landed on the calendar
-          // and appeared on nobody's Medical or Check-ups screen. Read the
-          // person out of the title on the way in. See
-          // utils/eventMemberMatch.ts for why the title and not the
-          // description, and why an explicit tag always wins.
-          memberIds: resolveEventMembers(
-            { title: gEv.summary || '', memberIds: [] },
-            members,
-          ).memberIds,
-        });
-      });
-
-      // Second, human-level dedup pass. The id check above only catches an
-      // event we have ALREADY imported under the same Google id. It cannot
-      // catch two DIFFERENT Google ids that describe the same appointment —
-      // and that is what a real calendar produced: six pairs of identical
-      // "Klara" entries, one pair being a recurring instance alongside a moved
-      // exception of that same instance. Both are real on Google's side; in
-      // here they are two rows nobody can tell apart. See utils/calendarDedup.
-      const { fresh, duplicates } = partitionNewEvents(events, importedEvents);
 
       if (fresh.length === 0) {
         triggerReminderNotification(
@@ -814,12 +837,21 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         onSaveEvents([...events, ...fresh]);
         triggerReminderNotification(
           `Imported ${fresh.length} new entr${fresh.length === 1 ? 'y' : 'ies'} from Google Calendar!` +
-          (duplicates.length > 0 ? ` (${duplicates.length} skipped as duplicates.)` : ''),
+          (duplicates.length > 0 ? ` (${duplicates.length} skipped as duplicates.)` : '') +
+          (truncated ? ' Your calendar is very large, so only the first 5,000 entries each way were read.' : ''),
         );
       }
     } catch (err: any) {
       console.error(err);
-      setCalendarSyncError(err.message || 'Failed to import from Google Calendar.');
+      if (err instanceof GoogleImportAuthError) {
+        // Dead everywhere, not just here — same reasoning as the export path.
+        invalidateAccessToken();
+        setToken(null);
+        setNeedsAuth(true);
+        setCalendarSyncError('Google Calendar needs reconnecting before it can bring anything in.');
+      } else {
+        setCalendarSyncError(err.message || 'Failed to import from Google Calendar.');
+      }
     } finally {
       setIsGoogleCalendarSyncing(false);
     }
@@ -918,7 +950,14 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<'Milestone' | 'Appointment' | 'School' | 'Travel' | 'Other'>('Other');
   const [remindMe, setRemindMe] = useState(true);
+  // The family's own choice on the Important switch; undefined = untouched,
+  // so the switch follows the title (a "Dentist" turns it on by itself).
+  const [importantChoice, setImportantChoice] = useState<boolean | undefined>(undefined);
   const [taggedMemberIds, setTaggedMemberIds] = useState<string[]>([]);
+  // Travel-only. Held even while the category is something else so switching
+  // to Travel and back does not silently discard what was typed.
+  const [endDate, setEndDate] = useState('');
+  const [destination, setDestination] = useState('');
   const [reminderNote, setReminderNote] = useState<string | null>(null);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [showAllDocumentDates, setShowAllDocumentDates] = useState(false);
@@ -947,6 +986,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [extendedBirthdayRecords, setExtendedBirthdayRecords] = useState<ExtendedBirthday[]>([]);
   useEffect(() => {
     let cancelled = false;
+    // The demo has one made-up aunt (demoData.ts) so this division has
+    // something to show; it never reads a real record.
+    if (isDemoMode()) { setExtendedBirthdayRecords(DEMO_EXTENDED_BIRTHDAYS); return; }
     loadExtendedBirthdays().then((list) => { if (!cancelled) setExtendedBirthdayRecords(list); });
     return () => { cancelled = true; };
   }, []);
@@ -1036,7 +1078,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setDescription('');
     setCategory('Other');
     setRemindMe(true);
+    setImportantChoice(undefined);
     setTaggedMemberIds([]);
+    setEndDate('');
+    setDestination('');
     setIsFormOpen(true);
   };
 
@@ -1055,14 +1100,43 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setDescription(ev.description || '');
     setCategory(ev.category);
     setRemindMe(ev.remindMe);
+    setImportantChoice(ev.important);
     // Pre-fill with the name-matched person when nobody was tagged, so
     // opening an inferred event and saving it promotes the guess to a real
     // tag — and clearing the box is how you tell the app the guess was wrong.
     setTaggedMemberIds(resolveEventMembers(ev, members).memberIds);
+    setEndDate(ev.endDate || '');
+    setDestination(ev.destination || '');
     setIsFormOpen(true);
   };
 
   // Commit Event
+  //
+  // Travel-only fields, resolved once for both the create and edit branches.
+  // Two rules worth keeping: an end date BEFORE the departure date is dropped
+  // rather than saved (utils/trip.ts would collapse it anyway, and storing a
+  // contradiction invites someone to trust it later), and switching an event
+  // away from Travel leaves whatever was already stored alone instead of
+  // deleting it — changing your mind twice should not lose the return date.
+  const tripFields = (existing?: CalendarEvent) => {
+    if (category !== 'Travel') return {};
+    const validEnd = endDate && endDate >= eventDate ? endDate : undefined;
+    return {
+      endDate: validEnd ?? (existing?.endDate && existing.endDate >= eventDate ? existing.endDate : undefined),
+      destination: destination.trim() || undefined,
+    };
+  };
+
+  // What the Important switch stores: nothing unless the family moved it,
+  // and then only where it disagrees with the app (importantOverride) — so
+  // switching a dentist visit ON writes nothing, and OFF writes false.
+  const importanceOpts = { business: isBusinessSpace };
+  const importantAuto = isAutoImportant({ title, description }, importanceOpts);
+  const importantOn = importantChoice ?? importantAuto;
+  const importantToStore = () => (importantChoice === undefined
+    ? undefined
+    : importantOverride({ title: title.trim(), description: description.trim() }, importantChoice, importanceOpts));
+
   const handleCommitEvent = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !eventDate) return;
@@ -1071,7 +1145,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       // Edit mode
       const updatedList = events.map(ev => {
         if (ev.id === editingEventId) {
-          return {
+          return withImportant({
             ...ev,
             title: title.trim(),
             date: eventDate,
@@ -1080,7 +1154,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             category,
             remindMe,
             memberIds: taggedMemberIds,
-          };
+            ...tripFields(ev),
+          }, importantToStore());
         }
         return ev;
       });
@@ -1088,7 +1163,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       triggerReminderNotification('Calendar event updated successfully!');
     } else {
       // Create mode
-      const newEvent: CalendarEvent = {
+      const newEvent: CalendarEvent = withImportant({
         id: 'ev-' + Date.now(),
         title: title.trim(),
         date: eventDate,
@@ -1097,7 +1172,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         category,
         remindMe,
         memberIds: taggedMemberIds,
-      };
+        ...tripFields(),
+      }, importantToStore());
       onSaveEvents([...events, newEvent]);
       triggerReminderNotification(
         remindMe
@@ -1110,9 +1186,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   };
 
   // Delete Event
-  const handleDeleteEvent = (eventId: string) => {
+  const handleDeleteEvent = async (eventId: string) => {
     const ev = events.find(e => e.id === eventId);
-    const ok = window.confirm(`Delete "${ev?.title || 'this event'}" from the shared calendar? This can't be undone.`);
+    const ok = await appConfirm(`Delete "${ev?.title || 'this event'}" from the shared calendar? This can't be undone.`, { danger: true, confirmLabel: 'Delete' });
     if (!ok) return;
     const updated = events.filter(e => e.id !== eventId);
     onSaveEvents(updated);
@@ -1138,7 +1214,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // surface above whatever was pulled in wholesale from a connected Google
   // Calendar; see utils/eventRelevance.ts.
   const selectedDayEvents = sortByRelevance(
-    events.filter(e => e.date === selectedDateStr),
+    shownEvents.filter(e => e.date === selectedDateStr),
     e => e.time || '00:00',
   );
 
@@ -1148,7 +1224,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // buckets: that keeps each month scannable without allowing a milestone
   // five months away to drag its whole month ahead of tomorrow's appointment.
   const todayTime = new Date(todayLocal()).getTime();
-  const upcomingReminders = events.filter(e => {
+  const upcomingReminders = shownEvents.filter(e => {
       const evTime = new Date(e.date).getTime();
       const diffDays = (evTime - todayTime) / (1000 * 60 * 60 * 24);
       return diffDays >= 0 && diffDays <= 180;
@@ -1163,7 +1239,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       day: date.toLocaleDateString('en-GB', { weekday: 'short' }),
       date: date.getDate(),
       month: date.toLocaleDateString('en-GB', { month: 'short' }),
-      events: sortByRelevance(events.filter((event) => event.date === iso), event => event.time || '00:00'),
+      events: sortByRelevance(shownEvents.filter((event) => event.date === iso), event => event.time || '00:00'),
     };
   });
   const upcomingReminderGroups = Array.from(
@@ -1195,13 +1271,13 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // Three sibling divisions — same "read the member record directly" rule as
   // documentExpiries above, so none of these can go stale relative to a
   // profile edit. See utils/familyDates.ts for the merge/derivation logic.
-  const birthdays = useMemo(() => buildCalendarBirthdays(members), [members]);
+  const birthdays = useMemo(() => buildCalendarBirthdays(dateMembers), [dateMembers]);
   const watchedBirthdays = birthdays.filter((b) => b.daysUntil <= OCCASION_WATCH_DAYS);
   const shownBirthdays = showAllBirthdays
     ? birthdays
     : watchedBirthdays.length > 0 ? watchedBirthdays : birthdays.slice(0, 1);
 
-  const nameCelebrations = useMemo(() => buildCalendarNameCelebrations(members), [members]);
+  const nameCelebrations = useMemo(() => buildCalendarNameCelebrations(dateMembers), [dateMembers]);
   const watchedNameCelebrations = nameCelebrations.filter(
     (c) => c.needsResolution || (c.daysUntil != null && c.daysUntil <= OCCASION_WATCH_DAYS),
   );
@@ -1218,7 +1294,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // Anniversaries & special days — reads the family's own AnniversariesDoc
   // (loaded above), not a member record, but same "watched vs. everything"
   // bones as birthdays.
-  const anniversaries = useMemo(() => buildCalendarAnniversaries(anniversaryRecords, events), [anniversaryRecords, events]);
+  const anniversaries = useMemo(
+    () => buildCalendarAnniversaries(visibleAnniversaries(anniversaryRecords, hiddenPeople), shownEvents),
+    [anniversaryRecords, shownEvents, hiddenPeople],
+  );
   const watchedAnniversaries = anniversaries.filter((a) => a.daysUntil <= OCCASION_WATCH_DAYS);
   const shownAnniversaries = showAllAnniversaries
     ? anniversaries
@@ -1240,8 +1319,12 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // "lets add a section underneath [Birthdays for] extended family and
   // friends birthdays" — rendered directly below the Birthdays section.
   const extendedBirthdays = useMemo(
-    () => buildCalendarExtendedBirthdays(extendedBirthdayRecords),
-    [extendedBirthdayRecords],
+    () => buildCalendarExtendedBirthdays(visibleExtendedBirthdays(extendedBirthdayRecords, hiddenPeople)),
+    [extendedBirthdayRecords, hiddenPeople],
+  );
+  const extendedHiddenHere = useMemo(
+    () => visibleExtendedBirthdays(extendedBirthdayRecords, hiddenPeople).length < extendedBirthdayRecords.length,
+    [extendedBirthdayRecords, hiddenPeople],
   );
   const watchedExtendedBirthdays = extendedBirthdays.filter((b) => b.daysUntil <= OCCASION_WATCH_DAYS);
 
@@ -1250,7 +1333,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // shipped. buildCalendarPetBirthdays drops pets with a deceasedDate, so a
   // family that has lost one keeps the record without being wished a happy
   // birthday for them every year.
-  const petBirthdays = useMemo(() => buildCalendarPetBirthdays(pets), [pets]);
+  const petBirthdays = useMemo(() => buildCalendarPetBirthdays(visiblePets(pets, hiddenPeople)), [pets, hiddenPeople]);
   const watchedPetBirthdays = petBirthdays.filter((b) => b.daysUntil <= OCCASION_WATCH_DAYS);
   const shownPetBirthdays = showAllPetBirthdays
     ? petBirthdays
@@ -1266,6 +1349,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const shownVacations = showAllVacations
     ? vacations
     : watchedVacations.length > 0 ? watchedVacations : vacations.slice(0, 1);
+
+  // Real today string for highlighting the calendar cell (and for "upcoming"
+  // below — the referral rows and the whose-is-this prompt).
+  const realTodayStr = todayLocal();
 
   // --- Virtual grid entries --------------------------------------------------
   // Until now the month grid rendered stored CalendarEvents ONLY, so none of
@@ -1293,6 +1380,14 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         nameCelebrations: !isBusinessSpace && settings.calendarDivisions?.nameCelebrations !== false ? nameCelebrations : [],
         anniversaries: !isBusinessSpace && settings.calendarDivisions?.anniversaries !== false ? anniversaries : [],
         petBirthdays: !isBusinessSpace && settings.calendarDivisions?.petBirthdays !== false ? petBirthdays : [],
+        // Booked referral appointments (a scanned "Termin am 22.09." letter,
+        // or a date typed on the Referrals form) — rows derived from the
+        // referral, never written to calendar_events, and left out wherever a
+        // real event already stands for that visit. Same toggle as the
+        // Medical checks card they also appear in; never in a business space.
+        referralAppointments: !isBusinessSpace && settings.calendarDivisions?.medicalChecks !== false
+          ? buildReferralAppointments(members, events, realTodayStr)
+          : [],
       },
       monthStart,
       monthEnd,
@@ -1300,14 +1395,30 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   }, [
     currentYear, currentMonth, daysInMonth,
     birthdays, extendedBirthdays, nameCelebrations, anniversaries, petBirthdays,
-    settings.calendarDivisions, isBusinessSpace,
+    settings.calendarDivisions, isBusinessSpace, members, events, realTodayStr,
   ]);
 
   const virtualByDate = useMemo(() => groupVirtualEventsByDate(virtualEvents), [virtualEvents]);
   const selectedDayVirtual = virtualByDate.get(selectedDateStr) ?? [];
 
-  // Real today string for highlighting the calendar cell
-  const realTodayStr = todayLocal();
+  // Whose date an agenda occasion is, for its "Hide <Name>'s dates" button.
+  // Only a person's own dates (birthday, name day, a relative's or a pet's
+  // birthday); an anniversary belongs to two people and a referral to nobody.
+  const hideTargetFor = (v: VirtualCalendarEvent): HideTarget | null => {
+    if (isBusinessSpace) return null;
+    const key = occasionPersonKey(v);
+    if (!key) return null;
+    if (v.kind === 'birthday' || v.kind === 'nameDay') {
+      const m = members.find((x) => x.id === v.sourceId);
+      return m ? { key, name: m.name, dates: memberDates(m, anniversaryRecords) } : null;
+    }
+    if (v.kind === 'extendedBirthday') {
+      const e = extendedBirthdayRecords.find((x) => x.id === v.sourceId);
+      return e ? { key, name: e.name, dates: extendedDates(e) } : null;
+    }
+    const p = pets.find((x) => x.id === v.sourceId);
+    return p ? { key, name: p.name, dates: petDates(p) } : null;
+  };
 
   return (
     <div className={`space-y-6 ${emberMode ? 'ember-calendar-view' : ''}`}>
@@ -1333,7 +1444,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             </p>
             <div className="flex flex-wrap items-center gap-2 mt-3">
               <span className="chip bg-white/10 text-white">
-                {events.filter((event) => event.date.startsWith(`${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`)).length} in {monthNames[currentMonth]}
+                {shownEvents.filter((event) => event.date.startsWith(`${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`)).length} in {monthNames[currentMonth]}
               </span>
               <span className="chip bg-white/10 text-white">{upcomingReminders.length} in the next 6 months</span>
               <span className={`chip ${needsAuth ? 'bg-white/10 text-white/70' : 'bg-sage-500 text-white'}`}>
@@ -1374,6 +1485,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         </div>
       </section>
 
+      {/* "2 people's dates hidden · Manage" — so a birthday that is missing
+          on purpose is never mistaken for one that was lost. Draws nothing
+          when nobody is hidden, and nothing in a business space. */}
+      <HiddenDatesLine className="px-1 -mt-3" />
+
       {emberMode && (
         <section className="ember-week-horizon" aria-labelledby="week-horizon-title">
           <header>
@@ -1387,7 +1503,14 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                 <b>{day.date}</b>
                 <small>{day.month}</small>
                 <i>{day.events.length ? `${day.events.length} ${day.events.length === 1 ? 'plan' : 'plans'}` : 'Clear'}</i>
-                {day.events.slice(0, 2).map((event) => <em key={event.id}>{event.time ? `${event.time} · ` : ''}{event.title}</em>)}
+                {day.events.slice(0, 2).map((event) => (
+                  <em key={event.id}>
+                    {isImportantEvent(event, importanceOpts) && (
+                      <><Star className="inline w-2.5 h-2.5 mr-0.5 -mt-0.5 fill-current text-clay-600" aria-hidden="true" /><span className="sr-only">Important: </span></>
+                    )}
+                    {event.time ? `${event.time} · ` : ''}{event.title}
+                  </em>
+                ))}
               </button>
             ))}
           </div>
@@ -1536,6 +1659,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                 </span>
               ) : birthdays.length > 0 ? (
                 <span className="chip bg-cream-200 text-ink-500">None in the next {OCCASION_WATCH_DAYS} days</span>
+              ) : birthdaysHiddenHere ? (
+                <span className="chip bg-cream-200 text-ink-500">Dates hidden</span>
               ) : (
                 <span className="chip bg-cream-200 text-ink-500">No birthdates on file</span>
               )}
@@ -1556,7 +1681,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           )}
         </div>
 
-        {shownBirthdays.length === 0 ? (
+        {shownBirthdays.length === 0 && birthdaysHiddenHere ? (
+          // Empty because of a Hide, not because nothing was entered — so it
+          // must not ask the family to add what is already there.
+          <HiddenHereNote onManage={manageHiddenDates} />
+        ) : shownBirthdays.length === 0 ? (
           <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
             <Cake className="w-4 h-4 text-sage-600 shrink-0" />
             Add a birthdate on a {isBusinessSpace ? 'team member’s' : 'family member’s'} profile and it will appear here.
@@ -1602,6 +1731,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                 </span>
               ) : extendedBirthdays.length > 0 ? (
                 <span className="chip bg-cream-200 text-ink-500">None in the next {OCCASION_WATCH_DAYS} days</span>
+              ) : extendedHiddenHere ? (
+                <span className="chip bg-cream-200 text-ink-500">Dates hidden</span>
               ) : (
                 <span className="chip bg-cream-200 text-ink-500">Nobody added yet</span>
               )}
@@ -1622,7 +1753,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           )}
         </div>
 
-        {shownExtendedBirthdays.length === 0 ? (
+        {shownExtendedBirthdays.length === 0 && extendedHiddenHere ? (
+          <HiddenHereNote onManage={manageHiddenDates} />
+        ) : shownExtendedBirthdays.length === 0 ? (
           <div className="px-5 py-4 flex items-center gap-2.5 text-[13px] text-ink-500">
             <Cake className="w-4 h-4 text-dusk-600 shrink-0" />
             Add someone from the Extended Birthdays tab and it will appear here.
@@ -2176,6 +2309,41 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               }
             </p>
 
+            {/* WHY THIS SITS HERE, BEFORE THE BUTTON.
+                `calendar.events` is a Google "sensitive" scope, and Teluva has
+                not been through Google's OAuth verification review — so the
+                consent flow opens on a red-triangle interstitial reading
+                "Google hasn't verified this app … you shouldn't use it", with
+                the only way forward hidden behind an "Advanced" disclosure and
+                labelled "(unsafe)".
+                Nothing is wrong when that appears, but a person who meets it
+                cold reads it as the app being dangerous and stops — and the one
+                who invited them then has to explain it, individually, forever.
+                Warning them a moment BEFORE they press the button is the whole
+                fix: the same words after the fact are reassurance nobody
+                believes.
+                The host is read from the live location so the quoted link text
+                matches whichever hostname this member actually opened. */}
+            {needsAuth && (
+              <div className="mt-3 rounded-xl border border-honey-200 bg-honey-50 p-3 text-[12px] leading-relaxed text-ink-600">
+                <p className="flex items-start gap-2 font-semibold text-ink-800">
+                  <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-honey-600" />
+                  <span>Google shows a warning first — that is expected.</span>
+                </p>
+                <p className="mt-1.5">
+                  The next screen says <span className="font-semibold">“Google hasn’t verified this app”</span>.
+                  It means Google has not reviewed Teluva yet, not that something is wrong.
+                  Tap <span className="font-semibold">Advanced</span>, then the link at the bottom:{' '}
+                  <span className="font-semibold">Go to {typeof window !== 'undefined' ? window.location.host : 'this app'} (unsafe)</span>.
+                </p>
+                <p className="mt-1.5">
+                  This step asks for one permission: reading and adding calendar events on the
+                  account you pick. It does not give Teluva your Gmail or your contacts, and you
+                  can disconnect it again from this screen at any time.
+                </p>
+              </div>
+            )}
+
             {/* Opt-in outbound sync toggle. Deliberately only shown once
                 connected (no token, nothing to push to) and only to
                 canWrite members (matches the edit/delete/manual-push
@@ -2232,7 +2400,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           ) : (
             <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
               <button
-                onClick={handleImportFromGoogle}
+                onClick={() => handleImportFromGoogle()}
                 disabled={isGoogleCalendarSyncing}
                 className="btn-quiet flex-1 sm:flex-none disabled:opacity-50"
                 title={`Pulls in appointments from the past year plus everything upcoming, including ones scheduled before you started using ${isBusinessSpace ? 'Business Calendar' : 'Family Hub'}`}
@@ -2256,6 +2424,32 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   <Send className="w-4 h-4" />
                 )}
                 <span>Export all events</span>
+              </button>
+
+              {/* The two controls the connected state was missing. Without
+                  them the only way off a wrong Google account was signing out
+                  of Teluva entirely, and the v300 consent notice promised a
+                  disconnect that did not exist. Kept quiet — they are rare
+                  actions sitting beside two frequent ones — but visible and
+                  labelled rather than hidden behind an icon. */}
+              <button
+                onClick={handleSwitchGoogleAccount}
+                disabled={isLoggingIn || isGoogleCalendarSyncing}
+                className="btn-quiet flex-1 sm:flex-none disabled:opacity-50"
+                title="Choose a different Google account for this calendar"
+              >
+                {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin text-ink-400" /> : <RefreshCcw className="w-4 h-4" />}
+                <span>Use a different account</span>
+              </button>
+
+              <button
+                onClick={handleDisconnectGoogle}
+                disabled={isGoogleCalendarSyncing}
+                className="btn-quiet flex-1 sm:flex-none disabled:opacity-50 text-rosa-700"
+                title="Stop syncing with this Google account"
+              >
+                <X className="w-4 h-4" />
+                <span>Disconnect</span>
               </button>
             </div>
           )}
@@ -2639,7 +2833,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               // Bug fix #1: compare against real today string, not hardcoded date
               const isCurrentDay = realTodayStr === dateStr;
 
-              const dayEvents = events.filter(e => e.date === dateStr);
+              const dayEvents = shownEvents.filter(e => e.date === dateStr);
               // Virtual entries take at most two of the three dot slots. A
               // recurring family occasion is high-signal and there are rarely
               // several on one day, but a real appointment must never be
@@ -2747,18 +2941,34 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                 the source record instead — a later pass can deep-link it. */}
             {selectedDayVirtual.length > 0 && (
               <ul className="space-y-1.5">
-                {selectedDayVirtual.map((v) => (
+                {selectedDayVirtual.map((v) => {
+                  const hideTarget = hideTargetFor(v);
+                  return (
                   <li
                     key={v.id}
-                    className="flex items-center gap-2.5 rounded-2xl border border-cream-200 bg-cream-50 px-3 py-2"
+                    className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-2xl border border-cream-200 bg-cream-50 px-3 py-2"
                   >
                     <span className={`shrink-0 ${dayDotClass(v, false)}`} aria-hidden="true" />
-                    <span className="min-w-0 flex-1 text-[13px] text-ink-800 truncate">{v.title}</span>
+                    {/* With a Hide action the title keeps room for itself, so on a
+                        phone the button wraps below instead of squeezing it to "A…". */}
+                    <span className={`${hideTarget ? 'min-w-[9rem]' : 'min-w-0'} flex-1 text-[13px] text-ink-800 truncate`}>{v.title}</span>
+                    {v.kind === 'referralAppointment' && (
+                      // Says where it comes from, and so where to change it:
+                      // the referral on that person's Medical screen.
+                      <span className="chip shrink-0 bg-rosa-100 text-rosa-700" title="Booked on a referral — change it on that person's Referrals">
+                        Referral
+                      </span>
+                    )}
+                    {/* A booked referral is a medical appointment, so always
+                        important — and only ever shown outside business spaces. */}
+                    {v.kind === 'referralAppointment' && !isBusinessSpace && <ImportantChip />}
                     {v.detail && (
                       <span className="shrink-0 text-[12px] text-ink-500 tabular-nums">{v.detail}</span>
                     )}
+                    {hideTarget && <HideDatesButton target={hideTarget} className="ml-auto -my-1 -mr-1.5" />}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
 
@@ -2813,6 +3023,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                           <span className={`inline-flex items-center gap-1 text-[11px] font-semibold rounded-lg px-2.5 py-0.5 leading-tight ${catStyle.bg} ${catStyle.text}`}>
                             {ev.category}
                           </span>
+                          {isImportantEvent(ev, importanceOpts) && <ImportantChip />}
                           {isGoogleOriginEventId(ev.id) && (
                             // Explains why this card sits lower than family
                             // items of the same or later time — it wasn't
@@ -2836,7 +3047,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                         <div className="flex items-center space-x-1.5">
                           <Users className="w-3 h-3 text-ink-400 mr-0.5" />
                           {assignedMembers.length === 0 ? (
-                            <span className="text-[12px] text-ink-400">All family</span>
+                            <span className="text-[12px] text-ink-400">{isBusinessSpace ? 'Whole team' : 'All family'}</span>
                           ) : (
                             <div className="flex -space-x-1">
                               {assignedMembers.map(m => (
@@ -2912,6 +3123,22 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                           )}
                         </div>
                       </div>
+
+                      {/* A medical-looking appointment nobody is tagged on —
+                          typically a Google import of the account holder's
+                          own appointment. Ask, one tap; never guess. See
+                          utils/untaggedAppointments.ts. */}
+                      {canWrite && !isBusinessSpace && assignedMembers.length === 0
+                        && ev.date >= realTodayStr && !dismissedUntagged.has(ev.id)
+                        && isUntaggedMedicalAppointment(ev, members) && (
+                        <UntaggedAppointmentPrompt
+                          eventTitle={ev.title}
+                          members={members}
+                          suggestedMemberId={suggestedOwnerId}
+                          onTag={(memberId) => onSaveEvents(tagEventToMember(events, ev.id, memberId))}
+                          onDismiss={() => dismissUntagged(ev.id)}
+                        />
+                      )}
                     </div>
                   );
                 })}
@@ -2930,7 +3157,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   <Bell className="w-4 h-4 text-clay-500" />
                   Upcoming shared reminders
                 </h4>
-                <p className="text-[12.5px] text-ink-500 mt-1">Appointments and family dates through the next 180 days, grouped by month.</p>
+                <p className="text-[12.5px] text-ink-500 mt-1">{isBusinessSpace ? 'Appointments and key dates through the next 180 days, grouped by month.' : 'Appointments and family dates through the next 180 days, grouped by month.'}</p>
               </div>
               <span className="chip bg-cream-200 text-ink-600 shrink-0">{upcomingReminders.length} reminders · 6 months</span>
             </div>
@@ -2982,6 +3209,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                                     {new Date(`${rem.date}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
                                     {rem.time ? ` · ${rem.time}` : ''}
                                   </p>
+                                  {isImportantEvent(rem, importanceOpts) && <ImportantChip className="mt-1" />}
                                 </div>
                                 {assigned.length > 0 && (
                                   <div className="flex -space-x-1 shrink-0">
@@ -3081,8 +3309,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   >
                     <option value="School">School / Homework</option>
                     <option value="Appointment">Medical appointment</option>
-                    <option value="Travel">Family travel / Flights</option>
-                    <option value="Milestone">Family milestone</option>
+                    <option value="Travel">{isBusinessSpace ? 'Business travel / Flights' : 'Family travel / Flights'}</option>
+                    <option value="Milestone">{isBusinessSpace ? 'Company milestone' : 'Family milestone'}</option>
                     <option value="Other">Other</option>
                   </select>
                 </div>
@@ -3099,6 +3327,67 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   </label>
                 </div>
               </div>
+
+              {/* Important. Follows the title until someone touches it, so a
+                  new "Dentist" switches itself on; see importantToStore for
+                  what is saved. No medical wording in a business space. */}
+              <label className="flex items-center justify-between gap-3 cursor-pointer select-none">
+                <span>
+                  <span className="field-label" style={{ marginBottom: 0 }}>Important</span>
+                  <span className="block text-[12px] text-ink-400 mt-0.5">
+                    Shown on the home screen in the month before. Sent to Google Calendar or through a calendar link, it comes with reminders the day before and 2 hours before.
+                    {!isBusinessSpace && ' Medical appointments are marked important automatically.'}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={importantOn}
+                  onClick={() => setImportantChoice(!importantOn)}
+                  className={`relative w-11 h-6 rounded-full shrink-0 transition-colors ${importantOn ? 'bg-clay-500' : 'bg-cream-300'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-soft transition-transform ${importantOn ? 'translate-x-5' : ''}`} />
+                </button>
+              </label>
+
+              {/* Trip details. Shown only for Travel, because a return date on a
+                  dentist appointment is noise — and because these two fields are
+                  what turn an event into a trip with a document pack behind it. */}
+              {category === 'Travel' && (
+                <div className="rounded-2xl border border-honey-200 bg-honey-50/60 p-3.5 space-y-3">
+                  <p className="text-[12px] font-bold text-honey-900">
+                    Trip details — these build the travel pack
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="field-label" htmlFor="tripEndDate">Coming home</label>
+                      <input
+                        id="tripEndDate"
+                        type="date"
+                        value={endDate}
+                        min={eventDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="field"
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label" htmlFor="tripDestination">Where to</label>
+                      <input
+                        id="tripDestination"
+                        type="text"
+                        value={destination}
+                        onChange={(e) => setDestination(e.target.value)}
+                        placeholder="Lisbon, Portugal"
+                        className="field"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11.5px] text-honey-800/90 leading-snug">
+                    With a return date, this trip shows on the home screen while it is happening — with tickets,
+                    insurance and passports in one place for whoever is travelling.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="field-label">Tag {isBusinessSpace ? 'team' : 'family'} members</label>

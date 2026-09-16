@@ -1,6 +1,8 @@
 import { useMemo, useState, type ElementType } from 'react';
 import { Dices, Quote, Ruler, PartyPopper, GraduationCap, Plane, Sparkles } from 'lucide-react';
 import { FamilyMember, CalendarEvent } from '../types';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
+import { visibleEvents } from '../utils/hiddenPeople';
 
 // A shuffle-on-demand companion to OnThisDay.tsx: that card only ever surfaces
 // things within a few days of today's date (a daily digest), so most of a
@@ -68,7 +70,13 @@ function buildMemories(members: FamilyMember[], events: CalendarEvent[]): Memory
       .map((id) => members.find((m) => m.id === id))
       .filter((x): x is FamilyMember => !!x)
       .map((x) => firstName(x.name));
-    const who = names.length ? `${names.join(' & ')}: ` : '';
+    // Many event titles already name their person ("Ben Clark's
+    // Birthday") — prefixing the attached member again produced "Ben: Ben
+    // Clark's Birthday" on the live card. If any attached first name
+    // already appears in the title, the title is trusted to say who.
+    const titleLower = ev.title.toLowerCase();
+    const who = names.length && !names.some((n) => titleLower.includes(n.toLowerCase()))
+      ? `${names.join(' & ')}: ` : '';
     memories.push({
       key: `event-${ev.id}`,
       icon: meta.icon,
@@ -88,7 +96,8 @@ function monthYear(iso: string): string {
 }
 
 export default function FlashbackCard({ members, events }: { members: FamilyMember[]; events: CalendarEvent[] }) {
-  const memories = useMemo(() => buildMemories(members, events), [members, events]);
+  const { hidden } = useHiddenPeople();
+  const memories = useMemo(() => buildMemories(members, visibleEvents(events, hidden)), [members, events, hidden]);
   /* Derived per render, not seeded once in a useState initialiser. That
      initialiser ran on the FIRST render, when `members` is still empty and
      `memories` therefore has length 0 — so it locked to 0 and, never running

@@ -21,6 +21,38 @@ const POLL_MS = 3 * 60 * 1000; // every 3 min while the tab is visible
 // no app state, so there is nothing to "settle" before running it.
 const FIRST_CHECK_MS = 1000;
 
+/**
+ * WHO ACTUALLY WANTS THE "HERE IS WHAT CHANGED" CARD.
+ *
+ * Rory: "did we say that we should show updates? i want to see them but i
+ * dont want others to necessarily see them."
+ *
+ * Fair, and the arithmetic settles it: four versions shipped in one day, so a
+ * beta user who opens the app each morning gets a changelog card every time.
+ * That is a developer's diary presented as news.
+ *
+ * The two modes are NOT the same decision, so only one of them is behind
+ * this. "Your app is stale, tap to refresh" stays unconditional for
+ * everybody — it is a correctness fix, and it matters MORE for people who are
+ * not watching deploys, because they are the ones who sit on an old build
+ * hitting bugs that were fixed days ago. Only the retrospective "you just
+ * updated, here is what changed" is opt-in.
+ *
+ * localStorage rather than a profile setting on purpose: it is per-device,
+ * which is exactly the grain of "show it on MY phone". Nothing to sync, and
+ * nothing about it belongs in anybody's family vault. Default off — the full
+ * log stays one tap away in Settings → What's new for anyone curious, so
+ * turning this off hides the interruption, not the information.
+ */
+const SHOW_CHANGES_KEY = 'teluva:showUpdateNotes';
+
+export function showsUpdateNotes(): boolean {
+  try { return localStorage.getItem(SHOW_CHANGES_KEY) === '1'; } catch { return false; }
+}
+export function setShowsUpdateNotes(on: boolean) {
+  try { localStorage.setItem(SHOW_CHANGES_KEY, on ? '1' : '0'); } catch { /* private mode */ }
+}
+
 // The build this device last actually RAN. Written on every launch; compared on
 // the next one.
 const LAST_SEEN_KEY = 'teluva:lastSeenBuild';
@@ -77,6 +109,10 @@ export default function UpdateBanner() {
     // No stored value = first ever launch on this device. Announcing "updated"
     // to someone who has never run it before would be a lie, so stay silent.
     if (!last || last === CURRENT_BUILD) return;
+    /* The build stamp above is still written every launch, so turning the
+       card on later does not produce a spurious "you just updated" for a
+       version this device has been running for a week. */
+    if (!showsUpdateNotes()) return;
 
     setMode((m) => (m === 'available' ? m : 'updated'));
     void fetchDeployedVersion().then((d) => {

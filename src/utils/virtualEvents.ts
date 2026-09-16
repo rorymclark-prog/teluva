@@ -33,10 +33,18 @@
 //   - Anniversary entries whose id starts with 'calendar-'. Same reason:
 //     buildCalendarAnniversaries also picks up free-text events that merely
 //     READ as an anniversary, and those are already stored events.
-//   - Medical checks. Mixed provenance (referrals + calendar-flagged events),
-//     and a medical appointment is a private, individually-dated thing rather
-//     than a recurring family occasion — it does not belong in the same "this
-//     comes back every year" projection as a birthday. Left for a later pass.
+//   - Medical checks in general. Mixed provenance (care schedule + referrals
+//     + calendar-flagged events); the calendar-flagged ones are stored events
+//     already, and a care-schedule "due" date is an estimate, not a booking.
+//     The ONE medical thing that is projected is a BOOKED referral
+//     appointment (kind 'referralAppointment', added 2026-09-13): a referral
+//     letter with a date on it is as real an appointment as a typed event, and
+//     before this it reached only the Medical checks panel, so a scanned
+//     "Termin am 22.09." never appeared on the grid. It is one-off, never
+//     recurring, and utils/referralAppointment.ts has already dropped any that
+//     a real event on the same day covers — the referral stays the one writer
+//     of its date. Not exported to .ics (buildOccasionSeries): private, and
+//     not a family occasion.
 //   - Movable name celebrations with no cached resolution for the year in
 //     question. NameCelebration.resolvedDates is documented as "a cache, not a
 //     fact [...] A missing year means 'unknown until resolved', never 'guess'".
@@ -49,8 +57,9 @@ import type {
   CalendarPetBirthday,
 } from './familyDates';
 import { isLeapYear, nameDayOccurrenceInYear } from './nameDay';
+import type { ReferralAppointment } from './referralAppointment';
 
-export type VirtualEventKind = 'birthday' | 'extendedBirthday' | 'nameDay' | 'anniversary' | 'petBirthday';
+export type VirtualEventKind = 'birthday' | 'extendedBirthday' | 'nameDay' | 'anniversary' | 'petBirthday' | 'referralAppointment';
 
 export interface VirtualCalendarEvent {
   /** Unique per occurrence, e.g. 'virtual:birthday:m_12:2026-03-03'. Namespaced
@@ -125,6 +134,9 @@ export interface VirtualEventSources {
   nameCelebrations?: readonly CalendarNameCelebration[];
   anniversaries?: readonly CalendarAnniversary[];
   petBirthdays?: readonly CalendarPetBirthday[];
+  /** Booked referral appointments, already deduped against real events —
+   *  see utils/referralAppointment.ts buildReferralAppointments. */
+  referralAppointments?: readonly ReferralAppointment[];
 }
 
 /**
@@ -242,6 +254,20 @@ export function buildVirtualEvents(
         detail: age == null ? undefined : `${pb.estimated ? 'about ' : 'turns '}${age}`,
       });
     }
+  }
+
+  // Booked referral appointments: one dated occurrence each, never repeated.
+  for (const ra of sources.referralAppointments ?? []) {
+    if (ra.date < startIso || ra.date > endIso) continue;
+    out.push({
+      id: `virtual:referralAppointment:${ra.referralId}:${ra.date}`,
+      kind: 'referralAppointment',
+      sourceId: ra.referralId,
+      title: ra.title,
+      date: ra.date,
+      detail: [ra.time, ra.memberName].filter(Boolean).join(' · ') || undefined,
+      memberIds: [ra.memberId],
+    });
   }
 
   return out.sort(

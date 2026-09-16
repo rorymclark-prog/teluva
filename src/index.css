@@ -392,7 +392,20 @@
     @apply px-3.5 py-2 rounded-full text-[13px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap text-ink-500 hover:text-ink-800;
   }
   .tab-pill-active {
-    @apply bg-ink-900 text-white shadow-soft;
+    /* The text colour must follow the background through the theme, not sit at
+       a hard white. Under Ember/dark, --color-ink-900 IS near-white, so
+       `text-white` on it was white-on-white — the active tab read as an empty
+       pill everywhere .tab-pill is used (shared profiles, health timeline,
+       family stats, claim export, the legal pages). cream-50 inverts exactly
+       opposite ink-900, so this stays legible in every theme. */
+    @apply bg-ink-900 shadow-soft;
+    color: var(--color-cream-50);
+  }
+  /* .tab-pill's hover:text-ink-800 outranks the rule above (class + :hover),
+     so the active pill under the cursor went ink-on-ink — right after you
+     tapped it. */
+  .tab-pill-active:hover {
+    color: var(--color-cream-50);
   }
 
   /* Form input */
@@ -707,6 +720,26 @@ html[data-interface="ember"] body {
   background-color: var(--ember-raised, var(--color-cream-50)) !important;
 }
 
+/* The rule above matches the class token `bg-white` EXACTLY, so it never
+   applied to Tailwind's opacity variants — `bg-white/80` is the class token
+   `bg-white/80`, which `.bg-white` cannot select. That left 17 places across
+   11 components painting a near-opaque white surface in dark mode while the
+   ink text on them inverted to near-white: the assistant's chat bubble
+   (bg-white/80 + text-ink-800) was effectively invisible, and so were the
+   lightbox controls, several chips and the gallery buttons.
+
+   Only >=50% is compensated. The low-opacity variants (bg-white/5 through
+   /25) are deliberate translucent overlays on dark or gradient surfaces and
+   are paired with `text-white`, a literal that does not invert — turning
+   those into a raised dark surface would break them. */
+:root[data-theme="dark"] .bg-white\/50,
+:root[data-theme="dark"] .bg-white\/60,
+:root[data-theme="dark"] .bg-white\/70,
+:root[data-theme="dark"] .bg-white\/80,
+:root[data-theme="dark"] .bg-white\/90 {
+  background-color: var(--ember-raised, var(--color-cream-50)) !important;
+}
+
 :root[data-theme="dark"] .border-white {
   border-color: var(--color-cream-300) !important;
 }
@@ -801,33 +834,6 @@ html[data-interface="ember"] body {
   font-size: .68rem;
   font-weight: 850;
 }
-
-.ember-appearance-mobile-trigger {
-  min-height: 2.65rem;
-  padding: .55rem .8rem;
-  position: fixed;
-  z-index: 61;
-  left: 1rem;
-  bottom: calc(max(.65rem, env(safe-area-inset-bottom)) + 5.1rem);
-  display: flex;
-  align-items: center;
-  gap: .35rem;
-  color: var(--ember-text);
-  background: var(--ember-raised);
-  border: 1px solid var(--ember-line);
-  border-radius: 999px;
-  box-shadow: 0 13px 30px rgba(0,0,0,.16);
-  font-size: .68rem;
-  font-weight: 850;
-}
-.ember-appearance-mobile-trigger svg { color: var(--ember-action); }
-.ember-appearance-mobile-backdrop { position: fixed; inset: 0; z-index: 80; padding: 1rem; display: flex; align-items: flex-end; justify-content: center; background: rgba(9,9,11,.56); backdrop-filter: blur(8px); }
-.ember-appearance-mobile-sheet { width: min(100%, 28rem); padding: 1rem; color: var(--ember-text); background: var(--ember-raised); border: 1px solid var(--ember-line); border-radius: 1.4rem; box-shadow: 0 28px 80px rgba(0,0,0,.38); }
-.ember-appearance-mobile-sheet > header { margin-bottom: 1rem; display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
-.ember-appearance-mobile-sheet > header > div { display: grid; gap: .2rem; }
-.ember-appearance-mobile-sheet > header span { color: var(--ember-action); font-size: .58rem; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
-.ember-appearance-mobile-sheet > header b { font-size: 1rem; }
-.ember-appearance-mobile-sheet > header button { width: 2.25rem; height: 2.25rem; display: grid; place-items: center; color: var(--ember-muted); background: var(--ember-canvas); border-radius: 999px; }
 
 .appearance-segment {
   padding: .22rem;
@@ -956,6 +962,11 @@ html[data-interface="ember"] body {
 .pulse-family-scene.has-photo { min-height: 18rem; padding: 0; background: #151316; }
 .pulse-family-scene.has-photo::after { content: ""; position: absolute; inset: 42% 0 0; background: linear-gradient(transparent, rgba(21, 19, 22, .58)); pointer-events: none; }
 .pulse-family-scene > img { width: 100%; height: 100%; position: absolute; inset: 0; object-fit: cover; }
+/* The family photo is a button so it can be opened full size. It cannot be
+   display:contents — the `>` selector above stops matching through it — so the
+   button takes the absolute fill and the img fills the button. */
+.pulse-scene-photo { position: absolute; inset: 0; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.pulse-scene-photo > img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .pulse-scene-label { color: #FFD7D2; font: 700 .7rem Georgia, serif; letter-spacing: .08em; }
 .pulse-scene-portraits { margin: 1.3rem 0 .8rem; display: flex; align-items: end; }
 .pulse-scene-portraits img,
@@ -966,6 +977,15 @@ html[data-interface="ember"] body {
 .pulse-scene-portraits :nth-child(4) { transform: translateY(-.35rem) rotate(3deg); background: var(--color-honey-500); }
 .pulse-family-scene > p { color: rgba(255, 249, 246, .74); font-size: .68rem; font-weight: 700; }
 .pulse-family-scene .pulse-date-orb { position: absolute; right: .8rem; top: .8rem; }
+/* On a phone the four portraits (4.25rem each, overlapped by .65rem) run
+   255px wide, and the date orb is pinned absolutely to the top-right of the
+   same box — measured at 375px they overlapped by 83x44px, so the fourth
+   person sat underneath the date. Shrinking the portraits on narrow screens
+   ends the row before the orb starts; the orb keeps its corner. */
+@media (max-width: 640px) {
+  .pulse-scene-portraits img,
+  .pulse-scene-portraits > span { width: 3rem; height: 3.75rem; border-width: 2px; border-radius: 1.4rem 1.4rem .9rem .9rem; }
+}
 .pulse-date-orb {
   width: 7.5rem;
   height: 7.5rem;
@@ -982,6 +1002,17 @@ html[data-interface="ember"] body {
 }
 .pulse-date-orb b { font-size: 2.35rem; line-height: 1; letter-spacing: -.06em; }
 .pulse-date-orb span { margin-top: .25rem; color: #766E70; font-size: .6rem; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; }
+/* Travel banner. Deliberately the ONE thing on Pulse allowed to use the action
+   colour as a fill rather than an accent — it appears only while a trip is
+   current, so it cannot become wallpaper, and when it does appear it should win
+   the eye immediately. Full-bleed row above the grid, not a card inside it. */
+.pulse-trip { display: flex; align-items: center; gap: 1rem; padding: 1.15rem 1.35rem; border-radius: 1.5rem; color: var(--ember-text); background: color-mix(in srgb, var(--ember-action) 12%, var(--ember-raised)); border: 1px solid color-mix(in srgb, var(--ember-action) 34%, transparent); box-shadow: var(--shadow-card); }
+.pulse-trip-icon { width: 2.9rem; height: 2.9rem; flex: 0 0 auto; display: grid; place-items: center; color: var(--ember-action); background: color-mix(in srgb, var(--ember-action) 16%, transparent); border-radius: 1rem; }
+.pulse-trip-copy { min-width: 0; flex: 1 1 auto; }
+.pulse-trip-copy h2 { margin-top: .3rem; font-size: clamp(1.05rem, 2.2vw, 1.4rem); font-weight: 780; line-height: 1.12; letter-spacing: -.035em; text-wrap: balance; }
+.pulse-trip-action { flex: 0 0 auto; display: inline-flex; align-items: center; gap: .4rem; padding: .7rem 1.15rem; color: #fff; font-size: .75rem; font-weight: 800; background: var(--ember-action); border-radius: 999px; cursor: pointer; }
+.pulse-trip-action:hover { background: color-mix(in srgb, var(--ember-action) 86%, #000); }
+
 .pulse-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(17rem, .85fr); gap: 1rem; }
 .pulse-decisions,
 .pulse-memory,
@@ -1001,6 +1032,11 @@ html[data-interface="ember"] body {
 .pulse-decision-row > span small { margin-top: .2rem; color: var(--ember-muted); font-size: .66rem; }
 .pulse-empty { min-height: 8rem; padding: 1.5rem; display: flex; align-items: center; justify-content: center; gap: .6rem; color: var(--ember-muted); font-size: .78rem; text-align: center; }
 .pulse-empty svg { color: var(--color-sage-500); }
+/* "Important — coming up" (ImportantComingUp.tsx) borrows the review card's
+   frame and rows; the only new part is the days-to-go pill in the arrow slot. */
+.pulse-days { padding: .3rem .65rem; color: var(--ember-action); font-size: .66rem; font-weight: 800; white-space: nowrap; background: color-mix(in srgb, var(--ember-action) 10%, transparent); border-radius: 999px; }
+.pulse-important-more { width: 100%; padding: .8rem 1.25rem; color: var(--ember-action); font-size: .72rem; font-weight: 800; text-align: center; cursor: pointer; }
+.pulse-important-more:hover { background: color-mix(in srgb, var(--ember-action) 5%, transparent); }
 .pulse-memory { min-height: 100%; padding: 1.5rem; position: relative; overflow: hidden; text-align: left; border-radius: 1.5rem; cursor: pointer; }
 .pulse-memory::after { content: ""; width: 11rem; height: 11rem; position: absolute; right: -4rem; bottom: -5rem; background: var(--ember-rose); border-radius: 46% 54% 43% 57%; opacity: .7; }
 .pulse-memory-icon { width: 3.2rem; height: 3.2rem; margin: 3.7rem 0 1rem; display: grid; place-items: center; color: var(--ember-oxblood); background: var(--ember-rose); border-radius: 1rem; transform: rotate(-4deg); }
@@ -1071,7 +1107,12 @@ html[data-interface="ember"] body {
 .ember-view-heading p { max-width: 40rem; margin-top: .85rem; color: rgba(255,249,246,.62); font-size: clamp(.83rem, 1.8vw, 1rem); line-height: 1.55; }
 .ember-view-mark { width: 6.5rem; height: 6.5rem; position: relative; z-index: 2; display: grid; place-items: center; color: #151316; background: #FFF9F6; border-radius: 50%; transform: rotate(5deg); box-shadow: 0 20px 45px rgba(0,0,0,.25); }
 .ember-view-mark svg { width: 2rem; height: 2rem; color: var(--ember-action); }
-.ember-subnav { grid-column: 1 / -1; position: relative; z-index: 3; display: flex; gap: .45rem; overflow-x: auto; scrollbar-width: none; }
+/* The scrollbar is hidden, so without the fade a clipped pill ("Rec…") read
+   as a rendering bug rather than "more this way". The right padding lets the
+   last pill scroll clear of the fade zone, so nothing is unreadable at the
+   end of the strip; over non-overflowing content the fade sits on empty
+   space and is invisible. */
+.ember-subnav { grid-column: 1 / -1; position: relative; z-index: 3; display: flex; gap: .45rem; overflow-x: auto; scrollbar-width: none; padding-right: 1.5rem; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 1.75rem), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 1.75rem), transparent); }
 .ember-subnav::-webkit-scrollbar { display: none; }
 .ember-subnav button { min-height: 2.4rem; padding: .55rem .75rem; flex: 0 0 auto; display: flex; align-items: center; gap: .4rem; color: rgba(255,249,246,.52); font-size: .66rem; font-weight: 750; border: 1px solid rgba(255,255,255,.08); border-radius: 999px; }
 .ember-subnav button:hover { color: #FFF9F6; background: rgba(255,255,255,.06); }
@@ -1156,6 +1197,26 @@ html[data-interface="ember"] body {
 }
 
 .ember-people-layout { gap: 1rem; }
+/* The people directory is a 4-of-12 column, which at lg works out to ~228px.
+   Ember enlarges the avatar in it to 3.5rem, and an ADMIN gets two more
+   fixed-width things on every row — a drag handle and a delete button — on
+   either side of the one element that is meant to flex. The name was left
+   26px: "Katharina Moser" rendered as "Katl", and the "Your team" heading
+   above it wrapped onto two lines inside 37px.
+
+   It went unseen because the demo has no account, so FamilyContext resolves
+   role null and the demo was never an admin — the two controls that cause it
+   never rendered in the only build anyone browses casually.
+
+   Sizing this column by content rather than by twelfths fixes it at every
+   width. The `> section` selector (0,1,1) outranks Tailwind's `.lg:col-span-4`
+   (0,1,0) on specificity, so the span classes on the children stop applying
+   without needing !important — and they still govern the non-ember layout,
+   which does not carry this class. */
+@media (min-width: 1024px) {
+  .ember-people-layout { grid-template-columns: minmax(17rem, 21rem) minmax(0, 1fr); }
+  .ember-people-layout > section { grid-column: auto; }
+}
 .ember-people-directory > .card { background: var(--ember-raised); border-color: var(--ember-line); }
 .ember-person-card { min-height: 4.5rem; color: var(--ember-text); background: var(--ember-canvas) !important; border-color: transparent !important; }
 .ember-person-card:hover { border-color: color-mix(in srgb, var(--ember-action) 28%, transparent) !important; transform: translateY(-1px); }
@@ -1341,7 +1402,11 @@ html[data-interface="ember"] body {
 @media (min-width: 1024px) {
   .ember-people-directory { grid-column: span 3 / span 3; }
   .ember-living-profile { grid-column: span 9 / span 9; }
-  .ember-people-directory > .card { position: sticky; top: 5.5rem; }
+  /* ONLY the family list pins. This selector used to be `> .card`, which
+     silently caught every later sibling that happened to use .card — the
+     Connected families button became a SECOND sticky box at the same
+     offset and sat on top of the list. Anchor it to the list itself. */
+  .ember-people-directory > [data-tour="family-list"] { position: sticky; top: 5.5rem; }
 }
 
 @media (min-width: 1024px) {
@@ -1352,8 +1417,108 @@ html[data-interface="ember"] body {
   .ember-header > div { max-width: none; }
   .ember-main { max-width: none; margin-left: 14.5rem; margin-right: 1.5rem; }
   .ember-capture-mobile { display: none; }
-  .ember-appearance-mobile-trigger { display: none; }
 }
+
+/* The assistant launcher belongs in Ember's phone action stack.
+   Its default home is bottom-right — the same corner .ember-mobile-nav
+   occupies as a fixed z-60 bar, so at phone and tablet widths the launcher
+   rendered UNDERNEATH the nav: invisible, and a tap on it landed on a nav
+   destination instead. Chat had NO other way in below 1024px, because
+   "Ask Teluva" only exists in the desktop sidebar. Lift it above the nav and
+   sit it on top of the Capture pill so the two read as one stack.
+   Kept as a lift rather than a new button so the launcher stays the close
+   control (the panel has no other one above 640px, where SheetGrabber's
+   sm:hidden kicks in) and the tour's ai-assistant anchor still has a target. */
+/* The chat composer is a contenteditable so that iOS will offer "Paste" for a
+   copied PDF — a plain <textarea> is never offered it. That costs the two
+   things a textarea gave free, so they are rebuilt here.
+
+   The placeholder is driven by [data-empty], NOT by :empty. Browsers leave a
+   stray <br> behind when a rich box is cleared, so :empty stops matching while
+   the box still LOOKS empty and the placeholder never returns. React knows
+   whether the value is '' — let it say so.
+
+   The placeholder is also taken OUT OF FLOW. A cleared rich box keeps a <br>,
+   which already occupies one line; a block-level ::before would sit on a
+   second one and the empty composer would stand 61px tall instead of 44 —
+   growing every time it was cleared and never shrinking back. Absolute keeps
+   it painted over the same line the caret is on. `padding: inherit` is what
+   lines the placeholder up with the text: an absolute pseudo-element is
+   positioned against the PADDING box, so without it the hint sits up and left
+   of where typing actually begins. */
+.composer-input {
+  position: relative;
+  caret-color: var(--color-clay-500);
+}
+
+.composer-input[data-empty]::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  inset: 0;
+  padding: inherit;
+  color: var(--color-ink-400);
+  pointer-events: none;
+}
+
+/* The launcher's own skin. Lives here rather than in an inline style so the
+   Ember override below can win without !important. */
+.assistant-launcher {
+  background-image: linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600));
+  box-shadow: var(--shadow-glow);
+}
+
+@media (max-width: 1023px) {
+  .ember-app .assistant-launcher {
+    z-index: 61;
+    right: 1rem;
+    bottom: calc(max(.65rem, env(safe-area-inset-bottom)) + 8.25rem);
+    width: 2.9rem;
+    height: 2.9rem;
+    /* Ember already spends its one red on Capture. A second red circle both
+       competes with it and disappears entirely against the red hero cards, so
+       chat takes the raised surface the Appearance pill uses and puts the
+       accent in the icon, where it stays legible on any card. */
+    background-image: none;
+    background: var(--ember-raised);
+    border: 1px solid var(--ember-line);
+    color: var(--ember-action);
+    box-shadow: 0 13px 30px rgba(0,0,0,.16);
+  }
+}
+
+/* While the chat is open, Ember's phone furniture gets out of its way.
+   The nav (z-60) and the Capture pill (z-61) outrank the chat panel (z-40),
+   so they painted straight over the conversation — a red Capture button
+   floating mid-thread, and the nav bar covering the panel's bottom edge where
+   the composer lives. They are behind the panel's backdrop and unusable at
+   that moment anyway, so hiding them costs nothing and removes the clash.
+   The launcher itself deliberately stays: it is the close control. */
+[data-assistant-open] .ember-mobile-nav,
+[data-assistant-open] .ember-capture-mobile { display: none; }
+
+/* ...and while the chat is open, the launcher stops standing in the composer.
+   Ember lifts it to `bottom: safe + 8.25rem` so it clears the nav bar — but
+   the nav is hidden above, and that height lands the X exactly on the chat's
+   own Send button. With the furniture gone the bottom strip is free, so the
+   close control drops into it: still the launcher, still tappable, no longer
+   parked on the button you were reaching for. */
+@media (max-width: 1023px) {
+  [data-assistant-open] .ember-app .assistant-launcher {
+    bottom: max(.65rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Any full-screen modal layer (see useBodyScrollLock, which sets the flag)
+   sends ALL the phone furniture away, launcher included. Every modal in this
+   app sits at z-50 or above the page but BELOW Ember's z-60/61 chrome, so
+   without this the nav bar and the Capture pill paint over whatever is
+   open — that is how the launcher's X came to sit on the scanner's "Save as".
+   The launcher is not a loss here: the chat panel is z-40, so opening it from
+   on top of a modal would have buried it anyway. Each modal carries its own
+   close control; the shell has nothing useful to offer while one is up. */
+[data-modal-open] .ember-mobile-nav,
+[data-modal-open] .ember-capture-mobile,
+[data-modal-open] .assistant-launcher { display: none; }
 
 @media (max-width: 767px) {
   .ember-onboarding { grid-template-columns: 1fr; padding: .65rem; }
@@ -1367,6 +1532,57 @@ html[data-interface="ember"] body {
   .ember-view-heading h1 { max-width: 19rem; font-size: clamp(2.35rem, 12vw, 3.55rem); }
   .ember-view-mark { width: 4.8rem; height: 4.8rem; position: absolute; right: 1.2rem; top: 1.2rem; }
   .ember-view-mark svg { width: 1.5rem; height: 1.5rem; }
+
+  /* COLLAPSE ON SCROLL. The hero is worth its 22rem on arrival and nothing
+     like it for the rest of the page, so it sticks under the top bar and
+     shrinks to a slim strip carrying the kicker and the section pills. Two
+     things come out of that: the screenful the hero used to cost is given
+     back, and the subnav — which used to be reachable only by scrolling all
+     the way home — is now always one tap away.
+     `top` tucks a few pixels under the sticky header (z-40) so no seam of
+     page shows through; the hero stays well below it at z-5. Height itself is
+     not animated (auto does not interpolate) — the copy collapses via
+     max-height/opacity and the padding follows, which reads as one motion. */
+  .ember-view-heading {
+    position: sticky;
+    top: 4.25rem;
+    z-index: 5;
+    transition: min-height 260ms ease, padding 260ms ease, gap 260ms ease, border-radius 260ms ease;
+  }
+  .ember-view-heading h1,
+  .ember-view-heading p,
+  .ember-view-heading .ember-view-mark {
+    transition: opacity 200ms ease, max-height 260ms ease, margin-top 260ms ease;
+  }
+  .ember-view-heading.is-tight {
+    min-height: 0;
+    padding: .7rem .9rem;
+    gap: .55rem;
+    border-radius: 1.15rem;
+  }
+  .ember-view-heading.is-tight h1,
+  .ember-view-heading.is-tight p {
+    max-height: 0;
+    margin-top: 0;
+    opacity: 0;
+    overflow: hidden;
+  }
+  /* The mark is absolutely positioned here, so it costs no height either way —
+     it just has no place in a one-line bar. */
+  .ember-view-heading.is-tight .ember-view-mark { opacity: 0; pointer-events: none; }
+  .ember-view-heading.is-tight .ember-view-destination { padding-right: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ember-view-heading,
+    .ember-view-heading h1,
+    .ember-view-heading p,
+    .ember-view-heading .ember-view-mark { transition: none; }
+  }
+  /* The mark is absolute on phones, so a long kicker ("People · Important
+     information") ran straight underneath it and read as truncated. Reserve
+     the mark's footprint on the kicker line only — the title already has its
+     own max-width, and narrowing the whole copy block would squeeze it. */
+  .ember-view-destination { padding-right: 5rem; flex-wrap: wrap; row-gap: .1rem; }
   .ember-subnav { margin-inline: -.15rem; padding-bottom: .1rem; }
   .ember-profile-lenses { grid-template-columns: repeat(2, 1fr); }
   .ember-profile-lenses button { min-height: 4.2rem; }
@@ -1393,6 +1609,17 @@ html[data-interface="ember"] body {
   .pulse-date-orb { width: 5.6rem; height: 5.6rem; }
   .pulse-date-orb b { font-size: 1.75rem; }
   .pulse-grid { grid-template-columns: 1fr; }
+  /* On a phone the action must not be squeezed onto the headline's row — that
+     is the exact screen this feature exists for. Wrap it to full width.
+
+     order:-1 moves the banner ABOVE the hero. The hero is min-height 35rem on
+     a phone, which pushed the trip below the fold and behind the bottom nav —
+     measured, not guessed. A traveller opening the app to find their papers
+     should not have to scroll past a headline to reach them, so on the small
+     screen the trip outranks the hero. Desktop keeps the designed order, where
+     both fit above the fold anyway. */
+  .pulse-trip { flex-wrap: wrap; order: -1; }
+  .pulse-trip-action { width: 100%; justify-content: center; padding-block: .85rem; }
   .pulse-memory-icon { margin-top: 2.2rem; }
   .pulse-memory { min-height: 17rem; }
   .pulse-decision-row { padding-inline: 1rem; grid-template-columns: 1.7rem minmax(0, 1fr) auto; }
@@ -1403,4 +1630,41 @@ html[data-interface="ember"] body {
   .capture-choice > span { grid-row: 1 / 3; margin: 0; }
   .capture-choice b { margin: 0; }
   .capture-choice small { margin-top: .15rem; }
+}
+
+/* TripPack's Vision-Board hero (v287): one trip, one connected journey. A
+   fixed dark gradient like the .ember-view-heading family — self-contained on
+   purpose, so it renders identically in light/dark and Classic/Ember. The
+   indigo lane borrows the vault heading's palette neighbourhood (dusk), not a
+   new colour; the dashed arc is the board's flight path. */
+.trip-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 1.15rem 1.25rem 1.3rem;
+  color: #FFF9F6;
+  background:
+    radial-gradient(circle at 88% 14%, rgba(137, 172, 245, .22), transparent 32%),
+    linear-gradient(145deg, #151316 18%, #1D2A4F);
+}
+.trip-hero::before {
+  content: '';
+  position: absolute;
+  top: -55%;
+  right: -18%;
+  width: 22rem;
+  height: 22rem;
+  border: 1.5px dashed rgba(255, 255, 255, .16);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.trip-hero-kicker {
+  display: block;
+  color: #BBD0FA; /* dusk-200 */
+  font-size: .64rem;
+  font-weight: 850;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+@media (min-width: 640px) {
+  .trip-hero { padding: 1.4rem 1.5rem 1.5rem; }
 }

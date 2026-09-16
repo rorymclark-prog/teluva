@@ -10,7 +10,7 @@
 // refactor could quietly delete without anything else failing.
 import assert from 'node:assert';
 import { canAskAboutDocument, looksLikeInsuranceDocument, INSURANCE_NAME_PATTERNS } from './docReadEligibility';
-import { INSURANCE_READER_ENABLED } from '../config/features';
+import { INSURANCE_READER_ENABLED, MEDICAL_READER_ENABLED } from '../config/features';
 
 // ── the happy path ──────────────────────────────────────────────────────────
 
@@ -54,22 +54,36 @@ import { INSURANCE_READER_ENABLED } from '../config/features';
 
 // ── medical / health ────────────────────────────────────────────────────────
 
+// Medical was a hard denial until v345, when it became MEDICAL_READER_ENABLED —
+// a switch, so the posture is a config change rather than a code change. These
+// assertions therefore track the FLAG rather than a fixed answer: with it on
+// they prove the category no longer blocks, with it off they prove the original
+// refusal is intact, and either way they fail if the check stops keying on
+// category at all.
+
 {
   assert.strictEqual(
     canAskAboutDocument({ category: 'Medical', name: 'Befund.pdf', fileType: 'application/pdf' }),
-    false,
-    'VaultDocument category Medical is denied',
+    MEDICAL_READER_ENABLED,
+    'VaultDocument category Medical follows the flag',
   );
   assert.strictEqual(
     canAskAboutDocument({ category: 'Health', name: 'Impfpass.pdf', fileType: 'application/pdf' }),
-    false,
-    'FamilyDocument category Health is the same class of file under a different vocabulary',
+    MEDICAL_READER_ENABLED,
+    'FamilyDocument category Health is the same class of file under a different vocabulary, '
+    + 'and must follow the same flag — checking only one vocabulary would admit the profile '
+    + 'copy of a lab result while denying the vault copy of the same file',
   );
   assert.strictEqual(
     canAskAboutDocument({ category: '  medical  ', name: 'x.pdf', fileType: 'application/pdf' }),
-    false,
+    MEDICAL_READER_ENABLED,
     'category matching must survive casing and stray whitespace from old records',
   );
+  // THE CONTROL for the two above. Both currently expect `true`, which a
+  // function that ignored category entirely would also produce. This one is
+  // true for a different reason — "Medicalish" is not the category — so it
+  // cannot distinguish anything on its own; what makes the pair meaningful is
+  // the server-side assertion below, which tests the gate with the flag OFF.
   assert.strictEqual(
     canAskAboutDocument({ category: 'Medicalish', name: 'x.pdf', fileType: 'application/pdf' }),
     true,
@@ -103,8 +117,9 @@ import { INSURANCE_READER_ENABLED } from '../config/features';
   // by the same change.
   assert.strictEqual(
     canAskAboutDocument({ category: 'Medical', name: 'lease photo', fileType: 'image/jpeg' }),
-    false,
-    'an image is still denied when the category is Medical',
+    MEDICAL_READER_ENABLED,
+    'the file TYPE must not change the medical answer — an image of a lab result and a '
+    + 'PDF of one are the same document and must follow the same flag',
   );
   assert.strictEqual(
     canAskAboutDocument({ category: 'Legal', name: 'lease photo', fileType: 'image/jpeg', isBusinessSpace: true }),
@@ -143,12 +158,16 @@ import { INSURANCE_READER_ENABLED } from '../config/features';
     'the English pattern list is gated identically',
   );
 
-  // The other denials are independent of the flag — flipping insurance on must
-  // not open any of them. These hold whichever way the flag points.
+  // The other denials are independent of the INSURANCE flag — flipping it must
+  // not open any of them. Medical has its own switch now, so this asserts the
+  // two are separate rather than that medical is closed: a document that is
+  // both insurance-named AND medical answers to the medical flag, not to
+  // whether the insurance route happens to be open.
   assert.strictEqual(
     canAskAboutDocument({ category: 'Medical', name: 'Versicherung Befund.pdf', fileType: 'application/pdf' }),
-    false,
-    'Medical stays denied even when the insurance route is open',
+    MEDICAL_READER_ENABLED,
+    'the two scope flags are independent — insurance being open must not decide a '
+    + 'medical document, and vice versa',
   );
   assert.strictEqual(
     canAskAboutDocument({ category: 'Financial', name: 'Polizze.pdf', fileType: 'image/jpeg' }),

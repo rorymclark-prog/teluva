@@ -3,7 +3,7 @@ import { SummaryDoc, renderSummaryMarkdown } from './exportPack';
 import { renderSummaryPdf, distributeColumnWidths } from './summaryPdf';
 
 const doc = (over: Partial<SummaryDoc> = {}): SummaryDoc => ({
-  title: 'Sophie Clark — medical records',
+  title: 'Mia Clark — medical records',
   intro: ['Prepared 2026-07-29 from Clark – Family Hub using Teluva.'],
   disclaimer: 'This is a copy of records as they were entered.',
   sections: [],
@@ -109,7 +109,7 @@ const doc = (over: Partial<SummaryDoc> = {}): SummaryDoc => ({
   const md = renderSummaryMarkdown(d);
   assert.match(md, /MMR/);
   assert.match(md, /### Vaccinations/);
-  assert.match(md, /^# Sophie Clark — medical records$/m);
+  assert.match(md, /^# Mia Clark — medical records$/m);
   assert.ok(renderSummaryPdf(d).size > 1000);
 }
 

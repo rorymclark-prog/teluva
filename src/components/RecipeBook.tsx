@@ -6,6 +6,7 @@ import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
+import { appConfirm } from '../utils/appConfirm';
 import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
@@ -169,7 +170,7 @@ export default function RecipeBook() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this recipe? This cannot be undone.')) return;
+    if (!(await appConfirm('Delete this recipe? This cannot be undone.', { danger: true, confirmLabel: 'Delete' }))) return;
     await persist(recipes.filter(r => r.id !== id));
     if (form?.id === id) closeForm();
     if (viewingId === id) setViewingId(null);

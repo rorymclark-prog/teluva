@@ -1,0 +1,2390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teluva</title>
+<meta name="description" content="A private vault for the papers a family needs to find: passports and their expiry dates, blood groups, insurance, and where the will actually is. Sensitive numbers are encrypted before they're stored. Built in Vienna, hosted in the EU.">
+<meta name="theme-color" content="#FFFDF9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111114" media="(prefers-color-scheme: dark)">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Teluva — know where it is">
+<meta property="og:description" content="Passports, blood groups, insurance policies, the will — filed, dated, and findable by the people you choose.">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+/* ==========================================================================
+   Teluva — marketing site.
+
+   Inherits the app's own design language ("Ember Thread", src/index.css).
+   Same paper, same ink, same ember, same typefaces. A marketing site that
+   looks like a different product than the thing it sells spends trust it
+   hasn't earned yet, and trust is the entire pitch here.
+
+   Token structure is deliberate: the full LIGHT palette lives on bare
+   :root, because most viewers never stamp a theme and only
+   prefers-color-scheme separates them. The media query and the
+   [data-theme] blocks redefine TOKENS ONLY — no component rule ever lives
+   inside them, so no colour can go undefined in the unstamped state.
+   ========================================================================== */
+
+:root {
+  /* Paper — warm, not white. The warmth is the brand. */
+  --paper:        #FFFDF9;
+  --surface:      #F7F3ED;
+  --surface-sunk: #EEE7DD;
+  --hairline:     #EEE7DD;
+  --hairline-strong: #E3DBD0;
+
+  /* Ink — biased slightly cool against the warm ground, deliberately. */
+  --text:         #232328;
+  --text-strong:  #111114;
+  --text-muted:   #66666F;
+  --text-faint:   #7E7E88;
+
+  /* Ember. The primary action, and one editorial moment. Nothing else. */
+  --ember:        #FF4B3E;
+  --ember-deep:   #D72D25;
+  --ember-wash:   #FFF2EF;
+  /* Text ON the ember fill. Ember is darker in light theme and lighter in
+     dark theme, so the legible foreground flips with it. */
+  --on-ember:     #FFFDF9;
+  --btn-ember:      #D72D25;
+  --btn-ember-hover: #B3231C;
+
+  /* Status hues keep their own identity so "expired" and "press this"
+     can never be the same colour. Same rule the app runs on. */
+  --verified:     #2E7D5B;
+  --verified-dim: #EAF4EF;
+
+  /* Category hues for document chips — low saturation on purpose. */
+  --cat-identity: #4A5BA8;
+  --cat-medical:  #A83E5B;
+  --cat-legal:    #6B5B4A;
+  --cat-travel:   #9A6B1F;
+  --cat-money:    #2E6A7D;
+
+  --shadow-card: 0 1px 2px rgba(17,17,20,.04), 0 8px 24px -12px rgba(17,17,20,.10);
+  --shadow-lift: 0 2px 4px rgba(17,17,20,.06), 0 20px 40px -20px rgba(17,17,20,.18);
+
+  --measure: 34rem;
+  --gutter: clamp(1.25rem, 5vw, 4rem);
+  --rhythm: clamp(4.5rem, 10vw, 8rem);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:        #111114;
+    --surface:      #1A1A1F;
+    --surface-sunk: #232328;
+    --hairline:     #2C2C33;
+    --hairline-strong: #3C3C44;
+
+    --text:         #F3F3F5;
+    --text-strong:  #FFFDF9;
+    --text-muted:   #A2A2AC;
+    --text-faint:   #8E8E98;
+
+    --ember:        #FF6E5E;
+    --ember-deep:   #FF9A8E;
+    --ember-wash:   #2A1A18;
+    --on-ember:     #16100F;
+    --btn-ember:      #FF6E5E;
+    --btn-ember-hover: #FF9A8E;
+
+    --verified:     #86C4A3;
+    --verified-dim: #16261F;
+
+    --cat-identity: #8E9BD8;
+    --cat-medical:  #D98BA0;
+    --cat-legal:    #B7A78F;
+    --cat-travel:   #D4A651;
+    --cat-money:    #78B2C4;
+
+    --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    --shadow-lift: 0 2px 4px rgba(0,0,0,.5), 0 20px 40px -20px rgba(0,0,0,.8);
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:        #111114;
+  --surface:      #1A1A1F;
+  --surface-sunk: #232328;
+  --hairline:     #2C2C33;
+  --hairline-strong: #3C3C44;
+
+  --text:         #F3F3F5;
+  --text-strong:  #FFFDF9;
+  --text-muted:   #A2A2AC;
+  --text-faint:   #8E8E98;
+
+  --ember:        #FF6E5E;
+  --ember-deep:   #FF9A8E;
+  --ember-wash:   #2A1A18;
+  --on-ember:     #16100F;
+  --btn-ember:      #FF6E5E;
+  --btn-ember-hover: #FF9A8E;
+
+  --verified:     #86C4A3;
+  --verified-dim: #16261F;
+
+  --cat-identity: #8E9BD8;
+  --cat-medical:  #D98BA0;
+  --cat-legal:    #B7A78F;
+  --cat-travel:   #D4A651;
+  --cat-money:    #78B2C4;
+
+  --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  --shadow-lift: 0 2px 4px rgba(0,0,0,.5), 0 20px 40px -20px rgba(0,0,0,.8);
+}
+
+/* --- base ---------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--text);
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  color: var(--text-strong);
+  text-wrap: balance;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+  margin: 0;
+  line-height: 1.05;
+}
+
+/* The house device, lifted straight from the app: exactly one word per
+   headline set in Georgia italic. It is the whole reason this page doesn't
+   read as another single-typeface SaaS landing page. Once per headline. */
+h1 em, h2 em, h3 em {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: -0.01em;
+}
+
+p { margin: 0; }
+a { color: inherit; }
+
+.wrap {
+  max-width: 78rem;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.lede { color: var(--text-muted); max-width: var(--measure); font-size: 1.0625rem; }
+
+/* --- buttons -------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  padding: .85rem 1.5rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 700;
+  font-size: .9375rem;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color .18s ease, border-color .18s ease, transform .18s ease, color .18s ease;
+}
+.btn-primary {
+  background: var(--btn-ember);
+  color: var(--on-ember);
+  box-shadow: 0 1px 2px rgba(215,45,37,.24);
+}
+.btn-primary:hover { background: var(--btn-ember-hover); transform: translateY(-1px); }
+
+.btn-quiet {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--hairline-strong);
+}
+.btn-quiet:hover { background: var(--surface); border-color: var(--text-muted); }
+
+a:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem 1rem; }
+/* The no-card line belongs beside the button, not in a footer. */
+.cta-note {
+  font-size: .8125rem;
+  color: var(--text-muted);
+}
+
+/* --- header --------------------------------------------------------------- */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--hairline);
+}
+.site-header .wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 64px;
+}
+.brand {
+  font-weight: 800;
+  font-size: 1.1875rem;
+  letter-spacing: -0.035em;
+  color: var(--text-strong);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+}
+.brand-mark {
+  width: 11px; height: 11px;
+  border-radius: 3px;
+  background: var(--ember);
+  flex: none;
+}
+.nav { display: flex; align-items: center; gap: 1.75rem; }
+/* Scoped to .nav-link, NOT to every <a> in the nav. `.nav a` is
+   specificity (0,1,1) and beat `.btn-primary` (0,1,0), which painted the
+   header's call-to-action in muted grey on the ember fill — unreadable, and
+   the one button most likely to be pressed. */
+.nav .nav-link {
+  font-size: .875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color .15s ease;
+}
+.nav .nav-link:hover { color: var(--text-strong); }
+@media (max-width: 800px) { .nav .nav-link { display: none; } }
+
+/* --- hero ----------------------------------------------------------------- */
+
+.hero { padding-block: clamp(3.5rem, 9vw, 7rem) clamp(3rem, 7vw, 5rem); }
+.hero h1 {
+  font-size: clamp(2.75rem, 7.5vw, 5rem);
+  max-width: 15ch;
+}
+.hero .lede { margin-top: 1.5rem; font-size: clamp(1.0625rem, 1.6vw, 1.1875rem); }
+.hero .cta-row { margin-top: 2.25rem; }
+/* The product shot sits in the app's own signature gradient — amber to
+   ember to oxblood, lifted verbatim from src/index.css's --gradient-ring.
+   Used exactly once on the page. It is the app's actual identity, not a
+   decorative wash, and it makes the site and the product unmistakably the
+   same thing. */
+.hero-shot {
+  margin-top: clamp(3rem, 6vw, 4.5rem);
+  border-radius: 20px;
+  padding: clamp(1rem, 3vw, 2.5rem) clamp(1rem, 3vw, 2.5rem) 0;
+  background: linear-gradient(45deg, #F0C179 0%, #F07859 45%, #CE2948 100%);
+  overflow: hidden;
+}
+.hero-shot picture { display: block; }
+.hero-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -1px 0 rgba(255,255,255,.25), 0 24px 60px -24px rgba(17,17,20,.5);
+}
+
+/* --- trust strip ---------------------------------------------------------- */
+
+.strip {
+  border-block: 1px solid var(--hairline);
+  background: var(--surface);
+  padding-block: 1.5rem;
+}
+.strip-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2.5rem;
+  align-items: baseline;
+}
+.strip-item {
+  display: flex;
+  align-items: baseline;
+  gap: .55rem;
+  font-size: .875rem;
+  color: var(--text-muted);
+}
+.strip-item b {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-weight: 500;
+  font-size: .9375rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+}
+
+/* --- sections ------------------------------------------------------------- */
+
+section { padding-block: var(--rhythm); }
+.section-head { max-width: 46rem; }
+.section-head h2 {
+  font-size: clamp(2rem, 4.2vw, 3rem);
+  margin-top: .9rem;
+}
+.section-head .lede { margin-top: 1.125rem; }
+
+/* Pillars — single verbs, acting as the page's contents. */
+.pillars {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1px;
+  background: var(--hairline);
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.pillar {
+  background: var(--paper);
+  padding: 1.75rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  text-decoration: none;
+  transition: background-color .18s ease;
+}
+.pillar:hover { background: var(--surface); }
+.pillar h3 { font-size: 1.375rem; }
+.pillar p { font-size: .9375rem; color: var(--text-muted); }
+
+/* Feature sections — one per pillar, each with its own real screen. */
+.feature {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: clamp(2rem, 6vw, 5rem);
+  align-items: center;
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--rhythm);
+}
+.feature:first-of-type { border-top: 0; padding-top: 0; }
+@media (max-width: 900px) {
+  .feature { grid-template-columns: 1fr; gap: 2.5rem; }
+  .feature.flip .feature-text { order: -1; }
+}
+.feature.flip .feature-media { order: -1; }
+@media (max-width: 900px) { .feature.flip .feature-media { order: 0; } }
+
+.feature-text h3 { font-size: clamp(1.75rem, 3.2vw, 2.375rem); margin-top: .75rem; }
+.feature-text .lede { margin-top: 1rem; }
+
+.detail-list {
+  list-style: none;
+  margin: 1.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .875rem;
+  max-width: var(--measure);
+}
+.detail-list li {
+  position: relative;
+  padding-left: 1.125rem;
+  font-size: .9375rem;
+  color: var(--text-muted);
+}
+.detail-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: .55rem;
+  width: 6px; height: 6px;
+  border-radius: 2px;
+  background: var(--hairline-strong);
+}
+.detail-list b { color: var(--text); font-weight: 600; }
+
+.feature-media picture { display: block; }
+.feature-media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--hairline-strong);
+  box-shadow: var(--shadow-lift);
+}
+/* Where there is no screenshot, there is no mockup either. Three of the
+   four things this page describes cannot be photographed: the demo
+   deliberately refuses to invent example passports, medical records or
+   wills, and the assistant needs a login. Faking them would contradict the
+   exact claim the section is making. So those sections show the RULE
+   instead — the actual constraint, quoted — which for a product selling
+   restraint is the more persuasive artefact anyway. */
+.rule-panel {
+  border: 1px solid var(--hairline-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: clamp(1.5rem, 3vw, 2.25rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.rule-panel .eyebrow { color: var(--text-muted); }
+.rule-quote {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: .875rem;
+  line-height: 1.65;
+  color: var(--text);
+  margin: 0;
+  padding-left: 1.125rem;
+  border-left: 2px solid var(--ember);
+  text-wrap: pretty;
+}
+.rule-source {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+}
+.caption {
+  margin-top: .75rem;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+}
+
+/* --- security: the one dark section on the page -------------------------- */
+/* The tone drops here rather than escalating. A page about your will and
+   your passport should get quieter as the subject gets more serious. */
+
+.security {
+  background: #111114;
+  color: #F3F3F5;
+  border-block: 1px solid #2C2C33;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .security {
+    background: #1F1F25;
+    border-block-color: #3C3C44;
+  }
+}
+:root[data-theme="dark"] .security {
+  background: #1F1F25;
+  border-block-color: #3C3C44;
+}
+.security h2, .security h3 { color: #FFFDF9; }
+.security .eyebrow { color: #9696A0; }
+.security .lede { color: #A2A2AC; }
+
+.claims {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1.75rem 2.5rem;
+}
+.claim { display: flex; flex-direction: column; gap: .6rem; }
+.claim h3 { font-size: 1.0625rem; letter-spacing: -0.02em; font-weight: 700; }
+.claim p { font-size: .9375rem; color: #A2A2AC; }
+.claim code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .8125em;
+  color: #86C4A3;
+}
+
+.security-note {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+  padding-top: 2rem;
+  border-top: 1px solid #2C2C33;
+  max-width: 44rem;
+  font-size: .9375rem;
+  color: #A2A2AC;
+}
+.security-note b { color: #FFFDF9; font-weight: 600; }
+
+/* --- refusals ------------------------------------------------------------- */
+/* Almost nobody ships this section. It is the strongest thing this product
+   has: a list of things it deliberately will not do, with the reasoning. */
+
+.refusals {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+  display: grid;
+  gap: 1px;
+  background: var(--hairline);
+  border-block: 1px solid var(--hairline);
+}
+.refusal {
+  background: var(--paper);
+  display: grid;
+  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+  gap: .5rem 3rem;
+  padding: 1.5rem 0;
+}
+@media (max-width: 760px) { .refusal { grid-template-columns: 1fr; } }
+.refusal h3 { font-size: 1.0625rem; font-weight: 700; letter-spacing: -0.02em; }
+.refusal p { font-size: .9375rem; color: var(--text-muted); max-width: var(--measure); }
+
+/* --- pricing -------------------------------------------------------------- */
+
+.plans {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+.plan {
+  border: 1px solid var(--hairline-strong);
+  border-radius: 14px;
+  padding: 1.75rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: .875rem;
+  background: var(--paper);
+}
+.plan.featured {
+  border-color: var(--ember);
+  background: var(--ember-wash);
+}
+.plan h3 { font-size: 1.25rem; }
+.plan .price {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 1.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+  letter-spacing: -0.03em;
+}
+.plan .price small { font-size: .8125rem; color: var(--text-muted); letter-spacing: 0; }
+.plan ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  font-size: .875rem;
+  color: var(--text-muted);
+}
+.plan ul li { position: relative; padding-left: 1rem; }
+.plan ul li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: .55rem;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.pricing-honesty {
+  margin-top: 2rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: .9375rem;
+  color: var(--text-muted);
+  max-width: 46rem;
+}
+.pricing-honesty b { color: var(--text); font-weight: 600; }
+
+/* --- final CTA ------------------------------------------------------------ */
+
+.final { border-top: 1px solid var(--hairline); text-align: left; }
+.final h2 { font-size: clamp(2rem, 4.5vw, 3.25rem); max-width: 18ch; }
+.final .cta-row { margin-top: 2rem; }
+/* "How do I get it" is the question a PWA always leaves unanswered — there
+   is no store listing to point at, so say so plainly rather than letting
+   people hunt for a download button that doesn't exist. */
+.install-note {
+  margin-top: 1.5rem;
+  max-width: var(--measure);
+  font-size: .875rem;
+  color: var(--text-muted);
+  padding-left: 1rem;
+  border-left: 2px solid var(--hairline-strong);
+}
+
+/* --- footer --------------------------------------------------------------- */
+/* The footer carries the vocabulary the rest of the page deliberately
+   avoids. Someone searching "what to do when a parent dies" at 2am should
+   land somewhere useful; nobody should meet that sentence in a headline. */
+
+.site-footer {
+  border-top: 1px solid var(--hairline);
+  background: var(--surface);
+  padding-block: clamp(3rem, 6vw, 4.5rem) 2.5rem;
+  font-size: .875rem;
+}
+.footer-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 2.5rem;
+}
+.footer-cols h4 {
+  margin: 0 0 .875rem;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.footer-cols ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .55rem; }
+.footer-cols a { color: var(--text-muted); text-decoration: none; transition: color .15s ease; }
+.footer-cols a:hover { color: var(--text-strong); text-decoration: underline; text-underline-offset: 3px; }
+.footer-base {
+  margin-top: 3rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--hairline-strong);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: .8125rem;
+}
+
+    :root {
+      color-scheme: light;
+      --tv-paper: #FFFDF9;
+      --tv-raised: #F7F3ED;
+      --tv-hairline: #EEE7DD;
+      --tv-text: #232328;
+      --tv-muted: #74747D;
+      --tv-ember: #FF4B3E;
+      --tv-ember-hover: #DF372E;
+      --tv-ember-ink: #FFFDF9;
+      --tv-green: #2E7D5B;
+      --tv-identity: #4A5BA8;
+      --tv-identity-soft: #E9ECF7;
+      --tv-medical: #9A5662;
+      --tv-medical-soft: #F4E7E9;
+      --tv-sage: #2E7D5B;
+      --tv-sage-soft: #E5F0EA;
+      --tv-financial: #46766D;
+      --tv-financial-soft: #E3EFEC;
+      --tv-travel: #98712E;
+      --tv-travel-soft: #F6EEDB;
+      --tv-legal: #766E63;
+      --tv-legal-soft: #EEEAE4;
+      --tv-backdrop: #EAE3D9;
+      --tv-shadow: rgba(48, 40, 32, 0.11);
+      --tv-shadow-strong: rgba(48, 40, 32, 0.18);
+      --tv-scrim: rgba(255, 253, 249, 0.88);
+      --tv-transparent: transparent;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --tv-paper: #111114;
+        --tv-raised: #232328;
+        --tv-hairline: #3C3C44;
+        --tv-text: #F7F3ED;
+        --tv-muted: #A2A2AC;
+        --tv-ember: #FF6E5E;
+        --tv-ember-hover: #FF897B;
+        --tv-ember-ink: #111114;
+        --tv-green: #86C4A3;
+        --tv-identity: #9CA9E4;
+        --tv-identity-soft: #292D40;
+        --tv-medical: #D79AA4;
+        --tv-medical-soft: #3A292E;
+        --tv-sage: #86C4A3;
+        --tv-sage-soft: #20352C;
+        --tv-financial: #83B8AE;
+        --tv-financial-soft: #203532;
+        --tv-travel: #D5B16C;
+        --tv-travel-soft: #3B3222;
+        --tv-legal: #BDB4A8;
+        --tv-legal-soft: #35312C;
+        --tv-backdrop: #19191E;
+        --tv-shadow: rgba(0, 0, 0, 0.28);
+        --tv-shadow-strong: rgba(0, 0, 0, 0.42);
+        --tv-scrim: rgba(17, 17, 20, 0.88);
+        --tv-transparent: transparent;
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --tv-paper: #111114;
+      --tv-raised: #232328;
+      --tv-hairline: #3C3C44;
+      --tv-text: #F7F3ED;
+      --tv-muted: #A2A2AC;
+      --tv-ember: #FF6E5E;
+      --tv-ember-hover: #FF897B;
+      --tv-ember-ink: #111114;
+      --tv-green: #86C4A3;
+      --tv-identity: #9CA9E4;
+      --tv-identity-soft: #292D40;
+      --tv-medical: #D79AA4;
+      --tv-medical-soft: #3A292E;
+      --tv-sage: #86C4A3;
+      --tv-sage-soft: #20352C;
+      --tv-financial: #83B8AE;
+      --tv-financial-soft: #203532;
+      --tv-travel: #D5B16C;
+      --tv-travel-soft: #3B3222;
+      --tv-legal: #BDB4A8;
+      --tv-legal-soft: #35312C;
+      --tv-backdrop: #19191E;
+      --tv-shadow: rgba(0, 0, 0, 0.28);
+      --tv-shadow-strong: rgba(0, 0, 0, 0.42);
+      --tv-scrim: rgba(17, 17, 20, 0.88);
+      --tv-transparent: transparent;
+    }
+
+    .tv-demo {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      background: var(--tv-paper);
+      color: var(--tv-text);
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .tv-demo *,
+    .tv-demo *::before,
+    .tv-demo *::after {
+      box-sizing: border-box;
+    }
+
+    .tv-demo button,
+    .tv-demo a {
+      font: inherit;
+    }
+
+    .tv-demo button {
+      color: inherit;
+    }
+
+    .tv-demo .tv-shell {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 52px 0 44px;
+    }
+
+    .tv-demo .tv-masthead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 62px;
+    }
+
+    .tv-demo .tv-wordmark {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .tv-demo .tv-mark {
+      position: relative;
+      width: 22px;
+      height: 26px;
+      border: 2px solid var(--tv-text);
+      border-radius: 11px 11px 7px 7px;
+    }
+
+    .tv-demo .tv-mark::after {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--tv-green);
+      content: "";
+    }
+
+    .tv-demo .tv-private-note {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--tv-muted);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .tv-demo .tv-private-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--tv-green);
+      box-shadow: 0 0 0 4px var(--tv-sage-soft);
+    }
+
+    .tv-demo .tv-hero {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.78fr) minmax(600px, 1.45fr);
+      gap: clamp(44px, 6vw, 86px);
+      align-items: start;
+    }
+
+    .tv-demo .tv-copy {
+      padding-top: 48px;
+    }
+
+    .tv-demo .tv-eyebrow {
+      margin: 0 0 18px;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-title {
+      max-width: 590px;
+      margin: 0;
+      font-size: clamp(42px, 5vw, 68px);
+      font-weight: 700;
+      letter-spacing: -0.055em;
+      line-height: 0.99;
+    }
+
+    .tv-demo .tv-title em {
+      font-family: Georgia, serif;
+      font-weight: 400;
+    }
+
+    .tv-demo .tv-intro {
+      max-width: 470px;
+      margin: 25px 0 0;
+      color: var(--tv-muted);
+      font-size: 17px;
+      line-height: 1.72;
+    }
+
+    .tv-demo .tv-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 50px;
+      margin-top: 31px;
+      padding: 0 20px;
+      border: 1px solid var(--tv-ember);
+      border-radius: 8px;
+      background: var(--tv-ember);
+      color: var(--tv-ember-ink);
+      box-shadow: 0 7px 18px var(--tv-shadow);
+      cursor: pointer;
+      font-weight: 700;
+      transition: background 350ms cubic-bezier(0.22, 1, 0.36, 1), border-color 350ms cubic-bezier(0.22, 1, 0.36, 1), transform 350ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-primary:hover {
+      border-color: var(--tv-ember-hover);
+      background: var(--tv-ember-hover);
+      box-shadow: 0 10px 24px var(--tv-shadow-strong);
+      transform: translateY(-2px);
+    }
+
+    .tv-demo .tv-primary:focus-visible,
+    .tv-demo .tv-card:focus-visible,
+    .tv-demo .tv-reset:focus-visible {
+      outline: 3px solid var(--tv-text);
+      outline-offset: 4px;
+    }
+
+    .tv-demo .tv-arrow {
+      font-size: 19px;
+      line-height: 1;
+      transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-primary:hover .tv-arrow {
+      transform: translateX(3px);
+    }
+
+    .tv-demo .tv-trust {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      margin: 25px 0 0;
+      color: var(--tv-muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .tv-demo .tv-trust span + span {
+      padding-left: 15px;
+      border-left: 1px solid var(--tv-hairline);
+    }
+
+    .tv-demo .tv-scene {
+      position: relative;
+      min-width: 0;
+      border: 1px solid var(--tv-hairline);
+      border-radius: 22px 7px 22px 7px;
+      background: var(--tv-raised);
+      box-shadow: 0 24px 60px var(--tv-shadow);
+      overflow: hidden;
+    }
+
+    .tv-demo .tv-scene-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 49px;
+      padding: 0 19px;
+      border-bottom: 1px solid var(--tv-hairline);
+      background: var(--tv-paper);
+    }
+
+    .tv-demo .tv-scene-label {
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+    }
+
+    .tv-demo .tv-progress-bar {
+      width: 54px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--tv-hairline);
+      overflow: hidden;
+    }
+
+    .tv-demo .tv-progress-fill {
+      display: block;
+      width: var(--tv-progress, 0%);
+      height: 100%;
+      border-radius: inherit;
+      background: var(--tv-green);
+      transition: width 450ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-stage {
+      position: relative;
+      height: 348px;
+      overflow: visible;
+      background-image: linear-gradient(var(--tv-hairline) 1px, var(--tv-transparent) 1px), linear-gradient(90deg, var(--tv-hairline) 1px, var(--tv-transparent) 1px);
+      background-size: 24px 24px;
+      background-position: -1px -1px;
+    }
+
+    .tv-demo .tv-stage-note {
+      position: absolute;
+      top: 20px;
+      left: 21px;
+      z-index: 1;
+      margin: 0;
+      color: var(--tv-muted);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .tv-demo .tv-card {
+      position: absolute;
+      z-index: 2;
+      width: 188px;
+      height: 128px;
+      padding: 15px;
+      border: 1px solid var(--tv-hairline);
+      border-radius: 7px;
+      background: var(--tv-paper);
+      box-shadow: 0 10px 25px var(--tv-shadow);
+      text-align: left;
+      cursor: grab;
+      touch-action: manipulation;
+      transform: rotate(var(--tv-tilt));
+      transition: border-color 350ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 350ms cubic-bezier(0.22, 1, 0.36, 1), transform 350ms cubic-bezier(0.22, 1, 0.36, 1), opacity 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-card:hover {
+      z-index: 7;
+      border-color: var(--tv-muted);
+      box-shadow: 0 16px 34px var(--tv-shadow-strong);
+      transform: rotate(0deg) translateY(-5px);
+    }
+
+    .tv-demo .tv-card[data-doc="passport"] {
+      top: 56px;
+      left: 27px;
+      --tv-tilt: -4deg;
+    }
+
+    .tv-demo .tv-card[data-doc="vaccination"] {
+      top: 37px;
+      left: 218px;
+      --tv-tilt: 3deg;
+    }
+
+    .tv-demo .tv-card[data-doc="rental"] {
+      top: 185px;
+      left: 62px;
+      --tv-tilt: 2deg;
+    }
+
+    .tv-demo .tv-card[data-doc="insurance"] {
+      top: 177px;
+      left: 264px;
+      --tv-tilt: -3deg;
+    }
+
+    .tv-demo .tv-card[data-doc="will"] {
+      top: 102px;
+      right: 22px;
+      --tv-tilt: 4deg;
+    }
+
+    .tv-demo .tv-card.is-dragging {
+      z-index: 20;
+      cursor: grabbing;
+      box-shadow: 0 24px 50px var(--tv-shadow-strong);
+      transform: translate(var(--tv-drag-x), var(--tv-drag-y)) rotate(0deg) scale(1.025);
+      transition: border-color 350ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-card.is-filed {
+      position: relative;
+      inset: auto;
+      width: 100%;
+      height: 100%;
+      min-height: 82px;
+      padding: 10px;
+      border-color: var(--tv-hairline);
+      border-radius: 5px;
+      box-shadow: 0 4px 12px var(--tv-shadow);
+      cursor: default;
+      transform: none;
+    }
+
+    .tv-demo .tv-card.is-filed:hover {
+      border-color: var(--tv-hairline);
+      box-shadow: 0 4px 12px var(--tv-shadow);
+      transform: none;
+    }
+
+    .tv-demo .tv-card-kicker {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 8px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-card-name {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+    }
+
+    .tv-demo .tv-card-detail {
+      display: block;
+      color: var(--tv-muted);
+      font-size: 10px;
+      font-weight: 500;
+      line-height: 1.45;
+    }
+
+    .tv-demo .tv-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 19px;
+      margin-top: 9px;
+      padding: 0 7px;
+      border-radius: 9px;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.035em;
+    }
+
+    .tv-demo .tv-chip--identity {
+      background: var(--tv-identity-soft);
+      color: var(--tv-identity);
+    }
+
+    .tv-demo .tv-chip--medical {
+      background: var(--tv-medical-soft);
+      color: var(--tv-medical);
+    }
+
+    .tv-demo .tv-chip--legal {
+      background: var(--tv-legal-soft);
+      color: var(--tv-legal);
+    }
+
+    .tv-demo .tv-chip--financial {
+      background: var(--tv-financial-soft);
+      color: var(--tv-financial);
+    }
+
+    .tv-demo .tv-readable {
+      display: block;
+      transition: opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), filter 420ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-cipher {
+      position: absolute;
+      top: 9px;
+      right: 9px;
+      bottom: 9px;
+      left: 9px;
+      display: grid;
+      align-content: center;
+      gap: 5px;
+      opacity: 0;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 7px;
+      line-height: 1.25;
+      overflow: hidden;
+      transform: translateY(4px);
+      transition: opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-cipher-line {
+      display: block;
+      height: 5px;
+      border-radius: 2px;
+      background: var(--tv-hairline);
+    }
+
+    .tv-demo .tv-cipher-line:nth-child(1) {
+      width: 42%;
+      background: var(--tv-green);
+    }
+
+    .tv-demo .tv-cipher-line:nth-child(2) {
+      width: 88%;
+    }
+
+    .tv-demo .tv-cipher-line:nth-child(3) {
+      width: 68%;
+    }
+
+    .tv-demo .tv-cipher-code {
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .tv-demo .tv-card.is-encrypted .tv-readable {
+      opacity: 0;
+      filter: blur(5px);
+    }
+
+    .tv-demo .tv-card.is-encrypted .tv-cipher {
+      opacity: 1;
+      transform: none;
+    }
+
+    .tv-demo .tv-caption-wrap {
+      min-height: 70px;
+      padding: 14px 20px;
+      border-top: 1px solid var(--tv-hairline);
+      border-bottom: 1px solid var(--tv-hairline);
+      background: var(--tv-paper);
+    }
+
+    .tv-demo .tv-caption {
+      display: flex;
+      gap: 11px;
+      align-items: flex-start;
+      margin: 0;
+      color: var(--tv-muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .tv-demo .tv-caption::before {
+      flex: 0 0 auto;
+      width: 6px;
+      height: 6px;
+      margin-top: 6px;
+      border-radius: 50%;
+      background: var(--tv-green);
+      content: "";
+    }
+
+    .tv-demo .tv-caption strong {
+      color: var(--tv-text);
+      font-weight: 700;
+    }
+
+    .tv-demo .tv-filing {
+      position: relative;
+      padding: 17px 18px 18px;
+      background: var(--tv-raised);
+    }
+
+    .tv-demo .tv-filing-label {
+      display: flex;
+      justify-content: space-between;
+      margin: 0 2px 10px;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-slots {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .tv-demo .tv-slot {
+      position: relative;
+      min-width: 0;
+      min-height: 110px;
+      padding: 7px;
+      border: 1px solid var(--tv-hairline);
+      border-radius: 5px 5px 12px 5px;
+      background: var(--tv-paper);
+      transition: border-color 350ms cubic-bezier(0.22, 1, 0.36, 1), background 350ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 350ms cubic-bezier(0.22, 1, 0.36, 1), transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-slot::before {
+      position: absolute;
+      top: -5px;
+      left: 8px;
+      width: 38px;
+      height: 5px;
+      border: 1px solid var(--tv-hairline);
+      border-bottom: 0;
+      border-radius: 4px 4px 0 0;
+      background: var(--tv-paper);
+      content: "";
+    }
+
+    .tv-demo .tv-slot.is-target {
+      border-color: var(--tv-green);
+      background: var(--tv-sage-soft);
+      box-shadow: 0 8px 22px var(--tv-shadow);
+      transform: translateY(-3px);
+    }
+
+    .tv-demo .tv-slot-name {
+      display: block;
+      padding: 4px 3px 7px;
+      color: var(--tv-muted);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-slot-stack {
+      display: grid;
+      min-height: 82px;
+    }
+
+    .tv-demo .tv-slot-stack .tv-card {
+      grid-area: 1 / 1;
+    }
+
+    .tv-demo .tv-slot-stack .tv-card:nth-child(2) {
+      transform: translate(3px, 3px);
+    }
+
+    .tv-demo .tv-completion {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      max-height: 0;
+      margin: 0 -18px -18px;
+      padding: 0 34px;
+      border-top: 0 solid var(--tv-hairline);
+      background: var(--tv-paper);
+      opacity: 0;
+      overflow: hidden;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: max-height 450ms cubic-bezier(0.22, 1, 0.36, 1), padding 450ms cubic-bezier(0.22, 1, 0.36, 1), border-width 450ms cubic-bezier(0.22, 1, 0.36, 1), opacity 450ms cubic-bezier(0.22, 1, 0.36, 1), transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-scene.is-complete .tv-completion {
+      max-height: 190px;
+      padding: 24px 34px;
+      border-top-width: 1px;
+      opacity: 1;
+      pointer-events: auto;
+      transform: none;
+    }
+
+    .tv-demo .tv-completion-mark {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      margin-bottom: 14px;
+      place-items: center;
+      border: 1px solid var(--tv-green);
+      border-radius: 50%;
+      color: var(--tv-green);
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .tv-demo .tv-completion-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.035em;
+    }
+
+    .tv-demo .tv-completion-copy {
+      max-width: 360px;
+      margin: 8px 0 15px;
+      color: var(--tv-muted);
+      font-size: 12px;
+    }
+
+    .tv-demo .tv-reset {
+      padding: 2px 0;
+      border: 0;
+      border-bottom: 1px solid var(--tv-muted);
+      background: var(--tv-transparent);
+      color: var(--tv-text);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      transition: border-color 300ms cubic-bezier(0.22, 1, 0.36, 1), color 300ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-reset:hover {
+      border-color: var(--tv-green);
+      color: var(--tv-green);
+    }
+
+    .tv-demo .tv-sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 1020px) {
+      .tv-demo .tv-shell {
+        width: min(760px, calc(100% - 36px));
+      }
+
+      .tv-demo .tv-masthead {
+        margin-bottom: 30px;
+      }
+
+      .tv-demo .tv-hero {
+        grid-template-columns: 1fr;
+        gap: 42px;
+      }
+
+      .tv-demo .tv-copy {
+        max-width: 620px;
+        padding-top: 10px;
+      }
+
+      .tv-demo .tv-title {
+        font-size: clamp(44px, 8vw, 68px);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .tv-demo .tv-shell {
+        width: min(100% - 24px, 510px);
+        padding: 24px 0 28px;
+      }
+
+      .tv-demo .tv-masthead {
+        margin-bottom: 35px;
+      }
+
+      .tv-demo .tv-private-note {
+        font-size: 10px;
+      }
+
+      .tv-demo .tv-copy {
+        padding-top: 0;
+      }
+
+      .tv-demo .tv-eyebrow {
+        margin-bottom: 13px;
+      }
+
+      .tv-demo .tv-title {
+        font-size: clamp(38px, 12vw, 52px);
+      }
+
+      .tv-demo .tv-intro {
+        margin-top: 19px;
+        font-size: 15px;
+      }
+
+      .tv-demo .tv-primary {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .tv-demo .tv-trust {
+        justify-content: center;
+      }
+
+      .tv-demo .tv-scene {
+        border-radius: 16px 6px 16px 6px;
+      }
+
+      .tv-demo .tv-scene-top {
+        padding: 0 13px;
+      }
+
+      .tv-demo .tv-stage {
+        height: 376px;
+      }
+
+      .tv-demo .tv-stage-note {
+        top: 13px;
+        left: 14px;
+      }
+
+      .tv-demo .tv-card {
+        width: 158px;
+        height: 112px;
+        padding: 12px;
+        cursor: pointer;
+      }
+
+      .tv-demo .tv-card[data-doc="passport"] {
+        top: 52px;
+        left: 12px;
+      }
+
+      .tv-demo .tv-card[data-doc="vaccination"] {
+        top: 42px;
+        left: auto;
+        right: 10px;
+      }
+
+      .tv-demo .tv-card[data-doc="rental"] {
+        top: 164px;
+        left: 20px;
+      }
+
+      .tv-demo .tv-card[data-doc="insurance"] {
+        top: 157px;
+        left: auto;
+        right: 15px;
+      }
+
+      .tv-demo .tv-card[data-doc="will"] {
+        top: 269px;
+        right: auto;
+        left: calc(50% - 79px);
+      }
+
+      .tv-demo .tv-card-name {
+        margin-bottom: 6px;
+        font-size: 12px;
+      }
+
+      .tv-demo .tv-chip {
+        margin-top: 6px;
+      }
+
+      .tv-demo .tv-caption-wrap {
+        min-height: 88px;
+        padding: 13px 14px;
+      }
+
+      .tv-demo .tv-filing {
+        padding: 16px 12px 13px;
+      }
+
+      .tv-demo .tv-slots {
+        grid-template-columns: repeat(5, 105px);
+        padding: 4px 2px 10px;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        scrollbar-width: thin;
+      }
+
+      .tv-demo .tv-slot {
+        min-height: 105px;
+      }
+
+      .tv-demo .tv-card.is-filed {
+        min-height: 78px;
+        padding: 8px;
+      }
+
+      .tv-demo .tv-completion {
+        margin-right: -12px;
+        margin-bottom: -13px;
+        margin-left: -12px;
+      }
+
+      .tv-demo .tv-scene.is-complete .tv-completion {
+        padding: 22px 25px;
+      }
+    }
+
+    @media (pointer: coarse) {
+      .tv-demo .tv-card {
+        cursor: pointer;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .tv-demo *,
+      .tv-demo *::before,
+      .tv-demo *::after {
+        scroll-behavior: auto;
+        transition-duration: 0.01ms;
+        animation-duration: 0.01ms;
+        animation-iteration-count: 1;
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-stage {
+        height: 64px;
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-stage-note {
+        top: 22px;
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-card.is-filed .tv-readable {
+        opacity: 0;
+        filter: blur(5px);
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-card.is-filed .tv-cipher {
+        opacity: 1;
+        transform: none;
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-scene.is-complete .tv-completion {
+        opacity: 1;
+        transform: none;
+      }
+    }
+  
+.tv-demo-action { margin-top: 1.5rem; display: flex; justify-content: center; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>Teluva</a>
+    <nav class="nav" aria-label="Main">
+      <a class="nav-link" href="#what">What it does</a>
+      <a class="nav-link" href="#security">Security</a>
+      <a class="nav-link" href="#limits">What it won't do</a>
+      <a class="nav-link" href="#pricing">Pricing</a>
+      <a class="btn btn-primary" href="https://teluva-1000796646145.europe-west2.run.app">Start free</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- HERO ---------------------------------------------------------------- -->
+  <section class="hero">
+    <div class="wrap">
+      <p class="eyebrow">Private family records · Vienna</p>
+      <h1>Know where&nbsp;it <em>is</em>.</h1>
+      <p class="lede">
+        Passports and their expiry dates. Blood groups and allergies. The
+        orthodontist's number, who holds the spare key, what the will says
+        and where the original sits. Filed, dated, and findable by the
+        people you choose — and the sensitive numbers are encrypted before
+        they're stored.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://teluva-1000796646145.europe-west2.run.app">Start free</a>
+        <a class="btn btn-quiet" href="https://teluva-1000796646145.europe-west2.run.app/?demo=1">See the demo</a>
+        <span class="cta-note">No card. 90-day trial, then a free tier that stays free.</span>
+      </div>
+
+      <div class="tv-demo" id="hero-demo">
+        <div class="tv-scene" data-scene>
+                <div class="tv-scene-top">
+                  <span class="tv-scene-label">Your family papers</span>
+                  <span class="tv-progress"><span data-count>0 / 5 filed</span><span class="tv-progress-bar" aria-hidden="true"><span class="tv-progress-fill"></span></span></span>
+                </div>
+
+                <div class="tv-stage" data-stage>
+                  <p class="tv-stage-note">Tap a paper to put it away · or drag on desktop</p>
+
+                  <button class="tv-card" type="button" data-doc="passport" data-category="Identity" data-caption="Passport → Identity · expires 2030" aria-label="File Austrian passport P1234567, expires 2030-01-01, under Identity">
+                    <span class="tv-readable">
+                      <span class="tv-card-kicker">Republic of Austria</span>
+                      <span class="tv-card-name">Austrian passport</span>
+                      <span class="tv-card-detail">P1234567<br>expires 2030-01-01</span>
+                      <span class="tv-chip tv-chip--identity">Identity</span>
+                    </span>
+                    <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · 8F4A 2C19 77E0</span></span>
+                  </button>
+
+                  <button class="tv-card" type="button" data-doc="vaccination" data-category="Medical" data-caption="MMR vaccination → Medical · 2019" aria-label="File MMR vaccination dated 2019-04-01 under Medical">
+                    <span class="tv-readable">
+                      <span class="tv-card-kicker">Immunisation record</span>
+                      <span class="tv-card-name">MMR vaccination</span>
+                      <span class="tv-card-detail">2019-04-01<br>Measles · mumps · rubella</span>
+                      <span class="tv-chip tv-chip--medical">Medical</span>
+                    </span>
+                    <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · 1D09 B64F 3A21</span></span>
+                  </button>
+
+                  <button class="tv-card" type="button" data-doc="rental" data-category="Legal" data-caption="Rental contract → Legal · Wienerstraße 14" aria-label="File rental contract for Wienerstraße 14 under Legal">
+                    <span class="tv-readable">
+                      <span class="tv-card-kicker">Tenancy agreement</span>
+                      <span class="tv-card-name">Rental contract</span>
+                      <span class="tv-card-detail">Wienerstraße 14<br>signed copy</span>
+                      <span class="tv-chip tv-chip--legal">Legal</span>
+                    </span>
+                    <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · C302 9BE1 4F77</span></span>
+                  </button>
+
+                  <button class="tv-card" type="button" data-doc="insurance" data-category="Financial" data-caption="Household insurance → Financial · policy 88-4402" aria-label="File household insurance policy 88-4402 under Financial">
+                    <span class="tv-readable">
+                      <span class="tv-card-kicker">Coverage certificate</span>
+                      <span class="tv-card-name">Household insurance</span>
+                      <span class="tv-card-detail">policy 88-4402<br>active coverage</span>
+                      <span class="tv-chip tv-chip--financial">Financial</span>
+                    </span>
+                    <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · 54B8 0CA2 91DF</span></span>
+                  </button>
+
+                  <button class="tv-card" type="button" data-doc="trip" data-category="Travel" data-caption="Trip itinerary → Travel · Lisbon, 14–21 Sept" aria-label="File trip itinerary for Lisbon, 14 to 21 September, under Travel">
+                    <span class="tv-readable">
+                      <span class="tv-card-kicker">Itinerary</span>
+                      <span class="tv-card-name">Trip to Lisbon</span>
+                      <span class="tv-card-detail">14–21 September<br>flights and address</span>
+                      <span class="tv-chip tv-chip--travel">Travel</span>
+                    </span>
+                    <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · A06E 38D5 729C</span></span>
+                  </button>
+                </div>
+
+                <div class="tv-caption-wrap">
+                  <p class="tv-caption" data-caption-out><span><strong>Choose a paper.</strong> Teluva identifies where it belongs.</span></p>
+                </div>
+
+                <div class="tv-filing" data-filing>
+                  <p class="tv-filing-label"><span>Filed securely</span><span>Encrypted before storage</span></p>
+                  <div class="tv-slots">
+                    <div class="tv-slot" data-slot="Identity"><span class="tv-slot-name">Identity</span><div class="tv-slot-stack"></div></div>
+                    <div class="tv-slot" data-slot="Medical"><span class="tv-slot-name">Medical</span><div class="tv-slot-stack"></div></div>
+                    <div class="tv-slot" data-slot="Legal"><span class="tv-slot-name">Legal</span><div class="tv-slot-stack"></div></div>
+                    <div class="tv-slot" data-slot="Financial"><span class="tv-slot-name">Financial</span><div class="tv-slot-stack"></div></div>
+                    <div class="tv-slot" data-slot="Travel"><span class="tv-slot-name">Travel</span><div class="tv-slot-stack"></div></div>
+                  </div>
+
+                  <div class="tv-completion" data-completion aria-hidden="true">
+                    <span class="tv-completion-mark" aria-hidden="true">✓</span>
+                    <p class="tv-completion-title">Everything is in its place.</p>
+                    <p class="tv-completion-copy">Five papers filed. Their readable details have already been encrypted.</p>
+                    <button class="tv-reset" type="button" data-reset>Try it again</button>
+                  </div>
+                </div>
+
+                <p class="tv-sr-only" aria-live="polite" aria-atomic="true" data-live></p>
+              </div>
+        <div class="tv-demo-action">
+          <button class="tv-primary" type="button" data-file-next>
+          <span>File the next document</span>
+          <span class="tv-arrow" aria-hidden="true">→</span>
+        </button>
+        </div>
+      </div>
+
+      <div class="hero-shot">
+        <picture>
+          <source media="(max-width: 700px)" srcset="shots/home-375.webp"
+                  width="375" height="812">
+          <img src="shots/home-1280.webp" width="1280" height="900"
+               alt="The Teluva home screen: a family avatar strip, a card reading &quot;Three things matter, everything else can wait&quot;, and a travel note saying Mia is in Lisbon and home in five days."
+               fetchpriority="high" decoding="async">
+        </picture>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRUST STRIP --------------------------------------------------------- -->
+  <div class="strip">
+    <div class="wrap strip-inner">
+      <span class="strip-item"><b>AES-256-GCM</b> on every ID and account number</span>
+      <span class="strip-item"><b>europe-west2</b> — hosted in the EU</span>
+      <span class="strip-item"><b>125</b> test suites in the build</span>
+      <span class="strip-item"><b>0</b> ads, ever</span>
+    </div>
+  </div>
+
+  <!-- PILLARS ------------------------------------------------------------- -->
+  <section id="what">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">What it does</p>
+        <h2>Four things, done <em>properly</em>.</h2>
+        <p class="lede">
+          Built against one household's real records — not a demo dataset —
+          and then made to work for a small business too.
+        </p>
+      </div>
+
+      <div class="pillars">
+        <a class="pillar" href="#file">
+          <h3>File</h3>
+          <p>Photograph a document. It's read, filed to the right person and the right category, and the expiry date goes in the calendar.</p>
+        </a>
+        <a class="pillar" href="#find">
+          <h3>Find</h3>
+          <p>Ask in plain language. Answers come from your own records — never from a guess.</p>
+        </a>
+        <a class="pillar" href="#share">
+          <h3>Share</h3>
+          <p>Gather exactly what a clinic, a school or an insurer needs into one folder. Nothing more travels with it.</p>
+        </a>
+        <a class="pillar" href="#keep">
+          <h3>Keep</h3>
+          <p>Wills, directives and where the signed original physically is — held under their own lock, released only while you're there to see it.</p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURE SECTIONS ---------------------------------------------------- -->
+  <section>
+    <div class="wrap">
+
+      <article class="feature" id="file">
+        <div class="feature-text">
+          <p class="eyebrow">File</p>
+          <h3>The paperwork files <em>itself</em>.</h3>
+          <p class="lede">
+            Photograph a passport, a vaccination card, a rental contract. It's
+            read, matched to the person it belongs to, and filed under one of
+            seven categories — with the expiry date lifted out and put where
+            you'll see it coming.
+          </p>
+          <ul class="detail-list">
+            <li><b>Nothing is written until you tap Apply.</b> Every extraction arrives as a proposed change you can read, edit or throw away.</li>
+            <li><b>Five countries have their own ID field sets</b> — Austria, South Africa, the UK, the US and Romania — with the national emergency number for each, individually sourced.</li>
+            <li><b>Duplicates are caught by content</b>, so the same scan filed twice from two phones is one document.</li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <picture>
+            <source media="(max-width: 700px)" srcset="shots/calendar-375.webp"
+                    width="375" height="812">
+            <img src="shots/calendar-1280.webp" width="1280" height="900"
+                 alt="A September 2026 month grid with coloured dots for school, travel, appointment and milestone events, and an agenda panel open on the 4th showing Mia's school play."
+                 loading="lazy" decoding="async">
+          </picture>
+          <p class="caption">Plan &middot; every date that came out of a document, in one grid</p>
+        </div>
+      </article>
+
+      <article class="feature flip" id="find">
+        <div class="feature-text">
+          <p class="eyebrow">Find</p>
+          <h3>An assistant that can't make things <em>up</em>.</h3>
+          <p class="lede">
+            Ask when the passport expires, what she's allergic to, or which
+            documents are on file for whom. The answer comes out of your own
+            records. When it reads a document back to you, the words are cut
+            out of the real page by the server — the model never gets to
+            author them.
+          </p>
+          <ul class="detail-list">
+            <li><b>It never says a document doesn't mention something.</b> A bad scan, a blank field and a genuinely absent clause look identical from the inside, so it only ever reports what it found.</li>
+            <li><b>It never interprets.</b> No legal, medical, tax or funeral advice — with a one-tap handoff to open the document in your own AI app if that's what you actually want.</li>
+            <li><b>Text inside a scan is data, not instructions.</b> A page that reads "ignore previous instructions" gets flagged, not obeyed.</li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <picture>
+            <source media="(max-width: 700px)" srcset="shots/medical-375.webp"
+                    width="375" height="812">
+            <img src="shots/medical-1280.webp" width="1280" height="900"
+                 alt="Ben's health timeline: current height and weight, a growth trend of plus four centimetres, an upcoming paediatrician appointment, and a dated growth history."
+                 loading="lazy" decoding="async">
+          </picture>
+          <p class="caption">Health timeline &middot; the stored record an answer is drawn from</p>
+        </div>
+      </article>
+
+      <article class="feature" id="share">
+        <div class="feature-text">
+          <p class="eyebrow">Share</p>
+          <h3>One folder, with exactly what they <em>asked</em> for.</h3>
+          <p class="lede">
+            "Gather everything medical for Mia." You get a folder: the
+            records, the scans, and a written summary you can hand to a new
+            paediatrician — as a PDF for the receptionist, or as Markdown for
+            whatever you want to read it with.
+          </p>
+          <ul class="detail-list">
+            <li><b>Fifteen topics</b>, picked individually or as a bundle, so a school folder never quietly contains an MRI.</li>
+            <li><b>The assistant chooses topics; it never touches the files.</b> It can be wrong about the selection — which you see and correct before anything leaves the device — but it cannot be wrong about the contents.</li>
+            <li><b>Nothing is silently dropped.</b> An empty topic and a record with no scan attached are both reported, so "everything" is a claim you can check.</li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <picture>
+            <source media="(max-width: 700px)" srcset="shots/member-375.webp"
+                    width="375" height="812">
+            <img src="shots/member-1280.webp" width="1280" height="900"
+                 alt="A family member's profile open on the Life tab, showing clothing and shoe sizes with EU-standard conversions."
+                 loading="lazy" decoding="async">
+          </picture>
+          <p class="caption">A person's record &middot; what a folder gets gathered from</p>
+        </div>
+      </article>
+
+      <article class="feature flip" id="keep">
+        <div class="feature-text">
+          <p class="eyebrow">Keep</p>
+          <h3>The will, and no <em>trapdoor</em>.</h3>
+          <p class="lede">
+            Where the signed original physically is. Who to call. What's been
+            said out loud and what hasn't. Held behind its own lock — not
+            visible to everyone in the household just because they're in the
+            household.
+          </p>
+          <ul class="detail-list">
+            <li><b>There is no death trigger.</b> Nothing in this app opens on someone dying. Access changes hands one of two ways, both while you're alive: you release it, or a person you named asks and it opens after seven days if nobody with standing objects.</li>
+            <li><b>Named readers, not blanket access.</b> An admin names who can read it. Being family isn't the qualification.</li>
+            <li><b>It records; it does not advise.</b> It will never suggest who to name, and never write your letter for you — only store, word for word, what you dictate.</li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <div class="rule-panel">
+            <p class="eyebrow">Why there is no screenshot here</p>
+            <p class="rule-quote">
+              &ldquo;The document vault stays out of the public demo. Sign in
+              with Google to use this space with your own family. Teluva won't
+              invent example records for sensitive information.&rdquo;
+            </p>
+            <p class="rule-source">Shown in the live demo, in place of a vault</p>
+            <p class="lede" style="font-size:.9375rem">
+              Every other screen on this page is a real, unedited capture of the
+              running app. The vault, the assistant and the will are the four
+              screens we could not photograph &mdash; because the demo declines
+              to invent a passport, a medical record or a will to make a
+              marketing image out of. That refusal is the feature.
+            </p>
+          </div>
+        </div>
+      </article>
+
+      <article class="feature" id="business">
+        <div class="feature-text">
+          <p class="eyebrow">And at work</p>
+          <h3>The same filing, for a small <em>team</em>.</h3>
+          <p class="lede">
+            A business space keeps a roster instead of a family: who works
+            here, on what basis, and which of their certificates is about to
+            run out. The filing works the same way; the boundaries do not.
+          </p>
+          <ul class="detail-list">
+            <li><b>An employer is not next of kin.</b> Employee records hold what an employer legitimately needs and stop there &mdash; a colleague's home life is not a tab you can open.</li>
+            <li><b>Owner, manager, employee, contractor</b> are separate standings, and each one sees a different amount.</li>
+            <li><b>CVs, qualifications and expiry dates</b> export as one pack when an inspector, a client or a funder asks.</li>
+          </ul>
+        </div>
+        <div class="feature-media">
+          <picture>
+            <source media="(max-width: 700px)" srcset="shots/business-team-375.webp"
+                    width="375" height="812">
+            <img src="shots/business-team-1280.webp" width="1280" height="900"
+                 alt="A business team roster for a fictional Austrian care agency, listing an owner, a manager, two employees and a contractor, with one person's profile card open."
+                 loading="lazy" decoding="async">
+          </picture>
+          <p class="caption">Team &middot; a five-person roster in a business space</p>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- SECURITY (the dark section) ----------------------------------------- -->
+  <section class="security" id="security">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Security</p>
+        <h2>What we can see, and what we <em>can't</em>.</h2>
+        <p class="lede">
+          Everything below is enforced in the database rules or the server
+          code, not in the interface. Hiding a tab in the app protects
+          nothing.
+        </p>
+      </div>
+
+      <div class="claims">
+        <div class="claim">
+          <h3>Sensitive numbers are encrypted before they're stored</h3>
+          <p>Passport and national ID numbers, IBANs and account numbers, door codes, alarm codes and wifi passwords are encrypted with <code>AES-256-GCM</code> at rest — not merely protected by an access rule.</p>
+        </div>
+        <div class="claim">
+          <h3>The same list is withheld from the AI</h3>
+          <p>"Too sensitive to sit in plaintext in the database" and "too sensitive to put in a model's prompt" are treated as one judgement, read from one shared list, so the two can't drift apart later.</p>
+        </div>
+        <div class="claim">
+          <h3>You can't grant yourself access</h3>
+          <p>Membership and role are minted server-side. A modified client can't write its own way into a household, because the rules key off the server's claim, never off what the client says about itself.</p>
+        </div>
+        <div class="claim">
+          <h3>Default deny</h3>
+          <p>The root rule refuses every read and write that isn't explicitly allowed by name. New collections are locked until someone deliberately opens them.</p>
+        </div>
+        <div class="claim">
+          <h3>Money and passwords are not household-wide</h3>
+          <p>Finances are adults-only in a family, admin-only in a business. Shared passwords are admin-only everywhere. A child's login cannot reach either.</p>
+        </div>
+        <div class="claim">
+          <h3>In a business, a colleague's record is an HR file</h3>
+          <p>Readable only by the person it describes and by an admin — enforced in the rule itself, so a modified client gets nothing. There is no team directory yet, deliberately: a directory that leaks is worse than no directory.</p>
+        </div>
+        <div class="claim">
+          <h3>The reader can't fabricate a quote</h3>
+          <p>When the assistant reads a document back to you, the model returns only character offsets. The server slices the real text out of the real file. There is no path by which it can paraphrase a contract at you and call it a quote.</p>
+        </div>
+        <div class="claim">
+          <h3>Hosted in the EU</h3>
+          <p>Cloud Run in <code>europe-west2</code>, built and run from Vienna. Your family's documents don't cross the Atlantic to be stored.</p>
+        </div>
+      </div>
+
+      <p class="security-note">
+        <b>Two things we won't claim.</b> The Content-Security-Policy is
+        currently running in report-only mode while it's tuned, so it is not
+        yet blocking anything — we're not going to describe that as
+        protection. And the activity trail is not an audit log: an entry
+        can't be forged, edited or backdated, but a modified client could
+        fail to write one, so we call it what it is.
+      </p>
+    </div>
+  </section>
+
+  <!-- REFUSALS ------------------------------------------------------------ -->
+  <section id="limits">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Limits</p>
+        <h2>What it won't <em>do</em>.</h2>
+        <p class="lede">
+          Most of these were decisions, not omissions. They're the reason the
+          rest of it can be trusted.
+        </p>
+      </div>
+
+      <div class="refusals">
+        <article class="refusal">
+          <h3>It won't tell you what your contract means</h3>
+          <p>It will show you the sentence, exactly as written. Interpreting a document for someone is regulated advice in Austria, where this is built — and being confidently wrong about a lease clause is worse than being no help at all.</p>
+        </article>
+        <article class="refusal">
+          <h3>It won't read your blood results back to you</h3>
+          <p>A shifted decimal point or a misread reference range on a lab result is harmful in a way a wrong phone number isn't. Medical results are excluded from the reader entirely. Open them on the Medical tab, or ask the doctor who ordered them.</p>
+        </article>
+        <article class="refusal">
+          <h3>It won't guess</h3>
+          <p>No inventing a name's meaning, no estimating a child's height from a photograph, no filling a blank field with something plausible. If it doesn't know, it asks, or it leaves it out.</p>
+        </article>
+        <article class="refusal">
+          <h3>It won't write your letter</h3>
+          <p>The "if something happens to me" letter is recorded exactly as dictated — never composed, never improved, never lengthened. It should sound like the person who wrote it.</p>
+        </article>
+        <article class="refusal">
+          <h3>It won't open anything when you die</h3>
+          <p>There is no mechanism anywhere in this app that keys on a death. A build check fails if any part of the code so much as claims one exists.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRICING ------------------------------------------------------------- -->
+  <section id="pricing">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Pricing</p>
+        <h2>Free while it's in <em>beta</em>.</h2>
+        <p class="lede">
+          The limits below are on AI actions — reading a document, filing a
+          scan, gathering an export. Storing, searching and sharing your own
+          records is never metered.
+        </p>
+      </div>
+
+      <div class="plans">
+        <div class="plan">
+          <h3>Free</h3>
+          <p class="price">€0<small> / forever</small></p>
+          <ul>
+            <li>Everything stored, searched and shared</li>
+            <li>Up to 10 people in a space</li>
+            <li>5 AI actions a month</li>
+          </ul>
+        </div>
+        <div class="plan featured">
+          <h3>Beta trial</h3>
+          <p class="price">€0<small> / 90 days</small></p>
+          <ul>
+            <li>Up to 200 people in a space</li>
+            <li>100 AI actions a month</li>
+            <li>Drops to Free when it ends — nothing is deleted, nothing is charged</li>
+          </ul>
+          <a class="btn btn-primary" href="https://teluva-1000796646145.europe-west2.run.app" style="margin-top:.5rem">Start free</a>
+          <span class="cta-note">No card.</span>
+        </div>
+        <div class="plan">
+          <h3>Paid</h3>
+          <p class="price">Not yet<small> — see below</small></p>
+          <ul>
+            <li>Higher AI limits for heavy use</li>
+            <li>Not currently purchasable</li>
+          </ul>
+        </div>
+      </div>
+
+      <p class="pricing-honesty">
+        <b>Being straight about this:</b> there is no checkout yet. A paid
+        tier exists in the code and nothing sells it, so we're not going to
+        print a price we haven't decided on. Beta accounts will be told well
+        before anything changes, and no card is taken to start.
+      </p>
+    </div>
+  </section>
+
+  <!-- FINAL CTA ----------------------------------------------------------- -->
+  <section class="final">
+    <div class="wrap">
+      <h2>Put the papers somewhere you'll <em>find</em> them.</h2>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://teluva-1000796646145.europe-west2.run.app">Start free</a>
+        <a class="btn btn-quiet" href="https://teluva-1000796646145.europe-west2.run.app/?demo=1">See the demo</a>
+        <span class="cta-note">No card. 90-day trial, then a free tier that stays free.</span>
+      </div>
+      <p class="install-note">
+        There's nothing to download. It opens in your browser, and on a phone
+        you can add it to your home screen from the share menu — it then
+        launches like any other app, and keeps working when you're offline.
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-cols">
+      <div>
+        <h4>Product</h4>
+        <ul>
+          <li><a href="#what">What it does</a></li>
+          <li><a href="#security">Security</a></li>
+          <li><a href="#limits">What it won't do</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="https://teluva-1000796646145.europe-west2.run.app/?demo=business">For a small business</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>If you need it now</h4>
+        <ul>
+          <li><a href="#keep">What to do when someone dies</a></li>
+          <li><a href="#keep">Finding a will and its original</a></li>
+          <li><a href="#keep">Helping an ageing parent get organised</a></li>
+          <li><a href="#share">Getting records ready for a new doctor</a></li>
+          <li><a href="#file">Passport and permit expiry dates</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <ul>
+          <li><a href="#security">Where your data lives</a></li>
+          <li><a href="#limits">What we won't build</a></li>
+          <li><a href="https://github.com/rorymclark-prog">Source, readable</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-base">
+      <span>Teluva — built in Vienna, hosted in the EU.</span>
+      <span>Not a law firm, a medical practice, or a financial adviser. It stores what you tell it and finds it again.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+    (function () {
+      "use strict";
+
+      var root = document.querySelector(".tv-demo");
+      var scene = root.querySelector("[data-scene]");
+      var stage = root.querySelector("[data-stage]");
+      var filing = root.querySelector("[data-filing]");
+      var cards = Array.prototype.slice.call(root.querySelectorAll(".tv-card"));
+      var count = root.querySelector("[data-count]");
+      var caption = root.querySelector("[data-caption-out]");
+      var live = root.querySelector("[data-live]");
+      var completion = root.querySelector("[data-completion]");
+      var nextButton = root.querySelector("[data-file-next]");
+      var resetButton = root.querySelector("[data-reset]");
+      var motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      var filedCount = 0;
+      var dragging = null;
+      var suppressClick = false;
+      var encryptionTimers = [];
+
+      function slotFor(card) {
+        return root.querySelector('[data-slot="' + card.dataset.category + '"]');
+      }
+
+      function setCaption(card, encrypted) {
+        if (encrypted) {
+          caption.innerHTML = "<span><strong>Filed.</strong> Passport, ID and account numbers are encrypted before they’re stored — and the same list is kept out of the AI’s context.</span>";
+        } else {
+          caption.innerHTML = "<span><strong>" + card.dataset.caption + ".</strong> Encrypting readable details now.</span>";
+        }
+      }
+
+      function updateProgress() {
+        var percent = (filedCount / cards.length) * 100;
+        count.textContent = filedCount + " / " + cards.length + " filed";
+        scene.style.setProperty("--tv-progress", percent + "%");
+      }
+
+      function finishIfComplete(immediate) {
+        if (filedCount !== cards.length) {
+          return;
+        }
+        window.setTimeout(function () {
+          scene.classList.add("is-complete");
+          completion.setAttribute("aria-hidden", "false");
+          live.textContent = "All five documents filed and encrypted.";
+        }, immediate ? 0 : 620);
+      }
+
+      function encryptCard(card, immediate) {
+        var encrypt = function () {
+          card.classList.add("is-encrypted");
+          setCaption(card, true);
+        };
+        if (immediate) {
+          encrypt();
+          return;
+        }
+        encryptionTimers.push(window.setTimeout(encrypt, 560));
+      }
+
+      function fileCard(card, options) {
+        var settings = options || {};
+        if (card.classList.contains("is-filed")) {
+          return;
+        }
+
+        var reduceMotion = motionQuery.matches || settings.immediate;
+        var start = card.getBoundingClientRect();
+        var slot = slotFor(card);
+        var stack = slot.querySelector(".tv-slot-stack");
+
+        root.querySelectorAll(".tv-slot.is-target").forEach(function (item) {
+          item.classList.remove("is-target");
+        });
+        card.classList.remove("is-dragging");
+        card.style.removeProperty("--tv-drag-x");
+        card.style.removeProperty("--tv-drag-y");
+        card.classList.add("is-filed");
+        card.disabled = true;
+        card.setAttribute("aria-disabled", "true");
+        stack.appendChild(card);
+
+        var end = card.getBoundingClientRect();
+        if (!reduceMotion && card.animate) {
+          card.animate([
+            { transform: "translate(" + (start.left - end.left) + "px, " + (start.top - end.top) + "px) rotate(0deg)", opacity: 0.72 },
+            { transform: "translate(0, 0) rotate(0deg)", opacity: 1 }
+          ], {
+            duration: 480,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)"
+          });
+        }
+
+        filedCount += 1;
+        updateProgress();
+        setCaption(card, false);
+        live.textContent = card.querySelector(".tv-card-name").textContent + " filed under " + card.dataset.category + ".";
+        encryptCard(card, reduceMotion);
+        finishIfComplete(reduceMotion);
+      }
+
+      function fileNext() {
+        var next = cards.find(function (card) {
+          return !card.classList.contains("is-filed");
+        });
+        if (next) {
+          fileCard(next);
+        } else {
+          resetDemo();
+        }
+      }
+
+      function resetDemo() {
+        encryptionTimers.forEach(window.clearTimeout);
+        encryptionTimers = [];
+        scene.classList.remove("is-complete");
+        completion.setAttribute("aria-hidden", "true");
+        root.dataset.reducedMotion = "false";
+        filedCount = 0;
+
+        cards.forEach(function (card) {
+          card.classList.remove("is-filed", "is-encrypted", "is-dragging");
+          card.disabled = false;
+          card.removeAttribute("aria-disabled");
+          card.style.removeProperty("--tv-drag-x");
+          card.style.removeProperty("--tv-drag-y");
+          stage.appendChild(card);
+        });
+
+        updateProgress();
+        caption.innerHTML = "<span><strong>Choose a paper.</strong> Teluva identifies where it belongs.</span>";
+        live.textContent = "Demo reset. Choose a document to file.";
+        cards[0].focus();
+      }
+
+      function distanceToRect(x, y, rect) {
+        var dx = Math.max(rect.left - x, 0, x - rect.right);
+        var dy = Math.max(rect.top - y, 0, y - rect.bottom);
+        return Math.sqrt((dx * dx) + (dy * dy));
+      }
+
+      function beginDrag(event) {
+        var card = event.currentTarget;
+        if (event.pointerType !== "mouse" || card.classList.contains("is-filed") || event.button !== 0) {
+          return;
+        }
+        dragging = {
+          card: card,
+          startX: event.clientX,
+          startY: event.clientY,
+          moved: false,
+          target: slotFor(card)
+        };
+        card.setPointerCapture(event.pointerId);
+      }
+
+      function moveDrag(event) {
+        if (!dragging || event.currentTarget !== dragging.card) {
+          return;
+        }
+        var x = event.clientX - dragging.startX;
+        var y = event.clientY - dragging.startY;
+        if (!dragging.moved && Math.hypot(x, y) < 5) {
+          return;
+        }
+        dragging.moved = true;
+        dragging.card.classList.add("is-dragging");
+        dragging.card.style.setProperty("--tv-drag-x", x + "px");
+        dragging.card.style.setProperty("--tv-drag-y", y + "px");
+        var close = distanceToRect(event.clientX, event.clientY, dragging.target.getBoundingClientRect()) < 82;
+        dragging.target.classList.toggle("is-target", close);
+      }
+
+      function endDrag(event) {
+        if (!dragging || event.currentTarget !== dragging.card) {
+          return;
+        }
+        var state = dragging;
+        var targetRect = state.target.getBoundingClientRect();
+        var close = distanceToRect(event.clientX, event.clientY, targetRect) < 82;
+        state.target.classList.remove("is-target");
+        state.card.classList.remove("is-dragging");
+        state.card.style.removeProperty("--tv-drag-x");
+        state.card.style.removeProperty("--tv-drag-y");
+        dragging = null;
+
+        if (state.moved) {
+          suppressClick = true;
+          window.setTimeout(function () {
+            suppressClick = false;
+          }, 0);
+          if (close) {
+            fileCard(state.card);
+          }
+        }
+      }
+
+      cards.forEach(function (card) {
+        card.addEventListener("click", function () {
+          if (!suppressClick) {
+            fileCard(card);
+          }
+        });
+        card.addEventListener("pointerdown", beginDrag);
+        card.addEventListener("pointermove", moveDrag);
+        card.addEventListener("pointerup", endDrag);
+        card.addEventListener("pointercancel", endDrag);
+      });
+
+      nextButton.addEventListener("click", fileNext);
+      resetButton.addEventListener("click", resetDemo);
+
+      updateProgress();
+      if (motionQuery.matches) {
+        root.dataset.reducedMotion = "true";
+        cards.forEach(function (card) {
+          fileCard(card, { immediate: true });
+        });
+      }
+    }());
+  </script>
+</body>
+</html>

@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState, type ElementType } from 'react';
 import { createPortal } from 'react-dom';
-import { Menu, Check, Search, X } from 'lucide-react';
+import { Menu, Check, Search, Sparkles, X } from 'lucide-react';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import WhatsNewLog from './WhatsNewLog';
+
+// Same build-time stamp HubSettingsModal shows; declared in vite-env.d.ts.
+const APP_LABEL =
+  typeof __APP_LABEL__ !== 'undefined' && __APP_LABEL__ ? __APP_LABEL__ : 'dev build';
 
 interface NavView {
   id: string;
@@ -76,6 +81,7 @@ const Row: React.FC<RowProps> = ({ v, active, onPick }) => {
 
 export default function SectionMenu({ views, current, onSelect }: Props) {
   const [open, setOpen] = useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   // The phone sheet is PORTALLED to <body>, so it is not a DOM descendant of
@@ -170,6 +176,24 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
           ))
         )}
       </div>
+
+      {/* Pinned under the scroll area, not inside it: the version log is
+          reachable from the END of the menu without hunting for it mid-list,
+          and it stays visible however long the section list grows. Tapping it
+          closes the menu first (same contract as picking a section) and opens
+          the log as its own overlay. */}
+      <div className="shrink-0 border-t border-cream-200 p-1.5">
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => { setOpen(false); setWhatsNewOpen(true); }}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-semibold text-ink-500 hover:bg-cream-100 hover:text-ink-800 transition-colors cursor-pointer"
+        >
+          <Sparkles className="w-4 h-4 shrink-0" />
+          <span className="flex-1 text-left">What&rsquo;s new</span>
+          <span className="shrink-0 text-[12px] font-semibold text-ink-400 tabular-nums">{APP_LABEL}</span>
+        </button>
+      </div>
     </>
   );
 
@@ -187,11 +211,15 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
         <Menu className="w-5 h-5 shrink-0" />
       </button>
 
-      {/* Desktop: an anchored popover, right-aligned so it cannot run off screen. */}
+      {/* Desktop: an anchored popover, right-aligned so it cannot run off screen.
+          z-[70], not z-50: the Ember chrome's floating Ask/Capture buttons sit
+          at z-60/61 and were rendering ON TOP of the open menu's bottom rows
+          (reported from a screenshot where the sparkle button hid the last
+          item). An open menu outranks idle chrome. */}
       {open && (
         <div
           role="menu"
-          className="hidden sm:flex sm:flex-col absolute right-0 sm:right-auto sm:left-0 mt-2 w-72 max-h-[min(75vh,44rem)] bg-white rounded-2xl border border-cream-300 shadow-lift z-50"
+          className="hidden sm:flex sm:flex-col absolute right-0 sm:right-auto sm:left-0 mt-2 w-72 max-h-[min(75vh,44rem)] bg-white rounded-2xl border border-cream-300 shadow-lift z-[70]"
         >
           {list}
         </div>
@@ -206,14 +234,14 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
       {open && createPortal(
         <div className="sm:hidden">
           <div
-            className="fixed inset-0 z-[55] bg-ink-900/25 anim-fade"
+            className="fixed inset-0 z-[65] bg-ink-900/25 anim-fade"
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />
           <div
             ref={sheetRef}
             role="menu"
-            className="fixed inset-x-0 bottom-0 z-[60] flex h-[85dvh] flex-col rounded-t-3xl border-t border-cream-300 bg-white shadow-lift anim-sheet"
+            className="fixed inset-x-0 bottom-0 z-[70] flex h-[85dvh] flex-col rounded-t-3xl border-t border-cream-300 bg-white shadow-lift anim-sheet"
           >
             <div className="flex shrink-0 items-center justify-between px-4 pt-3 pb-1">
               <p className="text-[13px] font-bold uppercase tracking-wider text-ink-400">Sections</p>
@@ -229,6 +257,17 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
             {list}
           </div>
         </div>,
+        document.body,
+      )}
+
+      {/* Portalled to <body>, NOT rendered inline: this menu lives inside a
+          header with backdrop-blur, which is a containing block for fixed
+          descendants — rendered inline, the log's `fixed inset-0` would pin to
+          the header, not the viewport (same trap the phone sheet above
+          documents). Independent of `open`: the menu closes when the log
+          opens. */}
+      {whatsNewOpen && createPortal(
+        <WhatsNewLog currentLabel={APP_LABEL} onClose={() => setWhatsNewOpen(false)} />,
         document.body,
       )}
     </div>

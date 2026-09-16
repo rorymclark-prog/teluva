@@ -10,5 +10,13 @@
       "bucket": "gen-lang-client-0384516171-vault",
       "rules": "storage.rules"
     }
-  ]
+  ],
+  "emulators": {
+    "firestore": {
+      "port": 8577
+    },
+    "ui": {
+      "enabled": false
+    }
+  }
 }

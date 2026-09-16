@@ -19,10 +19,20 @@
 // "mother", "check", "pump" alone), where a full phrase is used instead to
 // keep the panel from filling with noise.
 //
-// Matching is whole-word/whole-phrase (word-boundary regex, so "ent" never
-// matches inside "enter"), case-insensitive, against both an event's title
-// AND its description — not a plain .includes(), which would also catch
-// "ENT" inside "ENTITLEMENT" or "GP" inside "GPS".
+// Matching is whole-word/whole-phrase (so "ent" never matches inside
+// "enter"), case-insensitive, against both an event's title AND its
+// description — not a plain .includes(), which would also catch "ENT" inside
+// "ENTITLEMENT" or "GP" inside "GPS".
+//
+// WHY NOT \b. JavaScript's \b only knows ASCII letters, even with the 'u'
+// flag. To it, "Ä" is not a word character, so a keyword that STARTS with an
+// umlaut ("ärztin", "Übelkeit") could never match as a standalone word: there
+// is no \b between a space and an "Ä". "Hausärztin" worked only because its
+// first letter is ASCII. The boundaries below are Unicode letters/digits
+// instead. (No lookbehind: a regex literal with one is a SyntaxError on
+// Safari before 16.4, which would take the whole module, and the calendar
+// with it, down on an older iPad. A consumed leading character does the same
+// job for a yes/no test.)
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -30,7 +40,7 @@ function escapeRegExp(s: string): string {
 
 function buildMatcher(keywords: readonly string[]): (text: string | undefined) => boolean {
   const pattern = keywords.map((k) => escapeRegExp(k).replace(/\s+/g, '\\s+')).join('|');
-  const re = new RegExp(`\\b(?:${pattern})\\b`, 'i');
+  const re = new RegExp(`(?:^|[^\\p{L}\\p{N}_])(?:${pattern})(?![\\p{L}\\p{N}_])`, 'iu');
   return (text) => !!text && re.test(text);
 }
 
@@ -71,6 +81,13 @@ const GENERAL_MEDICAL_KEYWORDS_EN = [
   'follow-up appointment', 'follow up appointment', 'urgent care',
   'emergency room', 'hospital appointment', 'clinic appointment',
   'health check', 'medical exam', 'gp appointment',
+  // 2026-09-13: Rory's orthopaedic-surgeon and psychiatry appointments.
+  // 'orthopaedic'/'psychiatrist' were already here; the specialty nouns and
+  // the other specialists a referral letter sends people to were not.
+  'psychiatry', 'psychiatric', 'orthopedist', 'orthopaedist', 'orthopedics',
+  'orthopaedics', 'surgeon', 'neurologist', 'urologist', 'rheumatologist',
+  'oncologist', 'endocrinology', 'radiology', 'mental health', 'hospital',
+  'clinic', 'outpatient', 'consultant appointment', 'pre-op', 'post-op',
 ];
 
 // Rory is in Vienna — Austrian/German medical vocabulary is just as likely
@@ -82,6 +99,22 @@ const GENERAL_MEDICAL_KEYWORDS_DE = [
   'untersuchung', 'vorsorgeuntersuchung', 'blutabnahme', 'blutbild', 'mrt',
   'röntgen', 'krankenhaus', 'ordination', 'apotheke', 'rezept',
   'physiotherapie', 'arzttermin',
+  // 2026-09-13, same report. Austrian usage: a specialist is a "Facharzt" with
+  // an "Ordination" (already above); hospitals run "Ambulanzen" (outpatient
+  // clinics, not ambulances) and are "Spital" as often as "Krankenhaus".
+  // Deliberately NOT here, each for being common outside medicine:
+  //   'termin' (any appointment at all), 'vorstellung' (also a theatre
+  //   performance), 'überweisung' (also a bank transfer), 'ordi' (too short).
+  'orthopädie', 'orthopäde', 'orthopädin', 'psychiatrie', 'psychiater',
+  'psychiaterin', 'psychotherapie', 'psychotherapeut', 'psychotherapeutin',
+  'psychologe', 'psychologin', 'chirurg', 'chirurgin', 'chirurgie',
+  'unfallchirurgie', 'ambulanz', 'spital', 'klinik', 'facharzttermin',
+  'kontrolltermin', 'nachkontrolle', 'op-termin', 'befundbesprechung',
+  'befund', 'ultraschall', 'neurologe', 'neurologin', 'neurologie',
+  'kardiologe', 'kardiologin', 'kardiologie', 'dermatologe', 'dermatologin',
+  'hautarzt', 'hautärztin', 'urologe', 'urologie', 'radiologie',
+  'internist', 'internistin', 'gynäkologe', 'gynäkologin', 'augenärztin',
+  'logopädie', 'ergotherapie', 'wahlarzt', 'wahlärztin', 'kassenarzt',
 ];
 
 export const MEDICAL_KEYWORDS: readonly string[] = [
@@ -116,4 +149,28 @@ const anniversaryMatcher = buildMatcher(ANNIVERSARY_KEYWORDS);
 
 export function isAnniversaryFlaggedEvent(ev: { title?: string; description?: string }): boolean {
   return anniversaryMatcher(ev.title) || anniversaryMatcher(ev.description);
+}
+
+// --- Birthdays & name days --------------------------------------------------
+
+// Used by utils/hiddenPeople.ts, and only there: a hand-typed "Nora's
+// birthday" is hidden along with Nora's other dates, while "Dinner with Nora"
+// is not a date of hers and stays. Matched against the TITLE only by that
+// caller — a description that mentions a birthday in passing does not make
+// the event one.
+export const BIRTHDAY_KEYWORDS: readonly string[] = [
+  'birthday', 'birthdays', 'bday', 'b-day', "b'day", 'birthday party',
+  'name day', 'nameday', 'name-day',
+  'geburtstag', 'geburtstage', 'geburtstagsfeier', 'geburtstagsparty',
+  'geburtstagsfest', 'geburtstagsessen', 'namenstag',
+];
+
+const birthdayMatcher = buildMatcher(BIRTHDAY_KEYWORDS);
+
+export function isBirthdayFlaggedTitle(title: string | undefined): boolean {
+  return birthdayMatcher(title);
+}
+
+export function isAnniversaryFlaggedTitle(title: string | undefined): boolean {
+  return anniversaryMatcher(title);
 }

@@ -1,17 +1,22 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, ChevronDown, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Car, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock, PawPrint } from 'lucide-react';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, ChevronDown, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock, PawPrint } from 'lucide-react';
 import { FamilyMember, AssetItem, Vehicle, Pet, ExtendedBirthday, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc, InsurancePolicy } from '../types';
+import type { ReleaseRequestRow } from '../utils/db';
 import { careNextDue } from '../utils/care';
-import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones, loadFinances } from '../utils/db';
-import { vehicleDeadlines, vehicleLabel, daysUntil } from '../utils/vehicle';
+import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones, loadFinances, loadReleaseState } from '../utils/db';
+import { vehicleDeadlines, vehicleLabel, daysUntil, vehicleKindMeta, vehicleKindOf } from '../utils/vehicle';
 import { petDeadlines, petLabel } from '../utils/pet';
 import { birthdayPhotoNudge } from '../utils/birthday';
 import { nextAnniversary, nextMilestoneAnniversary } from '../utils/businessMilestone';
 import { isReviewStale } from '../utils/willsEstate';
 import { useWillsAccess } from '../hooks/useWillsAccess';
+import { useFamilyCtx } from '../contexts/FamilyContext';
+import { daysLeft, waitLabel } from '../utils/releaseCopy';
 import { sizeStaleness } from '../utils/sizeStaleness';
 import { todayISO } from '../utils/age';
 import { nameDayOccurrenceInYear } from '../utils/nameDay';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
+import { hiddenKey, NO_HIDDEN_PEOPLE, visibleExtendedBirthdays, type HiddenPeople } from '../utils/hiddenPeople';
 import { isFuneralPolicy, inWaitingPeriod, daysUntilWaitingPeriodEnd } from '../utils/funeralCover';
 
 const DAY = 1000 * 60 * 60 * 24;
@@ -101,10 +106,12 @@ export function computeVehicleNudges(vehicles: Vehicle[]): Nudge[] {
     for (const d of vehicleDeadlines(v)) {
       if (d.days > 42) continue;
       const name = vehicleLabel(v);
+      // The bike's own icon on a bike's service nudge (absent kind = Car).
+      const icon = vehicleKindMeta(vehicleKindOf(v)).icon;
       if (d.days < 0) {
-        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'urgent', text: `${name}: ${d.label} overdue`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days, sortDays: d.days });
+        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon, tone: 'urgent', text: `${name}: ${d.label} overdue`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days, sortDays: d.days });
       } else {
-        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon: Car, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days, sortDays: d.days });
+        out.push({ key: `veh-${v.id}-${d.kind}`, memberId: '', icon, tone: 'warn', text: `${name}: ${d.label} ${d.days === 0 ? 'due today' : `in ${d.days} days`}`, tab: 'vehicles', view: 'vehicles', date: d.date, days: d.days, sortDays: d.days });
       }
     }
   }
@@ -153,6 +160,42 @@ function computeEstateNudges(records: EstateRecord[]): Nudge[] {
       text: `${n} estate document${n === 1 ? '' : 's'} ${n === 1 ? "hasn't" : "haven't"} been reviewed in a while`,
       tab: 'willsEstate',
       view: 'willsEstate',
+    });
+  }
+  return out;
+}
+
+/**
+ * Somebody asked to open the will, and the clock is running.
+ *
+ * THIS IS THE REFUSAL WINDOW, and it is the whole reason the slow door is
+ * safe. A request releases the will after RELEASE_WAIT_DAYS of nobody
+ * objecting, so an admin who is never told has a theoretical chance to refuse
+ * rather than a real one. The push notification sent at request time is the
+ * fast path; it is also the one that silently fails — permission never
+ * granted, notifications off, a new phone. This row is the path that cannot
+ * fail: it is on the home screen every time they open the app, until the
+ * request is declined, released, or run out.
+ *
+ * Admins only. A member who is not an admin cannot refuse (the endpoint
+ * checks), so telling them would be telling them about somebody else's
+ * request to read a document they cannot open, with no action attached.
+ */
+function computeReleaseNudges(requests: ReleaseRequestRow[]): Nudge[] {
+  const out: Nudge[] = [];
+  for (const r of requests) {
+    if (r.declinedAt || r.releasedAt) continue;
+    const who = (r.requestedByName || '').trim().split(' ')[0] || 'Someone';
+    const left = daysLeft(r.requestedAt);
+    out.push({
+      key: `release-${r.id}`,
+      memberId: '',
+      icon: ScrollText,
+      tone: 'urgent',
+      text: `${who} asked to open Wills & Estate — it opens ${waitLabel(left)} unless you refuse`,
+      tab: 'willsEstate',
+      view: 'willsEstate',
+      sortDays: left ?? 0,
     });
   }
   return out;
@@ -402,7 +445,13 @@ function ordinalYears(n: number): string {
 }
 
 // Deterministic, data-derived nudges — no AI, no cost, no new fields.
-export function computeNudges(members: FamilyMember[]): Nudge[] {
+/**
+ * `hidden`: people whose dates this account has chosen not to see
+ * (utils/hiddenPeople.ts). Their birthday and birthday-photo nudges are left
+ * out; everything else about them — a passport expiring, a check-up due —
+ * still is a nudge, because hiding someone's dates is not hiding them.
+ */
+export function computeNudges(members: FamilyMember[], hidden: HiddenPeople = NO_HIDDEN_PEOPLE): Nudge[] {
   const now = Date.now();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -434,8 +483,10 @@ export function computeNudges(members: FamilyMember[]): Nudge[] {
     const hasScan = (m.documents || []).some((d) => d.category === 'ID' && /passport/i.test(d.name));
     if (hasPassport && !hasScan) out.push({ key: `scan-${m.id}`, memberId: m.id, icon: FileText, tone: 'info', text: `${first} has a passport but no scan saved`, tab: 'ids' });
 
+    const datesHidden = hidden.keys.has(hiddenKey.member(m.id));
+
     // Upcoming birthday (within 21 days) → wishlist
-    if (m.birthdate) {
+    if (m.birthdate && !datesHidden) {
       const bd = new Date(m.birthdate);
       if (!isNaN(bd.getTime())) {
         const nb = new Date(today.getFullYear(), bd.getMonth(), bd.getDate());
@@ -451,7 +502,7 @@ export function computeNudges(members: FamilyMember[]): Nudge[] {
 
     // Birthday photo for the growing-up timelapse — prompt around the birthday
     // (±30 days) when this year's photo hasn't been added yet.
-    const photoNudge = birthdayPhotoNudge(m, now);
+    const photoNudge = datesHidden ? null : birthdayPhotoNudge(m, now);
     if (photoNudge) out.push({ key: `bphoto-${m.id}-${photoNudge.year}`, memberId: m.id, icon: Camera, tone: 'info', text: `Add ${first}'s ${photoNudge.year} birthday photo`, tab: 'timelapse' });
 
     // Growth check for children (>6 months since last, or never)
@@ -595,6 +646,9 @@ export default function NeedsAttention(
   { members: FamilyMember[]; extendedBirthdays?: ExtendedBirthday[]; onGo: (memberId: string, tab: string) => void; onGoView?: (view: string) => void },
 ) {
   const { mayRead: mayReadWills } = useWillsAccess();
+  const { hidden: hiddenPeople } = useHiddenPeople();
+  const { role } = useFamilyCtx();
+  const isAdmin = role === 'admin';
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [pets, setPets] = useState<Pet[]>([]);
@@ -604,6 +658,7 @@ export default function NeedsAttention(
   const [settings, setSettings] = useState<HubSettings | null>(null);
   const [milestones, setMilestones] = useState<BusinessMilestonesDoc | null>(null);
   const [insurancePolicies, setInsurancePolicies] = useState<InsurancePolicy[]>([]);
+  const [releaseRequests, setReleaseRequests] = useState<ReleaseRequestRow[]>([]);
   useEffect(() => {
     let cancelled = false;
     loadAssets()
@@ -631,6 +686,18 @@ export default function NeedsAttention(
     } else {
       setEstateRecords([]);
     }
+    /* The pending-request read is gated on ADMIN, not on mayReadWills: a named
+       reader may read the will and still has nothing to do about somebody
+       else's request. The call also settles any request whose clock has run
+       out, which is the same lazy sweep every other endpoint does — opening
+       the home screen is one of the visits that finishes the wait. */
+    if (isAdmin) {
+      loadReleaseState()
+        .then((st) => { if (!cancelled) setReleaseRequests(st.requests || []); })
+        .catch(() => { if (!cancelled) setReleaseRequests([]); });
+    } else {
+      setReleaseRequests([]);
+    }
     loadSlips()
       .then((s) => { if (!cancelled) setSlips(s || []); })
       .catch(() => { if (!cancelled) setSlips([]); });
@@ -644,7 +711,7 @@ export default function NeedsAttention(
       .then((f) => { if (!cancelled) setInsurancePolicies(f?.insurance || []); })
       .catch(() => { if (!cancelled) setInsurancePolicies([]); });
     return () => { cancelled = true; };
-  }, [mayReadWills]);
+  }, [mayReadWills, isAdmin]);
 
   const [showAll, setShowAll] = useState(false);
 
@@ -663,8 +730,8 @@ export default function NeedsAttention(
 
 
   const all = [
-    ...computeNudges(members),
-    ...computeExtendedBirthdayNudges(extendedBirthdays || []),
+    ...computeNudges(members, hiddenPeople),
+    ...computeExtendedBirthdayNudges(visibleExtendedBirthdays(extendedBirthdays || [], hiddenPeople)),
     ...computeVehicleNudges(vehicles),
     ...computePetNudges(pets),
     ...computeAssetNudges(assets),
@@ -672,6 +739,7 @@ export default function NeedsAttention(
     ...computeWorkAnniversaryNudges(members, spaceInfo, settings),
     ...computeMilestoneAnniversaryNudge(spaceInfo, settings, milestones),
     ...computeEstateNudges(estateRecords),
+    ...computeReleaseNudges(releaseRequests),
     ...computeSlipNudges(slips),
     ...computeFuneralCoverNudges(insurancePolicies),
   ].sort(byUrgency);

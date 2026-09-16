@@ -46,18 +46,27 @@
 //    up in exactly one of upcoming / years / undated / omitted (the last
 //    being rule 4's intentional, TRACKED drop — see the comment on
 //    `omitted` below). Nothing vanishes without being counted somewhere.
+// 7. A MEDICAL MOMENT typed into the life timeline (TimelineEntry with
+//    category 'medical', tagged to this member — "broke her arm at the
+//    playground") is part of their health history too. It is read from the
+//    timeline's own store, the same way appointments are read from the
+//    calendar: this module still writes nothing, and the moment is edited
+//    where it lives. Only moments passed in are considered, so callers that
+//    don't pass any (lifeTimeline.ts, which shows entries itself) get
+//    exactly the old result.
 import {
   FamilyMember,
   CalendarEvent,
   ReferralRecord,
   ReferralStatus,
+  TimelineEntry,
 } from '../types';
 import { eventBelongsToMember } from './eventMemberMatch';
 import { careNextDue } from './care';
 import { todayIsoLocal } from './memberAppointments';
 import { parseDateOnly } from './age';
 
-export type HealthTimelineKind = 'vaccination' | 'care' | 'referral' | 'growth' | 'appointment';
+export type HealthTimelineKind = 'vaccination' | 'care' | 'referral' | 'growth' | 'appointment' | 'moment';
 
 export interface HealthTimelineItem {
   id: string;
@@ -106,7 +115,7 @@ export interface HealthStandingFacts {
 }
 
 export interface HealthTimelineCounts {
-  /** Total vaccination + careSchedule + referral + growthHistory + matched-appointment records considered. */
+  /** Total vaccination + careSchedule + referral + growthHistory + matched-appointment + medical-moment records considered. */
   total: number;
   upcoming: number;
   /** Sum of years[].items.length — every dated history row. */
@@ -197,9 +206,12 @@ export function buildHealthTimeline({
   events,
   members,
   now,
+  moments = [],
 }: {
   member: FamilyMember;
   events: readonly CalendarEvent[];
+  /** The life timeline's entries — only medical ones tagged to this member are used (rule 7). */
+  moments?: readonly TimelineEntry[];
   /** Whole family — needed for eventBelongsToMember's title-matching fallback (rule 5). */
   members: readonly Pick<FamilyMember, 'id' | 'name'>[];
   /**
@@ -360,6 +372,22 @@ export function buildHealthTimeline({
     else placeDated(item);
   }
 
+  // --- 6. Medical moments from the life timeline (rule 7) -----------------
+  const ownMoments = moments.filter((t) => t.category === 'medical' && (t.memberIds || []).includes(member.id));
+  for (const t of ownMoments) {
+    const item: HealthTimelineItem = {
+      id: `moment-${t.id}`,
+      kind: 'moment',
+      date: t.date || '',
+      title: t.title,
+      provider: t.place,
+      notes: t.note,
+    };
+    if (!isValidIso(t.date)) undated.push(item);
+    else if (t.date > todayIso) upcoming.push(item);
+    else placeDated(item);
+  }
+
   upcoming.sort((a, b) => (a.date === b.date ? (a.time || '').localeCompare(b.time || '') : a.date.localeCompare(b.date)));
 
   const years: HealthTimelineYear[] = [...yearMap.entries()]
@@ -383,7 +411,8 @@ export function buildHealthTimeline({
         (member.careSchedule?.length || 0) +
         (member.referrals?.length || 0) +
         (member.growthHistory?.length || 0) +
-        events.filter((e) => e.category === 'Appointment' && eventBelongsToMember(e, member.id, members)).length,
+        events.filter((e) => e.category === 'Appointment' && eventBelongsToMember(e, member.id, members)).length +
+        ownMoments.length,
       upcoming: upcoming.length,
       dated,
       undated: undated.length,

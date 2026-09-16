@@ -18,8 +18,14 @@
  * already contains a read is, because the frozen "Reading … now" line in the
  * history reads to the model as "you already did this".
  *
+ * APPOINTMENTS (2026-09-13). The same harness also runs the "I told it
+ * about my appointment" cases from server/chatScenarios.mjs — the reported
+ * failure there was a friendly reply with no calendar_event, so nothing was
+ * ever saved. `node scripts/interrogate-chat.mjs appointments` runs just
+ * those; npm test checks the checker itself (server/chatScenarios.test.mjs).
+ *
  * USAGE
- *   node scripts/interrogate-chat.mjs [caseId ...]
+ *   node scripts/interrogate-chat.mjs [caseId ... | appointments]
  *
  * Requires application-default credentials with Vertex access.
  */
@@ -27,6 +33,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GoogleAuth } from 'google-auth-library';
+import { APPOINTMENT_CASES, appointmentContext, buildUserTurn, checkAppointmentReply } from '../server/chatScenarios.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
@@ -127,9 +134,10 @@ const LOCATION = process.env.VERTEX_LOCATION || 'europe-west1';
 async function run(c) {
   const token = (await client.getAccessToken()).token;
   const question = c.q || Q;
+  const turn = c.userTurn || `FAMILY DATA:\n${JSON.stringify(CONTEXT)}\n\nUSER: ${question}`;
   const contents = [
-    ...c.history.map((h) => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] })),
-    { role: 'user', parts: [{ text: `FAMILY DATA:\n${JSON.stringify(CONTEXT)}\n\nUSER: ${question}` }] },
+    ...(c.history || []).map((h) => ({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] })),
+    { role: 'user', parts: [{ text: turn }] },
   ];
   const res = await fetch(
     `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT}/locations/${LOCATION}/publishers/google/models/${MODEL}:generateContent`,
@@ -152,7 +160,20 @@ async function run(c) {
 
 const only = process.argv.slice(2);
 let failed = 0;
+const apptOnly = only.includes('appointments');
+for (const a of APPOINTMENT_CASES) {
+  if (only.length && !apptOnly && !only.includes(a.id)) continue;
+  let out;
+  try { out = await run({ userTurn: buildUserTurn({ context: a.context || appointmentContext(), text: a.q }) }); }
+  catch (e) { console.log(`\n### ${a.id} — ERROR ${e.message}`); failed++; continue; }
+  const problems = checkAppointmentReply(out, a.want);
+  console.log(`\n### ${a.id} ${problems.length ? '❌ ' + problems.join('; ') : '✅'}`);
+  console.log(`   reply: ${String(out.reply || '').slice(0, 180)}`);
+  for (const e of out.edits || []) console.log(`   edit: ${JSON.stringify(e).slice(0, 220)}`);
+  if (problems.length) failed++;
+}
 for (const c of CASES) {
+  if (apptOnly) break;
   if (only.length && !only.includes(c.id)) continue;
   let out;
   try { out = await run(c); }

@@ -19,15 +19,15 @@ const member = (p: Partial<FamilyMember> & { id: string; name: string }): Family
 
 // Deliberately awkward: long free-text values, a German umlaut, many rows to
 // force a page break, and a notes column long enough to test column clamping.
-const SOPHIE = member({
-  id: 'sophie',
-  name: 'Sophie Clark',
-  birthdate: '2018-03-04',
+const MIA = member({
+  id: 'mia',
+  name: 'Mia Clark',
+  birthdate: '2017-09-22',
   gender: 'Female',
   address: 'Ahornweg 42/7, 1120 Wien, Austria',
   emergencyContactName: 'Rory Clark',
   emergencyContactPhone: '+43 660 1234567',
-  identity: { eCardNumber: '1234 040318', svNumber: '1234 040318' },
+  identity: { eCardNumber: '1234 220917', svNumber: '1234 220917' },
   medical: {
     bloodGroup: 'A+',
     allergies: 'Penicillin (rash, 2023). No known food allergies.',
@@ -64,22 +64,22 @@ const SOPHIE = member({
 });
 
 const VAULT: VaultDocument[] = [
-  { id: 'v1', name: 'MRI right knee — Radiologie Wien', category: 'Medical', fileName: 'mri.pdf', fileType: 'application/pdf', fileSize: 2_400_000, storagePath: 's/mri', downloadUrl: 'https://example/mri', uploadedAt: '2026-06-10', memberId: 'sophie' },
+  { id: 'v1', name: 'MRI right knee — Radiologie Wien', category: 'Medical', fileName: 'mri.pdf', fileType: 'application/pdf', fileSize: 2_400_000, storagePath: 's/mri', downloadUrl: 'https://example/mri', uploadedAt: '2026-06-10', memberId: 'mia' },
 ];
 
 const EVENTS: CalendarEvent[] = Array.from({ length: 22 }, (_, i) => ({
   id: `e${i}`,
-  title: i % 2 ? 'Sophie – Orthodontist (Dr. Lena Hofer-Mayr)' : 'Kinderarzt Kontrolle',
+  title: i % 2 ? 'Mia – Orthodontist (Dr. Lena Hofer-Mayr)' : 'Kinderarzt Kontrolle',
   date: `2026-0${(i % 9) + 1}-1${i % 9}`,
   time: '15:00',
   category: 'Appointment' as const,
   remindMe: true,
-  memberIds: i % 2 ? [] : ['sophie'],
+  memberIds: i % 2 ? [] : ['mia'],
 }));
 
 const pack = buildPack(
-  { title: "Sophie's medical records", memberIds: ['sophie'], topics: TOPIC_PRESETS.medical },
-  { members: [SOPHIE], events: EVENTS, vaultDocuments: VAULT, spaceName: 'Clark – Family Hub', now: new Date('2026-07-29T12:00:00') },
+  { title: "Mia's medical records", memberIds: ['mia'], topics: TOPIC_PRESETS.medical },
+  { members: [MIA], events: EVENTS, vaultDocuments: VAULT, spaceName: 'Clark – Family Hub', now: new Date('2026-07-29T12:00:00') },
 );
 
 const { blob, size } = renderSummaryPdf(pack.summary);

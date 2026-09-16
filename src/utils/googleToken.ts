@@ -218,6 +218,22 @@ export async function interactiveAccessToken(): Promise<{ token: string; expires
   return requestToken(c, 'consent');
 }
 
+/**
+ * Ask for a token, putting Google's ACCOUNT CHOOSER on screen first.
+ *
+ * Deliberately separate from interactiveAccessToken(): `prompt: 'consent'`
+ * re-consents whichever account is already in session, which is precisely
+ * wrong when the whole point is to attach a DIFFERENT calendar — the person
+ * clicks "use another account", sees their existing one re-approved, and
+ * concludes the app is broken. `select_account` is the only prompt value that
+ * shows the list.
+ */
+export async function chooseAccountAccessToken(): Promise<{ token: string; expiresAt: number } | null> {
+  const c = await getClient();
+  if (!c) return null;
+  return requestToken(c, 'select_account');
+}
+
 /** Is a token with this expiry still worth sending? */
 export function tokenIsFresh(expiresAt: number | null): boolean {
   return expiresAt !== null && Date.now() < expiresAt - EXPIRY_MARGIN_MS;

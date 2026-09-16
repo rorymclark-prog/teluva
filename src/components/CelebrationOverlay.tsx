@@ -4,6 +4,8 @@ import { FamilyMember, FamilyInfoDoc, HubSettings, BusinessMilestonesDoc } from 
 import { loadSpaceInfo, isHintSeen, markHintSeen, loadSettings, loadBusinessMilestones } from '../utils/db';
 import { nextAnniversary, nextMilestoneAnniversary, toISODate } from '../utils/businessMilestone';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
+import { hiddenKey } from '../utils/hiddenPeople';
 
 // CelebrationOverlay — a once-a-day, in-app confetti moment for the family
 // member birthdays that fall TODAY, and, in a business space, the founding
@@ -85,6 +87,7 @@ export default function CelebrationOverlay({ members }: { members: FamilyMember[
   const [milestones, setMilestones] = useState<BusinessMilestonesDoc | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const { hidden } = useHiddenPeople();
 
   // Load the space doc, hub settings (celebrationsEnabled kill switch) and
   // business milestones ourselves — Dashboard doesn't have any of these in
@@ -126,7 +129,8 @@ export default function CelebrationOverlay({ members }: { members: FamilyMember[
     // ONLY place a person feeds the overlay — strictly FamilyMember.
     const birthdayPeople: { name: string; age: number }[] = [];
     for (const m of members) {
-      if (!m.birthdate || m.noCelebrations) continue;
+      // Nor anyone whose dates this account has hidden (utils/hiddenPeople.ts).
+      if (!m.birthdate || m.noCelebrations || hidden.keys.has(hiddenKey.member(m.id))) continue;
       const bd = new Date(m.birthdate);
       if (isNaN(bd.getTime())) continue;
       if (bd.getMonth() === today.getMonth() && bd.getDate() === today.getDate()) {
@@ -192,7 +196,7 @@ export default function CelebrationOverlay({ members }: { members: FamilyMember[
     }
 
     return { messages: msgs, hintKey: key };
-  }, [members, spaceInfo, settings, milestones]);
+  }, [members, spaceInfo, settings, milestones, hidden]);
 
   // Whether to actually show: something to celebrate, not already seen today,
   // not dismissed this session, and the space doc has finished loading (so a

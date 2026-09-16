@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { FamilyMember, CalendarEvent } from '../types';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
+import { hiddenKey, NO_HIDDEN_PEOPLE, type HiddenPeople } from '../utils/hiddenPeople';
 
 /**
  * A light, deterministic, client-side family trivia game. No AI, no network —
@@ -207,11 +209,14 @@ function makeComparisonQuestion(params: {
   };
 }
 
-function generateQuestions(members: FamilyMember[]): QuizQuestion[] {
+/** `hidden`: people whose dates this family has hidden never count for "whose birthday is next". */
+function generateQuestions(members: FamilyMember[], hidden: HiddenPeople = NO_HIDDEN_PEOPLE): QuizQuestion[] {
   const today = new Date();
+  const nextBirthday = (m: FamilyMember) =>
+    hidden.keys.has(hiddenKey.member(m.id)) ? null : daysUntilNextBirthday(m.birthdate, today);
   const candidates: (QuizQuestion | null)[] = [
     makeComparisonQuestion({
-      members, metric: (m) => daysUntilNextBirthday(m.birthdate, today), mode: 'min', seed: 0,
+      members, metric: nextBirthday, mode: 'min', seed: 0,
       id: 'birthday-next', prompt: "Whose birthday is coming up next?", icon: Cake,
       correctReaction: "Mark the calendar — cake o'clock is approaching!",
       wrongReaction: (label) => `Close! It's actually ${label} — better start planning.`,
@@ -279,6 +284,7 @@ type Phase = 'setup' | 'playing' | 'done';
 
 export default function FamilyQuiz({ members, events, onClose }: { members: FamilyMember[]; events: CalendarEvent[]; onClose: () => void }) {
   void events; // this game only needs family-member data
+  const { hidden } = useHiddenPeople();
 
   // Dashboard only mounts <FamilyQuiz/> while `showFamilyQuiz` is true (see
   // Dashboard.tsx), so this component being mounted at all means the modal
@@ -319,11 +325,11 @@ export default function FamilyQuiz({ members, events, onClose }: { members: Fami
   };
 
   const selectedMembers = members.filter((m) => selected.has(m.id));
-  const previewQuestions = phase === 'setup' && selectedMembers.length >= 2 ? generateQuestions(selectedMembers) : [];
+  const previewQuestions = phase === 'setup' && selectedMembers.length >= 2 ? generateQuestions(selectedMembers, hidden) : [];
 
   const handleStart = () => {
     if (selectedMembers.length < 2) return;
-    const qs = generateQuestions(selectedMembers);
+    const qs = generateQuestions(selectedMembers, hidden);
     if (qs.length === 0) return;
     setQuestions(qs);
     setQIndex(0);

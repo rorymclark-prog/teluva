@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FamilyMember, Preferences } from '../types';
-import { Utensils, Film, Activity, Shirt } from 'lucide-react';
+import { Utensils, Film, Activity, Shirt, Gift } from 'lucide-react';
 
 interface MemberPreferencesProps {
   member: FamilyMember;
@@ -39,6 +39,20 @@ export default function MemberPreferences({ member, onUpdate }: MemberPreference
 
   return (
     <div className="space-y-6 font-sans">
+      {/* SAID WHERE IT IS TYPED, not only where it is switched. These fields
+          became shareable in v321 and 'What they like' is a DEFAULT category,
+          so somebody who filled this in months ago for their own reference
+          needs to learn here that a connected family can now read it — the
+          share panel is not a page anybody visits on the way to this one. */}
+      <p className="text-[12.5px] text-ink-500 leading-snug rounded-xl border border-cream-200 bg-cream-50/60 px-3.5 py-2.5">
+        <Gift className="w-3.5 h-3.5 inline-block mr-1.5 -mt-0.5 text-rosa-500" />
+        Connected families can read this, so they know what to buy. Turn it off
+        per person under Connected families → Manage. <strong>Dietary restrictions
+        are the exception</strong> — they only ever cross if you switch on “In their
+        care”, because what someone must avoid can say more about them than a
+        favourite colour does.
+      </p>
+
       {/* Food preferences */}
       <section className="card p-5 space-y-4">
         <div className="flex items-center gap-2 pb-3 border-b border-cream-200">

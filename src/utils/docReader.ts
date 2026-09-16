@@ -217,14 +217,21 @@ export async function readDocument(
   }
 }
 
-async function readDocumentInner(
-  doc: DocReaderTarget,
-  question: string,
-  opts: { isBusinessSpace?: boolean; language?: string } = {},
-): Promise<DocReadOutcome> {
-  const q = question.trim();
-  if (!q) return { kind: 'error', message: 'Nothing to search for.' };
+/**
+ * Everything up to "we have readable text": extract the text layer, OCR the
+ * pages that have none, and refuse honestly when neither worked.
+ *
+ * Shared by the Q&A reader below and by key-facts extraction
+ * (utils/docKeyFacts.ts) — the no-text-layer short-circuit and the
+ * OCR-blank-page rule are safety properties, and two hand-written copies of
+ * them would drift at the first bug fix, exactly like the passportScan story.
+ */
+export type DocPagesOutcome =
+  | { kind: 'ok'; pages: DocPage[]; coverage: DocCoverage }
+  | { kind: 'unreadable'; message: string; coverage: DocCoverage }
+  | { kind: 'error'; message: string };
 
+export async function collectDocPages(doc: DocReaderTarget): Promise<DocPagesOutcome> {
   let pages;
   let coverage: DocCoverage;
   try {
@@ -295,6 +302,21 @@ async function readDocumentInner(
           : 'I couldn’t make out any words in this document — it may be too blurred or low-contrast to read, or a format I can’t open. Open it and read it yourself; I would only be guessing.',
     };
   }
+
+  return { kind: 'ok', pages, coverage };
+}
+
+async function readDocumentInner(
+  doc: DocReaderTarget,
+  question: string,
+  opts: { isBusinessSpace?: boolean; language?: string } = {},
+): Promise<DocReadOutcome> {
+  const q = question.trim();
+  if (!q) return { kind: 'error', message: 'Nothing to search for.' };
+
+  const collected = await collectDocPages(doc);
+  if (collected.kind !== 'ok') return collected;
+  const { pages, coverage } = collected;
 
   try {
     const token = await auth.currentUser?.getIdToken();

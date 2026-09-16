@@ -10,6 +10,7 @@ import {
 } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { clearRevealCaches } from '../utils/vaultFields';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // iOS Safari blocks the sign-in popup and partitions its storage, so popup
@@ -99,7 +100,27 @@ function signInMessage(code: string): string {
  * @returns null on success (or when a redirect is under way), otherwise a
  *          human-readable reason.
  */
-export const loginWithGoogle = async (): Promise<string | null> => {
+export const loginWithGoogle = async (
+  options?: { chooseAccount?: boolean },
+): Promise<string | null> => {
+  // WHY THIS IS SET PER-CALL AND NOT ONCE AT MODULE SCOPE.
+  //
+  // Signing out of Teluva does not sign the browser out of Google. With one
+  // Google session live, Google reuses it silently — so someone who signs out
+  // to hand the tablet to another family member presses Sign in, and lands
+  // straight back in the account they just left, with no chooser and nothing
+  // to click. `prompt: 'select_account'` is the only value that puts the
+  // account list on screen (`consent` re-approves the SAME account, and also
+  // re-runs the whole permissions screen — see utils/firebase.ts for why that
+  // was removed).
+  //
+  // It is NOT the default: forcing the chooser on every sign-in costs a tap
+  // for the majority who have one account and want the fast path. So the
+  // ordinary button stays silent and there is a separate control for "not this
+  // account" — and the parameter is written on every call, because a provider
+  // left holding select_account from a previous press would put the chooser in
+  // front of everyone afterwards.
+  provider.setCustomParameters(options?.chooseAccount ? { prompt: 'select_account' } : {});
   try {
     // iOS blocks the popup outright. Installed desktop windows ALSO want the
     // redirect (the password manager can't fill inside a popup child window),
@@ -139,4 +160,7 @@ export const logout = async () => {
       .filter((k) => k.startsWith('family_'))
       .forEach((k) => localStorage.removeItem(k));
   } catch { /* non-fatal */ }
+  // Decrypted sensitive values must never outlive the session (audit P0) —
+  // this wipes every per-user reveal-cache scope, not just the current one.
+  clearRevealCaches();
 };

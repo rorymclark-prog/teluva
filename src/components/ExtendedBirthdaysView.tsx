@@ -10,6 +10,9 @@ import EmptyState from './EmptyState';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { isValidNameDay, formatNameDay, daysUntilNameDay } from '../utils/nameDay';
 import { todayIsoLocal, relativeDayLabel } from '../utils/memberAppointments';
+import { appConfirm } from '../utils/appConfirm';
+import { extendedDates, HiddenDatesState, HideDatesButton } from '../contexts/HiddenPeopleContext';
+import { hiddenKey } from '../utils/hiddenPeople';
 
 // Extended Family & Friends' Birthdays — Rory (2026-08-19, live screenshot
 // of the Birthdays panel): a grandparent, aunt/uncle or close family friend
@@ -173,7 +176,7 @@ export default function ExtendedBirthdaysView({ onChange }: { onChange?: (list: 
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this? This cannot be undone.')) return;
+    if (!(await appConfirm('Delete this? This cannot be undone.', { danger: true, confirmLabel: 'Delete' }))) return;
     await persist(birthdays.filter(b => b.id !== id));
     if (form?.id === id) closeForm();
     if (viewingId === id) setViewingId(null);
@@ -255,6 +258,13 @@ export default function ExtendedBirthdaysView({ onChange }: { onChange?: (list: 
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-ink-800 text-[14px] leading-tight truncate">{b.name}</p>
                     <p className="text-[12px] text-ink-400 mt-0.5 truncate">{dateLine(b)}</p>
+                    {/* Hidden people stay on this list — it's where they're kept.
+                        The target gives an admin's "Change who" sheet their dates. */}
+                    <HiddenDatesState
+                      personKey={hiddenKey.extended(b.id)}
+                      target={{ key: hiddenKey.extended(b.id), name: b.name, dates: extendedDates(b) }}
+                      className="mt-0.5"
+                    />
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
@@ -295,6 +305,11 @@ export default function ExtendedBirthdaysView({ onChange }: { onChange?: (list: 
                     <span className="chip bg-dusk-100 text-dusk-700">{viewing.relationship}</span>
                   </div>
                 )}
+                <HideDatesButton
+                  showHiddenState
+                  className="mt-2 -ml-2"
+                  target={{ key: hiddenKey.extended(viewing.id), name: viewing.name, dates: extendedDates(viewing) }}
+                />
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 {canWrite && (

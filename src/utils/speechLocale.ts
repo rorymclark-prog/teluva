@@ -15,6 +15,7 @@ const SPEECH_LOCALES: Record<string, string> = {
   nl: 'nl-NL',
   pl: 'pl-PL',
   af: 'af-ZA',
+  ro: 'ro-RO',
 };
 
 export function speechLocaleFor(lang: string, fallback = 'en-US'): string {

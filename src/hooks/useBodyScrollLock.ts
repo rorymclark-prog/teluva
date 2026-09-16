@@ -41,6 +41,10 @@ import { useEffect } from 'react';
 // restores the page. This makes the hook safe to use from multiple
 // simultaneously-open overlays without them fighting over body state.
 let lockCount = 0;
+// Counted separately from lockCount: an overlay can hold the scroll lock and
+// still want the shell's furniture on screen (the first-run tour spotlights
+// the very buttons a modal would hide).
+let modalCount = 0;
 let savedScrollY = 0;
 let savedBodyStyle: {
   position: string;
@@ -52,8 +56,18 @@ let savedBodyStyle: {
   paddingRight: string;
 } | null = null;
 
-function lockBodyScroll() {
+function lockBodyScroll(markModal: boolean) {
   lockCount += 1;
+  if (markModal) modalCount += 1;
+  // Tell the shell a modal layer is up. The Ember interface parks fixed
+  // furniture (nav z-60, Capture pill z-61, Appearance pill, the assistant
+  // launcher z-61) over the phone screen — all of it OUTRANKS the z-50 modal
+  // layer, so it painted straight over whatever modal was open: the launcher's
+  // close X sat on top of the scanner's "Save as" button. Chrome yields to
+  // modals, the same bargain [data-assistant-open] already strikes for the
+  // chat panel. Reference-counted with the lock itself, so a stack of modals
+  // clears the flag exactly once, when the last one goes.
+  if (modalCount > 0) document.documentElement.dataset.modalOpen = '1';
   if (lockCount > 1) return; // already locked elsewhere — just bump the refcount, no-op otherwise
 
   savedScrollY = window.scrollY || window.pageYOffset || 0;
@@ -89,9 +103,11 @@ function lockBodyScroll() {
   }
 }
 
-function unlockBodyScroll() {
+function unlockBodyScroll(markModal: boolean) {
   if (lockCount === 0) return; // already unlocked — no-op
   lockCount -= 1;
+  if (markModal && modalCount > 0) modalCount -= 1;
+  if (modalCount === 0) delete document.documentElement.dataset.modalOpen;
   if (lockCount > 0) return; // a nested overlay is still holding the lock
 
   const bodyStyle = document.body.style;
@@ -120,14 +136,21 @@ function unlockBodyScroll() {
  *
  * Reference-counted and idempotent: safe to use from several
  * simultaneously-mounted/active overlays (stacked modals) at once.
+ *
+ * Locking also marks a modal layer as open (`data-modal-open` on <html>), which
+ * makes the Ember shell's phone furniture stand down — it sits at z-60/61, above
+ * every modal, and painted over them. Pass `{ keepChrome: true }` for an overlay
+ * that needs that furniture to stay visible: the first-run tour spotlights the
+ * assistant launcher and the section menu, and cannot hide what it points at.
  */
-export function useBodyScrollLock(active: boolean): void {
+export function useBodyScrollLock(active: boolean, options?: { keepChrome?: boolean }): void {
+  const keepChrome = options?.keepChrome === true;
   useEffect(() => {
     if (!active) return;
     if (typeof document === 'undefined') return;
 
-    lockBodyScroll();
-    return () => unlockBodyScroll();
+    lockBodyScroll(!keepChrome);
+    return () => unlockBodyScroll(!keepChrome);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 }

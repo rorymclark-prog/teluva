@@ -12,6 +12,7 @@ import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { compressImageToAvatar } from '../utils/imageCompress';
+import { appConfirm } from '../utils/appConfirm';
 import type { ScannedFile } from './DocumentScannerModal';
 // Lazy: this camera-UI component pulls in jsPDF (page-compile) — deferring it
 // keeps that weight out of every InMemoryView load for the majority of visits
@@ -246,7 +247,7 @@ export default function InMemoryView({ emberMode = false }: { emberMode?: boolea
   };
 
   const handleDeletePerson = async (p: DepartedRelative) => {
-    if (!window.confirm(`Remove ${p.name} from In Memory? Their documents and photo will also be deleted. This cannot be undone.`)) return;
+    if (!(await appConfirm(`Remove ${p.name} from In Memory? Their documents and photo will also be deleted. This cannot be undone.`, { danger: true, confirmLabel: 'Remove' }))) return;
     if (p.photoStoragePath) await deleteInMemoryPhoto(p.photoStoragePath);
     for (const d of p.documents) {
       await deleteVaultFile(d.storagePath);
@@ -309,7 +310,7 @@ export default function InMemoryView({ emberMode = false }: { emberMode?: boolea
 
   const handleDeleteDocument = async (d: DepartedDocument) => {
     if (!viewing) return;
-    if (!window.confirm(`Delete "${d.name}"? This cannot be undone.`)) return;
+    if (!(await appConfirm(`Delete "${d.name}"? This cannot be undone.`, { danger: true, confirmLabel: 'Delete' }))) return;
     await deleteVaultFile(d.storagePath);
     await updatePerson(viewing.id, p => ({ ...p, documents: p.documents.filter(x => x.id !== d.id) }));
     if (viewingDoc?.id === d.id) setViewingDoc(null);

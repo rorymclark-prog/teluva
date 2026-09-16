@@ -1,4 +1,5 @@
 import { CalendarEvent } from '../types';
+import { isImportantEvent, type ImportanceOptions } from './importantEvents';
 
 // Outbound Google Calendar sync — the "Teluva event -> Google Calendar" half
 // of the integration. The inbound half (Google -> Teluva) lives entirely in
@@ -74,10 +75,25 @@ function nextDay(date: string): string {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
 }
 
-export function buildGoogleCalendarEventBody(ev: CalendarEvent) {
+/**
+ * The reminders an important event carries on Google: a pop-up a day before
+ * and two hours before, in place of the calendar's own default. Every other
+ * event keeps the account default (no `reminders` key at all). Same rule as
+ * the published feed's VALARMs (server/calendarPublish.mjs importantAlarms).
+ */
+export const IMPORTANT_GOOGLE_REMINDERS = {
+  useDefault: false,
+  overrides: [
+    { method: 'popup', minutes: 1440 },
+    { method: 'popup', minutes: 120 },
+  ],
+} as const;
+
+export function buildGoogleCalendarEventBody(ev: CalendarEvent, opts: ImportanceOptions = {}) {
   const base = {
     summary: `[Family Hub] ${ev.title}`,
     description: `${ev.description || ''}\n\nSynced from Family Hub.\nCategory: ${ev.category}`,
+    ...(isImportantEvent(ev, opts) ? { reminders: IMPORTANT_GOOGLE_REMINDERS } : {}),
   };
 
   /* NO TIME MEANS ALL DAY. Most of what this app puts on a calendar has no
@@ -126,7 +142,7 @@ export class GoogleCalendarAuthError extends Error {}
  * side effect, because what "successfully synced" should update — one
  * event, several, a toast, a settings baseline — differs by call site.
  */
-export async function pushEventToGoogleCalendar(ev: CalendarEvent, token: string): Promise<void> {
+export async function pushEventToGoogleCalendar(ev: CalendarEvent, token: string, opts: ImportanceOptions = {}): Promise<void> {
   if (isGoogleOriginEventId(ev.id)) {
     throw new Error('This event came from Google Calendar already — sending it back would create a duplicate, so it was skipped.');
   }
@@ -137,7 +153,7 @@ export async function pushEventToGoogleCalendar(ev: CalendarEvent, token: string
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(buildGoogleCalendarEventBody(ev)),
+    body: JSON.stringify(buildGoogleCalendarEventBody(ev, opts)),
   });
 
   if (!response.ok) {

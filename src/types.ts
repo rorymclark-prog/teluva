@@ -1,3 +1,4 @@
+import type { UtilityKind } from './utils/utilityFields';
 import type { CalendarFeed } from './utils/calendarFeeds';
 // Family spaces use the 4 fixed values below. Business spaces use a preset
 // business title (see BUSINESS_ROLE_PRESETS in AddMemberModal.tsx) or any
@@ -41,6 +42,33 @@ export interface FamilyDocument {
   notes?: string;
   fileData?: string; // base64 string or url
   contentHash?: string; // SHA-256 of the file bytes — powers duplicate detection; absent on documents saved before this existed
+  /** Carried over from the VaultDocument by toFamilyDoc so viewers can show them. */
+  keyFacts?: DocKeyFact[];
+}
+
+/**
+ * One fact lifted out of a document — a phone number, a policy number, a
+ * booking reference.
+ *
+ * Same discipline as the recall-only reader below: the `value` is a VERBATIM
+ * substring of the document's own text (the server drops anything the model
+ * returns that is not literally present), and the `label` comes from a closed
+ * list in server/keyFacts.mjs. There is nowhere to put a summary, a verdict or
+ * advice — extraction is transcription, not interpretation, which is also what
+ * keeps it on the right side of the line that keeps insurance Q&A dark.
+ */
+export interface DocKeyFact {
+  label: string;
+  value: string;
+  /**
+   * Whose fact it is, when the document ITSELF names a holder — "Mother",
+   * "Father", a printed name next to the number. Verbatim from the document
+   * like the value (server/keyFacts.mjs drops anything not printed in it), so
+   * it is transcription, never inference about whose number that might be.
+   */
+  who?: string;
+  /** False when the value was read from pixels (OCR) rather than a text layer. */
+  verified: boolean;
 }
 
 export interface GrowthLog {
@@ -296,6 +324,25 @@ export interface FamilyMember {
   address?: string;
   phone?: string;
   email?: string;
+
+  /**
+   * The Firebase auth uid of the person whose profile this is, when they have
+   * their own account in this family.
+   *
+   * Until this existed the app knew what permissions you had (FamilyRole, on
+   * `users/{uid}`) but never WHICH PERSON YOU WERE — there was no join between
+   * an account and a profile record anywhere in the codebase. Every screen was
+   * therefore whole-family: no "your trip", no "your documents", no "your
+   * appointments", only "the family's". That is fine for a parent looking after
+   * everyone and useless for a teenager abroad who needs one specific thing.
+   *
+   * NEVER USE THIS TO DECIDE ACCESS. It is written by the client like any other
+   * member field, so a member could point it at another uid; what that buys
+   * them is a personalised greeting, and nothing else. Every real permission
+   * decision stays on FamilyRole (`users/{uid}.role`) and firestore.rules,
+   * neither of which this field can influence. Personalisation only.
+   */
+  linkedUid?: string;
   // Who this adult is married to or partnered with, written as a name. Free
   // text rather than a link to another member, because the spouse is very often
   // NOT in the vault — an adult child's husband, a grandparent's late wife —
@@ -565,9 +612,18 @@ export interface Preferences {
 }
 
 // --- Household (family-wide) ---
+// What sort of thing a Vehicle is. Rory, 2026-09-12: "with vehicls in the app
+// family app can we add scooters, bicycles etc i just had a bicycle service".
+// ABSENT MEANS CAR — every record saved before this field existed is a car,
+// and nothing ever rewrites those records to stamp the default in.
+export type VehicleKind =
+  | 'car' | 'van' | 'motorbike' | 'moped' | 'e_scooter'
+  | 'bicycle' | 'e_bike' | 'cargo_bike' | 'other';
+
 export interface Vehicle {
   id: string;
   name: string;                 // e.g. "VW Golf" (kept for back-compat)
+  kind?: VehicleKind;           // absent = 'car' (see VehicleKind)
   make?: string;
   model?: string;
   year?: string;
@@ -604,6 +660,12 @@ export interface ServiceRecord {
   cost?: string;
   garage?: string;   // workshop / who did it
   notes?: string;
+  // The receipt / invoice for this service, as VaultDocument ids. Rory: "i
+  // just had a bicycle service for example where does the receiot and
+  // document of the service live?" — the FILE lives in the Document Vault
+  // like every other paper; this is only the link. May dangle (the document
+  // can be deleted from the vault), so every reader filters unknown ids.
+  docIds?: string[];
 }
 
 // One animal in the family.
@@ -709,12 +771,68 @@ export interface PetHealthRecord {
   notes?: string;
 }
 
+/** One meter reading, kept so a wrong estimate can be argued with. */
+export interface MeterReading {
+  id: string;
+  date: string;                 // YYYY-MM-DD
+  value: string;                // free text: meters have day/night registers
+  unit?: string;                // kWh, m³, kl
+  /** Who produced it. An estimate is not evidence; your own photo is. */
+  source?: 'self' | 'operator' | 'estimate';
+  note?: string;
+}
+
+/**
+ * A utility connection.
+ *
+ * EVERY FIELD PAST `notes` IS OPTIONAL AND ADDITIVE. The original shape was
+ * type/provider/accountNumber/notes and every household already has rows in
+ * it, so nothing here may be required and nothing may be renamed — a stored
+ * row must keep rendering exactly as it did.
+ *
+ * `kind` is the new machine-readable type; `type` stays as the free text it
+ * always was and is what an old row still displays. See utilityFields.ts for
+ * why supplier and grid operator are two fields, and why the metering point
+ * and the meter serial are not the same number.
+ *
+ * NOTHING HERE IS A SECRET. Account and meter numbers are printed on every
+ * bill and pinned inside cupboards; they are not in REDACTED_HOUSEHOLD_KEYS
+ * and are not encrypted at rest, which is correct. If a portal password ever
+ * wants a home it belongs in the Vault with the other credentials, not here.
+ */
 export interface UtilityProvider {
   id: string;
   type: string;                 // e.g. "Electricity", "Internet"
   provider?: string;
   accountNumber?: string;
   notes?: string;
+
+  // --- v318: the fields the three real moments actually need ---
+  kind?: UtilityKind;
+  /** The company that owns the wire or pipe. Not switchable; who you ring. */
+  gridOperator?: string;
+  /** Their fault line, or the national one where there is one. */
+  faultPhone?: string;
+  supplierPhone?: string;
+  supplierWebsite?: string;
+  /** Fixed to the ADDRESS — Zählpunkt / MPAN / MPRN / POD. */
+  meterPointNumber?: string;
+  /** Stamped on the DEVICE, changes when the meter is swapped. */
+  meterNumber?: string;
+  meterLocation?: string;
+  /** South Africa: which loadshedding block this address is on. */
+  supplySchedule?: string;
+
+  tariffName?: string;
+  contractType?: 'fixed' | 'variable';
+  contractStart?: string;       // YYYY-MM-DD
+  contractEnd?: string;         // YYYY-MM-DD
+  /** Days of notice the contract needs. Drives the reminder, not the date. */
+  noticeDays?: number;
+  monthlyAmount?: number;
+  currency?: string;
+
+  readings?: MeterReading[];
 }
 
 // One site for a multi-location business (a home-based family only ever needs
@@ -808,6 +926,13 @@ export interface HomeServiceRecord {
   cost?: string;
   warrantyUntil?: string; // YYYY-MM-DD — how long the work is guaranteed for
   notes?: string;
+  // Receipt / invoice → VaultDocument ids. Rory: "imagine i had a dishwasher
+  // service where do we keep it? the document". Same rules as
+  // ServiceRecord.docIds: the file lives in the vault, ids may dangle.
+  docIds?: string[];
+  // → AssetItem.id — WHICH appliance/item was serviced (the dishwasher), so
+  // its Belongings entry can show its own service history. May dangle.
+  assetId?: string;
 }
 
 // --- Finances (family-wide references, not passwords) ---
@@ -898,12 +1023,45 @@ export interface FinancesInfo {
 }
 
 // --- Family timeline ---
+// What a life-timeline moment is ABOUT — the filter chips on the timeline
+// (utils/lifeTimeline.ts owns the labels). Absent on entries saved before
+// this existed; categoryOfEntry() maps their old `type` onto one of these.
+export type LifeCategory =
+  | 'milestone'   // births, weddings, graduations, firsts
+  | 'medical'     // a broken arm, an operation, a hospital stay
+  | 'holiday'     // holidays and trips
+  | 'school'      // school, courses, learning
+  | 'work'        // jobs, the business, projects
+  | 'home'        // moves, a new house, the garden
+  | 'papers'      // ID, legal and money papers
+  | 'memory'      // everything worth keeping that is none of the above
+  | 'other';
+
+export interface TimelinePhoto {
+  url: string;                  // Firebase Storage download URL (compressed JPEG)
+  storagePath: string;          // so the file is removed with the photo
+}
+
 export interface TimelineEntry {
   id: string;
-  date: string;                 // YYYY-MM-DD
+  date: string;                 // YYYY-MM-DD (the 1st of the month/year when datePrecision says so)
   title: string;
-  type?: string;                // Birth, Wedding, Graduation, Memory …
+  type?: string;                // legacy: Birth, Wedding, Graduation, Memory … — read through categoryOfEntry()
   note?: string;
+  /** Who it is about. Absent or empty = the whole family. */
+  memberIds?: string[];
+  category?: LifeCategory;
+  /** YYYY-MM-DD — last day, for something that lasted (a holiday, a hospital stay). */
+  endDate?: string;
+  /** "July 2014" or "2009" when the exact day isn't known. Absent = the day is known. */
+  datePrecision?: 'month' | 'year';
+  place?: string;               // free text, shown, never parsed
+  photos?: TimelinePhoto[];
+  /** VaultDocument ids — the papers behind this moment (a discharge letter, a certificate). */
+  docIds?: string[];
+  /** How the row got here. Absent = typed by hand before this field existed. */
+  source?: 'manual' | 'import' | 'assistant';
+  importBatchId?: string; // set on imported rows so an import can be undone as a batch
 }
 
 export interface FamilyTimeline {
@@ -935,7 +1093,7 @@ export interface TravelTimelineDoc {
 // ISO 3166-1 alpha-2 country codes the ID & Passports section has a dedicated
 // field set for; 'other' shows a slim generic set (national ID/tax/driver's
 // licence) that fits most countries reasonably.
-export type IdCountry = 'AT' | 'ZA' | 'UK' | 'US' | 'other';
+export type IdCountry = 'AT' | 'ZA' | 'UK' | 'US' | 'RO' | 'other';
 
 // Named (rather than inlined on HubSettings.status) specifically so
 // aiEditCoverage.test.ts's regex-based scan of shared reference docs can
@@ -1033,6 +1191,64 @@ export interface HubSettings {
   // back in and nothing that arrived while it was off gets treated as
   // pre-existing either.
   autoSyncBaselineIds?: string[];
+
+  /**
+   * People whose dates this WHOLE family has chosen not to see — birthday,
+   * name day, and any anniversary that involves them. Nothing about the person
+   * is deleted; this list only stops their dates being surfaced (calendar,
+   * home cards, reminders, the published feed, the assistant's summaries).
+   * Each account also has its own private list at families/{id}/prefs/{uid};
+   * what anyone sees is the union of the two. See utils/hiddenPeople.ts.
+   */
+  hiddenDatePeople?: HiddenDatePerson[];
+
+  /**
+   * People whose dates are hidden from SOME accounts in this family, chosen
+   * by an admin — "hide Nora's birthday from Papa, leave it for the boys".
+   * One entry per person; `forUids` are the accounts that stop seeing them,
+   * everyone else still does. An account's effective set is its own list ∪
+   * the family's ∪ every entry here that lists its uid (utils/hiddenPeople.ts
+   * hiddenForAccount).
+   *
+   * A SEPARATE FIELD ON PURPOSE, not a `forUids` property on hiddenDatePeople
+   * entries. A v354 build still cached on somebody's phone knows nothing about
+   * forUids: handed an entry in hiddenDatePeople it would read it as
+   * family-wide and hide the date from exactly the people it was meant to be
+   * left for. A key it has never heard of, it ignores — so an old build fails
+   * OPEN (shows the date) rather than wide.
+   */
+  hiddenDatePeopleFor?: HiddenDatePersonFor[];
+}
+
+/**
+ * One person whose dates are hidden. `id` is the person's stable key —
+ * `member:<id>`, `extended:<id>`, `pet:<id>` or `linked:<linkId>:<personId>`
+ * (utils/hiddenPeople.ts hiddenKey) — never a display name, so renaming
+ * somebody does not bring their dates back. `name` is what they were called
+ * when they were hidden: shown in the "Show again" list after the record
+ * itself is gone, and used alongside the current name to spot a hand-typed
+ * "Nora's birthday" in the calendar.
+ */
+export interface HiddenDatePerson {
+  id: string;
+  name: string;
+  hiddenAt: string;   // ISO timestamp
+  by?: string;        // uid of whoever hid them (family list only)
+}
+
+/**
+ * A person hidden from chosen accounts only (HubSettings.hiddenDatePeopleFor).
+ * `forUids` are sign-in accounts (families/{id}/roles/{uid}), never member
+ * ids: hiding is about who LOOKS, and only an account looks. An entry whose
+ * forUids is empty hides nothing and is removed rather than kept.
+ */
+export interface HiddenDatePersonFor extends HiddenDatePerson {
+  forUids: string[];
+}
+
+/** families/{familyId}/prefs/{uid} — one account's own settings in one space. Readable and writable by that account only. */
+export interface PersonalPrefsDoc {
+  hiddenDatePeople?: HiddenDatePerson[];
 }
 
 // --- Document Vault (real files in Firebase Storage; only metadata in Firestore) ---
@@ -1050,8 +1266,27 @@ export interface VaultDocument {
   uploadedAt: string;    // YYYY-MM-DD
   uploadedBy?: string;
   memberId?: string;     // optional link to a family member
+  /**
+   * YYYY-MM-DD printed ON the document — the letter's date, the visit, the
+   * issue date. Never the upload date: that is `uploadedAt`, and a 2019
+   * discharge letter scanned in 2026 happened in 2019. Only a document with
+   * this set is placed on the life timeline (utils/lifeTimeline.ts).
+   */
+  docDate?: string;
   notes?: string;
   contentHash?: string;  // SHA-256 of the file bytes — powers duplicate detection; absent on documents saved before this existed
+  /** Facts lifted out of the file on request — see DocKeyFact for the rules. */
+  keyFacts?: DocKeyFact[];
+  keyFactsAt?: string;   // YYYY-MM-DD the facts were extracted
+  /** contentHash at extraction time — a replaced scan invalidates stale facts. */
+  keyFactsHash?: string;
+  /**
+   * KEY_FACTS_VERSION (utils/trip.ts) at extraction time. Bumped when the
+   * extraction itself improves (new labels, better prompt rules), so facts
+   * saved by an older, worse extractor are offered a re-read instead of being
+   * trusted forever. Absent = version 1.
+   */
+  keyFactsVersion?: number;
 }
 
 // --- Recall-only document reader ("what does my lease say about repairs?") ---
@@ -1191,6 +1426,41 @@ export interface DocReadResult {
   related?: boolean;
 }
 
+// --- Trips: a Travel calendar event, plus the papers that go with it ---
+//
+// A trip is deliberately NOT a new top-level record. It is a Travel-category
+// CalendarEvent that has grown a return date and a list of documents, because
+// the trip already existed in the calendar and duplicating it into a second
+// store is exactly the split-brain that birthdays got wrong (see
+// [[project_teluva_birthday_split_brain]]). One event, one truth.
+
+/**
+ * What a document is FOR on a trip. This drives both the labels in the trip
+ * pack and — more importantly — the MISSING rows: a role with no document
+ * attached is the thing you want to find out about before departure, not at a
+ * border. 'consent' is the one people forget: a minor travelling without both
+ * parents is routinely asked for a signed parental consent/authorisation
+ * letter, and it is not a document any other part of this app models.
+ */
+export type TripDocRole =
+  | 'ticket'          // flight / train / bus booking or boarding pass
+  | 'accommodation'   // hotel or host booking confirmation
+  | 'insurance'       // travel insurance policy or certificate
+  | 'consent'         // parental travel-approval / consent letter for a minor
+  | 'birthCertificate' // a minor's birth certificate — SA wants the unabridged one at the border, and the consent affidavit lists it as an attachment
+  | 'visa'
+  | 'passportCopy'    // a scan of the passport page, for the lost-documents case
+  | 'other';
+
+/** A document attached to a trip. Points at a VaultDocument; never holds bytes. */
+export interface TripDocRef {
+  /** VaultDocument.id */
+  id: string;
+  role: TripDocRole;
+  /** Whose paper it is. Absent = it covers the whole travelling party. */
+  memberId?: string;
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -1200,6 +1470,43 @@ export interface CalendarEvent {
   category: 'Milestone' | 'Appointment' | 'School' | 'Travel' | 'Other';
   remindMe: boolean;
   memberIds?: string[]; // Tagged family members
+  /**
+   * A choice the family made about importance, never the importance itself.
+   * `true` = they marked it important, `false` = they un-marked an event the
+   * app would otherwise treat as important, absent = the app decides (medical
+   * appointments are important; see utils/importantEvents.ts). Only ever
+   * written by the family or on their instruction — never in bulk, never on
+   * import — so absent stays the normal case.
+   */
+  important?: boolean;
+
+  // --- Travel-category events only ---
+  //
+  // Absent on every other category, and absent on Travel events created before
+  // this existed: a one-day event and a trip with no return date read the same
+  // way, which is why utils/trip.ts treats a missing endDate as "ends the day
+  // it starts" rather than as an error.
+  /** YYYY-MM-DD — the return date. A trip is ACTIVE from `date` to here. */
+  endDate?: string;
+  /** Free text, e.g. "Lisbon, Portugal" — shown, never parsed. */
+  destination?: string;
+  /**
+   * Set only when the destination is one of the countries emergencyNumbers.ts
+   * has verified numbers for. Left absent otherwise — deliberately, because a
+   * wrong emergency number is worse than no emergency number.
+   */
+  destinationCountry?: IdCountry;
+  /** Papers attached to this trip. */
+  tripDocs?: TripDocRef[];
+  /**
+   * Doc ids the trip pack must NOT auto-pull for this trip. Auto-pull finds
+   * saved scans by name; "remove from this travel pack" on such a card can't
+   * detach anything (nothing is attached), and deleting the file was the
+   * wrong default — so removal is recorded here instead. Per-trip on purpose,
+   * and an EXPLICIT attachment always shows regardless (attaching also clears
+   * the id from this list).
+   */
+  tripDocsHidden?: string[];
 
   // Set once this event has been successfully copied out to the owner's
   // connected Google Calendar (manually via the per-event cloud button, or
@@ -1341,7 +1648,12 @@ export type SpaceType = 'family' | 'business' | 'personal';
 
 // Plan tier — groundwork for the future €5/month paid plan (no billing yet).
 // See FamilyInfoDoc.plan below for where this lives and how it's set.
-export type Plan = 'free' | 'paid';
+// 'trial' is what every NEW space is stamped with (see TRIAL_DAYS) — a real
+// tier with its own AI ceiling, NOT an alias for 'paid'. It used to be 'paid',
+// which meant every signup carried the 2,000-action paid allowance for six
+// months and the free tier's number was irrelevant to what the app actually
+// costs to run. See src/utils/planLimits.ts.
+export type Plan = 'free' | 'trial' | 'paid';
 
 // One entry in a user's space list — every space (family/business) they belong
 // to, with their role in THAT space (roles are per-space, not global).
@@ -1427,7 +1739,7 @@ export interface AssetIncident {
 export interface AssetItem {
   id: string;
   name: string;
-  category: 'Electronics' | 'Bike' | 'Sporting' | 'Vehicle' | 'Jewellery' | 'Furniture' | 'Other';
+  category: 'Electronics' | 'Appliance' | 'Bike' | 'Sporting' | 'Vehicle' | 'Jewellery' | 'Furniture' | 'Other';
   assignedMember?: string;
   make?: string;
   model?: string;
@@ -1706,6 +2018,25 @@ export interface MemberCv {
 // (Vorsorgevollmacht / Patientenverfügung) hints without hard-coding them here.
 export type EstateDocKind = 'Will' | 'Codicil' | 'Power of attorney' | 'Advance healthcare directive' | 'Funeral wishes' | 'Other';
 
+/**
+ * WHAT STATE THE DOCUMENT IS ACTUALLY IN.
+ *
+ * The product boundary, made concrete: Teluva stores and finds documents, it
+ * does not make one legally valid. A family that has uploaded a Word file
+ * they never printed and a family holding a notarised original both saw the
+ * same green "Will ✓" row, which quietly told the first family something
+ * untrue about their own affairs.
+ *
+ * `unknown` is deliberately a real value and the default. Guessing on
+ * somebody's behalf is exactly the failure this field exists to stop.
+ */
+export type EstateDocStatus = 'unknown' | 'draft' | 'signed-copy' | 'signed-original';
+
+/** Whether it is in a central will register. Tri-state on purpose: "we have
+ *  not checked" is the honest answer for most families and is not the same
+ *  as "no". */
+export type EstateRegistryStatus = 'unknown' | 'registered' | 'not-registered';
+
 export interface EstateRecord {
   id: string;
   kind: EstateDocKind | string;
@@ -1715,6 +2046,9 @@ export interface EstateRecord {
   notaryName?: string;
   notaryPhone?: string;
   executor?: string;
+  status?: EstateDocStatus;  // draft / signed copy / signed original — see EstateDocStatus
+  registered?: EstateRegistryStatus; // in a central will register?
+  registryName?: string;     // which register, when known (ÖZTR, the Bar's register, a foreign one)
   lastReviewed?: string;     // YYYY-MM-DD — drives the staleness nudge
   linkedDocIds?: string[];   // ids into the shared Document Vault (VaultDocument), category 'Legal'
   linkedPolicyIds?: string[]; // ids into Finances.insurance (funeral-type InsurancePolicy records) — connects a
@@ -1784,11 +2118,56 @@ export interface EmergencyInstructions {
 // to an existing FamilyMember purely so that lookup can find their email;
 // naming someone who isn't an app member at all (free-text `name` only) is
 // equally valid and just can't be access-checked.
+/**
+ * HOW MUCH THE NAMED PERSON IS TOLD. Rory: "sort out the will thing i still
+ * think we should be able to toggle it on and off etc send a notification i
+ * dunno make it easy for families that are all on the app".
+ *
+ * A ladder rather than a switch, because "on" would mean handing over a
+ * document that can hold a safe combination, and "off" means somebody finds
+ * out they were responsible for an estate at the worst possible moment. The
+ * three rungs answer three different questions, and most families want the
+ * middle one:
+ *
+ *   'fact'         — they learn THAT they were named. Nothing else. The
+ *                    default, and what every designation made before this
+ *                    existed stays on: a level added later must never widen
+ *                    a decision somebody already made.
+ *   'instructions' — they may also read `whatTheyShouldDo`. That field's
+ *                    entire purpose is to be read by this person; a sister
+ *                    who is meant to ring the bank cannot do it if the
+ *                    sentence saying so is sealed until you die.
+ *   'documents'    — they may also see WHICH KINDS of estate document exist
+ *                    (a will, a power of attorney, funeral wishes) and when
+ *                    each was last reviewed. Never where one is kept, never
+ *                    who holds it, never a notary's number, and never the
+ *                    files — those stay behind the wills lock and the release
+ *                    ladder in server/willsRelease.mjs. NOT behind a death
+ *                    trigger: this app has none and is not getting one.
+ *                    This rung answers "is there a will at all", which is the
+ *                    question families actually get stuck on.
+ */
+export type SuccessorShareLevel = 'fact' | 'instructions' | 'documents';
+
 export interface DesignatedSuccessor {
   name: string;
   memberId?: string;
   whatTheyShouldDo: string;
+  /** Absent means 'fact' — see SuccessorShareLevel. */
+  shareLevel?: SuccessorShareLevel;
+  /** ISO timestamp the LEVEL last changed, so the other side can be told that
+   *  something changed rather than only what it now is. */
+  shareLevelSetAt?: string;
   setAt?: string; // ISO timestamp this was last recorded
+  /* NAMED FROM A CONNECTED HOUSEHOLD. A sister-in-law is often the right
+   * person to take over and is exactly who is NOT in your own member list.
+   * These three fields say "this is their Rat1, in the rats", so the card can
+   * show whose household they are in and the other side can be told they were
+   * named. Naming is NOT access — resolveSuccessorAccess still reports the
+   * truth, which for a connected person is "no way in today". */
+  fromLinkId?: string;
+  sharedMemberId?: string;   // their id in THEIR household, never ours
+  fromFamilyName?: string;
 }
 
 export interface WillsEstateDoc {
@@ -1814,6 +2193,14 @@ export interface WillsEstateDoc {
  * a field on willsEstate, whose write rule would then have to be split anyway. */
 export interface WillsAccessDoc {
   readerUids: string[];
+  /* People an estate invite NAMED, who cannot read it yet (v329).
+   *
+   * Accepting an estate invite used to land the uid on readerUids, which opened
+   * the whole page immediately — while the owner was alive. Being named now
+   * carries two small things instead: WHO HOLDS the signed will, and standing
+   * to ask for the rest through server/willsRelease.mjs. Moving somebody from
+   * here to readerUids is an admin's deliberate tap, never a side effect. */
+  namedUids?: string[];
   /* People invited to this vault SPECIFICALLY to handle the estate, who
    * haven't joined yet. The point of the whole feature: the person who takes
    * over is usually not on the app, and "in the event of death" the admin is
@@ -1901,6 +2288,7 @@ export interface ReferralRecord {
   reason?: string;            // body part / reason, e.g. "Right knee", "Annual bloods"
   status?: ReferralStatus;    // default 'open' when absent
   appointmentDate?: string;   // YYYY-MM-DD — booked appointment date, meaningful once status is 'booked'
+  appointmentTime?: string;   // HH:MM — the time on the letter/booking, when there is one
   notes?: string;
   fileName: string;
   fileType: string;

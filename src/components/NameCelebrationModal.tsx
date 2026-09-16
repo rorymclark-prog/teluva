@@ -4,7 +4,10 @@ import {
   X, PartyPopper, Check, RefreshCcw, CalendarDays, Sparkles, Loader2, AlertTriangle,
 } from 'lucide-react';
 import { NameCelebration } from '../types';
-import { suggestLocal, LocalSuggestion, ResolvedCelebrations, celebrationDateInYear } from '../utils/nameCelebrations';
+import {
+  suggestLocal, LocalSuggestion, ResolvedCelebrations, celebrationDateInYear,
+  keptDaysFor, NameDayPick, KeptDay,
+} from '../utils/nameCelebrations';
 import { isValidNameDay, formatNameDay, splitNameTokens } from '../utils/nameDay';
 import { auth } from '../lib/firebase';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
@@ -209,10 +212,17 @@ export interface NameCelebrationModalProps {
    * first search after switching would still come back suppressed.
    */
   onChangeSuppressReligious?: (suppress: boolean) => Promise<void>;
-  /** A fully-formed, confirmed NameCelebration — id/primary/notify already
-   *  decided. The caller is responsible for the single-primary invariant
-   *  (demote any other confirmed primary when celebration.primary is true). */
-  onConfirm: (celebration: NameCelebration) => void;
+  /** Fully-formed, confirmed celebrations — id/primary/notify already decided.
+   *
+   *  AN ARRAY, not one entry, because a name can genuinely have two days and a
+   *  family may keep both (Maria: Mariä Namen and Mariä Himmelfahrt — see
+   *  keptDaysFor). They arrive together so the caller can apply the
+   *  single-primary invariant ONCE over the whole batch; folding them in one
+   *  at a time would demote the day it had just added.
+   *
+   *  At most one entry is ever primary. The caller remains responsible for
+   *  demoting any OTHER confirmed primary already on the member. */
+  onConfirm: (celebrations: NameCelebration[]) => void;
   /** "No name celebration" — the caller records the dismissal. */
   onDismiss: () => void;
   onClose: () => void;
@@ -258,7 +268,18 @@ export default function NameCelebrationModal({
   const [assistError, setAssistError] = useState<string | null>(null);
   const [assistMissing, setAssistMissing] = useState<string | null>(null);
 
-  const [pendingCelebration, setPendingCelebration] = useState<NameCelebration | null>(null);
+  // Which day the family keeps when the Namenskalender offers two, and —
+  // when they keep both — which of the two is the main one. Only ever read
+  // for a local suggestion carrying `alsoOn`; research proposals never have a
+  // second date. Defaults to the catalogued day, so a family that just presses
+  // "Yes, use this day" gets exactly the behaviour that existed before.
+  const [datePick, setDatePick] = useState<NameDayPick>('suggested');
+  const [bothMain, setBothMain] = useState<'suggested' | 'also'>('suggested');
+
+  // The batch waiting on the primary-choice screen. The FIRST entry is the one
+  // that screen is asking about; anything after it is an opt-in extra that is
+  // already primary:false/notify:false and is unaffected by the answer.
+  const [pendingCelebration, setPendingCelebration] = useState<NameCelebration[] | null>(null);
   const [primaryPick, setPrimaryPick] = useState<'existing' | 'new'>('existing');
   // Which phase asked the primary-choice question, so "Back" returns to
   // wherever the family actually was — the custom-date form (with what they
@@ -280,6 +301,8 @@ export default function NameCelebrationModal({
     setResearchExhausted(false);
     setPendingCelebration(null);
     setPrimaryPick('existing');
+    setDatePick('suggested');
+    setBothMain('suggested');
     const local = dismissed
       ? null
       : suggestLocal(
@@ -335,6 +358,10 @@ export default function NameCelebrationModal({
       ];
       const [next, ...rest] = ordered;
       setResearchQueue(rest);
+      // A new proposal is a new question — a two-day pick belongs to the
+      // calendar entry it was made about and must never ride along to the next.
+      setDatePick('suggested');
+      setBothMain('suggested');
       if (!next) {
         setResearchExhausted(true);
         setProposal(null);
@@ -380,29 +407,69 @@ export default function NameCelebrationModal({
     const queued = researchQueue.find((r) => !rejectedSet.has(r.title.toLowerCase()));
     if (queued) {
       setResearchQueue((q) => q.filter((r) => r !== queued));
+      setDatePick('suggested');
+      setBothMain('suggested');
       setProposal({ origin: 'research', research: queued });
       return;
     }
     void runResearch(nextRejected);
   }
 
-  function proceedOrAskPrimary(celebrationView: ProposalView, fromPhase: Phase) {
-    const hasPrimary = !!existing.primary;
-    const celebration = buildCelebration(celebrationView, !hasPrimary, !hasPrimary);
-    if (hasPrimary) {
-      setPendingCelebration(celebration);
+  function proceedOrAskPrimary(built: NameCelebration[], fromPhase: Phase) {
+    if (!built.length) return;
+    if (existing.primary) {
+      // Only the FIRST entry is in question — any second day is already an
+      // opt-in extra (primary:false/notify:false, straight from keptDaysFor)
+      // and the answer to "which is the main one?" cannot change that.
+      setPendingCelebration(built);
       setPrimaryPick('existing');
       setPendingFromPhase(fromPhase);
       setPhase('primary-choice');
     } else {
-      onConfirm(celebration);
+      onConfirm(built);
       onClose();
     }
   }
 
+  /**
+   * The proposal as the family chose to keep it: one celebration, or two when
+   * the name has a second catalogued day and they kept both.
+   *
+   * The primary/notify decision is keptDaysFor's, not this function's — see
+   * the note above it for why that invariant is not re-derived in the UI.
+   */
+  function builtFromProposal(): NameCelebration[] {
+    if (!view) return [];
+    const hasPrimary = !!existing.primary;
+    // A movable rule has no fixed month-day and never a second date; rebuilding
+    // it through keptDaysFor would drop its rule and its per-year cache.
+    if (view.dateType !== 'fixed' || !view.date) {
+      return [buildCelebration(view, !hasPrimary, !hasPrimary)];
+    }
+    const local = proposal?.origin === 'local' ? proposal.local : null;
+    const days = keptDaysFor(
+      {
+        // The CATALOGUED name ('Maria'), which is what has two days — not the
+        // person's own token, which may be the nickname that reached it.
+        matchedName: local?.matchedName || view.celebrationOf,
+        date: view.date,
+        feast: view.title,
+        explanation: view.explanation,
+        alsoOn: view.alsoOn,
+      },
+      view.alsoOn ? datePick : 'suggested',
+      bothMain,
+      hasPrimary,
+    );
+    return days.map((day: KeptDay) => buildCelebration(
+      { ...view, title: day.feast, date: day.date, dateLabel: formatNameDay(day.date), explanation: day.explanation },
+      day.primary,
+      day.notify,
+    ));
+  }
+
   function handleConfirmProposal() {
-    if (!view) return;
-    proceedOrAskPrimary(view, 'proposal');
+    proceedOrAskPrimary(builtFromProposal(), 'proposal');
   }
 
   function openCustom() {
@@ -482,7 +549,8 @@ export default function NameCelebrationModal({
     if (!customCelebrationOf.trim()) { setCustomError('Say whose name this celebrates.'); return; }
     if (!customTitle.trim()) { setCustomError('Give the day a title.'); return; }
     if (!customExplanation.trim()) { setCustomError('Say what this day means to your family.'); return; }
-    proceedOrAskPrimary({
+    const hasPrimary = !!existing.primary;
+    proceedOrAskPrimary([buildCelebration({
       title: customTitle.trim(),
       celebrationOf: customCelebrationOf.trim(),
       kind: 'name_celebration',
@@ -491,13 +559,14 @@ export default function NameCelebrationModal({
       dateType: 'fixed',
       date: customDate,
       dateLabel: formatNameDay(customDate),
-    }, 'custom');
+    }, !hasPrimary, !hasPrimary)], 'custom');
   }
 
   function handleFinishPrimaryChoice() {
-    if (!pendingCelebration) return;
+    if (!pendingCelebration?.length) return;
     const makeNewPrimary = primaryPick === 'new';
-    onConfirm({ ...pendingCelebration, primary: makeNewPrimary, notify: makeNewPrimary });
+    const [main, ...extras] = pendingCelebration;
+    onConfirm([{ ...main, primary: makeNewPrimary, notify: makeNewPrimary }, ...extras]);
     onClose();
   }
 
@@ -564,7 +633,14 @@ export default function NameCelebrationModal({
                 )}
 
                 {!researching && !researchError && view && (
-                  <ProposalCard view={view} firstName={firstName} />
+                  <ProposalCard
+                    view={view}
+                    firstName={firstName}
+                    datePick={datePick}
+                    onDatePick={setDatePick}
+                    bothMain={bothMain}
+                    onBothMain={setBothMain}
+                  />
                 )}
 
                 {!researching && !researchError && !view && (
@@ -755,24 +831,24 @@ export default function NameCelebrationModal({
               </div>
             )}
 
-            {phase === 'primary-choice' && pendingCelebration && existing.primary && (
+            {phase === 'primary-choice' && pendingCelebration?.length && existing.primary && (
               <div className="space-y-3.5">
                 <p className="text-[13.5px] leading-relaxed text-ink-700">
                   {firstName} already has a primary celebration — only the primary notifies every year by default.
                   Which should it be?
                 </p>
                 <div className="space-y-2">
-                  <PrimaryOption
+                  <ChoiceOption
                     selected={primaryPick === 'existing'}
                     onSelect={() => setPrimaryPick('existing')}
                     title={existing.primary.title}
                     subtitle={celebrationDateLabel(existing.primary)}
                   />
-                  <PrimaryOption
+                  <ChoiceOption
                     selected={primaryPick === 'new'}
                     onSelect={() => setPrimaryPick('new')}
-                    title={pendingCelebration.title}
-                    subtitle={celebrationDateLabel(pendingCelebration)}
+                    title={pendingCelebration[0].title}
+                    subtitle={celebrationDateLabel(pendingCelebration[0])}
                   />
                 </div>
                 <p className="text-[12px] text-ink-400">
@@ -792,7 +868,16 @@ export default function NameCelebrationModal({
   );
 }
 
-function ProposalCard({ view, firstName }: { view: ProposalView; firstName: string }) {
+function ProposalCard({
+  view, firstName, datePick, onDatePick, bothMain, onBothMain,
+}: {
+  view: ProposalView;
+  firstName: string;
+  datePick: NameDayPick;
+  onDatePick: (pick: NameDayPick) => void;
+  bothMain: 'suggested' | 'also';
+  onBothMain: (main: 'suggested' | 'also') => void;
+}) {
   const isSecondName = view.matchType === 'second_name';
   return (
     <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
@@ -817,10 +902,61 @@ function ProposalCard({ view, firstName }: { view: ProposalView; firstName: stri
 
       <p className="text-[13.5px] leading-relaxed text-ink-700">{view.explanation}</p>
 
+      {/* TWO DAYS, ONE NAME. This used to be a sentence — "Some families
+          instead keep 15 August" — with nothing to press, so a family whose
+          Maria is congratulated in August had to decline the whole suggestion
+          and retype the date by hand, losing the feast name and the
+          explanation. Which day a family keeps is a family fact (see the top
+          of utils/nameDay.ts); this is where they get to state it. */}
       {view.alsoOn && (
-        <p className="text-[12px] text-ink-500">
-          Some families instead keep {formatNameDay(view.alsoOn.date)} ({view.alsoOn.feast}).
-        </p>
+        <div className="space-y-2 pt-1">
+          <p className="text-[12.5px] font-semibold text-ink-800">
+            {view.celebrationOf} has two days in the calendar. Which does your family keep?
+          </p>
+          <div className="space-y-1.5">
+            <ChoiceOption
+              selected={datePick === 'suggested'}
+              onSelect={() => onDatePick('suggested')}
+              title={formatNameDay(view.date || '')}
+              subtitle={view.title}
+            />
+            <ChoiceOption
+              selected={datePick === 'also'}
+              onSelect={() => onDatePick('also')}
+              title={formatNameDay(view.alsoOn.date)}
+              subtitle={view.alsoOn.feast}
+            />
+            <ChoiceOption
+              selected={datePick === 'both'}
+              onSelect={() => onDatePick('both')}
+              title="Both days"
+              subtitle="Kept on file together — only the main one is reminded about"
+            />
+          </div>
+          {/* Only asked once "both" is chosen: the answer decides which single
+              day notifies, so keeping two days never signs a family up for two
+              annual reminders they did not ask for. */}
+          {datePick === 'both' && (
+            <div className="pl-3 border-l-2 border-cream-200 space-y-1.5 ml-1">
+              <p className="text-[12px] text-ink-500 pt-1">Which is the main one?</p>
+              <ChoiceOption
+                selected={bothMain === 'suggested'}
+                onSelect={() => onBothMain('suggested')}
+                title={formatNameDay(view.date || '')}
+                subtitle={view.title}
+              />
+              <ChoiceOption
+                selected={bothMain === 'also'}
+                onSelect={() => onBothMain('also')}
+                title={formatNameDay(view.alsoOn.date)}
+                subtitle={view.alsoOn.feast}
+              />
+              <p className="text-[11.5px] text-ink-400 pt-0.5">
+                The other stays on file and can be reminded about too — turn its reminder on in the list below.
+              </p>
+            </div>
+          )}
+        </div>
       )}
 
       {view.source && <p className="text-[11.5px] text-ink-400">Source: {view.source}</p>}
@@ -832,7 +968,7 @@ function ProposalCard({ view, firstName }: { view: ProposalView; firstName: stri
   );
 }
 
-function PrimaryOption({
+function ChoiceOption({
   selected, onSelect, title, subtitle,
 }: { selected: boolean; onSelect: () => void; title: string; subtitle: string }) {
   return (

@@ -32,6 +32,50 @@ service cloud.firestore {
       return isMemberOf(familyId) && roleIn(familyId) != 'child';
     }
 
+    /* Is this space a business rather than a family?
+     *
+     * The space type is written once by /api/create-space (Admin SDK) and is
+     * never client-writable, so it is safe to branch on. Costs one extra
+     * document get per evaluation, on the same doc the plan check already
+     * reads for other paths.
+     *
+     * WHY A RULE CARES. In a family, one flat access model is the correct
+     * one: a household genuinely shares medical records and addresses, and
+     * every adult being able to read every other is the entire point. A
+     * business space reuses the same collection with the same rule, and there
+     * the identical sentence reads: every employee may open every colleague's
+     * medical history, home address and date of birth. The presets in
+     * businessRoles.ts (Owner / Manager / Employee / Intern) are TEXT on a
+     * profile field. They grant nothing and gate nothing. The only roles that
+     * exist are admin | member | child, and hiding a tab in Dashboard.tsx
+     * protects nothing at all while this rule stays open — the rule is the
+     * only gate that counts.
+     */
+    function isBusinessSpace(familyId) {
+      /* A ternary rather than `exists(...) && get(...)` so this never reads a
+       * document that is not there — every space created before info/info
+       * existed has none.
+       *
+       * It does NOT silence the emulator's `evaluation error` reports, and it
+       * was measured rather than assumed: the suite reports the same 18 either
+       * way, because the engine evaluates sub-expressions eagerly for error
+       * reporting even where the logic short-circuits. Those reports sit on
+       * paths that refuse correctly and are asserted to refuse; the form here
+       * is chosen for being the honest description of the lookup, not as a
+       * fix for them. Do not "clean up" the reports by reordering a rule —
+       * the verdicts are what the 53 assertions pin. */
+      return exists(/databases/$(database)/documents/families/$(familyId)/info/info)
+        ? get(/databases/$(database)/documents/families/$(familyId)/info/info).data.get('type', 'family') == 'business'
+        : false;
+    }
+
+    function ownsMemberRecord(data) {
+      return ('linkedUid' in data && data.linkedUid == request.auth.uid)
+        || ('email' in data
+            && 'email' in request.auth.token
+            && data.email == request.auth.token.email);
+    }
+
     // ── User profiles ────────────────────────────────────────────────────────────
 
     // User profiles are written ONLY by the server (create/join endpoints with
@@ -129,8 +173,97 @@ service cloud.firestore {
       // Actual collection name in Firestore is 'family_members' (not 'members')
       // Any adult (admin or member) can contribute family data; children are read-only.
       match /family_members/{memberId} {
-        allow read:  if isMemberOf(familyId);
-        allow write: if canWriteIn(familyId);
+        /* A FAMILY shares these records; a BUSINESS does not. See
+         * isBusinessSpace above for why the same collection needs two answers.
+         * In a business space a colleague's record is an HR file: readable by
+         * the person it describes and by an admin, and by nobody else.
+         *
+         * This deliberately leaves an employee with no colleague directory at
+         * all, rather than a directory that leaks. A directory is a feature
+         * that can be added back properly — name, job title and work contact
+         * split off from the confidential fields — and until it exists, the
+         * safe answer is the restrictive one. An admin (the owner) is
+         * unaffected and still sees everyone.
+         *
+         * WRITE is restricted the same way and for the same reason: a rule
+         * that let an employee overwrite a colleague's medical record while
+         * refusing to let them read it would be a strange kind of protection.
+         */
+        allow read: if isMemberOf(familyId)
+          && (!isBusinessSpace(familyId) || isAdminOf(familyId) || ownsMemberRecord(resource.data));
+
+        /* Split from read because `resource.data` does not exist on a create —
+         * a single combined rule reads the OLD document, which on a create is
+         * null, and refuses every first write. On create the new document is
+         * what must be theirs; on update and delete it is the existing one,
+         * so that nobody can claim a colleague's record by writing their own
+         * email onto it. */
+        allow create: if canWriteIn(familyId)
+          && (!isBusinessSpace(familyId) || isAdminOf(familyId)
+              || (request.resource != null ? ownsMemberRecord(request.resource.data) : false));
+        allow update, delete: if canWriteIn(familyId)
+          && (!isBusinessSpace(familyId) || isAdminOf(familyId)
+              || (resource != null ? ownsMemberRecord(resource.data) : false));
+      }
+
+      /* THE ACTIVITY TRAIL — what changed in this vault, and who changed it.
+       *
+       * Three visibility tiers, and they are NOT a fourth permission system:
+       * each one is a predicate that already exists in this file. 'all' is
+       * isMemberOf, 'adults' is canWriteIn, 'admin' is isAdminOf. An entry's
+       * tier is never wider than the document it describes — an entry saying
+       * "the will was updated" is a smaller disclosure than the will, but it
+       * still tells a locked-out reader that a will exists and when it was
+       * last touched, which is exactly the leak the wills lock was built to
+       * stop. src/utils/activity.ts holds the kind → tier map.
+       *
+       * LISTING. This is a per-document rule, so Firestore fails a WHOLE query
+       * when one returned document fails it — a non-admin asking for the
+       * collection unfiltered is refused everything, not filtered down. The
+       * client asks with `where('visibility','in', <its own tier list>)`, so
+       * every document it gets back satisfies the rule and the query succeeds.
+       * That contract is the reason loadActivity looks the way it does; the
+       * emulator asserts both halves.
+       *
+       * CREATE-ONLY, AND THE ACTOR IS PINNED. This is not an audit log and
+       * must not be sold as one: the client writes the entries, so a modified
+       * client can omit them. What is guaranteed is that an entry cannot lie
+       * about who made it and cannot be edited afterwards. Omission is
+       * possible; forgery and rewriting are not.
+       *
+       * Deletes are admins only. Routine pruning is done by the cron with the
+       * Admin SDK, which bypasses rules entirely — this clause is only about
+       * what a signed-in client may do.
+       */
+      match /activity/{entryId} {
+        allow read: if isMemberOf(familyId)
+          && (isAdminOf(familyId)
+              || resource.data.get('visibility', 'admin') == 'all'
+              || (resource.data.get('visibility', 'admin') == 'adults' && canWriteIn(familyId)));
+        // THE TIER IS A FLOOR, NOT A SUGGESTION.
+        //
+        // Which tier a kind belongs to is decided in src/utils/activity.ts, on
+        // the phone — so a modified client could label a passwords entry 'all'
+        // and put "Saved passwords were updated" in front of a child. The value
+        // itself is never in an entry and the sensitive kinds are deliberately
+        // unnamed, so the leak is the EXISTENCE of a change, not its content —
+        // but "somebody changed the will last Tuesday" is exactly the kind of
+        // thing this app exists to keep inside the right circle.
+        //
+        // These two lines are the floor. Narrower is always allowed (labelling
+        // a shopping-list entry 'admin' hides it from more people, which is
+        // nobody's problem); wider is refused. activity.test.ts reads this
+        // block and the KINDS map together, so a kind promoted to a tighter
+        // tier there fails here until the floor is updated to match.
+        allow create: if canWriteIn(familyId)
+          && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.get('visibility', '') in ['all', 'adults', 'admin']
+          && (!(request.resource.data.get('kind', '') in ['willsEstate', 'willsAccess', 'passwords'])
+              || request.resource.data.visibility == 'admin')
+          && (!(request.resource.data.get('kind', '') in ['finances', 'documents'])
+              || request.resource.data.visibility in ['adults', 'admin']);
+        allow update: if false;
+        allow delete: if isAdminOf(familyId);
       }
 
       // Index docs: metadata/members (member ID list) and metadata/events (event ID list)
@@ -165,7 +298,7 @@ service cloud.firestore {
       // member read. Excluding the names here is the only thing that makes the
       // rule below mean anything.
       function isProtectedReferenceDoc(docId) {
-        return docId == 'willsEstate' || docId == 'willsAccess';
+        return docId == 'willsEstate' || docId == 'willsAccess' || docId == 'finances';
       }
 
       match /reference/{docId} {
@@ -203,6 +336,29 @@ service cloud.firestore {
         return canWriteIn(familyId)
           && exists(/databases/$(database)/documents/families/$(familyId)/reference/willsAccess)
           && request.auth.uid in get(/databases/$(database)/documents/families/$(familyId)/reference/willsAccess).data.get('readerUids', []);
+      }
+
+      // Finances (banks, IBANs, insurance policies, benefits) — ADULTS ONLY
+      // (role/capability matrix, signed off 2026-08-24: children get no access
+      // to the finances document at all). Same carve-out mechanics as wills
+      // above: the doc name must ALSO be excluded from the wildcard, or the
+      // wildcard's isMemberOf read would OR back in and this rule would grant
+      // nothing. The Dashboard nav has hidden 'finances' from child accounts
+      // since it shipped (`!canWrite` filter) — this makes the server agree
+      // with what the UI always claimed. Client loads fail closed already:
+      // loadReferenceDoc treats permission-denied as a refusal (purges the
+      // local plaintext copy, returns null), the pattern built for wills.
+      //
+      // AND IN A BUSINESS SPACE, ADMINS ONLY (v333). The adults-only rule was
+      // written for a household, where every adult genuinely shares the bank
+      // accounts. In a business the same words mean every employee reads the
+      // company's IBANs, insurance policies and benefit arrangements — the
+      // identical mistake v330 fixed one collection over, left behind because
+      // the finances carve-out predates the business/family distinction being
+      // asked anywhere in this file.
+      match /reference/finances {
+        allow read, write: if canWriteIn(familyId)
+          && (!isBusinessSpace(familyId) || isAdminOf(familyId));
       }
 
       match /reference/willsEstate {
@@ -260,6 +416,22 @@ service cloud.firestore {
       // only that member (not the whole family) may read or write their doc.
       match /chat/{uid} {
         allow read, write: if isMemberOf(familyId) && request.auth.uid == uid;
+      }
+
+      // Personal prefs — one doc per member (doc id == their own uid), in
+      // THIS space, same shape of rule as /chat above. Holds the people whose
+      // dates this person has chosen not to see (utils/hiddenPeople.ts): a
+      // private choice, so nobody else in the family — admins included — can
+      // read or change it. Children may keep one too; it only changes what
+      // their own screen shows. The family-wide list is on reference/settings
+      // and follows that doc's rules. The server reads these with the Admin
+      // SDK for the feed and reminders, which rules do not govern.
+      match /prefs/{uid} {
+        allow read, delete: if isMemberOf(familyId) && request.auth.uid == uid;
+        allow create, update: if isMemberOf(familyId) && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['hiddenDatePeople'])
+          && request.resource.data.hiddenDatePeople is list
+          && request.resource.data.hiddenDatePeople.size() <= 500;
       }
     }
   }

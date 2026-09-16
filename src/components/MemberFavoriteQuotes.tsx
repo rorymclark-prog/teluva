@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Feather, Plus, X, Trash2, Pencil } from 'lucide-react';
 import { FamilyMember, FavoriteQuote } from '../types';
 import EmptyState from './EmptyState';
+import { appConfirm } from '../utils/appConfirm';
 
 interface Props {
   member: FamilyMember;
@@ -55,8 +56,8 @@ export default function MemberFavoriteQuotes({ member, onUpdateMember, canEdit =
     close();
   };
 
-  const remove = (id: string) => {
-    if (!window.confirm('Delete this favorite quote?')) return;
+  const remove = async (id: string) => {
+    if (!(await appConfirm('Delete this favorite quote?', { danger: true, confirmLabel: 'Delete' }))) return;
     onUpdateMember({ ...member, favoriteQuotes: quotes.filter((q) => q.id !== id) });
     if (editingId === id) close();
   };

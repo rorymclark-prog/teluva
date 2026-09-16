@@ -14,8 +14,38 @@
 //   create-invite  → mint invites/{code} with a willReaderId, and mirror a
 //                    PendingWillReader entry (same id, no code) into willsAccess
 //   join-family    → after membership is granted, look up that id and move the
-//                    entry: the new uid joins readerUids, the pending row goes
+//                    entry: the new uid joins namedUids, the pending row goes
 //   admin cancels  → the pending row is deleted; redemption then finds nothing
+//
+// v329: REDEEMING NAMES YOU. IT DOES NOT OPEN THE WILL.
+//
+// Until v329 redemption put the uid straight onto readerUids, so accepting an
+// invite opened the entire will and estate page on the spot — while the owner
+// was alive and well. Rory sent two of these believing he had named people for
+// later, which is what the invite says it does and what everybody assumes it
+// does. It is also the shape every comparable feature takes: Apple's Legacy
+// Contact names you now and gives you nothing until a death certificate is
+// filed. The permission and the moment must be separable, because the whole
+// reason the invite travels with a grant is that nobody will be around to
+// arrange it later — and that argument justifies NAMING someone early, not
+// OPENING it early.
+//
+// So redemption now grants two things, both of them small:
+//
+//   • rung one, immediately — WHO HOLDS the signed will (a notary, an office,
+//     a person), or that it is lodged in a register. See projectFindability in
+//     familyLink.mjs; this is the same rung v326 opened across a family link,
+//     for the same reason: a will nobody can find is not protected, it is lost.
+//   • standing to ring the doorbell — they can ask for the full read, which
+//     opens after RELEASE_WAIT_DAYS unless an admin refuses, or sooner if a
+//     second named person agrees and the owner has been quiet. See
+//     server/willsRelease.mjs.
+//
+// readerUids is NEVER widened by a redemption any more. It stays what it always
+// was: the list an admin ticks by hand, plus whatever the release mechanism
+// opens. An admin who genuinely wants somebody reading it today still can —
+// one tap on the same card — but that is now a decision somebody makes, not a
+// side effect of an invite being accepted.
 //
 // pendingReaders is the SINGLE SOURCE OF TRUTH for "this invite carries will
 // access". invites/{code}.willReaderId is only a pointer. That asymmetry is
@@ -37,6 +67,12 @@ export function pendingList(access) {
 /** The reader list, same treatment. */
 export function readerList(access) {
   const raw = access && Array.isArray(access.readerUids) ? access.readerUids : [];
+  return raw.filter((u) => typeof u === 'string' && u);
+}
+
+/** The NAMED list: people an estate invite named, who may not read it yet. */
+export function namedList(access) {
+  const raw = access && Array.isArray(access.namedUids) ? access.namedUids : [];
   return raw.filter((u) => typeof u === 'string' && u);
 }
 
@@ -62,49 +98,63 @@ export function removePendingReader(access, id) {
 }
 
 /**
- * Redeem an estate invite: move `uid` from the pending row onto readerUids.
+ * Redeem an estate invite: NAME `uid`. Does not open the will — see the header.
  *
- * Returns { granted, readerUids, pendingReaders, reason } and NEVER throws —
- * membership has already been granted by the time this runs, and a failure to
- * attach the reader grant must not undo somebody joining the vault.
+ * Returns { granted, namedUids, readerUids, pendingReaders, reason } and NEVER
+ * throws — membership has already been granted by the time this runs, and a
+ * failure to attach the naming must not undo somebody joining the vault.
+ *
+ * `readerUids` is returned UNCHANGED in every path. It is in the return value
+ * only so the caller writes one consistent shape; nothing here may widen it.
  *
  * `role` is the role the invite granted. A child is refused here even though
  * create-invite forces an estate invite to 'member': firestore.rules refuses a
- * child regardless (isNamedWillReader → canWriteIn), so writing a child's uid
- * onto this list would produce a grant the server does not honour — an access
- * list that says yes while the boundary says no is worse than no grant at all.
+ * child regardless (isNamedWillReader → canWriteIn), so naming a child would
+ * produce standing the server will not honour when it is used — and a list
+ * that says yes while the boundary says no is worse than no entry at all.
  */
 export function redeemPendingReader(access, { willReaderId, uid, role, now = new Date() }) {
   const readerUids = readerList(access);
+  const namedUids = namedList(access);
   const pending = pendingList(access);
-  const unchanged = { granted: false, readerUids, pendingReaders: pending };
+  const unchanged = { granted: false, namedUids, readerUids, pendingReaders: pending };
 
   if (!willReaderId || !uid) return { ...unchanged, reason: 'not-an-estate-invite' };
 
   const entry = pending.find((p) => p.id === willReaderId);
   // Cancelled by an admin between sending and redeeming — or already redeemed.
   // Either way there is nothing to honour, and silence is the right answer:
-  // the person still joins the vault, they just don't get the estate page.
+  // the person still joins the vault, they just aren't named.
   if (!entry) return { ...unchanged, reason: 'cancelled' };
 
   const remaining = pending.filter((p) => p.id !== willReaderId);
+  const spent = { namedUids, readerUids, pendingReaders: remaining };
 
   if (role !== 'member' && role !== 'admin') {
-    return { granted: false, readerUids, pendingReaders: remaining, reason: 'role-not-eligible' };
+    return { ...spent, granted: false, reason: 'role-not-eligible' };
   }
 
   // Belt and braces: join-family refuses an expired invite before it ever gets
   // here, so this only fires if the two records disagree — in which case the
   // fail-closed reading is the one to take.
   if (entry.expiresAt && new Date(entry.expiresAt) < new Date(now)) {
-    return { granted: false, readerUids, pendingReaders: remaining, reason: 'expired' };
+    return { ...spent, granted: false, reason: 'expired' };
   }
 
+  // Already reading it by an admin's own hand. Naming them as well would say
+  // nothing new, and the row is still spent either way.
   if (readerUids.includes(uid)) {
-    // Already a named reader (an existing member redeeming an estate invite).
-    // Nothing to add, but the row is still spent.
-    return { granted: true, readerUids, pendingReaders: remaining, reason: 'already-a-reader' };
+    return { ...spent, granted: true, reason: 'already-a-reader' };
   }
 
-  return { granted: true, readerUids: [...readerUids, uid], pendingReaders: remaining, reason: 'granted' };
+  if (namedUids.includes(uid)) {
+    return { ...spent, granted: true, reason: 'already-named' };
+  }
+
+  return {
+    ...spent,
+    namedUids: [...namedUids, uid],
+    granted: true,
+    reason: 'named',
+  };
 }

@@ -43,6 +43,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import EmptyState from './EmptyState';
 import { openDrivePicker, listPickedFolder, PickedItem } from '../utils/googlePicker';
 import { DRIVE_SCOPE_IS_NARROW } from '../utils/googleScopes';
+import { appConfirm } from '../utils/appConfirm';
 
 interface SharedDoc {
   id: string; // matches Google Drive fileId
@@ -341,8 +342,9 @@ export default function GoogleDriveSync() {
   // Remove a synced document from Firestore — scoped to the signed-in user
   const handleRemoveSynced = async (sharedDoc: SharedDoc) => {
     // Explicit user confirmation dialog as mandated by workspace skill
-    const confirmed = window.confirm(
-      `Remove document "${sharedDoc.name}" from the secure family shared catalog? Other household members will immediately lose access to this link.`
+    const confirmed = await appConfirm(
+      `Remove document "${sharedDoc.name}" from the secure family shared catalog? Other household members will immediately lose access to this link.`,
+      { danger: true, confirmLabel: 'Remove' }
     );
     if (!confirmed) return;
 

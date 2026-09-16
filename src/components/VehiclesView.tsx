@@ -1,11 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Car, Plus, Pencil, Trash2, X, CalendarClock, User, Gauge, ShieldCheck, Wrench, MapPin, Sparkles } from 'lucide-react';
-import { FamilyMember, HouseholdInfo, Vehicle, ServiceRecord } from '../types';
+import { FamilyMember, HouseholdInfo, Vehicle, ServiceRecord, VehicleKind } from '../types';
 import { loadHousehold, saveHousehold } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import RemoteChangeHint from './RemoteChangeHint';
-import { vehicleDeadlines, vehicleLabel, VehicleDeadline } from '../utils/vehicle';
+import {
+  vehicleDeadlines, vehicleLabel, VehicleDeadline, VEHICLE_KINDS, vehicleKindOf, vehicleKindMeta,
+  vehicleFieldProfile, showVehicleField,
+} from '../utils/vehicle';
+import { serviceDocName, serviceVerb, memberIdForName, withDocId, linkDoc, unlinkDoc } from '../utils/serviceDocs';
+import { AttachServiceDoc, ServiceDocChips, useVaultDocs } from './ServiceDocs';
+import { appConfirm } from '../utils/appConfirm';
 import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
 
@@ -13,6 +19,8 @@ const FUEL_TYPES = ['Petrol', 'Diesel', 'Electric', 'Hybrid', 'Plug-in Hybrid', 
 const DEADLINE_WINDOW = 42; // days
 const newId = () => Date.now().toString() + Math.random().toString(36).slice(2, 8);
 
+// No `kind` here on purpose: absent means car, and spreading BLANK under an
+// old record must never stamp a kind onto it (see VehicleKind in types.ts).
 const BLANK: Vehicle = {
   id: '', name: '', make: '', model: '', year: '', registration: '', vin: '', fuelType: '',
   assignedMember: '', odometer: '', insurer: '', insuranceNumber: '', insuranceRenewal: '',
@@ -20,7 +28,8 @@ const BLANK: Vehicle = {
   nextServiceDue: '', serviceLog: [], parkingPermit: '', parkingPermitExpiry: '', parkingSpot: '', notes: '',
 };
 
-const BLANK_RECORD = { date: '', work: '', odometer: '', cost: '', garage: '', notes: '' };
+type RecordDraft = { date: string; work: string; odometer: string; cost: string; garage: string; notes: string; docIds: string[] };
+const BLANK_RECORD: RecordDraft = { date: '', work: '', odometer: '', cost: '', garage: '', notes: '', docIds: [] };
 
 const DEADLINE_STYLE = (days: number) =>
   days < 0 ? 'bg-rosa-100 text-rosa-700' : days <= DEADLINE_WINDOW ? 'bg-honey-100 text-honey-700' : 'bg-sage-100 text-sage-700';
@@ -32,7 +41,7 @@ function deadlineLabel(d: VehicleDeadline): string {
 }
 
 export default function VehiclesView(
-  { members, canEdit = false, demo = false, refreshKey = 0, canUseAI = false }: { members: FamilyMember[]; canEdit?: boolean; demo?: boolean; refreshKey?: number; canUseAI?: boolean },
+  { members, canEdit = false, demo = false, refreshKey = 0, canUseAI = false, isBusinessSpace = false }: { members: FamilyMember[]; canEdit?: boolean; demo?: boolean; refreshKey?: number; canUseAI?: boolean; isBusinessSpace?: boolean },
 ) {
   const [household, setHousehold] = useState<HouseholdInfo>({});
   const [loading, setLoading] = useState(true);
@@ -41,6 +50,8 @@ export default function VehiclesView(
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The vault, for the receipts filed on service entries (see ServiceDocs.tsx).
+  const vault = useVaultDocs(demo);
 
   useBodyScrollLock(isFormOpen);
 
@@ -70,7 +81,7 @@ export default function VehiclesView(
     setSaving(true); setSaveError(null);
     try {
       const ok = await saveHousehold(nextHousehold);
-      if (!ok) setSaveError('Saved on this device, but syncing to your family didn’t go through — check your connection.');
+      if (!ok) setSaveError(`Saved on this device, but syncing to your ${isBusinessSpace ? 'team' : 'family'} didn’t go through — check your connection.`);
     } finally { setSaving(false); }
   };
 
@@ -80,29 +91,47 @@ export default function VehiclesView(
   const patch = (p: Partial<Vehicle>) => setEditing((prev) => (prev ? { ...prev, ...p } : prev));
 
   // Service & repair log
-  const [recordDraft, setRecordDraft] = useState<{ date: string; work: string; odometer: string; cost: string; garage: string; notes: string }>({ ...BLANK_RECORD });
-  const addRecord = () => {
-    const work = recordDraft.work.trim();
-    if (!work) return;
-    const rec: ServiceRecord = {
+  const [recordDraft, setRecordDraft] = useState<RecordDraft>({ ...BLANK_RECORD });
+  const [draftKey, setDraftKey] = useState(0);
+  // The draft as a record, or null when there is nothing in it. A receipt
+  // attached with no description still counts — it becomes a "Service" entry
+  // rather than a file in the vault that nothing points at.
+  const draftToRecord = (d: RecordDraft): ServiceRecord | null => {
+    const work = d.work.trim() || (d.docIds.length ? 'Service' : '');
+    if (!work) return null;
+    return {
       id: newId(),
-      date: recordDraft.date || new Date().toLocaleDateString('en-CA'),
+      date: d.date || new Date().toLocaleDateString('en-CA'),
       work,
-      odometer: recordDraft.odometer.trim() || undefined,
-      cost: recordDraft.cost.trim() || undefined,
-      garage: recordDraft.garage.trim() || undefined,
-      notes: recordDraft.notes.trim() || undefined,
+      odometer: d.odometer.trim() || undefined,
+      cost: d.cost.trim() || undefined,
+      garage: d.garage.trim() || undefined,
+      notes: d.notes.trim() || undefined,
+      docIds: d.docIds.length ? [...d.docIds] : undefined,
     };
-    setEditing((prev) => {
-      if (!prev) return prev;
-      const log = [...(prev.serviceLog || []), rec];
-      // Logging a service also freshens "last service" so the next-due reminder stays accurate.
-      const lastService = (!prev.lastService || rec.date > prev.lastService) ? rec.date : prev.lastService;
-      return { ...prev, serviceLog: log, lastService };
-    });
+  };
+  const withRecord = (prev: Vehicle, rec: ServiceRecord): Vehicle => {
+    const log = [...(prev.serviceLog || []), rec];
+    // Logging a service also freshens "last service" so the next-due reminder stays accurate.
+    const lastService = (!prev.lastService || rec.date > prev.lastService) ? rec.date : prev.lastService;
+    return { ...prev, serviceLog: log, lastService };
+  };
+  const addRecord = () => {
+    const rec = draftToRecord(recordDraft);
+    if (!rec) return;
+    setEditing((prev) => (prev ? withRecord(prev, rec) : prev));
     setRecordDraft({ ...BLANK_RECORD });
+    // Fresh attach control for the fresh draft — otherwise its "Attached …"
+    // line lingers under an empty draft and reads as if it belonged there.
+    setDraftKey((k) => k + 1);
   };
   const removeRecord = (id: string) => setEditing((prev) => (prev ? { ...prev, serviceLog: (prev.serviceLog || []).filter((r) => r.id !== id) } : prev));
+  // Spread the record: a field this form does not know about must survive an
+  // attach/unlink ("a forgotten key in a rebuilt doc is a DELETE").
+  const patchRecord = (id: string, fn: (r: ServiceRecord) => ServiceRecord) =>
+    setEditing((prev) => (prev ? { ...prev, serviceLog: (prev.serviceLog || []).map((r) => (r.id === id ? fn({ ...r }) : r)) } : prev));
+  const receiptName = (veh: Vehicle, work: string, date?: string) =>
+    serviceDocName(vehicleLabel(veh), serviceVerb(work), date || new Date().toLocaleDateString('en-CA'));
 
   const handleSave = async () => {
     if (!editing) return;
@@ -111,14 +140,18 @@ export default function VehiclesView(
     setFormError(null);
     const isNew = !editing.id;
     const id = isNew ? newId() : editing.id;
-    const toSave: Vehicle = { ...editing, id, name: (editing.name || `${editing.make || ''} ${editing.model || ''}`).trim() };
+    // A service typed (or a receipt attached) but not yet "Added to log" is
+    // saved with the vehicle rather than silently dropped.
+    const pending = draftToRecord(recordDraft);
+    const base = pending ? withRecord(editing, pending) : editing;
+    const toSave: Vehicle = { ...base, id, name: (base.name || `${base.make || ''} ${base.model || ''}`).trim() };
     const next = isNew ? [...vehicles, toSave] : vehicles.map((v) => (v.id === id ? toSave : v));
     await persist(next);
     close();
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Remove this vehicle? This can’t be undone.')) return;
+    if (!(await appConfirm('Remove this vehicle? This can’t be undone.', { danger: true, confirmLabel: 'Remove' }))) return;
     await persist(vehicles.filter((v) => v.id !== id));
     if (editing?.id === id) close();
   };
@@ -147,6 +180,17 @@ export default function VehiclesView(
   }
 
   const v = editing;
+  // What the open form asks for — see vehicleFieldProfile. `show*` keeps a
+  // hidden field on screen whenever it already holds a value.
+  const vKind = v ? vehicleKindOf(v) : 'car';
+  const fp = vehicleFieldProfile(vKind);
+  const pedal = vehicleKindMeta(vKind).profile === 'bike';
+  const showPlate = showVehicleField(fp.plate, v?.registration);
+  const showFuel = showVehicleField(fp.fuel, v?.fuelType);
+  const showInspection = showVehicleField(fp.inspection, v?.inspectionExpiry);
+  const showVignette = showVehicleField(fp.vignette, v?.vignetteExpiry);
+  const showPermit = showVehicleField(fp.parkingPermit, v?.parkingPermit) || showVehicleField(fp.parkingPermit, v?.parkingPermitExpiry);
+  const docOwner = v?.assignedMember || (isBusinessSpace ? 'the team' : 'the family');
 
   return (
     <div className="max-w-lg space-y-4">
@@ -189,7 +233,7 @@ export default function VehiclesView(
                 className={`w-full text-left p-3 rounded-2xl border flex items-start justify-between gap-3 transition-colors ${deadline.days < 0 ? 'bg-rosa-50 border-rosa-100 hover:bg-rosa-100/70' : 'bg-honey-50 border-honey-100 hover:bg-honey-100/70'}`}>
                 <div className="min-w-0">
                   <p className={`text-[13px] font-semibold ${deadline.days < 0 ? 'text-rosa-700' : 'text-honey-900'}`}>{vehicleLabel(vehicle)}: {deadlineLabel(deadline)}</p>
-                  <p className="text-[11.5px] text-ink-500 mt-0.5">{vehicle.registration || 'no plate on file'}</p>
+                  <p className="text-[11.5px] text-ink-500 mt-0.5">{vehicle.registration || (vehicleFieldProfile(vehicleKindOf(vehicle)).plate ? 'no plate on file' : vehicleKindMeta(vehicleKindOf(vehicle)).label)}</p>
                 </div>
                 <span className="chip bg-white/70 text-ink-600 shrink-0 tabular-nums">{deadline.date}</span>
               </button>
@@ -206,23 +250,28 @@ export default function VehiclesView(
               icon={Car}
               tone="dusk"
               title="No vehicles yet"
-              description="Car, motorbike, e-bike… track inspection, insurance & service."
+              description={isBusinessSpace
+                ? 'Cars, vans, bikes, e-scooters… track insurance, inspection and service, and keep every receipt with its service.'
+                : 'Car, bicycle, e-bike, scooter… track insurance, inspection and service, and keep every receipt with its service.'}
               action={canEdit ? { label: 'Add vehicle', onClick: openNew, icon: Plus } : undefined}
             />
           ) : (
             <div className="space-y-1">
               {sorted.map((vehicle) => {
                 const soonest = vehicleDeadlines(vehicle)[0];
+                const kind = vehicleKindOf(vehicle);
+                const KindIcon = vehicleKindMeta(kind).icon;
                 return (
                   <button key={vehicle.id} onClick={() => openEdit(vehicle)}
                     className="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors text-left">
-                    <div className="w-10 h-10 rounded-lg bg-dusk-50 text-dusk-600 flex items-center justify-center shrink-0"><Car className="w-4 h-4" /></div>
+                    <div className="w-10 h-10 rounded-lg bg-dusk-50 text-dusk-600 flex items-center justify-center shrink-0" title={vehicleKindMeta(kind).label}><KindIcon className="w-4 h-4" /></div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-ink-800 text-[14px] leading-tight truncate">
                         {vehicleLabel(vehicle)}
                         {vehicle.year && <span className="text-ink-400 font-normal"> · {vehicle.year}</span>}
                       </p>
                       <div className="flex items-center gap-2 flex-wrap mt-0.5 text-[11px] text-ink-400">
+                        {kind !== 'car' && <span>{vehicleKindMeta(kind).label}</span>}
                         {vehicle.registration && <span className="font-mono">{vehicle.registration}</span>}
                         {vehicle.assignedMember && <span className="flex items-center gap-0.5"><User className="w-3 h-3" />{vehicle.assignedMember.split(/\s+/)[0]}</span>}
                       </div>
@@ -251,37 +300,67 @@ export default function VehiclesView(
             </div>
 
             <div className="p-6 space-y-5">
-              {/* Identity */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="field-label">Name <span className="normal-case text-ink-300 font-normal">· or make/model</span></label>
-                  <input type="text" placeholder="e.g. Family car" value={v.name || ''} onChange={(e) => patch({ name: e.target.value })} className="field w-full" />
-                  {formError && <p className="text-[11px] text-rosa-600 mt-1">{formError}</p>}
-                </div>
-                <div>
-                  <label className="field-label">Number plate</label>
-                  <input type="text" placeholder="e.g. W-12345X" value={v.registration || ''} onChange={(e) => patch({ registration: e.target.value })} className="field w-full font-mono" />
+              {/* Kind — asked FIRST, because it decides which fields below
+                  apply. Rory: "can we add scooters, bicycles etc". */}
+              <div>
+                <label className="field-label">What is it?</label>
+                <div role="radiogroup" aria-label="Type of vehicle" className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {VEHICLE_KINDS.map((k) => {
+                    const Icon = k.icon;
+                    const on = vKind === k.kind;
+                    return (
+                      <button
+                        key={k.kind}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        // Re-tapping the current kind is a no-op, so opening an
+                        // old car and tapping "Car" never stamps a kind on it.
+                        onClick={() => { if (!on) patch({ kind: k.kind as VehicleKind }); }}
+                        className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border text-[12px] font-medium transition-colors ${on ? 'border-clay-400 bg-clay-50 text-clay-700' : 'border-cream-200 bg-white text-ink-600 hover:bg-cream-50'}`}
+                      >
+                        <Icon className="w-3.5 h-3.5 shrink-0" /><span className="truncate">{k.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
+
+              {/* Identity. Fields a kind does not ask for are hidden, never
+                  cleared — and shown again whenever they hold a value, so a
+                  car switched to "Bicycle" by mistake keeps its plate. */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className={showPlate ? '' : 'col-span-2'}>
+                  <label className="field-label">Name <span className="normal-case text-ink-300 font-normal">· or make/model</span></label>
+                  <input type="text" placeholder={pedal ? 'e.g. Trek FX' : isBusinessSpace ? 'e.g. Company van' : 'e.g. Family car'} value={v.name || ''} onChange={(e) => patch({ name: e.target.value })} className="field w-full" />
+                  {formError && <p className="text-[11px] text-rosa-600 mt-1">{formError}</p>}
+                </div>
+                {showPlate && (
+                  <div>
+                    <label className="field-label">Number plate</label>
+                    <input type="text" placeholder="e.g. W-12345X" value={v.registration || ''} onChange={(e) => patch({ registration: e.target.value })} className="field w-full font-mono" />
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-3 gap-4">
-                <div><label className="field-label">Make</label><input type="text" placeholder="VW" value={v.make || ''} onChange={(e) => patch({ make: e.target.value })} className="field w-full" /></div>
-                <div><label className="field-label">Model</label><input type="text" placeholder="Golf" value={v.model || ''} onChange={(e) => patch({ model: e.target.value })} className="field w-full" /></div>
+                <div><label className="field-label">Make</label><input type="text" placeholder={pedal ? 'Trek' : 'VW'} value={v.make || ''} onChange={(e) => patch({ make: e.target.value })} className="field w-full" /></div>
+                <div><label className="field-label">Model</label><input type="text" placeholder={pedal ? 'FX 3' : 'Golf'} value={v.model || ''} onChange={(e) => patch({ model: e.target.value })} className="field w-full" /></div>
                 <div><label className="field-label">Year</label><input type="text" inputMode="numeric" placeholder="2019" value={v.year || ''} onChange={(e) => patch({ year: e.target.value })} className="field w-full tabular-nums" /></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
+                {showFuel && (
+                  <div>
+                    <label className="field-label">Fuel</label>
+                    <select value={v.fuelType || ''} onChange={(e) => patch({ fuelType: e.target.value })} className="field w-full">
+                      <option value="">—</option>
+                      {FUEL_TYPES.map((f) => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div><label className="field-label flex items-center gap-1"><Gauge className="w-3 h-3" /> {fp.odometerLabel}</label><input type="text" inputMode="numeric" placeholder={pedal ? 'e.g. 2400' : 'e.g. 84000'} value={v.odometer || ''} onChange={(e) => patch({ odometer: e.target.value })} className="field w-full tabular-nums" /></div>
+                <div><label className="field-label">{fp.vinLabel}</label><input type="text" placeholder={fp.vinPlaceholder} value={v.vin || ''} onChange={(e) => patch({ vin: e.target.value })} className="field w-full font-mono" /></div>
                 <div>
-                  <label className="field-label">Fuel</label>
-                  <select value={v.fuelType || ''} onChange={(e) => patch({ fuelType: e.target.value })} className="field w-full">
-                    <option value="">—</option>
-                    {FUEL_TYPES.map((f) => <option key={f} value={f}>{f}</option>)}
-                  </select>
-                </div>
-                <div><label className="field-label flex items-center gap-1"><Gauge className="w-3 h-3" /> Odometer (km)</label><input type="text" inputMode="numeric" placeholder="e.g. 84000" value={v.odometer || ''} onChange={(e) => patch({ odometer: e.target.value })} className="field w-full tabular-nums" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="field-label">VIN / chassis no.</label><input type="text" placeholder="WVWZZZ…" value={v.vin || ''} onChange={(e) => patch({ vin: e.target.value })} className="field w-full font-mono" /></div>
-                <div>
-                  <label className="field-label flex items-center gap-1"><User className="w-3 h-3" /> Main driver</label>
+                  <label className="field-label flex items-center gap-1"><User className="w-3 h-3" /> {fp.driverLabel}</label>
                   {members.length > 0 ? (
                     <select value={v.assignedMember || ''} onChange={(e) => patch({ assignedMember: e.target.value })} className="field w-full">
                       <option value="">—</option>
@@ -293,14 +372,16 @@ export default function VehiclesView(
                 </div>
               </div>
 
-              {/* Deadlines */}
-              <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
-                <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><CalendarClock className="w-3.5 h-3.5" /> Reminders</label>
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="field-label">Inspection (§57a / MOT)</label><input type="date" value={v.inspectionExpiry || ''} onChange={(e) => patch({ inspectionExpiry: e.target.value })} className="field w-full" /></div>
-                  <div><label className="field-label">Vignette expiry</label><input type="date" value={v.vignetteExpiry || ''} onChange={(e) => patch({ vignetteExpiry: e.target.value })} className="field w-full" /></div>
+              {/* Deadlines — a bike has no §57a Pickerl and no vignette. */}
+              {(showInspection || showVignette) && (
+                <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
+                  <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><CalendarClock className="w-3.5 h-3.5" /> Reminders</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    {showInspection && <div><label className="field-label">Inspection (§57a / MOT)</label><input type="date" value={v.inspectionExpiry || ''} onChange={(e) => patch({ inspectionExpiry: e.target.value })} className="field w-full" /></div>}
+                    {showVignette && <div><label className="field-label">Vignette expiry</label><input type="date" value={v.vignetteExpiry || ''} onChange={(e) => patch({ vignetteExpiry: e.target.value })} className="field w-full" /></div>}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Insurance */}
               <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
@@ -312,14 +393,16 @@ export default function VehiclesView(
                 <div><label className="field-label">Renewal date</label><input type="date" value={v.insuranceRenewal || ''} onChange={(e) => patch({ insuranceRenewal: e.target.value })} className="field w-full" /></div>
               </div>
 
-              {/* Parking */}
+              {/* Parking — or, for a bike, just where it lives. */}
               <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
-                <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> Parking</label>
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="field-label">Permit (Parkpickerl)</label><input type="text" placeholder="e.g. Zone 1010" value={v.parkingPermit || ''} onChange={(e) => patch({ parkingPermit: e.target.value })} className="field w-full" /></div>
-                  <div><label className="field-label">Permit expiry</label><input type="date" value={v.parkingPermitExpiry || ''} onChange={(e) => patch({ parkingPermitExpiry: e.target.value })} className="field w-full" /></div>
-                </div>
-                <div><label className="field-label">Spot / location</label><input type="text" placeholder="e.g. Garage bay 14" value={v.parkingSpot || ''} onChange={(e) => patch({ parkingSpot: e.target.value })} className="field w-full" /></div>
+                <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> {pedal ? 'Storage' : 'Parking'}</label>
+                {showPermit && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><label className="field-label">Permit (Parkpickerl)</label><input type="text" placeholder="e.g. Zone 1010" value={v.parkingPermit || ''} onChange={(e) => patch({ parkingPermit: e.target.value })} className="field w-full" /></div>
+                    <div><label className="field-label">Permit expiry</label><input type="date" value={v.parkingPermitExpiry || ''} onChange={(e) => patch({ parkingPermitExpiry: e.target.value })} className="field w-full" /></div>
+                  </div>
+                )}
+                <div><label className="field-label">{fp.spotLabel}</label><input type="text" placeholder={pedal ? 'e.g. Bike room in the basement' : 'e.g. Garage bay 14'} value={v.parkingSpot || ''} onChange={(e) => patch({ parkingSpot: e.target.value })} className="field w-full" /></div>
               </div>
 
               {/* Service */}
@@ -332,7 +415,8 @@ export default function VehiclesView(
                 <div><label className="field-label">Or a specific next-service date</label><input type="date" value={v.nextServiceDue || ''} onChange={(e) => patch({ nextServiceDue: e.target.value })} className="field w-full" /></div>
               </div>
 
-              {/* Service & repair log */}
+              {/* Service & repair log — each entry can carry its receipt. The
+                  file itself goes to the Document Vault (ServiceDocs.tsx). */}
               <div className="rounded-2xl border border-cream-200 bg-cream-50/60 p-4 space-y-3">
                 <label className="text-xs font-semibold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><Wrench className="w-3.5 h-3.5" /> Service &amp; repair log</label>
                 {(v.serviceLog || []).length > 0 && (
@@ -348,24 +432,63 @@ export default function VehiclesView(
                             {r.cost && <span className="text-ink-600 font-medium">{r.cost}</span>}
                           </div>
                           {r.notes && <p className="text-[11.5px] text-ink-500 mt-1 italic">“{r.notes}”</p>}
+                          <ServiceDocChips
+                            ids={r.docIds}
+                            docs={vault.docs}
+                            ownerLabel={docOwner}
+                            className="mt-1.5"
+                            onRemove={canEdit ? (id) => patchRecord(r.id, (x) => unlinkDoc(x, id)) : undefined}
+                          />
+                          {canEdit && (
+                            <div className="mt-1.5">
+                              <AttachServiceDoc
+                                docs={vault.docs}
+                                ids={r.docIds}
+                                onAdopt={vault.adopt}
+                                onAttach={(id) => patchRecord(r.id, (x) => linkDoc(x, id))}
+                                autoName={() => receiptName(v, r.work, r.date)}
+                                memberId={memberIdForName(members, v.assignedMember)}
+                                demo={demo}
+                              />
+                            </div>
+                          )}
                         </div>
-                        <button type="button" onClick={() => removeRecord(r.id)} className="p-1 text-ink-300 hover:text-rosa-500 shrink-0"><X className="w-3.5 h-3.5" /></button>
+                        <button type="button" onClick={() => removeRecord(r.id)} className="p-1 text-ink-300 hover:text-rosa-500 shrink-0" aria-label={`Remove “${r.work}” from the log`}><X className="w-3.5 h-3.5" /></button>
                       </div>
                     ))}
                   </div>
                 )}
                 <div className="rounded-xl bg-white border border-cream-200 p-2.5 space-y-2">
-                  <input type="text" placeholder="What was done / the issue (e.g. brake pads replaced)" value={recordDraft.work} onChange={(e) => setRecordDraft({ ...recordDraft, work: e.target.value })} className="field w-full text-[13px]" />
+                  <input type="text" placeholder={pedal ? 'What was done (e.g. full service, new chain)' : 'What was done / the issue (e.g. brake pads replaced)'} value={recordDraft.work} onChange={(e) => setRecordDraft({ ...recordDraft, work: e.target.value })} className="field w-full text-[13px]" />
                   <div className="grid grid-cols-2 gap-2">
                     <input type="date" value={recordDraft.date} onChange={(e) => setRecordDraft({ ...recordDraft, date: e.target.value })} className="field w-full text-[12px]" />
                     <input type="text" inputMode="numeric" placeholder="km" value={recordDraft.odometer} onChange={(e) => setRecordDraft({ ...recordDraft, odometer: e.target.value })} className="field w-full text-[12px] tabular-nums" />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <input type="text" placeholder="Garage" value={recordDraft.garage} onChange={(e) => setRecordDraft({ ...recordDraft, garage: e.target.value })} className="field w-full text-[12px]" />
+                    <input type="text" placeholder={pedal ? 'Bike shop' : 'Garage'} value={recordDraft.garage} onChange={(e) => setRecordDraft({ ...recordDraft, garage: e.target.value })} className="field w-full text-[12px]" />
                     <input type="text" placeholder="Cost" value={recordDraft.cost} onChange={(e) => setRecordDraft({ ...recordDraft, cost: e.target.value })} className="field w-full text-[12px]" />
                   </div>
                   <input type="text" placeholder="Notes — the mechanic's comments…" value={recordDraft.notes} onChange={(e) => setRecordDraft({ ...recordDraft, notes: e.target.value })} className="field w-full text-[12px]" />
-                  <button type="button" onClick={addRecord} disabled={!recordDraft.work.trim()} className="btn-quiet text-[11px] px-3 py-1.5 disabled:opacity-40"><Plus className="w-3 h-3" /> Add to log</button>
+                  <ServiceDocChips
+                    ids={recordDraft.docIds}
+                    docs={vault.docs}
+                    ownerLabel={docOwner}
+                    onRemove={(id) => setRecordDraft((d) => ({ ...d, docIds: d.docIds.filter((x) => x !== id) }))}
+                  />
+                  {canEdit && (
+                    <div key={draftKey}>
+                      <AttachServiceDoc
+                        docs={vault.docs}
+                        ids={recordDraft.docIds}
+                        onAdopt={vault.adopt}
+                        onAttach={(id) => setRecordDraft((d) => ({ ...d, docIds: withDocId(d.docIds, id) }))}
+                        autoName={() => receiptName(v, recordDraft.work, recordDraft.date)}
+                        memberId={memberIdForName(members, v.assignedMember)}
+                        demo={demo}
+                      />
+                    </div>
+                  )}
+                  <button type="button" onClick={addRecord} disabled={!recordDraft.work.trim() && recordDraft.docIds.length === 0} className="btn-quiet text-[11px] px-3 py-1.5 disabled:opacity-40"><Plus className="w-3 h-3" /> Add to log</button>
                 </div>
               </div>
 

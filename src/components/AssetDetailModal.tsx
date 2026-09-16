@@ -12,6 +12,7 @@ import {
   suggestIdentifier, itemImages,
 } from '../utils/assetConstants';
 import SheetGrabber from './SheetGrabber';
+import AssetServiceHistory from './AssetServiceHistory';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 const EXTRA_PHOTO_CAP = 12;
@@ -194,6 +195,10 @@ export default function AssetDetailModal({
                 </CopyableValue>
               </div>
             )}
+
+            {/* Derived from the house's work log (entries whose assetId is
+                this item) — read-only here, edited where it was logged. */}
+            <AssetServiceHistory assetId={item.id} category={item.category} />
 
             {!canEdit && (
               <p className="text-[11.5px] text-ink-300">Only an admin can edit this item.</p>

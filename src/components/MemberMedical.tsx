@@ -17,6 +17,14 @@ interface MemberMedicalProps {
   onOpenCalendar?: () => void;
   /** Opens HealthTimeline preselected to this member — same pattern as onOpenCalendar above: this screen doesn't mount the modal itself, it just asks its parent to. */
   onOpenHistory?: () => void;
+  /** Tag an untagged calendar appointment to a person — shows the "whose is this?" question (MemberAppointments). */
+  onTagEvent?: (eventId: string, memberId: string) => void;
+  /** Signed-in person's member id; cosmetic (utils/me.ts). */
+  meMemberId?: string;
+  /** Active space id, for the per-device "Not now" list. */
+  spaceId?: string;
+  /** A business space: no automatic "Important" marks on appointments. */
+  isBusinessSpace?: boolean;
 }
 
 function newId() {
@@ -37,7 +45,7 @@ const initMedical = (member: FamilyMember): MedicalRecord => ({
   notes: member.medical?.notes || '',
 });
 
-export default function MemberMedical({ member, onUpdate, country = 'AT', events = [], members = [], onOpenCalendar, onOpenHistory }: MemberMedicalProps) {
+export default function MemberMedical({ member, onUpdate, country = 'AT', events = [], members = [], onOpenCalendar, onOpenHistory, onTagEvent, meMemberId, spaceId, isBusinessSpace }: MemberMedicalProps) {
   const [medical, setMedical] = useState<MedicalRecord>(() => initMedical(member));
 
   // Reset local state when member.id changes
@@ -124,6 +132,10 @@ export default function MemberMedical({ member, onUpdate, country = 'AT', events
         events={events}
         members={members}
         onOpenCalendar={onOpenCalendar}
+        onTagEvent={onTagEvent}
+        meMemberId={meMemberId}
+        spaceId={spaceId}
+        isBusinessSpace={isBusinessSpace}
       />
 
       {/* Emergency essentials card — honey/rosa tinted */}

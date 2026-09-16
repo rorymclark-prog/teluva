@@ -848,7 +848,7 @@ const INSURANCE_NAME = new RegExp([
 /**
  * Decide whether this document may be read by the generic recall reader at all.
  *
- * @param {{category?: string, name?: string, spaceType?: string, insuranceReaderOn?: boolean}} input
+ * @param {{category?: string, name?: string, spaceType?: string, insuranceReaderOn?: boolean, medicalReaderOn?: boolean}} input
  * @returns {{ok: boolean, reason?: string, route?: 'insurance'}}
  */
 export function isEligible(input) {
@@ -856,6 +856,7 @@ export function isEligible(input) {
   const name = String(input?.name ?? '');
   const spaceType = String(input?.spaceType ?? '');
   const insuranceReaderOn = input?.insuranceReaderOn === true;
+  const medicalReaderOn = input?.medicalReaderOn === true;
 
   // Medical is excluded on self-diagnosis and special-category-data grounds,
   // NOT because the text cannot be read. Verbatim recall out of a discharge
@@ -869,7 +870,16 @@ export function isEligible(input) {
   // Checking only one of them denies the shared vault copy of a lab result and
   // admits the copy sitting on the member's own profile — the same document,
   // the same risk, filed twice under two spellings.
-  if (category === 'Medical' || category === 'Health') return { ok: false, reason: 'medical' };
+  //
+  // NOW A FLAG, not a rule — FEATURE_MEDICAL_READER, defaulting OFF here the
+  // same way insurance does, so an unset env var is still a refusal. The state a
+  // forgotten deploy lands in is the state that ships, and that state must be
+  // the closed one. What changed is that the app's owner decides this, not that
+  // the reasoning above stopped applying: the reader still only QUOTES, and its
+  // prohibition on saying what a result means is unconditional.
+  if (!medicalReaderOn && (category === 'Medical' || category === 'Health')) {
+    return { ok: false, reason: 'medical' };
+  }
 
   // THE BACK DOOR THIS CLOSES: the insurance reader is a separate, more
   // constrained feature behind FEATURE_INSURANCE_READER, and that flag is

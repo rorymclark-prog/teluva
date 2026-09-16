@@ -70,3 +70,32 @@ export async function extractTravelMeta(file: File): Promise<TravelMeta | null> 
     return null;
   }
 }
+
+/**
+ * Resolve a TYPED country name to an ISO 3166-1 alpha-2 code, offline.
+ *
+ * This exists because editing an entry's country by hand used to leave the old
+ * `countryCode` in place — so changing "Austria" to "France" kept AT, and the
+ * row showed an Austrian flag beside the word France. A wrong flag is a lie; a
+ * missing one is only less decoration. So this returns a code when it is sure
+ * and null when it is not, and the caller drops the flag on null.
+ *
+ * NULL IS ORDINARY, NOT INVALID. country-coder matches its own naming, and
+ * several perfectly correct country names do not resolve — measured, not
+ * guessed: "Netherlands" (in every form tried), "Denmark", "Ireland", "China"
+ * and "United States" all return null, because country-coder keys those to
+ * nested or differently-named features. "France", "Austria", "South Africa",
+ * "Czechia", "UK", "Turkey" and bare codes like "FR" all resolve. A caller that
+ * treats null as "not a real country" would reject the Netherlands, so don't.
+ */
+export function countryCodeForName(name: string): string | null {
+  // Curly apostrophes are what phone keyboards produce and country-coder does
+  // not match them: "Côte d’Ivoire" misses where "Côte d'Ivoire" resolves to CI.
+  const q = name.trim().replace(/[‘’]/g, "'");
+  if (q.length < 2) return null;
+  try {
+    return iso1A2Code(q) || null;
+  } catch {
+    return null;
+  }
+}

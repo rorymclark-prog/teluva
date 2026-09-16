@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, SlipItem, AiUsage, ReferralKind, ReferralRecord, DocReadResult, DocPassage, InsurancePolicy, AnniversaryKind } from '../types';
 import { readDocument, EXPECTED_READER_VERSION } from '../utils/docReader';
+import { searchVault, coverageLine, type VaultSearchOutcome } from '../utils/vaultSearch';
 import { auth } from '../lib/firebase';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
@@ -11,12 +12,21 @@ import {
 } from '../utils/db';
 import { computeChatInsights } from '../utils/chatInsights';
 import { boundCalendar } from '../utils/calendarWindow';
+import { calendarForChat } from '../utils/importantEvents';
 import { redactHousehold, redactFinances, redactMember, redactInfoNumbers } from '../utils/aiRedact';
+import { buildRevealIndex, resolveReveals, groupReveals, formatRevealsForCopy, MAX_REVEALS_PER_MESSAGE } from '../utils/aiReveal';
+import type { RevealIndex, RevealedValue } from '../utils/aiReveal';
 // Edit/delete-existing-records feature: display labels + apply-time re-resolution
 // live here (this shared component only gets append-only wiring).
-import { annotateDestructiveEdits, hasDestructiveEdits } from '../utils/aiDestructive';
+import { annotateDestructiveEdits, hasDestructiveEdits, buildPatch, recordPhrase, findInContext } from '../utils/aiDestructive';
+import { pruneUnchangedEdits } from '../utils/aiNoOp';
+import { planAttachment, rejectionMessage, looksLikeFilePath, sniffFileType, ATTACH_ACCEPT } from '../utils/attachments';
+import { isAppleTouch, emptyClipboardAdvice, emptyPasteAdvice, copiedNameOnlyAdvice, composerHint } from '../utils/platform';
+import { applyMemberFieldEdit } from '../utils/aiApply';
 import { PackRequest, resolveTopics } from '../utils/exportPack';
 import { useFamilyCtx } from '../contexts/FamilyContext';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
+import { markHiddenDatesForChat } from '../utils/hiddenPeople';
 import { useWillsAccess } from '../hooks/useWillsAccess';
 import { useT } from '../i18n/LangContext';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -24,10 +34,10 @@ import ImageLightbox from './ImageLightbox';
 import { looksLikePdf } from '../utils/fileType';
 import { computeFileHash, findLikelyDuplicate, findLikelyDuplicateByType, DupMatch } from '../utils/documentDedup';
 import {
-  Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus,
+  Sparkles, Send, Loader2, Check, X, Wand2, User, Bot, MessageSquarePlus, Search,
   Paperclip, FileText, Image as ImageIcon, Mic, MicOff, AlertTriangle, Camera,
   ClipboardPaste, ChevronRight, CalendarClock, Undo2, ChevronDown, ScanLine,
-  FolderDown, MessageCircleQuestion, Quote, RefreshCw,
+  FolderDown, MessageCircleQuestion, Quote, RefreshCw, IdCard, Copy,
 } from 'lucide-react';
 import DocumentAskModal, { type DocumentAskModalDoc } from './DocumentAskModal';
 import type { ScannedFile } from './DocumentScannerModal';
@@ -37,6 +47,8 @@ import type { ScannedFile } from './DocumentScannerModal';
 const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 import { speechLocaleFor } from '../utils/speechLocale';
 import { UndoRecord, landingLabel, countIrreversibleEdits } from '../utils/aiUndo';
+import { isHhMm, isIsoDate, referralStatusForAppointment } from '../utils/referralAppointment';
+import { readLastGoogleImport } from '../utils/googleCalendarImport';
 
 // Web Speech API — may be undefined in unsupported browsers
 const SR: any = (typeof window !== 'undefined')
@@ -106,8 +118,12 @@ export type AiEdit =
    * bitten before. A parallel kind would have to reimplement every one of them,
    * and a referral IS a document; it just belongs in one more list. */
   | { kind: 'document'; name: string; category: VaultCategory; member?: string; imageIndex?: number; fileUrl?: string; fileStoragePath?: string; fileName?: string; fileMimeType?: string; fileSize?: number; contentHash?: string;
-      referralKind?: ReferralKind | string; referralDate?: string; referralReason?: string; referralProvider?: string }
-  | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[] }
+      referralKind?: ReferralKind | string; referralDate?: string; referralReason?: string; referralProvider?: string;
+      /** The date printed on the document (YYYY-MM-DD) — what places it on the life timeline. Never the upload date. */
+      documentDate?: string;
+      /** The APPOINTMENT the letter books ("Termin am 22.09. um 10:30") — YYYY-MM-DD / HH:MM. Not referralDate, which is the date printed on the letter. */
+      appointmentDate?: string; appointmentTime?: string }
+  | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[]; endDate?: string; destination?: string; /** Only when the user asks to mark or un-mark it — medical appointments are important on their own. */ important?: boolean }
   | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
   | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string; imageIndex?: number; photoUrl?: string }  // imageIndex picks which attached photo is this item's, when multiple were sent in one turn; photoUrl is filled client-side after Apply — never sent by the model
   | { kind: 'recipe'; title: string; ingredients: string[]; steps: string[]; tags?: string[]; imageIndex?: number; photoUrl?: string }  // imageIndex picks which attached photo is this recipe's, when multiple were sent in one turn; photoUrl is filled client-side after Apply — never sent by the model
@@ -199,6 +215,7 @@ export type AiEdit =
   // id. `label` is stamped CLIENT-SIDE (annotateDestructiveEdits) for the Apply
   // card — the model never supplies it — and apply RE-RESOLVES the id against live
   // data, never trusting a stale id/label from chat history.
+  | { kind: 'trip_attach'; document: string; trip?: string; role?: string; member?: string }  // link an EXISTING vault document (by its name) into a trip's travel pack — resolved client-side in aiApply.applyTripAttachEdits; ids never travel through the model. Applied in a SECOND onApplyEdits pass after fileScans, so "here's the scan, attach it to the travel pack" works in one message.
   | { kind: 'delete_record'; targetKind: string; id: string; label?: string }
   | { kind: 'update_record'; targetKind: string; id: string; fields: Record<string, string>; label?: string };
 
@@ -230,7 +247,7 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   edits?: AiEdit[];
-  /* A folder the assistant offered to prepare — "all Sophie's medical reports
+  /* A folder the assistant offered to prepare — "all Mia's medical reports
    * and results". Deliberately NOT an AiEdit: every edit WRITES something and
    * rides the Apply pipeline, and an export writes nothing at all. Giving it
    * the same card would mean an "Apply" button that changes no data, and an
@@ -255,6 +272,36 @@ interface ChatMessage {
   readKey?: string;          // stable handle for patching this message as the read progresses
   readPending?: boolean;
   readResult?: DocReadResult;
+  /* ID numbers the assistant pointed at, resolved by THIS browser and rendered
+   * below the bubble. See utils/aiReveal.ts for the whole design.
+   *
+   * Persisted nowhere, for the same reason readResult isn't: slimForCloud
+   * strips it before localStorage, and saveChatHistory's field list (db.ts)
+   * never picked it up. Reopening the conversation shows the reply with the
+   * numbers gone — which is right, because the number was never the message,
+   * it was a lookup the browser performed while the user was watching. */
+  reveals?: RevealedValue[];
+  /* True when the model named more numbers than one message will show. Carried
+   * so the UI can SAY the list was cut rather than serve a short one silently. */
+  revealsTruncated?: boolean;
+  /* A vault-wide search the assistant asked for, and what it found.
+   *
+   * Same contract as readDoc and for the same reason: the model contributes a
+   * query string and receives nothing back. The sweep runs in this browser
+   * against text this browser extracted, so the passages below a result have
+   * never been anywhere a model could read them.
+   *
+   * Never persisted — slimForCloud strips all four fields. The passages are a
+   * lookup performed while the user watched, not part of the conversation, and
+   * writing lease text into a history that gets replayed into the chat model
+   * would hand it exactly what this design keeps away from it. Reopening an old
+   * conversation shows the question, not the clauses. */
+  search?: { query: string };
+  searchKey?: string;
+  searchPending?: boolean;
+  searchProgress?: { done: number; total: number };
+  searchResult?: VaultSearchOutcome;
+  searchError?: string;
   readError?: string;
   applied?: boolean;
   image?: string;             // legacy single dataUrl preview — kept for messages persisted before multi-attach
@@ -262,6 +309,8 @@ interface ChatMessage {
   sourceImage?: Attachment;   // legacy single source — kept for messages persisted before multi-attach
   sourceImages?: Attachment[]; // carried on the assistant message so 'document' edits can file the right scan
   warnings?: string[];        // client-side safety-net notices (e.g. a likely-missed passport record) — display only, never persisted server-side
+  /** Edits dropped because applying them would have changed nothing (see utils/aiNoOp) — reassurance, not a warning; display only. */
+  alreadySaved?: string[];
   undo?: UndoRecord[];        // ids of the records THIS apply created (captured at Apply time) — lets "Undo" delete exactly them and flip the card back to un-applied
 }
 
@@ -276,6 +325,24 @@ interface ChatMessage {
  * The honest claim is only ever about what the APP is doing — searching a named
  * file for a named phrase — and about whose words the answer will be.
  */
+/**
+ * The bubble shown while every document is being swept, and the one after.
+ *
+ * Written here for the same reason readingLine is: the model reliably opens
+ * with what it cannot do, and "I can't see inside your documents" is a refusal
+ * of the exact thing happening on screen. Both lines claim only what the APP is
+ * doing — searching filed documents for a phrase — and nothing whatsoever about
+ * what is in them. The result card underneath is the only thing that says what
+ * was found, and it says it in the documents' own words.
+ */
+function searchingLine(q: string): string {
+  return `Searching your filed documents for “${q}” — you'll see the documents' own wording, not mine.`;
+}
+
+function searchDoneLine(q: string): string {
+  return `Searched your filed documents for “${q}”. Here's what came up, in their own wording.`;
+}
+
 function readingLine(readDoc: { name: string; question: string }): string {
   const q = (readDoc.question || '').trim();
   return q
@@ -616,7 +683,153 @@ interface Props {
   onDraftApplied?: () => void;
 }
 
-function slimMembers(members: FamilyMember[]) {
+/**
+ * One matching passage, with the query's words marked.
+ *
+ * The marks are offsets docSearch computed against the very string it is
+ * slicing, so this renders them positionally rather than searching the text
+ * again. Re-finding the words here would be a second, independent matcher that
+ * could disagree with the one that ranked the document — and a highlight that
+ * lands on the wrong word quietly undermines the only promise this feature
+ * makes, which is that these are the document's words and not ours.
+ */
+function MarkedSnippet({ text, marks }: { text: string; marks: [number, number][] }) {
+  if (!marks.length) return <>{text}</>;
+  const out: React.ReactNode[] = [];
+  let at = 0;
+  marks.forEach(([a, b], i) => {
+    if (a > at) out.push(text.slice(at, a));
+    out.push(<mark key={i} className="bg-honey-200 text-ink-900 rounded px-0.5">{text.slice(a, b)}</mark>);
+    at = b;
+  });
+  if (at < text.length) out.push(text.slice(at));
+  return <>{out}</>;
+}
+
+/**
+ * What a vault-wide search found, under the message that asked for it.
+ *
+ * Three things share this card, and the third is the one that earns it:
+ *
+ *  1. the ranked documents, each with the passages that matched, verbatim;
+ *  2. a way into the full reader for any of them, because a keyword match is a
+ *     signpost and the reader is the thing that actually reads a document;
+ *  3. THE ACCOUNTING. How many documents were searched, how many are scans with
+ *     no text layer, how many failed to load, how many are out of bounds. This
+ *     is not a footnote. "Nothing found" is unreadable without it — a family
+ *     whose six most relevant papers are phone photographs would otherwise be
+ *     told, in effect, that their vault does not contain what it plainly does.
+ */
+function VaultSearchCard({
+  msg, onOpen,
+}: {
+  msg: ChatMessage;
+  onOpen: (target: { id: string; name: string; question: string }) => void;
+}) {
+  const query = msg.search?.query || '';
+
+  if (msg.searchPending) {
+    const p = msg.searchProgress;
+    return (
+      <div className="rounded-2xl border border-ink-200 bg-white/70 px-3 py-3 text-[13px] text-ink-600 flex items-center gap-2">
+        <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+        <span className="min-w-0 truncate">
+          {p && p.total > 1
+            /* The count is named because the first search on a device reads
+             * every document, and a spinner with no number attached to it is
+             * indistinguishable from one that has hung. */
+            ? `Looking through your documents — ${p.done} of ${p.total}…`
+            : 'Looking through your documents…'}
+        </span>
+      </div>
+    );
+  }
+
+  if (msg.searchError) {
+    return (
+      <div className="rounded-2xl border border-ink-200 bg-white/70 px-3 py-3 text-[13px] text-ink-600">
+        {msg.searchError}
+      </div>
+    );
+  }
+
+  const r = msg.searchResult;
+  if (!r) return null;
+  const coverage = coverageLine(r);
+
+  return (
+    <div className="rounded-2xl border border-ink-200 bg-white/70 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-ink-100 text-[11.5px] font-semibold uppercase tracking-wide text-ink-600">
+        <Search className="w-3.5 h-3.5 shrink-0" />
+        <span className="flex-1 min-w-0 truncate">
+          {r.hits.length
+            ? `${r.hits.length} document${r.hits.length === 1 ? '' : 's'} mention “${query}”`
+            : `Nothing found for “${query}”`}
+        </span>
+      </div>
+
+      {r.hits.length > 0 && (
+        <ul className="divide-y divide-ink-100">
+          {r.hits.map((h) => (
+            <li key={h.docId} className="px-3 py-2.5 space-y-1.5">
+              <div className="flex items-start gap-2">
+                <FileText className="w-3.5 h-3.5 shrink-0 mt-0.5 text-ink-400" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-ink-800 break-words">{h.name}</div>
+                  <div className="text-[11.5px] text-ink-500">{h.category}</div>
+                </div>
+              </div>
+
+              {h.snippets.map((sn, i) => (
+                <blockquote
+                  key={i}
+                  className="ml-5 border-l-2 border-ink-200 pl-2 text-[12.5px] leading-relaxed text-ink-700"
+                >
+                  <span className="text-[11px] text-ink-400 mr-1">p.{sn.page}</span>
+                  …<MarkedSnippet text={sn.text} marks={sn.marks} />…
+                </blockquote>
+              ))}
+
+              {/* A name-only hit says so. Without this line a scan that matched
+                * its filename and quoted nothing looks like a document whose
+                * contents were searched and found to say very little. */}
+              {h.snippets.length === 0 && (
+                <div className="ml-5 text-[12px] text-ink-500">
+                  {h.matchedName
+                    ? 'Matched on the name — this one is a scan with no readable text, so its contents were not searched.'
+                    : 'No passage to quote from this one.'}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => onOpen({ id: h.docId, name: h.name, question: query })}
+                className="ml-5 text-[12px] font-semibold text-honey-800 underline underline-offset-2 cursor-pointer"
+              >
+                Read this one properly
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="px-3 py-2 border-t border-ink-100 text-[11.5px] text-ink-500 space-y-1">
+        <div>
+          {r.searched === 1 ? 'Searched the text of 1 document.' : `Searched the text of ${r.searched} documents.`}
+          {coverage ? ` ${coverage}` : ''}
+        </div>
+        {!r.hits.length && (
+          /* Offered because the sweep is free. The reader costs an AI action
+           * per document and the user has to pick one; this costs nothing and
+           * they can try as many words as they like. */
+          <div>These are word matches, so a different word often works — try what the document itself would say.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function slimMembers(members: FamilyMember[], revealIndex: RevealIndex) {
   return members.map(m => {
     const { avatarUrl, documents, digitalAccounts, favorites, growthHistory, referrals, nonResidentGuardians, ...rest } = m as any;
     return {
@@ -624,6 +837,18 @@ function slimMembers(members: FamilyMember[]) {
       // (financialAccounts) were riding along inside ...rest — see aiRedact.ts
       // for exactly what goes and what deliberately stays.
       ...redactMember(rest),
+      /* The CATALOGUE of ID numbers on file for this person — {id, label} only,
+       * never a value. redactMember above has just deleted every one of these
+       * numbers from what leaves the browser, and that is unchanged; this is
+       * the list of handles the model may point AT, so it can stop telling
+       * people a number it holds no copy of is unreachable. Resolution happens
+       * back in this browser against a map it built itself. utils/aiReveal.ts
+       * has the full reasoning, including what is deliberately NOT here (bank
+       * accounts, door codes, the free-text "Important Numbers" values).
+       *
+       * Omitted entirely when empty so the model is never shown an empty array
+       * and tempted to explain it. */
+      revealable: revealIndex.handlesByMember.get((m as any).id) || undefined,
       // id is included so the AI can reference a specific member document for delete_record.
       documents: (documents || []).map((d: any) => ({ id: d.id, name: d.name, category: d.category, uploadedAt: d.uploadedAt })),
       // NEVER send stored passwords to the AI; keep only what lets it answer "what accounts does X have"
@@ -649,6 +874,7 @@ function slimMembers(members: FamilyMember[]) {
        * Same shape and same reasoning as the documents line above. */
       referrals: (referrals || []).map((r: any) => ({
         id: r.id, kind: r.kind, date: r.date, reason: r.reason, status: r.status, providerName: r.providerName,
+        appointmentDate: r.appointmentDate, appointmentTime: r.appointmentTime,
       })),
       /* Non-resident guardians: contact fields only, never the attached
        * documents' bytes. These were about to ride along untouched inside
@@ -755,7 +981,29 @@ function buildSuggestions(members: FamilyMember[], isBusinessSpace?: boolean): s
 }
 
 export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAddReferral, isBusinessSpace, onOpenFunAvatar, onGo, onGoView, onUndoEdits, onPrepareExport, initialDraft, onDraftApplied }: Props) {
-  const { uid, familyId } = useFamilyCtx();
+  const { uid, familyId, isAdmin } = useFamilyCtx();
+  const { hidden: hiddenPeople } = useHiddenPeople();
+
+  /* Which copy button last fired, so it can show a tick instead of staying
+   * mute. A copy is invisible by definition — nothing on screen changes, and
+   * the clipboard is somewhere else — so without this the only way to find out
+   * whether the tap registered is to go and paste it somewhere. Keyed by the
+   * handle id (or `all:<message index>` for the whole card) so exactly one
+   * button acknowledges, not every button on every card. */
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyReveal = (key: string, text: string) => {
+    // Fire-and-forget: a clipboard rejection (permission, insecure context)
+    // must not throw out of an onClick. The tick is only shown on success, so
+    // a silent failure stays silent rather than claiming a copy that
+    // did not happen.
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopiedKey(key);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopiedKey(null), 1600);
+    }).catch(() => {});
+  };
+  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current); }, []);
   const { mayRead: mayReadWills } = useWillsAccess();
   const { lang, t } = useT();
   const suggestions = buildSuggestions(members, isBusinessSpace);
@@ -870,6 +1118,63 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     // silently has no effect on the one feature it matters most to.
   }, [isBusinessSpace, lang]);
 
+  /**
+   * Sweep every filed document for a phrase, here in the browser.
+   *
+   * The counterpart to runInlineRead, and deliberately cheaper: that one spends
+   * an AI action per document because the server reads the document properly.
+   * This one spends nothing at all. It fetches each document once, extracts its
+   * text once, caches that on the device, and from then on a search is a
+   * keyword match over data already in hand — which is what makes "try another
+   * word" a reasonable thing to suggest rather than an invoice.
+   *
+   * loadDocuments() runs here, not on the message, so download URLs stay out of
+   * the transcript — same rule as the reader.
+   */
+  const runVaultSearch = useCallback(async (query: string, searchKey: string) => {
+    const patch = (p: Partial<ChatMessage>) =>
+      setMessages((prev) => prev.map((m) => (m.searchKey === searchKey ? { ...m, ...p } : m)));
+
+    try {
+      const docs = await loadDocuments();
+      const candidates = (docs || [])
+        .filter((d) => d && d.id && d.downloadUrl)
+        .map((d) => ({
+          id: d.id,
+          name: d.name,
+          category: d.category,
+          fileType: d.fileType,
+          src: d.downloadUrl,
+          contentHash: d.contentHash,
+          fileSize: d.fileSize,
+          uploadedAt: d.uploadedAt,
+        }));
+
+      if (!candidates.length) {
+        patch({
+          searchPending: false,
+          searchError: "There aren't any documents filed yet, so there was nothing to search. File one from the Documents screen and I can look through it.",
+        });
+        return;
+      }
+
+      const result = await searchVault(familyId || 'local', candidates, query, {
+        isBusinessSpace,
+        // Progress matters more here than in the reader: the first search on a
+        // device extracts every document, which is slow in a way that looks
+        // broken if nothing on screen moves.
+        onProgress: (p) => patch({ searchProgress: { done: p.done, total: p.total } }),
+      });
+      patch({ searchPending: false, searchProgress: undefined, searchResult: result });
+    } catch {
+      patch({
+        searchPending: false,
+        searchProgress: undefined,
+        searchError: "I couldn't search your documents just now — please try again.",
+      });
+    }
+  }, [familyId, isBusinessSpace]);
+
   const openReader = useCallback(async (target: { id: string; name: string; question: string }) => {
     setReaderLoading(target.id);
     try {
@@ -922,7 +1227,16 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   // index → one entry per flagged document edit (editIdx = index within that
   // message's own docEdits array). Apply is held until every flag is resolved.
   const [docDuplicates, setDocDuplicates] = useState<Record<number, DocDuplicateFlag[]>>({});
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorText] = useState<string | null>(null);
+  // Some errors have an obvious next step, and telling someone to "tap the
+  // paperclip" is worse than simply offering the paperclip. `setError` keeps
+  // its old one-argument shape so every existing call site clears the action
+  // for free — only the one that has a next step passes it.
+  const [errorAction, setErrorAction] = useState<'pick' | null>(null);
+  const setError = (msg: string | null, action: 'pick' | null = null) => {
+    setErrorText(msg);
+    setErrorAction(msg ? action : null);
+  };
   // Undo-last-apply: which applied card is asking "Undo this?" for confirmation,
   // and which is mid-undo (so its control shows a spinner and can't double-fire).
   // Which edit cards are expanded, keyed by message index. Undefined means
@@ -932,6 +1246,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   const [undoingIdx, setUndoingIdx] = useState<number | null>(null);
   const [listening, setListening] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  // Read once: the answer cannot change while the panel is open, and it is
+  // used only to choose wording (see utils/platform.ts).
+  const appleTouch = useMemo(() => isAppleTouch(), []);
   // Progressive word-by-word reveal of the latest assistant reply — null means
   // "not streaming" (either no reply yet, or the reveal has finished).
   const [streamWordCount, setStreamWordCount] = useState<number | null>(null);
@@ -961,21 +1279,34 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Grow the composer with what's being typed, up to the max-height its class
-  // sets (past that it scrolls itself). Driven off `input` rather than the
-  // change event so dictation, "ask this about the photo" chips and anything
-  // else that writes into the box resizes it too. The reset to 'auto' is
-  // required: scrollHeight can never report SMALLER than the current fixed
-  // height, so without it the box only ever grows.
+  // Push `input` into the box when something OTHER than typing changed it —
+  // dictation, an "ask this about the photo" chip, clearing on send, restoring
+  // a failed message. The equality guard is what makes this safe: while you
+  // type, state and DOM already agree, so this no-ops and never touches the
+  // caret. Without it every keystroke would rewrite the node and bounce the
+  // caret to the start.
+  //
+  // No autosize maths any more — a contenteditable grows on its own, and its
+  // max-height class takes over from there.
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
+    if ((el.textContent || '') === input) return;
+    el.textContent = input;
+    // Programmatic writes put the caret at position 0, which makes dictating a
+    // second sentence type it backwards into the first. Send it to the end.
+    if (input && document.activeElement === el) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
   }, [input]);
 
   const stopStreaming = () => {
@@ -1089,8 +1420,24 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   const hasUnfiledDocScan = (m: Partial<ChatMessage>) =>
     !m.applied && Array.isArray(m.edits) &&
     m.edits.some((e) => e.kind === 'document' && !e.fileUrl);
+  /* Both storage paths run through here: Firestore (saveChatHistory) and this
+   * device's localStorage cache.
+   *
+   * `reveals` and `revealsTruncated` are destructured off and thrown away, and
+   * that is the ONLY thing standing between a passport number and disk. The
+   * spread below is `...m`, so anything not named here survives — db.ts's
+   * saveChatHistory happens to re-pick an explicit field list and would have
+   * dropped them anyway, but localStorage.setItem takes this output verbatim
+   * and would have written every revealed ID number into the device cache in
+   * plaintext, where nothing ever expires it. Naming them here rather than
+   * relying on the other end's field list is the difference between the
+   * guarantee holding by design and holding by coincidence.
+   *
+   * Same rule and same reason as readResult (patchRead never saves): a value
+   * that is cheap to look up again and expensive to leak is looked up again. */
   const slimForCloud = (msgs: ChatMessage[]) =>
-    msgs.map(({ image, sourceImage, images, sourceImages, ...m }) => {
+    msgs.map(({ image, sourceImage, images, sourceImages, reveals, revealsTruncated,
+               search, searchKey, searchPending, searchProgress, searchResult, searchError, ...m }) => {
       const keepBytes = hasUnfiledDocScan(m);
       return {
         ...m,
@@ -1187,6 +1534,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         name: d.name,
         category: d.category,
         uploadedAt: d.uploadedAt,
+        // Set means it is already on the life timeline — nothing to add there.
+        docDate: d.docDate,
         // "on <name>'s profile" vs "shared vault only (not on anyone's profile)"
         location: ownerName ? `on ${ownerName}'s profile` : 'shared vault only',
       };
@@ -1225,6 +1574,11 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         label: f.label, lastSyncedAt: f.lastSyncedAt, eventCount: f.eventCount, lastError: f.lastError,
       })),
       autoSyncToGoogleEnabled: !!hubSettings?.autoSyncEventsToGoogle,
+      // When this device last brought Google Calendar in (null = never, here).
+      // Lets "when is my appointment?" be answered honestly when the answer
+      // is "your Google Calendar hasn't synced for two weeks" rather than
+      // "you have nothing booked". See utils/googleCalendarImport.ts.
+      googleLastImportedAt: readLastGoogleImport(auth.currentUser?.uid, familyId),
     };
     // assets carry ids so the AI can target one for delete_record/update_record
     // ("that's the same pump, just update the serial number") instead of its
@@ -1299,50 +1653,170 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
     // every other field here it cannot be redacted by naming a key. Strip the
     // value unconditionally rather than send it to Gemini on every turn.
     const infoCtx = info ? { ...info, numbers: redactInfoNumbers(info.numbers) } : info;
-    return { members: slimMembers(members), info: infoCtx, household: redactHousehold(household), finances: redactFinances(finances), timeline, documents, calendar: boundCalendar(events || []), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx, recipes: recipesCtx, familyWords: familyWordsCtx, willsEstate: willsEstateCtx, shopping: shoppingCtx, anniversaries: anniversariesCtx, extendedBirthdays: extendedBirthdaysCtx };
+    // Life timeline: the moments ride through whole, except their photos —
+    // Storage URLs are no use to a text model — which become a count.
+    const timelineCtx = timeline
+      ? { ...timeline, entries: (timeline.entries || []).map(({ photos, ...rest }) => (photos?.length ? { ...rest, photoCount: photos.length } : rest)) }
+      : timeline;
+    /* Built HERE, from the same `members` slimMembers is about to redact, and
+     * returned to send() so the request and the response that answers it are
+     * resolved against one snapshot. Not a ref and not state on purpose: the
+     * value map must not outlive the turn that produced it, and a stale index
+     * would resolve a handle to a number the family has since corrected. */
+    const revealIndex = buildRevealIndex(members, { isAdmin });
+    // "Hide Nora's dates": the records stay, so a direct question still gets
+    // an answer; each of that person's dates carries datesHidden:true and the
+    // server's HIDDEN DATES rule keeps the assistant from bringing them up on
+    // its own. A no-op when nobody is hidden.
+    const context = markHiddenDatesForChat({ members: slimMembers(members, revealIndex), info: infoCtx, household: redactHousehold(household), finances: redactFinances(finances), timeline: timelineCtx, documents, calendar: calendarForChat(boundCalendar(events || []), { business: !!isBusinessSpace }), isBusinessSpace: !!isBusinessSpace, spaceInfo: spaceInfoCtx, expiries, gaps, slips: slips || [], assets: assetsCtx, hubStatus: hubStatusCtx, calendarSync: calendarSyncCtx, recipes: recipesCtx, familyWords: familyWordsCtx, willsEstate: willsEstateCtx, shopping: shoppingCtx, anniversaries: anniversariesCtx, extendedBirthdays: extendedBirthdaysCtx }, hiddenPeople);
+    // `raw` NEVER LEAVES THE DEVICE. It is the same records, unredacted and
+    // unslimmed, kept only so pruneUnchangedEdits can answer "would applying
+    // this edit change anything?" against what is actually stored. The
+    // redacted `context` above cannot answer that: aiRedact strips identity
+    // numbers and bank credentials entirely, so an ID number that is already
+    // on file looks, from the context copy, like a brand-new value — exactly
+    // the edits we most want to recognise as no-ops. Same shape as `context`
+    // on purpose, so findInContext() can walk it unchanged.
+    // Only `context` is put in the request body (see send()).
+    const raw = { members, info, household, finances, timeline, documents, calendar: events || [], slips: slips || [], assets: assets || [] };
+    return { context, raw, revealIndex };
   };
 
-  const onPasteImage = async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of Array.from(items) as DataTransferItem[]) {
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (!file) continue;
-        e.preventDefault();
-        if (attachments.length >= MAX_ATTACHMENTS) {
-          setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`);
-          return;
-        }
-        try {
-          let dataUrl = await fileToDataUrl(file);
-          dataUrl = await compressImageToAvatar(dataUrl, 1600, 0.82);
-          setAttachments(prev => [...prev, { name: `screenshot-${prev.length + 1}.jpg`, mimeType: 'image/jpeg', dataUrl }]);
-          setError(null);
-        } catch {
-          setError("Couldn't read the pasted image.");
-        }
-        return;
+  // ONE INGEST PATH for every way a file can arrive — Attach, camera, paste,
+  // drag-and-drop, the clipboard button. They used to be separate handlers
+  // with separate ideas of what was allowed, and drag-and-drop did not exist
+  // at all, so the same PDF succeeded or vanished depending on which gesture
+  // you happened to reach for. Now the gesture only decides how the File
+  // objects are obtained; what happens to them is decided in exactly one place.
+  const addFiles = async (files: File[]) => {
+    if (!files.length) return;
+    const room = MAX_ATTACHMENTS - attachments.length;
+    if (room <= 0) { setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`); return; }
+
+    const next: Attachment[] = [];
+    const rejected: { name: string; reason: string }[] = [];
+    let overflow = 0;
+
+    for (const file of files) {
+      if (next.length >= room) { overflow++; continue; }
+      const plan = planAttachment(file.name, file.type);
+      if (plan.kind === 'reject') { rejected.push({ name: file.name, reason: plan.reason }); continue; }
+      if (file.size > 20 * 1024 * 1024) {
+        rejected.push({ name: file.name, reason: 'it’s over 20MB — send a smaller scan, or one page at a time.' });
+        continue;
       }
-      // Desktop Ctrl+V of a copied PDF — route it through the same attachment
-      // path with no image compression.
-      if (item.type === 'application/pdf') {
-        const file = item.getAsFile();
-        if (!file) continue;
-        e.preventDefault();
-        if (attachments.length >= MAX_ATTACHMENTS) {
-          setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`);
-          return;
+      try {
+        let dataUrl = await fileToDataUrl(file);
+        let mimeType = plan.mimeType;
+        if (plan.kind === 'image') {
+          // 1200px @ 0.75 is plenty for OCR and keeps the payload small on a
+          // phone. If the browser cannot decode the format — Chrome still
+          // can't read HEIC, which is what every iPhone produces by default —
+          // send the original bytes instead of losing the file: the model
+          // reads HEIC directly even where <canvas> refuses to.
+          try {
+            dataUrl = await compressImageToAvatar(dataUrl, 1200, 0.75);
+            mimeType = 'image/jpeg';
+          } catch { /* keep the original bytes and their real type */ }
         }
-        try {
-          const dataUrl = await fileToDataUrl(file);
-          setAttachments(prev => [...prev, { name: file.name || `clipboard-${prev.length + 1}.pdf`, mimeType: 'application/pdf', dataUrl }]);
-          setError(null);
-        } catch {
-          setError("Couldn't read the pasted PDF.");
-        }
-        return;
+        next.push({ name: file.name || `attachment-${attachments.length + next.length + 1}`, mimeType, dataUrl });
+      } catch {
+        rejected.push({ name: file.name, reason: 'it couldn’t be read — try attaching it again.' });
       }
+    }
+
+    if (next.length) setAttachments(prev => [...prev, ...next]);
+
+    const notes: string[] = [];
+    if (rejected.length) notes.push(rejectionMessage(rejected));
+    if (overflow) notes.push(`You can attach up to ${MAX_ATTACHMENTS} files at once — ${overflow === 1 ? 'one was' : `${overflow} were`} left out.`);
+    setError(notes.length ? notes.join(' ') : null);
+  };
+
+  const onPasteFiles = async (e: React.ClipboardEvent) => {
+    const cd = e.clipboardData;
+    if (!cd) return;
+
+    // BOTH lists, because the browsers disagree about which one they fill.
+    // Safari — iPad included — populates clipboardData.files for a pasted
+    // image while items enumerates as empty, so reading items alone made
+    // paste look dead on exactly the device this was reported from. Chrome
+    // does the opposite for some sources. Collect from each and de-duplicate
+    // on name+size+type, which is as much identity as a File exposes.
+    const seen = new Set<string>();
+    const collect = (f: File | null): File | null => {
+      if (!f) return null;
+      const key = `${f.name}|${f.size}|${f.type}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return f;
+    };
+    const files = [
+      ...(Array.from(cd.items || []) as DataTransferItem[])
+        .filter(it => it.kind === 'file')
+        .map(it => collect(it.getAsFile())),
+      ...(Array.from(cd.files || []) as File[]).map(f => collect(f)),
+    ].filter((f): f is File => !!f);
+
+    if (files.length) {
+      // BEFORE any await. preventDefault only counts while the event is still
+      // being dispatched, and naming the files below needs to read their bytes.
+      e.preventDefault();
+      // A pasted screenshot has no filename at all. Give it one before it
+      // reaches addFiles so the attachment chip, the chat bubble and the filed
+      // document don't all end up called "attachment-1" — and when there is no
+      // type either, read the first bytes rather than assuming PNG, or a PDF
+      // gets filed as a picture and quietly mangled.
+      const named = await Promise.all(files.map(async (f, i) => {
+        if (f.name) return f;
+        const sniffed = f.type ? null : await sniffFileType(f);
+        const type = sniffed?.mime || f.type;
+        const ext = sniffed?.ext || f.type.split('/')[1] || 'png';
+        return new File([f], `pasted-${i + 1}.${ext}`, { type });
+      }));
+      await addFiles(named);
+      return;
+    }
+
+    // No file on the clipboard. Before letting the paste through, catch the
+    // one case that looks broken: copying a file in Finder or Explorer puts
+    // only its LOCATION on the clipboard, never its contents, so pasting types
+    // a path into the message box and the document never arrives. Nothing is
+    // wrong with the app, but nothing the user wanted happened either — so say
+    // which two gestures do work rather than leaving a path sitting in the
+    // box. Anything that isn't a bare path is ordinary text and is pasted.
+    const pastedText = cd.getData('text/plain') || '';
+    if (looksLikeFilePath(pastedText)) {
+      e.preventDefault();
+      setError(copiedNameOnlyAdvice(isAppleTouch()));
+      return;
+    }
+
+    // Ordinary text into a RICH box. Left to itself the browser would paste
+    // the source's markup — fonts, colours, links, whole table structures from
+    // a web page — into a composer that sends plain text, so what you saw and
+    // what got sent would differ. Insert the plain-text flavour by hand.
+    // execCommand is deprecated and still the only insertion that survives in
+    // the undo stack and fires `input` for React to pick up.
+    if (pastedText) {
+      e.preventDefault();
+      document.execCommand('insertText', false, pastedText);
+      return;
+    }
+
+    // Nothing at all: no file, no text, no types. The paste happened — this
+    // handler only runs because it did — and the browser handed over an empty
+    // DataTransfer.
+    //
+    // DO NOT NAME A CAUSE HERE. The previous wording blamed an in-app browser,
+    // which is one cause of this and was the wrong one for the person reading
+    // it (a home-screen PWA). iOS withholding a document copied in Files is
+    // another; a clipboard that really was empty is a third; and this code
+    // cannot tell them apart, because the whole symptom is that nothing
+    // arrived to inspect. Say what happened, offer the route that always
+    // works, and let the button do the explaining.
+    if (!pastedText && !(cd.types || []).length) {
+      setError(emptyPasteAdvice(isAppleTouch()), 'pick');
     }
   };
 
@@ -1356,37 +1830,25 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       setError('Pasting from the clipboard is not supported on this device — use Attach instead.');
       return;
     }
-    if (attachments.length >= MAX_ATTACHMENTS) {
-      setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`);
-      return;
-    }
     try {
       const clipItems = await navigator.clipboard.read();
-      let added = 0;
+      const files: File[] = [];
       for (const clipItem of clipItems) {
-        if (attachments.length + added >= MAX_ATTACHMENTS) break;
-        const pdfType = clipItem.types.find(ty => ty === 'application/pdf');
-        const imageType = clipItem.types.find(ty => ty.startsWith('image/'));
-        if (pdfType) {
-          const blob = await clipItem.getType(pdfType);
-          const file = new File([blob], `clipboard-${Date.now()}.pdf`, { type: 'application/pdf' });
-          const dataUrl = await fileToDataUrl(file);
-          setAttachments(prev => [...prev, { name: file.name, mimeType: 'application/pdf', dataUrl }]);
-          added++;
-        } else if (imageType) {
-          const blob = await clipItem.getType(imageType);
-          const file = new File([blob], `clipboard-${Date.now()}.png`, { type: imageType });
-          let dataUrl = await fileToDataUrl(file);
-          dataUrl = await compressImageToAvatar(dataUrl, 1600, 0.82);
-          setAttachments(prev => [...prev, { name: `pasted-${prev.length + 1}.jpg`, mimeType: 'image/jpeg', dataUrl }]);
-          added++;
-        }
+        // Prefer a real document over a preview image: some apps put BOTH a
+        // PDF and a rendered thumbnail of it on the clipboard, and the
+        // thumbnail is the useless half.
+        const type = clipItem.types.find(ty => ty === 'application/pdf')
+          || clipItem.types.find(ty => ty.startsWith('image/'));
+        if (!type) continue;
+        const blob = await clipItem.getType(type);
+        const ext = type === 'application/pdf' ? 'pdf' : (type.split('/')[1] || 'png');
+        files.push(new File([blob], `clipboard-${files.length + 1}.${ext}`, { type }));
       }
-      if (added === 0) {
-        setError('No image or PDF found on the clipboard — copy one first, then tap Paste.');
-      } else {
-        setError(null);
+      if (!files.length) {
+        setError(emptyClipboardAdvice(isAppleTouch()));
+        return;
       }
+      await addFiles(files);
     } catch (err) {
       const name = (err && typeof err === 'object' && 'name' in err) ? (err as { name?: string }).name : undefined;
       if (name === 'NotAllowedError' || name === 'SecurityError') {
@@ -1400,33 +1862,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = '';
-    if (!files.length) return;
-
-    const room = MAX_ATTACHMENTS - attachments.length;
-    if (room <= 0) { setError(`You can attach up to ${MAX_ATTACHMENTS} files at once.`); return; }
-    const toProcess = files.slice(0, room);
-    if (files.length > room) setError(`You can attach up to ${MAX_ATTACHMENTS} files at once — added the first ${room}.`);
-    else setError(null);
-
-    const next: Attachment[] = [];
-    for (const file of toProcess) {
-      if (file.size > 20 * 1024 * 1024) { setError('One of those files is over 20MB — please use a smaller scan.'); continue; }
-      try {
-        let dataUrl = await fileToDataUrl(file);
-        let mimeType = file.type || 'application/octet-stream';
-        // Shrink photos before sending — a raw phone photo is too big for the
-        // request and slows the scan; 1600px is plenty for OCR. PDFs pass through.
-        if (mimeType.startsWith('image/')) {
-          // 1200px @ 0.75 is plenty for OCR and keeps the payload small on mobile
-          dataUrl = await compressImageToAvatar(dataUrl, 1200, 0.75);
-          mimeType = 'image/jpeg';
-        }
-        next.push({ name: file.name, mimeType, dataUrl });
-      } catch {
-        setError("Couldn't read one of those files.");
-      }
-    }
-    if (next.length) setAttachments(prev => [...prev, ...next]);
+    await addFiles(files);
   };
 
   const onScanResult = (file: ScannedFile) => {
@@ -1502,7 +1938,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       const user = auth.currentUser;
       if (!user) throw new Error('Please sign in first.');
       const token = await user.getIdToken();
-      const context = await buildContext();
+      const { context, raw, revealIndex } = await buildContext();
 
       const body: any = { message: msg, context, history, lang };
       if (atts.length) body.images = atts.map(a => ({ mimeType: a.mimeType, data: a.dataUrl.split(',')[1] }));
@@ -1595,6 +2031,41 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // data (see utils/aiDestructive) and ignores this label. Uses the context
       // we just built, so no extra load. Mutates the freshly-created edit objects.
       annotateDestructiveEdits(edits, context);
+      // DROP THE EDITS THAT WOULD CHANGE NOTHING.
+      //
+      // Reading a document makes the model re-state every fact it recognises,
+      // including the ones already on file — so a consent letter that names a
+      // passport number comes back as an update_record setting that passport
+      // to the number it already has. Applying it is harmless; SHOWING it is
+      // not. update_record counts as destructive, so the Apply card renders
+      // expanded and refuses to collapse, and a scan contributing two genuinely
+      // new facts arrives as a nine-row batch with four rewrite-looking rows in
+      // it. Train someone to skim past those and you have trained them to skim
+      // past a real deletion — the noise attacks the safeguard directly.
+      //
+      // Compared against `raw`, never `context`: aiRedact strips identity
+      // numbers out of what the model is sent, so the context copy would report
+      // every already-saved ID number as a change. The lookups mirror the exact
+      // merges apply performs, and every uncertain case (unknown field, missing
+      // record, empty patch) keeps the edit — see utils/aiNoOp.ts for why that
+      // asymmetry is what makes this safe to do without asking.
+      const { edits: liveEdits, skipped: alreadySaved } = pruneUnchangedEdits(edits, {
+        resolveMember: (name: string) => (resolveMemberByName(name) as unknown as Record<string, unknown>) || null,
+        applyMemberField: (m, field, value) =>
+          (applyMemberFieldEdit(m as unknown as FamilyMember, field, value) as unknown as Record<string, unknown>) || null,
+        resolveUpdate: (targetKind, id, fields) => {
+          const found = findInContext(raw, targetKind, id);
+          if (!found) return null;
+          const patch = buildPatch(targetKind, fields);
+          if (!Object.keys(patch).length) return null;
+          return { record: found.record, patch, phrase: recordPhrase(targetKind, found.record) };
+        },
+      });
+      // NOTE the next block reads `edits`, NOT `liveEdits`, and must keep doing
+      // so: it warns when a passport scan arrived with no structured passport
+      // record beside it. A passport that is already on file is pruned above,
+      // and treating that absence as "nothing was extracted" would fire the
+      // warning on precisely the families who have nothing to fix.
       // Safety net for a known failure mode: the model sometimes files a passport
       // scan as a plain document without the matching structured passport edit
       // (most often when it's photographed alongside other images). We can't
@@ -1613,7 +2084,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // the model is never trusted with one. A name that matches nobody is
       // dropped rather than guessed at; if that empties the list the request is
       // discarded entirely, because an empty member list legitimately means
-      // "the whole household" and quietly turning "Sophie's records" into
+      // "the whole household" and quietly turning "Mia's records" into
       // everyone's would be the worst possible failure here.
       let exportRequest: PackRequest | undefined;
       const rawExport = data.export;
@@ -1643,6 +2114,26 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
           }
         : undefined;
 
+      /* A vault-wide sweep. Already length-capped and space-checked server-side
+       * (sanitizeSearch); re-checked for shape only, because a malformed payload
+       * should drop the search rather than throw. Unlike readDoc there is no id
+       * to resolve — the query names nothing, it is just words to look for. */
+      const rawSearch = (data as { search?: { query?: unknown } }).search;
+      const searchReq = rawSearch && typeof rawSearch.query === 'string' && rawSearch.query.trim()
+        ? { query: rawSearch.query.trim() }
+        : undefined;
+
+      /* The model named some ID numbers it thinks were asked for. It has never
+       * seen one — only the {id,label} catalogue slimMembers put in `revealable`
+       * — so this is a pointer, and the resolution is a lookup in a map THIS
+       * browser built one request ago. An id that was never offered finds
+       * nothing and is dropped, the same way the document reader drops an
+       * unoffered document id. utils/aiReveal.ts carries the full design. */
+      const { revealed, truncated: revealsTruncated } = resolveReveals(
+        (data as { reveals?: unknown }).reveals,
+        revealIndex,
+      );
+
       const assistantMsg: ChatMessage = {
         role: 'assistant',
         // WHEN A DOCUMENT IS BEING READ, THE MODEL'S PROSE IS THROWN AWAY.
@@ -1661,14 +2152,32 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         // stronger legal position — with the reply replaced, there is now NO
         // path by which model prose about a document's contents can reach the
         // screen, rather than a rule asking it not to.
-        text: readDoc ? readingLine(readDoc) : (data.reply || '…'),
+        // The model's prose is replaced for a search for exactly the reason it
+        // is replaced for a read: told it cannot see document contents, it
+        // opens by saying so, and that sentence lands directly above the
+        // passages it claims not to have. See readingLine.
+        text: readDoc ? readingLine(readDoc)
+          : searchReq ? searchingLine(searchReq.query)
+          : (data.reply || '…'),
         readKey: readDoc ? `${readDoc.id}::${performance.now()}` : undefined,
         readPending: !!readDoc,
-        edits: edits.length ? edits : undefined,
+        search: searchReq,
+        searchKey: searchReq ? `s::${performance.now()}` : undefined,
+        searchPending: !!searchReq,
+        edits: liveEdits.length ? liveEdits : undefined,
         exportRequest,
         readDoc,
         sourceImages: persistedAtts.length ? persistedAtts : undefined,
         warnings: warnings.length ? warnings : undefined,
+        // Reported, never silently swallowed. "Everything in that letter was
+        // already saved" is a real answer about a document — and a batch that
+        // quietly came back shorter than the model announced would be its own
+        // small mystery.
+        alreadySaved: alreadySaved.length ? alreadySaved.map(s => s.reason) : undefined,
+        // Never persisted — see the field's doc comment on ChatMessage, and
+        // slimForCloud, which strips it on the way to both storage paths.
+        reveals: revealed.length ? revealed : undefined,
+        revealsTruncated: revealsTruncated || undefined,
       };
       // Patch the earlier optimistic user message's images to the uploaded
       // Storage URLs too, so both sides of this exchange survive a reload.
@@ -1702,6 +2211,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // the question actually being answered, and readDoc is only ever set for
       // questions genuinely about a document's contents.
       if (readDoc && assistantMsg.readKey) void runInlineRead(readDoc, assistantMsg.readKey);
+      // Same principle, no AI cost: the person has said what they are looking
+      // for, so look for it rather than offering a button that would.
+      if (searchReq && assistantMsg.searchKey) void runVaultSearch(searchReq.query, assistantMsg.searchKey);
       // A failed attachment upload used to only console.error, so the user found
       // out much later — when Apply mysteriously couldn't file the document.
       // Say it now, while the photo is still on their screen to re-send.
@@ -1749,8 +2261,8 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   // forgets to tag "member" — so a passport/ID reliably lands on the person's
   // OWN Documents tab, not just the shared vault. Tries, in order: the AI's own
   // tag → a member named in the document title → (for personal docs) the single
-  // person referenced elsewhere in the same batch (e.g. a passport edit for Sophie
-  // means this Identity scan is Sophie's).
+  // person referenced elsewhere in the same batch (e.g. a passport edit for Mia
+  // means this Identity scan is Mia's).
   const inferDocOwner = (
     doc: Extract<AiEdit, { kind: 'document' }>,
     batch: AiEdit[],
@@ -1825,7 +2337,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
 
   // File the scanned image(s) for any 'document' edits: always into the shared
   // Document Vault, AND into the named member's own Documents tab when the AI
-  // says who the document belongs to (e.g. Sophie's passport). When multiple
+  // says who the document belongs to (e.g. Mia's passport). When multiple
   // images were attached in one turn, each 'document' edit's imageIndex picks
   // which one it came from (untagged/out-of-range edits fall back to the
   // first image, matching the old single-attachment behaviour). `resolutions`
@@ -1924,6 +2436,11 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         // an unowned doc and couldn't tell it apart from the person's profile.
         memberId: owner?.id,
         storagePath, downloadUrl, uploadedAt: today, uploadedBy: by, contentHash: hash || undefined,
+        // The date printed on it is what puts it on the life timeline. A
+        // referral's own date is the same fact, so it stands in when the model
+        // gave only that; the timeline shows the referral row and hides this
+        // copy, since they share a Storage object.
+        docDate: [e.documentDate, e.referralDate].find(d => /^\d{4}-\d{2}-\d{2}$/.test(d || '')),
       });
 
       // Also file on the member's profile when we could identify the owner. Store
@@ -1956,13 +2473,22 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
          * record carries its own date and kind, which is what makes a run of lab
          * results a history rather than a pile. */
         if (e.referralKind) {
+          // A letter that states the appointment ("Termin am 22.09. um 10:30")
+          // files as BOOKED with that date, which is what puts it on the
+          // calendar grid (utils/referralAppointment.ts). Before 2026-09-13
+          // every scanned referral filed 'open' with no appointment at all,
+          // however plainly the letter gave one.
+          const appointmentDate = isIsoDate(e.appointmentDate) ? e.appointmentDate : undefined;
+          const appointmentTime = appointmentDate && isHhMm(e.appointmentTime) ? e.appointmentTime : undefined;
           const referral: ReferralRecord = {
             id: 'ref-' + id,
             kind: e.referralKind,
             date: /^\d{4}-\d{2}-\d{2}$/.test(e.referralDate || '') ? e.referralDate : undefined,
             providerName: e.referralProvider?.trim() || undefined,
             reason: e.referralReason?.trim() || undefined,
-            status: 'open',
+            status: referralStatusForAppointment('open', appointmentDate),
+            ...(appointmentDate ? { appointmentDate } : {}),
+            ...(appointmentTime ? { appointmentTime } : {}),
             fileName,
             fileType,
             fileSize,
@@ -2140,7 +2666,13 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // Dashboard), and fileScans returns the vault-document ids. Merged onto the
       // message so a later Undo can delete exactly these and nothing else.
       const undo: UndoRecord[] = [];
-      const dataEdits = resolvedEdits.filter(e => e.kind !== 'document');
+      // trip_attach references a vault document BY NAME — one being filed by
+      // fileScans in this very batch, as often as not ("here's the consent
+      // letter, attach it to the travel pack"). So it runs in a SECOND
+      // onApplyEdits pass, after the scan exists in the vault; everything else
+      // keeps its original order.
+      const dataEdits = resolvedEdits.filter(e => e.kind !== 'document' && e.kind !== 'trip_attach');
+      const tripAttachEdits = resolvedEdits.filter(e => e.kind === 'trip_attach');
       if (dataEdits.length) {
         const u = await onApplyEdits(dataEdits);
         if (Array.isArray(u)) undo.push(...u);
@@ -2155,6 +2687,12 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         // file the scan. Don't fail silently: the data edits applied, but the
         // user must re-attach the photo to store the document itself.
         setError('Your other changes were saved, but the photo itself is no longer in this chat (it was cleared when the app reloaded). Please re-attach the photo and send it again to file the document.');
+      }
+      // Second pass: trip_attach runs AFTER fileScans so a document filed in
+      // this very batch is already in the vault when we look it up by name.
+      if (tripAttachEdits.length) {
+        const u = await onApplyEdits(tripAttachEdits);
+        if (Array.isArray(u)) undo.push(...u);
       }
       // Persist the applied flag to cloud so the card stays "Applied" after a
       // reload or on another device — otherwise the Apply button reappears.
@@ -2278,7 +2816,46 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   };
 
   return (
-    <div className="overflow-hidden h-full flex flex-col font-sans">
+    // DRAG-AND-DROP LANDS ON THE WHOLE PANEL, not a small dashed square in the
+    // composer. Dropping a file is an aimed gesture and a 40px target invites
+    // a miss — and a missed drop doesn't do nothing, it makes the BROWSER
+    // navigate away to the file, losing the conversation. The generous target
+    // is a safety feature, not a nicety.
+    <div
+      className="overflow-hidden h-full flex flex-col font-sans relative"
+      onDragOver={(e) => {
+        // Only claim the event for actual files. Without this the panel also
+        // swallows text selections dragged around inside it.
+        if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+        e.preventDefault();
+        if (!loading) setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        // dragleave fires for every child crossed on the way in, so a plain
+        // "false" here makes the overlay strobe as the pointer moves. Only a
+        // leave that exits the panel entirely counts.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+      }}
+      onDrop={(e) => {
+        if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+        e.preventDefault();
+        setDragOver(false);
+        if (loading) return;
+        void addFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {dragOver && (
+        // pointer-events-none so the drop still lands on the panel underneath
+        // — an overlay that swallows its own drop is the classic version of
+        // this bug.
+        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center bg-cream-50/95 border-2 border-dashed border-clay-400">
+          <div className="text-center px-6">
+            <Paperclip className="w-7 h-7 mx-auto text-clay-600" />
+            <p className="mt-2 font-display text-lg font-semibold text-ink-900">Drop it here</p>
+            <p className="text-[13px] text-ink-500 font-medium">PDFs, photos and text files</p>
+          </div>
+        </div>
+      )}
       {/* Header — sits on the panel's .glass background, so it's tinted, not opaque */}
       <div className="p-4 sm:p-5 border-b border-cream-200 bg-cream-50/70 flex items-center gap-3">
         <div
@@ -2293,8 +2870,10 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
           {/* Honest usage indicator — shown quietly, never as a nag. Numbers come
               straight from the server (loadAiUsage); the client never computes
               the limit itself. Hidden entirely on the paid plan's effectively-
-              unlimited ceiling and while still loading, so it never distracts. */}
-          {aiUsage && aiUsage.plan === 'free' && (
+              unlimited ceiling and while still loading, so it never distracts.
+              SHOWN on a trial: 100 a month is a real ceiling somebody can hit,
+              and finding out by being stopped is worse than seeing the count. */}
+          {aiUsage && aiUsage.plan !== 'paid' && (
             <p className="text-[11px] text-ink-400 truncate mt-0.5" title={`Resets on ${aiUsage.resetsOn}`}>
               {aiUsage.used} of {aiUsage.limit} AI actions used this month
             </p>
@@ -2485,6 +3064,101 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
               >
                 {shownText}
               </div>
+
+              {/* ID numbers, looked up by this browser — never by the model.
+                *
+                * Rendered as its own card rather than inside the bubble, and
+                * that separation is the feature, not styling: the bubble's
+                * text is model output that gets persisted and replayed, while
+                * these values are a local lookup that is thrown away when the
+                * panel closes. Keeping them out of `text` is what makes that
+                * true — see slimForCloud. It also means the app, not the
+                * model, is the thing that printed the number, so there is no
+                * path by which a hallucinated digit reaches the screen. */}
+              {m.reveals && m.reveals.length > 0 && (
+                <div className="rounded-2xl border border-honey-300 bg-honey-50 overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-honey-200 text-[11.5px] font-semibold uppercase tracking-wide text-honey-900">
+                    <IdCard className="w-3.5 h-3.5 shrink-0" />
+                    <span className="flex-1 min-w-0 truncate">{t.ai_reveal_heading}</span>
+                    {/* COPY EVERYTHING, as a second control beside the per-row
+                      * copies rather than instead of them. The row copy gives
+                      * the bare number, which is what a form field wants; this
+                      * gives names AND numbers, which is what you paste into a
+                      * message.
+                      *
+                      * v342 drew this ONLY for more than one value, reasoning
+                      * that on a single number it would be a second button
+                      * doing nearly the first one's job. That was wrong, and
+                      * the single case is where it was worst: the row button
+                      * copies "2110056029083" and nothing else, so a card
+                      * showing one number had NO way at all to copy the name
+                      * with it. The two buttons differ by CONTENT, not by
+                      * quantity — bare value for a form field, labelled for a
+                      * message — and that difference is exactly as useful at
+                      * one value as at four. Always drawn; only the word on it
+                      * changes, because "Copy all" is the wrong phrase for a
+                      * list of one. */}
+                    <button
+                      type="button"
+                      onClick={() => copyReveal(`all:${i}`, formatRevealsForCopy(m.reveals!))}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-honey-300 bg-white/70 text-honey-900 text-[11px] font-semibold normal-case tracking-normal cursor-pointer hover:bg-honey-100"
+                    >
+                      {copiedKey === `all:${i}`
+                        ? <><Check className="w-3 h-3" /> {t.ai_reveal_copied}</>
+                        : <><Copy className="w-3 h-3" /> {m.reveals.length > 1 ? t.ai_reveal_copy_all : t.ai_reveal_copy_named}</>}
+                    </button>
+                  </div>
+                  {/* Grouped by person: the name is a heading, not a prefix
+                    * repeated on every row. Two rows both reading "Ben
+                    * Clark's national ID nu…" is what the flat list produced on
+                    * a phone — the person's name eating the width, and the part
+                    * that says WHICH number falling off the end. */}
+                  <ul className="divide-y divide-honey-200">
+                    {groupReveals(m.reveals).map((g) => (
+                      <li key={g.memberName} className="px-3 py-2.5">
+                        <div className="text-[11.5px] font-semibold text-honey-900 mb-1">{g.memberName}</div>
+                        <div className="space-y-1.5">
+                          {g.items.map((r) => (
+                            <div key={r.id} className="flex items-center gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="text-[11.5px] text-ink-500">{r.field}</div>
+                                {/* tabular-nums so a long ID stays readable as
+                                  * digits rather than a word, and break-all so
+                                  * it wraps inside the card instead of
+                                  * widening the panel. */}
+                                <div className="text-[14px] font-semibold text-ink-800 tabular-nums break-all">{r.value}</div>
+                              </div>
+                              <button
+                                type="button"
+                                aria-label={`${t.ai_reveal_copy}: ${r.label}`}
+                                onClick={() => copyReveal(r.id, r.value)}
+                                className="shrink-0 p-2 rounded-xl border border-honey-300 bg-white/70 text-honey-900 cursor-pointer hover:bg-honey-100"
+                              >
+                                {copiedKey === r.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {/* A cut list SAYS it was cut. A short answer that looks
+                    * complete is worse than no answer for this kind of data. */}
+                  {m.revealsTruncated && (
+                    <div className="px-3 py-2 border-t border-honey-200 text-[11.5px] text-ink-500">
+                      {t.ai_reveal_truncated.replace('{n}', String(MAX_REVEALS_PER_MESSAGE))}
+                    </div>
+                  )}
+                  <div className="px-3 py-2 border-t border-honey-200 text-[11.5px] text-ink-500">
+                    {t.ai_reveal_note}
+                  </div>
+                </div>
+              )}
+
+              {/* A vault-wide sweep's results. Rendered from state only — never
+                * from anything persisted, because slimForCloud strips all of
+                * it on the way to storage. */}
+              {m.search && <VaultSearchCard msg={m} onOpen={openReader} />}
 
               {/* The answer itself, in the conversation — no tap required. */}
               {m.readDoc && (
@@ -2724,6 +3398,27 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
                 </div>
               )}
 
+              {/* Already on file. Deliberately NOT styled like m.warnings below:
+                  nothing here needs acting on, and dressing "you're fine" in
+                  the same amber as "check this" is how a family learns to
+                  ignore amber. Quiet, and it collapses itself past three so a
+                  well-filled vault doesn't produce a wall of reassurance. */}
+              {m.alreadySaved && m.alreadySaved.length > 0 && (
+                <details className="rounded-2xl border border-cream-300 bg-cream-100/70 px-3 py-2" open={m.alreadySaved.length <= 3}>
+                  <summary className="text-[12px] font-semibold text-ink-500 cursor-pointer list-none flex items-center gap-1.5">
+                    <Check className="w-3.5 h-3.5 shrink-0" />
+                    {m.alreadySaved.length === 1
+                      ? '1 thing was already saved — left it alone'
+                      : `${m.alreadySaved.length} things were already saved — left them alone`}
+                  </summary>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {m.alreadySaved.map((s, j) => (
+                      <li key={j} className="text-[12px] text-ink-500 pl-5">{s}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
               {m.warnings && m.warnings.length > 0 && (
                 <div className="rounded-2xl border border-honey-200 bg-honey-50 p-3 space-y-1">
                   {m.warnings.map((w, j) => (
@@ -2755,7 +3450,23 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
 
       {/* Input */}
       <div className="p-4 border-t border-cream-200 bg-white/70">
-        {error && <p className="text-[12px] text-rosa-700 mb-2">{error}</p>}
+        {error && (
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <p className="text-[12px] text-rosa-700">{error}</p>
+            {/* The paste failed inside a user gesture, so opening the picker
+                from here is allowed. Offering it beats describing it. */}
+            {errorAction === 'pick' && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-rosa-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-rosa-700 cursor-pointer hover:bg-rosa-50"
+              >
+                <Paperclip className="w-3.5 h-3.5" />
+                Choose the file instead
+              </button>
+            )}
+          </div>
+        )}
 
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -2793,7 +3504,14 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
             nothing competes with the message for width any more, which is also
             what lets it be a growing textarea rather than a single line. */}
         <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="space-y-2">
-          <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple onChange={onPickFile} className="hidden" />
+          {/* No `accept` on iOS/iPadOS. Safari maps accept entries onto UTIs and
+              silently GREYS OUT anything it can't map — on the one platform
+              where this picker is the only reliable way in, a too-clever
+              accept list can hide the very PDF someone is reaching for. The
+              app no longer needs the attribute as a gate: planAttachment
+              refuses an unusable file with a sentence explaining what to do,
+              which is a better outcome than a file that cannot be tapped. */}
+          <input ref={fileRef} type="file" accept={appleTouch ? undefined : ATTACH_ACCEPT} multiple onChange={onPickFile} className="hidden" />
           {/* Separate input from the Attach one, and deliberately NOT `multiple`:
               `capture` is only honoured by mobile browsers on a single-file
               input, and it's what makes the phone open the camera straight away
@@ -2801,21 +3519,43 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
               falls back to a normal picker, which is the sane degradation. */}
           <input ref={photoRef} type="file" accept="image/*" capture="environment" onChange={onPickFile} className="hidden" />
 
-          <textarea
+          {/* A contenteditable, NOT a textarea — and that is the whole reason a
+              PDF can be pasted here at all.
+
+              iOS only puts "Paste" in the hold-callout when the pasteboard
+              holds something the focused field can accept. A plain <textarea>
+              accepts text, so with a PDF copied from Files the option is not
+              offered AT ALL — no error to report, nothing to debug, just a
+              missing menu item. Four releases were spent on the app's own
+              paste handling while the gesture that would have reached it was
+              never available. A rich contenteditable declares it can hold more
+              than text, iOS offers Paste, and the file arrives in
+              DataTransfer.files where onPasteFiles already knows what to do.
+              This is what ChatGPT's composer is, and why the same phone can
+              paste a PDF there.
+
+              Deliberately rich, not contenteditable="plaintext-only": the
+              plain-text variant is a textarea again as far as the pasteboard
+              is concerned. Richness is the point, so the pasted MARKUP is
+              flattened in onPasteFiles instead — see the insertText there. */}
+          <div
             ref={inputRef}
-            rows={1}
-            placeholder={attachments.length > 0 ? 'Add a note, or just send to scan…' : 'Ask or tell me something…'}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onPaste={onPasteImage}
+            contentEditable={!loading}
+            suppressContentEditableWarning
+            role="textbox"
+            aria-multiline="true"
+            aria-label={attachments.length > 0 ? 'Add a note about the attachment' : 'Message'}
+            data-placeholder={attachments.length > 0 ? 'Add a note, or just send to scan…' : 'Ask or tell me something…'}
+            data-empty={input ? undefined : ''}
+            onInput={(e) => setInput(e.currentTarget.textContent || '')}
+            onPaste={onPasteFiles}
             // Enter still sends, as it did when this was an <input> — the
             // habit is worth more than a newline key. Shift+Enter breaks a
             // line for anyone writing something longer.
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); }
             }}
-            disabled={loading}
-            className="field w-full resize-none min-h-[44px] max-h-32 leading-snug"
+            className={`field composer-input w-full min-h-[44px] max-h-32 overflow-y-auto leading-snug whitespace-pre-wrap break-words ${loading ? 'opacity-40' : ''}`}
           />
 
           <div className="flex items-center gap-2">
@@ -2862,12 +3602,21 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
             >
               <ScanLine className="w-4 h-4" />
             </button>
-            {typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.read === 'function' && (
+            {/* ALWAYS rendered, even where navigator.clipboard.read is missing.
+                It used to be feature-detected away, which meant the one device
+                that most needs a paste button — iOS, where a long-press paste
+                does not hand the page an image — could end up with no paste
+                affordance at all and no way to find that out. The handler
+                already explains itself when the API isn't there, and an
+                explanation beats a control that silently isn't. */}
+            {(
               <button
                 type="button"
                 onClick={pasteFromClipboard}
                 disabled={loading || attachments.length >= MAX_ATTACHMENTS}
-                title="Paste a copied image or PDF from your clipboard"
+                title={appleTouch
+                  ? 'Paste a copied photo or screenshot (Safari can’t take files copied from Files — use the paperclip for those)'
+                  : 'Paste a copied image or PDF from your clipboard'}
                 aria-label="Paste from clipboard"
                 className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
               >
@@ -2878,7 +3627,9 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={loading || attachments.length >= MAX_ATTACHMENTS}
-              title={`Attach up to ${MAX_ATTACHMENTS} photos, PDFs or files at once — or paste a screenshot with Ctrl+V / Cmd+V. For Google Drive files, open the file in Drive and use File → Download first.`}
+              title={appleTouch
+                ? `Attach up to ${MAX_ATTACHMENTS} photos, PDFs or files — tap here, then Choose File to reach anything in Files, iCloud Drive or Google Drive.`
+                : `Attach up to ${MAX_ATTACHMENTS} photos, PDFs or files at once — or drag them onto the chat, or paste a screenshot with Ctrl+V / Cmd+V. For Google Drive files, open the file in Drive and use File → Download first.`}
               aria-label="Attach a file"
               className="btn-quiet h-11 w-11 !p-0 shrink-0 disabled:opacity-40"
             >
@@ -2890,10 +3641,19 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
             </button>
           </div>
         </form>
+        {/* The hint is the only guidance under the composer, and it used to
+            read "Paste a screenshot with Ctrl+V" on every device — advice for
+            a keyboard an iPad may not have, pointing at a route iOS Safari
+            does not support for files. On a touch device it names the
+            paperclip instead, which is the one route that always works there.
+            Falls back to the translated string on non-English locales, which
+            keep their own wording. */}
         <p className="text-[11px] text-ink-400 mt-2 text-center">
-          {t.ai_hint.split('Ctrl+V').length > 1
-            ? <>{t.ai_hint.split('Ctrl+V')[0]}<kbd className="px-1 py-0.5 bg-cream-200 rounded text-[10px] font-mono">Ctrl+V</kbd>{t.ai_hint.split('Ctrl+V')[1]}</>
-            : t.ai_hint
+          {lang === 'en'
+            ? composerHint(appleTouch)
+            : t.ai_hint.split('Ctrl+V').length > 1
+              ? <>{t.ai_hint.split('Ctrl+V')[0]}<kbd className="px-1 py-0.5 bg-cream-200 rounded text-[10px] font-mono">Ctrl+V</kbd>{t.ai_hint.split('Ctrl+V')[1]}</>
+              : t.ai_hint
           }
         </p>
       </div>
@@ -2941,8 +3701,9 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'visa') return `Record ${e.permitType || 'visa'} for ${e.country}${e.expiryDate ? `, expires ${e.expiryDate}` : ''} on ${e.member}’s profile`;
   if (e.kind === 'vaccination') return `Record ${e.name}${e.date ? ` (${e.date})` : ''} in ${e.member}’s vaccinations`;
   if (e.kind === 'guardian') return `${e.member}: add non-resident ${(e.relationship === 'Other' ? e.relationshipOther : e.relationship) || 'guardian'} — ${e.name}${e.phone ? ` · ${e.phone}` : ''}`;
-  if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}${e.referralKind ? ` + Referrals & Results (${String(e.referralKind).toLowerCase()}${e.referralDate ? `, ${e.referralDate}` : ''})` : ''}`;
+  if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}${e.referralKind ? ` + Referrals & Results (${String(e.referralKind).toLowerCase()}${e.referralDate ? `, ${e.referralDate}` : ''})` : ''}${e.referralKind && e.appointmentDate ? ` — appointment booked for ${e.appointmentDate}${e.appointmentTime ? ` at ${e.appointmentTime}` : ''}` : ''}${(e.documentDate || e.referralDate) ? ` + Timeline (${e.documentDate || e.referralDate})` : ''}`;
   if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;
+  if (e.kind === 'trip_attach') return `Attach “${e.document}” to the travel pack${e.trip ? ` (${e.trip})` : ''}${e.member ? ` — ${e.member}'s` : ''}`;
   if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
   if (e.kind === 'household_set') return `Set household ${e.field.replace(/([A-Z])/g, ' $1').toLowerCase()}: "${e.value}"`;
   if (e.kind === 'asset') return `Add asset: ${e.name}${e.category ? ` (${e.category})` : ''}`;

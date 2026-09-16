@@ -213,6 +213,81 @@ test('a calendar name with a comma does not break the property', () => {
 });
 
 // --------------------------------------------------------------------------
+// Reminders on important events (VALARM)
+// --------------------------------------------------------------------------
+
+/** The VALARM blocks inside the one VEVENT whose UID starts with `id`. */
+function alarmsFor(ics, id) {
+  const block = ics.split('BEGIN:VEVENT').find((b) => b.includes(`UID:${id}@`)) || '';
+  return block.split('BEGIN:VALARM').slice(1).map((a) => a.split('END:VALARM')[0]);
+}
+
+test('a timed important event is reminded a day and two hours before', () => {
+  const ics = buildPublishedIcs([ev({ id: 'school-play', title: 'School play', time: '16:00', category: 'School', important: true })], { now: NOW });
+  const alarms = alarmsFor(ics, 'school-play');
+  assert.equal(alarms.length, 2);
+  assert.ok(alarms[0].includes('\r\nACTION:DISPLAY\r\n'));
+  assert.ok(alarms[0].includes('\r\nDESCRIPTION:School play\r\n'), 'DISPLAY requires a DESCRIPTION');
+  assert.ok(alarms[0].includes('\r\nTRIGGER:-P1D\r\n'));
+  assert.ok(alarms[1].includes('\r\nTRIGGER:-PT2H\r\n'));
+  // Nested inside the event, not after it: the alarm closes before the event does.
+  assert.match(ics, /END:VALARM\r\nEND:VEVENT/);
+});
+
+test('an all-day important event is reminded once, at 09:00 the day before', () => {
+  const ics = buildPublishedIcs([ev({ id: 'passport', title: 'Passport renewal', category: 'Other', important: true })], { now: NOW });
+  const alarms = alarmsFor(ics, 'passport');
+  assert.equal(alarms.length, 1);
+  assert.ok(alarms[0].includes('\r\nTRIGGER:-PT15H\r\n'), 'midnight minus 15 hours is 09:00 the day before');
+});
+
+test('a medical appointment is reminded without anyone marking it', () => {
+  const ics = buildPublishedIcs([ev({ id: 'dentist', title: 'Dentist — Ben', time: '09:30' })], { now: NOW });
+  assert.equal(alarmsFor(ics, 'dentist').length, 2);
+});
+
+test('CONTROL: an ordinary event gets no reminder', () => {
+  const ics = buildPublishedIcs([ev({ id: 'football', title: 'Football practice', time: '17:00', category: 'Other' })], { now: NOW });
+  assert.equal(alarmsFor(ics, 'football').length, 0);
+  assert.ok(!ics.includes('BEGIN:VALARM'));
+});
+
+test('an appointment the family un-marked gets no reminder', () => {
+  const ics = buildPublishedIcs([ev({ id: 'dentist', title: 'Dentist — Ben', time: '09:30', important: false })], { now: NOW });
+  assert.equal(alarmsFor(ics, 'dentist').length, 0);
+});
+
+test('busy mode never carries a reminder, even on an important event', () => {
+  // An alarm on some slots and not others would say which ones matter.
+  const events = [
+    ev({ id: 'dentist', title: 'Dentist — Ben', time: '09:30' }),
+    ev({ id: 'school-play', title: 'School play', time: '16:00', important: true }),
+  ];
+  const ics = buildPublishedIcs(events, { now: NOW, mode: 'busy' });
+  assert.ok(!ics.includes('BEGIN:VALARM'));
+  assert.ok(!ics.includes('Dentist') && !ics.includes('School play'));
+  // CONTROL: the same events in details mode do get them.
+  assert.ok(buildPublishedIcs(events, { now: NOW }).includes('BEGIN:VALARM'));
+});
+
+test('a business feed reminds only what someone marked by hand', () => {
+  const events = [
+    ev({ id: 'dentist', title: 'Dentist', time: '09:30' }),
+    ev({ id: 'audit', title: 'Tax audit', time: '10:00', category: 'Other', important: true }),
+  ];
+  const ics = buildPublishedIcs(events, { now: NOW, business: true });
+  assert.equal(alarmsFor(ics, 'dentist').length, 0, 'no automatic medical rule in a business space');
+  assert.equal(alarmsFor(ics, 'audit').length, 2);
+});
+
+test('a long reminder text is folded like every other line', () => {
+  const title = 'Kinderärztin — Vorsorgeuntersuchung für Ben, bitte e-card und Impfpass mitnehmen';
+  const ics = buildPublishedIcs([ev({ id: 'long', title, time: '08:00' })], { now: NOW });
+  for (const line of ics.split('\r\n')) assert.ok(Buffer.byteLength(line, 'utf8') <= 75, line);
+  assert.ok(ics.split('\r\n ').join('').includes(`DESCRIPTION:${escapeIcsText(title)}`));
+});
+
+// --------------------------------------------------------------------------
 // Publication lifecycle — fails closed
 // --------------------------------------------------------------------------
 

@@ -1,0 +1,14 @@
+{
+  "_comment": "Emulator-only Firebase config, used by `npm run test:storage-rules`. The real firebase.json declares storage as an ARRAY entry keyed by bucket (which is what deploys need); the emulator refuses that form — it demands a deploy `target`, which would mean running `firebase target:apply` before every test. This file gives the emulator the single-object form it wants and nothing else. storage.rules is the SAME file both read.",
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "emulators": {
+    "storage": {
+      "port": 9199
+    },
+    "ui": {
+      "enabled": false
+    }
+  }
+}

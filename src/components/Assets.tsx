@@ -9,6 +9,7 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import { parseAmount } from '../utils/money';
 import AssetClaimExport from './AssetClaimExport';
 import SheetGrabber from './SheetGrabber';
+import AssetServiceHistory from './AssetServiceHistory';
 import EmptyState from './EmptyState';
 import { SkeletonHeader, SkeletonRows } from './Skeleton';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
@@ -577,6 +578,12 @@ export default function Assets() {
                 <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Notes</label>
                 <textarea rows={3} placeholder="Anything else worth recording…" value={editing.notes || ''} onChange={e => patch({ notes: e.target.value })} className="field w-full resize-none" />
               </div>
+
+              {/* The item's own service history, derived from the house's work
+                  log. Here as well as in AssetDetailModal because an
+                  unassigned appliance (the dishwasher) never appears on a
+                  member's Belongings card — this form is its only detail view. */}
+              {editing.id && <AssetServiceHistory assetId={editing.id} category={editing.category} />}
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 p-6 pt-0">

@@ -12,8 +12,19 @@
 
 // Activate a new SW immediately rather than waiting for every tab to close,
 // so a push-handler fix reaches devices on the next visit.
-const SHELL_CACHE = 'teluva-emergency-shell-v254';
-const SHELL_VERSION = 'v254';
+const SHELL_CACHE = 'teluva-emergency-shell-v348';
+const SHELL_VERSION = 'v348';
+
+/* Web Share Target. These four values are duplicated in
+ * src/utils/sharedInbox.ts and MUST stay identical — this file is plain
+ * unbundled JavaScript and that one is TypeScript compiled by Vite, so they
+ * cannot import each other. shareTarget.test.ts reads both files and fails if
+ * they drift, because a mismatch here does not throw: the share appears to
+ * succeed, the app opens, and the document is simply not there. */
+const SHARE_CACHE = 'teluva-shared-inbox';
+const SHARE_ENTRY_PREFIX = '/__shared__/';
+const SHARE_FILENAME_HEADER = 'x-teluva-filename';
+const SHARE_TARGET_PATH = '/share-target';
 
 async function prepareEmergencyShell() {
   const cache = await caches.open(SHELL_CACHE);
@@ -61,8 +72,63 @@ self.addEventListener('message', (event) => {
   })());
 });
 
+/* Receive a file shared into Teluva from the OS share sheet.
+ *
+ * The share arrives as a real multipart POST to SHARE_TARGET_PATH. It must
+ * never reach the server: the files belong in the browser, the server has no
+ * session for this request, and a POST that returns HTML would leave the SPA.
+ * So we take the files, keep them, and answer with a redirect to the app.
+ *
+ * 303 specifically, not 302. A 302 preserves the method, so the browser would
+ * re-issue the navigation as a POST to "/" and the app would never load. 303
+ * is the one that says "go and GET this instead", which is exactly the
+ * situation.
+ *
+ * Every failure path still redirects. If the cache write fails there is
+ * nothing useful to show a person standing in another app's share sheet, and
+ * an error page there is worse than opening Teluva with nothing filed — they
+ * can see immediately that the document is not there and try again.
+ */
+async function handleSharedFiles(request) {
+  try {
+    const form = await request.formData();
+    const files = form.getAll('files').filter((f) => f && typeof f === 'object' && 'size' in f && f.size > 0);
+    if (files.length) {
+      const cache = await caches.open(SHARE_CACHE);
+      await Promise.all(files.map((file, i) => cache.put(
+        new Request(`${SHARE_ENTRY_PREFIX}${Date.now()}-${i}`),
+        new Response(file, {
+          headers: {
+            // The blob's own type, not the form part's — some senders post
+            // application/octet-stream and the file itself knows better.
+            'content-type': file.type || 'application/octet-stream',
+            // encodeURIComponent because a header cannot carry a non-ASCII
+            // filename, and "Meldezettel Müller.pdf" is exactly the kind of
+            // name this has to survive.
+            [SHARE_FILENAME_HEADER]: encodeURIComponent(file.name || ''),
+          },
+        }),
+      )));
+    }
+  } catch (err) {
+    // Deliberately swallowed — see the header comment. Logged so a device
+    // that never files anything can be told apart from one that was never
+    // shared to.
+    console.warn('[sw] share-target could not keep the files:', err);
+  }
+  return Response.redirect('/?shared=1', 303);
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
+
+  /* Before the GET guard below, deliberately: a share is the one POST this
+   * worker must answer, and the guard would drop it. */
+  if (request.method === 'POST' && new URL(request.url).pathname === SHARE_TARGET_PATH) {
+    event.respondWith(handleSharedFiles(request));
+    return;
+  }
+
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;

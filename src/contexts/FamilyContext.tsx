@@ -3,8 +3,9 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { FamilyRole, UserProfile, FamilyMemberRole, AiConsent, SpaceMembership } from '../types';
-import { setFamilyId, ensureFamilyClaim } from '../utils/db';
+import { setFamilyId, setAccountRole, ensureFamilyClaim } from '../utils/db';
 import { AI_CONSENT_VERSION, hasValidAiConsent } from '../utils/aiConsent';
+import { setRevealCacheScope } from '../utils/vaultFields';
 
 // AI is only ever offered to adults (admin/member) — child accounts never use it.
 const isAdultRole = (r: FamilyRole | null) => r === 'admin' || r === 'member';
@@ -117,8 +118,21 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
     setValue(v => ({ ...v, aiConsent: granted && v.aiEligible }));
   }, []);
 
+  // Mirror the resolved role into db.ts (setAccountRole) so revealSharedSecrets
+  // can mask encrypted fields for child accounts without a React context.
+  // Keyed on value.role rather than called at each setValue site: every
+  // current and future path that changes the role flows through here. UX
+  // only — the server enforces the child gate itself.
+  useEffect(() => {
+    setAccountRole(value.role);
+  }, [value.role]);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user: User | null) => {
+      // Scope the on-device reveal cache (decrypted sensitive values) to THIS
+      // user before anything can read or write it — a different account on the
+      // same browser must never see the previous user's revealed values.
+      setRevealCacheScope(user?.uid ?? null);
       if (!user) {
         setValue({
           familyId: null,

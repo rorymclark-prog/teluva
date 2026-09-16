@@ -47,6 +47,16 @@ const INSURANCE_BY_COUNTRY: Record<IdCountry, InsuranceShape> = {
       { field: 'medicalAidDependantCode', label: 'Dependant code' },
     ],
   },
+  RO: {
+    // Romania's card national de sanatate is issued by CNAS (Casa Nationala de
+    // Asigurari de Sanatate). The number people are asked for at a surgery is
+    // the CNP, but the card carries its own number too, so both are offered.
+    primary: 'medicalAidNumber',
+    label: 'Card national de sanatate (CNAS)',
+    cardTitle: 'Card national de sanatate',
+    scanField: 'medicalAidNumber',
+    companions: [{ field: 'nationalIdNumber', label: 'CNP' }],
+  },
   UK: {
     primary: 'medicalAidNumber',
     label: 'NHS number',

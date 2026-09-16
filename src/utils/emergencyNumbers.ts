@@ -15,6 +15,14 @@ import type { IdCountry } from '../types';
 //   (za.usembassy.gov/emergency-assistance).
 // USA: 911 — National 911 Program (911.gov) and the FCC (fcc.gov), the two
 //   federal authorities for the US emergency number.
+// Romania: 112 ONLY. Romania has no separate police/ambulance/fire numbers
+//   in ordinary use — the Sistemul National Unic pentru Apeluri de Urgenta
+//   (SNUAU) consolidated every service behind 112 when it went live in 2004,
+//   and it routes to Ambulanta, SMURD, Politie, Pompieri, Jandarmerie and
+//   mountain rescue. Source: Serviciul de Telecomunicatii Speciale (sts.ro),
+//   the appointed administrator of the 112 system, and ANCOM (ancom.ro), the
+//   national communications regulator. Listing a single number here is the
+//   CORRECT answer for Romania, not missing data.
 // Austria: 144 Rettung (ambulance), 133 Polizei (police), 122 Feuerwehr
 //   (fire), 112 EU-wide — oesterreich.gv.at and polizei.gv.at (Federal
 //   Ministry of the Interior).
@@ -54,6 +62,12 @@ const BY_COUNTRY: Record<Exclude<IdCountry, 'other'>, EmergencyNumbersInfo> = {
       { number: '122', label: 'Fire (Feuerwehr)' },
       { number: '112', label: 'EU-wide emergency number' },
     ],
+  },
+  RO: {
+    numbers: [
+      { number: '112', label: 'All emergencies (ambulance, police, fire)' },
+    ],
+    note: 'Romania uses 112 for everything — there is no separate police or ambulance number.',
   },
 };
 

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Settings, Users, Upload, Save, Compass, ListChecks, RefreshCw, Loader2, Check } from 'lucide-react';
+import { X, Settings, Users, Upload, Save, Compass, ListChecks, RefreshCw, Loader2, Check, EyeOff, ChevronRight } from 'lucide-react';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
 import { checkForUpdate, applyUpdate } from '../utils/appUpdate';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { HubSettings, IdCountry } from '../types';
@@ -7,6 +8,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import LanguageSelector from './LanguageSelector';
 import PushOptInCard from './PushOptInCard';
+import WhatsNewLog from './WhatsNewLog';
+import { showsUpdateNotes, setShowsUpdateNotes } from './UpdateBanner';
 import SheetGrabber from './SheetGrabber';
 import TextSizeControl from './TextSizeControl';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
@@ -16,6 +19,7 @@ export const COUNTRY_OPTIONS: { value: IdCountry; label: string }[] = [
   { value: 'ZA', label: 'South Africa' },
   { value: 'UK', label: 'United Kingdom' },
   { value: 'US', label: 'United States' },
+  { value: 'RO', label: 'Romania' },
   { value: 'other', label: 'Other / generic' },
 ];
 
@@ -29,6 +33,13 @@ interface HubSettingsModalProps {
   onReplayTour?: () => void;
   /** Reopens the guided setup interview (FamilyInterview.tsx) from the start — "reachable again from settings after completion" per its brief. Omit to hide the row (business spaces, or a caller with no write access). */
   onOpenInterview?: () => void;
+  /**
+   * What the header shows while this field is blank — i.e. the name typed when
+   * the space was created. Without it the placeholder read "Family Hub" to a
+   * family whose header already said "the rats", which makes an empty field
+   * look like the header is about to change. See utils/hubName.ts.
+   */
+  namePlaceholder?: string;
 }
 
 // Falls back to 'dev' exactly as UpdateBanner does, so a local build reads as
@@ -36,7 +47,7 @@ interface HubSettingsModalProps {
 const APP_LABEL =
   typeof __APP_LABEL__ !== 'undefined' && __APP_LABEL__ ? __APP_LABEL__ : 'dev build';
 
-export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, onClose, onSave, onReplayTour, onOpenInterview }: HubSettingsModalProps) {
+export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, onClose, onSave, onReplayTour, onOpenInterview, namePlaceholder }: HubSettingsModalProps) {
   useBodyScrollLock(isOpen);
 
   const [hubName, setHubName] = useState('');
@@ -46,6 +57,8 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
   const [astrology, setAstrology] = useState(false);
   const [country, setCountry] = useState<IdCountry>('AT');
   const [celebrationsEnabled, setCelebrationsEnabled] = useState(true);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [showNotes, setShowNotes] = useState(() => showsUpdateNotes());
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -87,8 +100,16 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
     setUploadFileName('');
   };
 
+  const hiddenDates = useHiddenPeople();
+
+  // Spread the settings this modal was opened with: the settings doc holds far
+  // more than the six fields below (calendar feeds, the family's hidden-dates
+  // list, auto-sync, status…), and a save without them told the merge those
+  // keys had been removed — so saving a new family photo quietly unsubscribed
+  // every calendar feed.
   const handleSave = () => {
     onSave({
+      ...settings,
       hubName: hubName.trim() || undefined,
       familyPhotoUrl: photo || undefined,
       nameDisplay,
@@ -187,7 +208,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
                 <label className="field-label">{isBusinessSpace ? 'Business name' : 'Hub name'}</label>
                 <input
                   type="text"
-                  placeholder={isBusinessSpace ? 'My Business' : 'Family Hub'}
+                  placeholder={namePlaceholder || (isBusinessSpace ? 'My Business' : 'Family Hub')}
                   value={hubName}
                   onChange={(e) => setHubName(e.target.value)}
                   className="field"
@@ -281,6 +302,33 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
                 </label>
               </div>
 
+              {/* People whose dates this account, or the whole family, has
+                  chosen not to see — see contexts/HiddenPeopleContext.tsx.
+                  Absent in business spaces (no provider there). */}
+              {hiddenDates.enabled && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={hiddenDates.openManager}
+                    className="w-full flex items-center justify-between gap-3 text-left cursor-pointer group"
+                  >
+                    <span>
+                      <span className="field-label" style={{ marginBottom: 0 }}>Hidden dates</span>
+                      <span className="block text-[12px] text-ink-400 mt-0.5">
+                        {hiddenDates.rows.length === 0
+                          ? 'Stop seeing someone’s birthday, name day and anniversaries. Nothing is deleted.'
+                          : hiddenDates.rows.length === 1
+                            ? `${hiddenDates.rows[0].person.name}. Show them again, or hide someone else.`
+                            : `${hiddenDates.rows.length} people. Show them again, or hide someone else.`}
+                      </span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-dusk-700 shrink-0 group-hover:underline">
+                      <EyeOff className="w-3.5 h-3.5" /> Manage <ChevronRight className="w-3.5 h-3.5" />
+                    </span>
+                  </button>
+                </div>
+              )}
+
               {/* Family / business photo field */}
               <div className="space-y-2.5">
                 <label className="field-label">{isBusinessSpace ? 'Business photo' : 'Family photo'}</label>
@@ -366,8 +414,34 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
               <span className="mr-auto flex flex-col gap-0.5 min-w-0">
                 <span className="text-[12px] text-ink-400 tabular-nums select-text">
                   Teluva {APP_LABEL}
+                  {/* The version itself stays a plain fact to read out; the log
+                      is its own labeled control beside it (asked for by name:
+                      "a what's new log in the menu with the version"). */}
+                  {' · '}
+                  <button
+                    type="button"
+                    onClick={() => setWhatsNewOpen(true)}
+                    className="underline underline-offset-2 hover:text-ink-700 cursor-pointer"
+                  >
+                    What&rsquo;s new
+                  </button>
                 </span>
                 <UpdateCheckRow />
+                {/* Rory: "i want to see them but i dont want others to
+                    necessarily see them". Per-device on purpose — this is a
+                    preference about THIS phone, not a fact about the family,
+                    so it never touches the vault. Off by default; the log
+                    above stays available either way, so this hides the
+                    interruption rather than the information. */}
+                <label className="flex items-center gap-2 text-[12px] text-ink-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showNotes}
+                    onChange={e => { setShowNotes(e.target.checked); setShowsUpdateNotes(e.target.checked); }}
+                    className="w-3.5 h-3.5 accent-clay-500 cursor-pointer"
+                  />
+                  Show what changed after each update, on this device
+                </label>
               </span>
               <button
                 type="button"
@@ -386,6 +460,9 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
               </button>
             </div>
           </motion.div>
+          {whatsNewOpen && (
+            <WhatsNewLog currentLabel={APP_LABEL} onClose={() => setWhatsNewOpen(false)} />
+          )}
         </div>
       )}
     </AnimatePresence>

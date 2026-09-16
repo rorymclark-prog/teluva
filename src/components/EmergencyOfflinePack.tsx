@@ -10,7 +10,7 @@ export default function EmergencyOfflinePack() {
         <section className="max-w-md text-center">
           <div className="w-14 h-14 mx-auto grid place-items-center rounded-2xl bg-rosa-500/20 text-rosa-100"><ShieldAlert className="h-6 w-6" /></div>
           <h1 className="mt-5 font-display text-3xl font-semibold">No emergency pack on this device.</h1>
-          <p className="mt-3 text-sm text-white/60 leading-relaxed">Open Emergency while online, choose Save offline pack, then use its test button before relying on it.</p>
+          <p className="mt-3 text-sm text-white/60 leading-relaxed">Open Emergency while online, choose Save offline pack, then use its test button before relying on it. A saved pack keeps itself fresh whenever Emergency is opened online, and deletes itself after 60 days without a refresh — so if one was saved here long ago, it has expired and needs saving again.</p>
           <a href="/" className="btn-primary inline-flex mt-6">Return to Teluva</a>
         </section>
       </main>

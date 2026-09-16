@@ -25,7 +25,7 @@ import {
   loadFamilyInfo, saveFamilyInfo,
   loadHousehold, saveHousehold,
   loadFinances, saveFinances,
-  loadTimeline, saveTimeline,
+  loadTimeline, saveTimeline, deleteTimelinePhoto,
   loadCalendarEvents, saveCalendarEvents,
   loadSlips, saveSlips,
   loadDocuments, saveFamilyMembers,
@@ -34,6 +34,9 @@ import {
 } from './db';
 import type { FamilyMember, ContactEntry } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
+import { normalizeVehicleKind } from './vehicle';
+import { lifeCategoryFromWord, parseLifeDate } from './lifeTimeline';
+import { referralPatchWithStatus } from './referralAppointment';
 
 // --- Record targeting registries ------------------------------------------
 
@@ -83,7 +86,7 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   // an update_record for the same record could easily reuse it, and without the
   // alias buildPatch's allowlist would silently drop it (found 2026-08-15,
   // chat-function audit).
-  referral: { kind: 'kind', referralKind: 'kind', date: 'date', referralDate: 'date', reason: 'reason', referralReason: 'reason', status: 'status', appointmentDate: 'appointmentDate', providerName: 'providerName', referralProvider: 'providerName', notes: 'notes' },
+  referral: { kind: 'kind', referralKind: 'kind', date: 'date', referralDate: 'date', reason: 'reason', referralReason: 'reason', status: 'status', appointmentDate: 'appointmentDate', appointmentTime: 'appointmentTime', providerName: 'providerName', referralProvider: 'providerName', notes: 'notes' },
   contact: { name: 'name', relation: 'relation', phone: 'phone', email: 'email', birthdate: 'birthdate', note: 'note' },
   provider: { name: 'name', type: 'type', specialty: 'specialty', practiceName: 'practiceName', phone: 'phone', afterHoursPhone: 'afterHoursPhone', email: 'email', address: 'address', forMember: 'forMember', note: 'note' },
   number: { label: 'label', value: 'value', note: 'note' },
@@ -96,7 +99,10 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   // (server.js list_add) already teaches the model to set — it was missing
   // here, so "change the service interval to 12 months" on an existing vehicle
   // silently changed nothing (found 2026-08-15, chat-function audit).
-  vehicle: { name: 'name', make: 'make', model: 'model', year: 'year', registration: 'registration', vin: 'vin', fuelType: 'fuelType', assignedMember: 'assignedMember', insurer: 'insurer', insuranceNumber: 'insuranceNumber', insuranceRenewal: 'insuranceRenewal', inspectionExpiry: 'inspectionExpiry', vignetteExpiry: 'vignetteExpiry', lastService: 'lastService', serviceIntervalMonths: 'serviceIntervalMonths', parkingPermit: 'parkingPermit', parkingPermitExpiry: 'parkingPermitExpiry', notes: 'notes' },
+  vehicle: { name: 'name', make: 'make', model: 'model', year: 'year', registration: 'registration', vin: 'vin', fuelType: 'fuelType', assignedMember: 'assignedMember', insurer: 'insurer', insuranceNumber: 'insuranceNumber', insuranceRenewal: 'insuranceRenewal', inspectionExpiry: 'inspectionExpiry', vignetteExpiry: 'vignetteExpiry', lastService: 'lastService', serviceIntervalMonths: 'serviceIntervalMonths', parkingPermit: 'parkingPermit', parkingPermitExpiry: 'parkingPermitExpiry', notes: 'notes',
+    // Rory, 2026-09-12: "can we add scooters, bicycles etc". "It's actually
+    // an e-bike" must be fixable from chat; buildPatch normalises the word.
+    kind: 'kind' },
   pet: { name: 'name', species: 'species', vet: 'vet', vaccinations: 'vaccinations', microchip: 'microchip', notes: 'notes' },
   // A logged piece of house work. `work`, `by` and `date` are the ones that get
   // corrected ("that was the 4th, not the 14th" / "it was his apprentice");
@@ -107,8 +113,12 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   bank: { bankName: 'bankName', accountHolder: 'accountHolder', iban: 'iban', bic: 'bic', notes: 'notes' },
   insurance: { provider: 'provider', type: 'type', policyNumber: 'policyNumber', renewalDate: 'renewalDate', notes: 'notes' },
   benefit: { name: 'name', reference: 'reference', notes: 'notes' },
-  timeline: { date: 'date', title: 'title', type: 'type', note: 'note' },
-  calendar_event: { title: 'title', date: 'date', time: 'time', category: 'category' },
+  // `type` is the old name for the kind, so it writes `category` — a new-style
+  // entry ignores `type` and the correction would otherwise change nothing.
+  timeline: { date: 'date', title: 'title', category: 'category', type: 'category', note: 'note', notes: 'note', place: 'place', endDate: 'endDate' },
+  // `important` is the family's own choice (types.ts CalendarEvent.important):
+  // "mark my psychiatry appointment as important" is an update, not a new event.
+  calendar_event: { title: 'title', date: 'date', time: 'time', category: 'category', important: 'important' },
   slip: { shop: 'shop', item: 'item', purchaseDate: 'purchaseDate', amount: 'amount', currency: 'currency', assignedTo: 'assignedTo', returnByDate: 'returnByDate', warrantyUntil: 'warrantyUntil', notes: 'notes' },
   asset: { name: 'name', category: 'category', assignedMember: 'assignedMember', make: 'make', model: 'model', serialNumber: 'serialNumber', purchaseDate: 'purchaseDate', purchasePrice: 'purchasePrice', notes: 'notes' },
 };
@@ -118,7 +128,7 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
 const NUMERIC_FIELDS = new Set(['intervalMonths', 'serviceIntervalMonths']);
 
 // Build the (whitelisted, key-renamed) patch object for an update_record edit.
-function buildPatch(targetKind: string, fields?: Record<string, string>): Record<string, any> {
+export function buildPatch(targetKind: string, fields?: Record<string, string>): Record<string, any> {
   const allow = UPDATE_FIELDS[targetKind] || {};
   const patch: Record<string, any> = {};
   for (const [k, v] of Object.entries(fields || {})) {
@@ -126,7 +136,45 @@ function buildPatch(targetKind: string, fields?: Record<string, string>): Record
     if (!key) continue;
     patch[key] = NUMERIC_FIELDS.has(key) ? Number(v) : v;
   }
+  // A vehicle's kind is a closed set: "bike" → 'bicycle', "scooter" → 'moped'.
+  // An empty value is dropped rather than written — clearing the kind would
+  // silently turn a bicycle back into a car.
+  if (targetKind === 'vehicle' && 'kind' in patch) {
+    const k = normalizeVehicleKind(String(patch.kind ?? ''));
+    if (k) patch.kind = k; else delete patch.kind;
+  }
+  // A timeline kind is a closed set too, and a date may be a month or a year
+  // on its own ("it was 2019, not 2018") — stored with its precision, as when
+  // the moment was added. A date in no recognisable shape is dropped rather
+  // than turning a dated moment undated.
+  if (targetKind === 'timeline') {
+    if ('category' in patch) {
+      const c = lifeCategoryFromWord(String(patch.category ?? ''));
+      if (c) patch.category = c; else delete patch.category;
+    }
+    if ('date' in patch) {
+      const { date, datePrecision } = parseLifeDate(String(patch.date ?? ''));
+      if (date) { patch.date = date; patch.datePrecision = datePrecision; } else delete patch.date;
+    }
+    if ('endDate' in patch && !/^\d{4}-\d{2}-\d{2}$/.test(String(patch.endDate ?? ''))) delete patch.endDate;
+  }
+  // A yes/no that arrives as a string ("true") or a real boolean. Anything
+  // else is dropped: a garbled value must not un-mark an appointment.
+  if (targetKind === 'calendar_event' && 'important' in patch) {
+    const v = String(patch.important).trim().toLowerCase();
+    if (v === 'true' || v === 'yes' || v === '1') patch.important = true;
+    else if (v === 'false' || v === 'no' || v === '0') patch.important = false;
+    else delete patch.important;
+  }
   return patch;
+}
+
+/**
+ * A patch for ONE existing record, after the record's own rules are applied.
+ * Today that is only the referral lifecycle — see referralPatchWithStatus.
+ */
+export function patchForRecord(targetKind: string, record: any, patch: Record<string, any>): Record<string, any> {
+  return targetKind === 'referral' ? referralPatchWithStatus(record, patch) : patch;
 }
 
 const truncate = (s?: string, n = 40) => {
@@ -139,7 +187,7 @@ const prettyKind = (tk: string) => tk.replace(/_/g, ' ');
 // A short human phrase for a record — the heart of the eye-catch label. Works
 // off whatever fields the record has (context-slim or fully-loaded both carry
 // the ones used here).
-function recordPhrase(targetKind: string, r: any): string {
+export function recordPhrase(targetKind: string, r: any): string {
   switch (targetKind) {
     case 'passport': return `${r.country || ''} passport${r.number ? ' ' + r.number : ''}`.trim() || 'passport';
     case 'contact': return `contact ${r.name || ''}`.trim();
@@ -184,7 +232,7 @@ type Found = { record: any; ownerName?: string } | null;
 // Locate a record by id inside the already-built chat CONTEXT (the object
 // buildContext() sends). Used only to write the display label; apply re-does
 // this against fresh data and does not trust anything found here.
-function findInContext(context: any, targetKind: string, id: string): Found {
+export function findInContext(context: any, targetKind: string, id: string): Found {
   const members: any[] = context?.members || [];
   if (targetKind in MEMBER_ARRAY) {
     for (const m of members) {
@@ -237,6 +285,10 @@ function buildLabel(e: any, found: Found): string {
     return `Delete ${phrase}${where}`;
   }
   const patch = buildPatch(tk, e.fields);
+  // A mark on its own reads as what the family asked for, not as a field dump.
+  if (tk === 'calendar_event' && Object.keys(patch).length === 1 && typeof patch.important === 'boolean') {
+    return patch.important ? `Mark ${phrase} as important` : `Stop marking ${phrase} as important`;
+  }
   const changes = Object.entries(patch)
     .map(([k, v]) => `${k} → “${v === '' || v === undefined ? '(blank)' : v}”`)
     .join(', ');
@@ -321,7 +373,7 @@ export async function applyDestructiveEdits(edits: AiEdit[], ctxMembers: FamilyM
       const patch = buildPatch(e.targetKind, e.fields);
       if (!Object.keys(patch).length) return m; // nothing valid to change
       changed = true;
-      return cfg.set(m, arr.map((r: any) => (r.id === e.id ? { ...r, ...patch } : r)));
+      return cfg.set(m, arr.map((r: any) => (r.id === e.id ? { ...r, ...patchForRecord(e.targetKind, r, patch) } : r)));
     });
     if (changed) membersDirty = true; else skipNote(e);
   }
@@ -445,9 +497,16 @@ export async function applyDestructiveEdits(edits: AiEdit[], ctxMembers: FamilyM
       const t: any = (await loadTimeline()) || { entries: [] };
       let arr = t.entries || [];
       let dirty = false;
+      // A deleted moment's photos go too — but only once the save has landed,
+      // so a failed save never leaves a moment pointing at deleted files.
+      const orphanedPhotos: string[] = [];
       for (const e of relevant) {
         if (!arr.some((r: any) => r.id === e.id)) { skipNote(e); continue; }
-        if (e.kind === 'delete_record') { arr = arr.filter((r: any) => r.id !== e.id); dirty = true; }
+        if (e.kind === 'delete_record') {
+          for (const p of arr.find((r: any) => r.id === e.id)?.photos || []) orphanedPhotos.push(p.storagePath);
+          arr = arr.filter((r: any) => r.id !== e.id);
+          dirty = true;
+        }
         else {
           const patch = buildPatch('timeline', e.fields);
           if (!Object.keys(patch).length) { skipNote(e); continue; }
@@ -455,7 +514,13 @@ export async function applyDestructiveEdits(edits: AiEdit[], ctxMembers: FamilyM
           dirty = true;
         }
       }
-      if (dirty) { const ok = await saveTimeline({ entries: arr }); if (!ok) failures.push('timeline'); }
+      if (dirty) {
+        // `t` (just loaded) is the base, and the rest of the document rides
+        // along — a doc rebuilt from one key would drop the others.
+        const ok = await saveTimeline({ ...t, entries: arr }, t);
+        if (!ok) failures.push('timeline');
+        else await Promise.all(orphanedPhotos.map(deleteTimelinePhoto));
+      }
     }
   }
 

@@ -1,0 +1,1286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A hands-on preview of Teluva, the private family document vault.">
+  <title>Teluva — Put family paperwork in its place</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: light;
+      --tv-paper: #FFFDF9;
+      --tv-raised: #F7F3ED;
+      --tv-hairline: #EEE7DD;
+      --tv-text: #232328;
+      --tv-muted: #74747D;
+      --tv-ember: #FF4B3E;
+      --tv-ember-hover: #DF372E;
+      --tv-ember-ink: #FFFDF9;
+      --tv-green: #2E7D5B;
+      --tv-identity: #4A5BA8;
+      --tv-identity-soft: #E9ECF7;
+      --tv-medical: #9A5662;
+      --tv-medical-soft: #F4E7E9;
+      --tv-sage: #2E7D5B;
+      --tv-sage-soft: #E5F0EA;
+      --tv-financial: #46766D;
+      --tv-financial-soft: #E3EFEC;
+      --tv-travel: #98712E;
+      --tv-travel-soft: #F6EEDB;
+      --tv-legal: #766E63;
+      --tv-legal-soft: #EEEAE4;
+      --tv-backdrop: #EAE3D9;
+      --tv-shadow: rgba(48, 40, 32, 0.11);
+      --tv-shadow-strong: rgba(48, 40, 32, 0.18);
+      --tv-scrim: rgba(255, 253, 249, 0.88);
+      --tv-transparent: transparent;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --tv-paper: #111114;
+        --tv-raised: #232328;
+        --tv-hairline: #3C3C44;
+        --tv-text: #F7F3ED;
+        --tv-muted: #A2A2AC;
+        --tv-ember: #FF6E5E;
+        --tv-ember-hover: #FF897B;
+        --tv-ember-ink: #111114;
+        --tv-green: #86C4A3;
+        --tv-identity: #9CA9E4;
+        --tv-identity-soft: #292D40;
+        --tv-medical: #D79AA4;
+        --tv-medical-soft: #3A292E;
+        --tv-sage: #86C4A3;
+        --tv-sage-soft: #20352C;
+        --tv-financial: #83B8AE;
+        --tv-financial-soft: #203532;
+        --tv-travel: #D5B16C;
+        --tv-travel-soft: #3B3222;
+        --tv-legal: #BDB4A8;
+        --tv-legal-soft: #35312C;
+        --tv-backdrop: #19191E;
+        --tv-shadow: rgba(0, 0, 0, 0.28);
+        --tv-shadow-strong: rgba(0, 0, 0, 0.42);
+        --tv-scrim: rgba(17, 17, 20, 0.88);
+        --tv-transparent: transparent;
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --tv-paper: #111114;
+      --tv-raised: #232328;
+      --tv-hairline: #3C3C44;
+      --tv-text: #F7F3ED;
+      --tv-muted: #A2A2AC;
+      --tv-ember: #FF6E5E;
+      --tv-ember-hover: #FF897B;
+      --tv-ember-ink: #111114;
+      --tv-green: #86C4A3;
+      --tv-identity: #9CA9E4;
+      --tv-identity-soft: #292D40;
+      --tv-medical: #D79AA4;
+      --tv-medical-soft: #3A292E;
+      --tv-sage: #86C4A3;
+      --tv-sage-soft: #20352C;
+      --tv-financial: #83B8AE;
+      --tv-financial-soft: #203532;
+      --tv-travel: #D5B16C;
+      --tv-travel-soft: #3B3222;
+      --tv-legal: #BDB4A8;
+      --tv-legal-soft: #35312C;
+      --tv-backdrop: #19191E;
+      --tv-shadow: rgba(0, 0, 0, 0.28);
+      --tv-shadow-strong: rgba(0, 0, 0, 0.42);
+      --tv-scrim: rgba(17, 17, 20, 0.88);
+      --tv-transparent: transparent;
+    }
+
+    .tv-demo {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      background: var(--tv-paper);
+      color: var(--tv-text);
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .tv-demo *,
+    .tv-demo *::before,
+    .tv-demo *::after {
+      box-sizing: border-box;
+    }
+
+    .tv-demo button,
+    .tv-demo a {
+      font: inherit;
+    }
+
+    .tv-demo button {
+      color: inherit;
+    }
+
+    .tv-demo .tv-shell {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 52px 0 44px;
+    }
+
+    .tv-demo .tv-masthead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 62px;
+    }
+
+    .tv-demo .tv-wordmark {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .tv-demo .tv-mark {
+      position: relative;
+      width: 22px;
+      height: 26px;
+      border: 2px solid var(--tv-text);
+      border-radius: 11px 11px 7px 7px;
+    }
+
+    .tv-demo .tv-mark::after {
+      position: absolute;
+      right: 4px;
+      bottom: 4px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--tv-green);
+      content: "";
+    }
+
+    .tv-demo .tv-private-note {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--tv-muted);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .tv-demo .tv-private-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--tv-green);
+      box-shadow: 0 0 0 4px var(--tv-sage-soft);
+    }
+
+    .tv-demo .tv-hero {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.78fr) minmax(600px, 1.45fr);
+      gap: clamp(44px, 6vw, 86px);
+      align-items: start;
+    }
+
+    .tv-demo .tv-copy {
+      padding-top: 48px;
+    }
+
+    .tv-demo .tv-eyebrow {
+      margin: 0 0 18px;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-title {
+      max-width: 590px;
+      margin: 0;
+      font-size: clamp(42px, 5vw, 68px);
+      font-weight: 700;
+      letter-spacing: -0.055em;
+      line-height: 0.99;
+    }
+
+    .tv-demo .tv-title em {
+      font-family: Georgia, serif;
+      font-weight: 400;
+    }
+
+    .tv-demo .tv-intro {
+      max-width: 470px;
+      margin: 25px 0 0;
+      color: var(--tv-muted);
+      font-size: 17px;
+      line-height: 1.72;
+    }
+
+    .tv-demo .tv-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 50px;
+      margin-top: 31px;
+      padding: 0 20px;
+      border: 1px solid var(--tv-ember);
+      border-radius: 8px;
+      background: var(--tv-ember);
+      color: var(--tv-ember-ink);
+      box-shadow: 0 7px 18px var(--tv-shadow);
+      cursor: pointer;
+      font-weight: 700;
+      transition: background 350ms cubic-bezier(0.22, 1, 0.36, 1), border-color 350ms cubic-bezier(0.22, 1, 0.36, 1), transform 350ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-primary:hover {
+      border-color: var(--tv-ember-hover);
+      background: var(--tv-ember-hover);
+      box-shadow: 0 10px 24px var(--tv-shadow-strong);
+      transform: translateY(-2px);
+    }
+
+    .tv-demo .tv-primary:focus-visible,
+    .tv-demo .tv-card:focus-visible,
+    .tv-demo .tv-reset:focus-visible {
+      outline: 3px solid var(--tv-text);
+      outline-offset: 4px;
+    }
+
+    .tv-demo .tv-arrow {
+      font-size: 19px;
+      line-height: 1;
+      transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-primary:hover .tv-arrow {
+      transform: translateX(3px);
+    }
+
+    .tv-demo .tv-trust {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      margin: 25px 0 0;
+      color: var(--tv-muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .tv-demo .tv-trust span + span {
+      padding-left: 15px;
+      border-left: 1px solid var(--tv-hairline);
+    }
+
+    .tv-demo .tv-scene {
+      position: relative;
+      min-width: 0;
+      border: 1px solid var(--tv-hairline);
+      border-radius: 22px 7px 22px 7px;
+      background: var(--tv-raised);
+      box-shadow: 0 24px 60px var(--tv-shadow);
+      overflow: hidden;
+    }
+
+    .tv-demo .tv-scene-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 49px;
+      padding: 0 19px;
+      border-bottom: 1px solid var(--tv-hairline);
+      background: var(--tv-paper);
+    }
+
+    .tv-demo .tv-scene-label {
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+    }
+
+    .tv-demo .tv-progress-bar {
+      width: 54px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--tv-hairline);
+      overflow: hidden;
+    }
+
+    .tv-demo .tv-progress-fill {
+      display: block;
+      width: var(--tv-progress, 0%);
+      height: 100%;
+      border-radius: inherit;
+      background: var(--tv-green);
+      transition: width 450ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-stage {
+      position: relative;
+      height: 348px;
+      overflow: visible;
+      background-image: linear-gradient(var(--tv-hairline) 1px, var(--tv-transparent) 1px), linear-gradient(90deg, var(--tv-hairline) 1px, var(--tv-transparent) 1px);
+      background-size: 24px 24px;
+      background-position: -1px -1px;
+    }
+
+    .tv-demo .tv-stage-note {
+      position: absolute;
+      top: 20px;
+      left: 21px;
+      z-index: 1;
+      margin: 0;
+      color: var(--tv-muted);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .tv-demo .tv-card {
+      position: absolute;
+      z-index: 2;
+      width: 188px;
+      height: 128px;
+      padding: 15px;
+      border: 1px solid var(--tv-hairline);
+      border-radius: 7px;
+      background: var(--tv-paper);
+      box-shadow: 0 10px 25px var(--tv-shadow);
+      text-align: left;
+      cursor: grab;
+      touch-action: manipulation;
+      transform: rotate(var(--tv-tilt));
+      transition: border-color 350ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 350ms cubic-bezier(0.22, 1, 0.36, 1), transform 350ms cubic-bezier(0.22, 1, 0.36, 1), opacity 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-card:hover {
+      z-index: 7;
+      border-color: var(--tv-muted);
+      box-shadow: 0 16px 34px var(--tv-shadow-strong);
+      transform: rotate(0deg) translateY(-5px);
+    }
+
+    .tv-demo .tv-card[data-doc="passport"] {
+      top: 56px;
+      left: 27px;
+      --tv-tilt: -4deg;
+    }
+
+    .tv-demo .tv-card[data-doc="vaccination"] {
+      top: 37px;
+      left: 218px;
+      --tv-tilt: 3deg;
+    }
+
+    .tv-demo .tv-card[data-doc="rental"] {
+      top: 185px;
+      left: 62px;
+      --tv-tilt: 2deg;
+    }
+
+    .tv-demo .tv-card[data-doc="insurance"] {
+      top: 177px;
+      left: 264px;
+      --tv-tilt: -3deg;
+    }
+
+    .tv-demo .tv-card[data-doc="will"] {
+      top: 102px;
+      right: 22px;
+      --tv-tilt: 4deg;
+    }
+
+    .tv-demo .tv-card.is-dragging {
+      z-index: 20;
+      cursor: grabbing;
+      box-shadow: 0 24px 50px var(--tv-shadow-strong);
+      transform: translate(var(--tv-drag-x), var(--tv-drag-y)) rotate(0deg) scale(1.025);
+      transition: border-color 350ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-card.is-filed {
+      position: relative;
+      inset: auto;
+      width: 100%;
+      height: 100%;
+      min-height: 82px;
+      padding: 10px;
+      border-color: var(--tv-hairline);
+      border-radius: 5px;
+      box-shadow: 0 4px 12px var(--tv-shadow);
+      cursor: default;
+      transform: none;
+    }
+
+    .tv-demo .tv-card.is-filed:hover {
+      border-color: var(--tv-hairline);
+      box-shadow: 0 4px 12px var(--tv-shadow);
+      transform: none;
+    }
+
+    .tv-demo .tv-card-kicker {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 8px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-card-name {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+    }
+
+    .tv-demo .tv-card-detail {
+      display: block;
+      color: var(--tv-muted);
+      font-size: 10px;
+      font-weight: 500;
+      line-height: 1.45;
+    }
+
+    .tv-demo .tv-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 19px;
+      margin-top: 9px;
+      padding: 0 7px;
+      border-radius: 9px;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.035em;
+    }
+
+    .tv-demo .tv-chip--identity {
+      background: var(--tv-identity-soft);
+      color: var(--tv-identity);
+    }
+
+    .tv-demo .tv-chip--medical {
+      background: var(--tv-medical-soft);
+      color: var(--tv-medical);
+    }
+
+    .tv-demo .tv-chip--legal {
+      background: var(--tv-legal-soft);
+      color: var(--tv-legal);
+    }
+
+    .tv-demo .tv-chip--financial {
+      background: var(--tv-financial-soft);
+      color: var(--tv-financial);
+    }
+
+    .tv-demo .tv-readable {
+      display: block;
+      transition: opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), filter 420ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-cipher {
+      position: absolute;
+      top: 9px;
+      right: 9px;
+      bottom: 9px;
+      left: 9px;
+      display: grid;
+      align-content: center;
+      gap: 5px;
+      opacity: 0;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 7px;
+      line-height: 1.25;
+      overflow: hidden;
+      transform: translateY(4px);
+      transition: opacity 420ms cubic-bezier(0.22, 1, 0.36, 1), transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-cipher-line {
+      display: block;
+      height: 5px;
+      border-radius: 2px;
+      background: var(--tv-hairline);
+    }
+
+    .tv-demo .tv-cipher-line:nth-child(1) {
+      width: 42%;
+      background: var(--tv-green);
+    }
+
+    .tv-demo .tv-cipher-line:nth-child(2) {
+      width: 88%;
+    }
+
+    .tv-demo .tv-cipher-line:nth-child(3) {
+      width: 68%;
+    }
+
+    .tv-demo .tv-cipher-code {
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+
+    .tv-demo .tv-card.is-encrypted .tv-readable {
+      opacity: 0;
+      filter: blur(5px);
+    }
+
+    .tv-demo .tv-card.is-encrypted .tv-cipher {
+      opacity: 1;
+      transform: none;
+    }
+
+    .tv-demo .tv-caption-wrap {
+      min-height: 70px;
+      padding: 14px 20px;
+      border-top: 1px solid var(--tv-hairline);
+      border-bottom: 1px solid var(--tv-hairline);
+      background: var(--tv-paper);
+    }
+
+    .tv-demo .tv-caption {
+      display: flex;
+      gap: 11px;
+      align-items: flex-start;
+      margin: 0;
+      color: var(--tv-muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .tv-demo .tv-caption::before {
+      flex: 0 0 auto;
+      width: 6px;
+      height: 6px;
+      margin-top: 6px;
+      border-radius: 50%;
+      background: var(--tv-green);
+      content: "";
+    }
+
+    .tv-demo .tv-caption strong {
+      color: var(--tv-text);
+      font-weight: 700;
+    }
+
+    .tv-demo .tv-filing {
+      position: relative;
+      padding: 17px 18px 18px;
+      background: var(--tv-raised);
+    }
+
+    .tv-demo .tv-filing-label {
+      display: flex;
+      justify-content: space-between;
+      margin: 0 2px 10px;
+      color: var(--tv-muted);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-slots {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .tv-demo .tv-slot {
+      position: relative;
+      min-width: 0;
+      min-height: 110px;
+      padding: 7px;
+      border: 1px solid var(--tv-hairline);
+      border-radius: 5px 5px 12px 5px;
+      background: var(--tv-paper);
+      transition: border-color 350ms cubic-bezier(0.22, 1, 0.36, 1), background 350ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 350ms cubic-bezier(0.22, 1, 0.36, 1), transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-slot::before {
+      position: absolute;
+      top: -5px;
+      left: 8px;
+      width: 38px;
+      height: 5px;
+      border: 1px solid var(--tv-hairline);
+      border-bottom: 0;
+      border-radius: 4px 4px 0 0;
+      background: var(--tv-paper);
+      content: "";
+    }
+
+    .tv-demo .tv-slot.is-target {
+      border-color: var(--tv-green);
+      background: var(--tv-sage-soft);
+      box-shadow: 0 8px 22px var(--tv-shadow);
+      transform: translateY(-3px);
+    }
+
+    .tv-demo .tv-slot-name {
+      display: block;
+      padding: 4px 3px 7px;
+      color: var(--tv-muted);
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .tv-demo .tv-slot-stack {
+      display: grid;
+      min-height: 82px;
+    }
+
+    .tv-demo .tv-slot-stack .tv-card {
+      grid-area: 1 / 1;
+    }
+
+    .tv-demo .tv-slot-stack .tv-card:nth-child(2) {
+      transform: translate(3px, 3px);
+    }
+
+    .tv-demo .tv-completion {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      max-height: 0;
+      margin: 0 -18px -18px;
+      padding: 0 34px;
+      border-top: 0 solid var(--tv-hairline);
+      background: var(--tv-paper);
+      opacity: 0;
+      overflow: hidden;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: max-height 450ms cubic-bezier(0.22, 1, 0.36, 1), padding 450ms cubic-bezier(0.22, 1, 0.36, 1), border-width 450ms cubic-bezier(0.22, 1, 0.36, 1), opacity 450ms cubic-bezier(0.22, 1, 0.36, 1), transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-scene.is-complete .tv-completion {
+      max-height: 190px;
+      padding: 24px 34px;
+      border-top-width: 1px;
+      opacity: 1;
+      pointer-events: auto;
+      transform: none;
+    }
+
+    .tv-demo .tv-completion-mark {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      margin-bottom: 14px;
+      place-items: center;
+      border: 1px solid var(--tv-green);
+      border-radius: 50%;
+      color: var(--tv-green);
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .tv-demo .tv-completion-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.035em;
+    }
+
+    .tv-demo .tv-completion-copy {
+      max-width: 360px;
+      margin: 8px 0 15px;
+      color: var(--tv-muted);
+      font-size: 12px;
+    }
+
+    .tv-demo .tv-reset {
+      padding: 2px 0;
+      border: 0;
+      border-bottom: 1px solid var(--tv-muted);
+      background: var(--tv-transparent);
+      color: var(--tv-text);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      transition: border-color 300ms cubic-bezier(0.22, 1, 0.36, 1), color 300ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .tv-demo .tv-reset:hover {
+      border-color: var(--tv-green);
+      color: var(--tv-green);
+    }
+
+    .tv-demo .tv-sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 1020px) {
+      .tv-demo .tv-shell {
+        width: min(760px, calc(100% - 36px));
+      }
+
+      .tv-demo .tv-masthead {
+        margin-bottom: 30px;
+      }
+
+      .tv-demo .tv-hero {
+        grid-template-columns: 1fr;
+        gap: 42px;
+      }
+
+      .tv-demo .tv-copy {
+        max-width: 620px;
+        padding-top: 10px;
+      }
+
+      .tv-demo .tv-title {
+        font-size: clamp(44px, 8vw, 68px);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .tv-demo .tv-shell {
+        width: min(100% - 24px, 510px);
+        padding: 24px 0 28px;
+      }
+
+      .tv-demo .tv-masthead {
+        margin-bottom: 35px;
+      }
+
+      .tv-demo .tv-private-note {
+        font-size: 10px;
+      }
+
+      .tv-demo .tv-copy {
+        padding-top: 0;
+      }
+
+      .tv-demo .tv-eyebrow {
+        margin-bottom: 13px;
+      }
+
+      .tv-demo .tv-title {
+        font-size: clamp(38px, 12vw, 52px);
+      }
+
+      .tv-demo .tv-intro {
+        margin-top: 19px;
+        font-size: 15px;
+      }
+
+      .tv-demo .tv-primary {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .tv-demo .tv-trust {
+        justify-content: center;
+      }
+
+      .tv-demo .tv-scene {
+        border-radius: 16px 6px 16px 6px;
+      }
+
+      .tv-demo .tv-scene-top {
+        padding: 0 13px;
+      }
+
+      .tv-demo .tv-stage {
+        height: 376px;
+      }
+
+      .tv-demo .tv-stage-note {
+        top: 13px;
+        left: 14px;
+      }
+
+      .tv-demo .tv-card {
+        width: 158px;
+        height: 112px;
+        padding: 12px;
+        cursor: pointer;
+      }
+
+      .tv-demo .tv-card[data-doc="passport"] {
+        top: 52px;
+        left: 12px;
+      }
+
+      .tv-demo .tv-card[data-doc="vaccination"] {
+        top: 42px;
+        left: auto;
+        right: 10px;
+      }
+
+      .tv-demo .tv-card[data-doc="rental"] {
+        top: 164px;
+        left: 20px;
+      }
+
+      .tv-demo .tv-card[data-doc="insurance"] {
+        top: 157px;
+        left: auto;
+        right: 15px;
+      }
+
+      .tv-demo .tv-card[data-doc="will"] {
+        top: 269px;
+        right: auto;
+        left: calc(50% - 79px);
+      }
+
+      .tv-demo .tv-card-name {
+        margin-bottom: 6px;
+        font-size: 12px;
+      }
+
+      .tv-demo .tv-chip {
+        margin-top: 6px;
+      }
+
+      .tv-demo .tv-caption-wrap {
+        min-height: 88px;
+        padding: 13px 14px;
+      }
+
+      .tv-demo .tv-filing {
+        padding: 16px 12px 13px;
+      }
+
+      .tv-demo .tv-slots {
+        grid-template-columns: repeat(5, 105px);
+        padding: 4px 2px 10px;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        scrollbar-width: thin;
+      }
+
+      .tv-demo .tv-slot {
+        min-height: 105px;
+      }
+
+      .tv-demo .tv-card.is-filed {
+        min-height: 78px;
+        padding: 8px;
+      }
+
+      .tv-demo .tv-completion {
+        margin-right: -12px;
+        margin-bottom: -13px;
+        margin-left: -12px;
+      }
+
+      .tv-demo .tv-scene.is-complete .tv-completion {
+        padding: 22px 25px;
+      }
+    }
+
+    @media (pointer: coarse) {
+      .tv-demo .tv-card {
+        cursor: pointer;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .tv-demo *,
+      .tv-demo *::before,
+      .tv-demo *::after {
+        scroll-behavior: auto;
+        transition-duration: 0.01ms;
+        animation-duration: 0.01ms;
+        animation-iteration-count: 1;
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-stage {
+        height: 64px;
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-stage-note {
+        top: 22px;
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-card.is-filed .tv-readable {
+        opacity: 0;
+        filter: blur(5px);
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-card.is-filed .tv-cipher {
+        opacity: 1;
+        transform: none;
+      }
+
+      .tv-demo[data-reduced-motion="true"] .tv-scene.is-complete .tv-completion {
+        opacity: 1;
+        transform: none;
+      }
+    }
+  </style>
+</head>
+<body class="tv-demo">
+  <main class="tv-shell">
+    <header class="tv-masthead">
+      <div class="tv-wordmark" aria-label="Teluva">
+        <span class="tv-mark" aria-hidden="true"></span>
+        <span>Teluva</span>
+      </div>
+      <div class="tv-private-note"><span class="tv-private-dot" aria-hidden="true"></span>Private by design</div>
+    </header>
+
+    <section class="tv-hero" aria-labelledby="tv-title">
+      <div class="tv-copy">
+        <p class="tv-eyebrow">The family document vault</p>
+        <h1 class="tv-title" id="tv-title">Put family paperwork in its <em>place.</em></h1>
+        <p class="tv-intro">One calm, private home for the documents your family cannot afford to lose. Try the filing system yourself.</p>
+        <button class="tv-primary" type="button" data-file-next>
+          <span>File the next document</span>
+          <span class="tv-arrow" aria-hidden="true">→</span>
+        </button>
+        <p class="tv-trust"><span>Encrypted before storage</span><span>Built in Vienna</span></p>
+      </div>
+
+      <div class="tv-scene" data-scene>
+        <div class="tv-scene-top">
+          <span class="tv-scene-label">Your family papers</span>
+          <span class="tv-progress"><span data-count>0 / 5 filed</span><span class="tv-progress-bar" aria-hidden="true"><span class="tv-progress-fill"></span></span></span>
+        </div>
+
+        <div class="tv-stage" data-stage>
+          <p class="tv-stage-note">Tap a paper to put it away · or drag on desktop</p>
+
+          <button class="tv-card" type="button" data-doc="passport" data-category="Identity" data-caption="Passport → Identity · expires 2030" aria-label="File Austrian passport P1234567, expires 2030-01-01, under Identity">
+            <span class="tv-readable">
+              <span class="tv-card-kicker">Republic of Austria</span>
+              <span class="tv-card-name">Austrian passport</span>
+              <span class="tv-card-detail">P1234567<br>expires 2030-01-01</span>
+              <span class="tv-chip tv-chip--identity">Identity</span>
+            </span>
+            <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · 8F4A 2C19 77E0</span></span>
+          </button>
+
+          <button class="tv-card" type="button" data-doc="vaccination" data-category="Medical" data-caption="MMR vaccination → Medical · 2019" aria-label="File MMR vaccination dated 2019-04-01 under Medical">
+            <span class="tv-readable">
+              <span class="tv-card-kicker">Immunisation record</span>
+              <span class="tv-card-name">MMR vaccination</span>
+              <span class="tv-card-detail">2019-04-01<br>Measles · mumps · rubella</span>
+              <span class="tv-chip tv-chip--medical">Medical</span>
+            </span>
+            <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · 1D09 B64F 3A21</span></span>
+          </button>
+
+          <button class="tv-card" type="button" data-doc="rental" data-category="Legal" data-caption="Rental contract → Legal · Wienerstraße 14" aria-label="File rental contract for Wienerstraße 14 under Legal">
+            <span class="tv-readable">
+              <span class="tv-card-kicker">Tenancy agreement</span>
+              <span class="tv-card-name">Rental contract</span>
+              <span class="tv-card-detail">Wienerstraße 14<br>signed copy</span>
+              <span class="tv-chip tv-chip--legal">Legal</span>
+            </span>
+            <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · C302 9BE1 4F77</span></span>
+          </button>
+
+          <button class="tv-card" type="button" data-doc="insurance" data-category="Financial" data-caption="Household insurance → Financial · policy 88-4402" aria-label="File household insurance policy 88-4402 under Financial">
+            <span class="tv-readable">
+              <span class="tv-card-kicker">Coverage certificate</span>
+              <span class="tv-card-name">Household insurance</span>
+              <span class="tv-card-detail">policy 88-4402<br>active coverage</span>
+              <span class="tv-chip tv-chip--financial">Financial</span>
+            </span>
+            <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · 54B8 0CA2 91DF</span></span>
+          </button>
+
+          <button class="tv-card" type="button" data-doc="trip" data-category="Travel" data-caption="Trip itinerary → Travel · Lisbon, 14–21 Sept" aria-label="File trip itinerary for Lisbon, 14 to 21 September, under Travel">
+            <span class="tv-readable">
+              <span class="tv-card-kicker">Itinerary</span>
+              <span class="tv-card-name">Trip to Lisbon</span>
+              <span class="tv-card-detail">14–21 September<br>flights and address</span>
+              <span class="tv-chip tv-chip--travel">Travel</span>
+            </span>
+            <span class="tv-cipher" aria-hidden="true"><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-line"></span><span class="tv-cipher-code">AES · A06E 38D5 729C</span></span>
+          </button>
+        </div>
+
+        <div class="tv-caption-wrap">
+          <p class="tv-caption" data-caption-out><span><strong>Choose a paper.</strong> Teluva identifies where it belongs.</span></p>
+        </div>
+
+        <div class="tv-filing" data-filing>
+          <p class="tv-filing-label"><span>Filed securely</span><span>Encrypted before storage</span></p>
+          <div class="tv-slots">
+            <div class="tv-slot" data-slot="Identity"><span class="tv-slot-name">Identity</span><div class="tv-slot-stack"></div></div>
+            <div class="tv-slot" data-slot="Medical"><span class="tv-slot-name">Medical</span><div class="tv-slot-stack"></div></div>
+            <div class="tv-slot" data-slot="Legal"><span class="tv-slot-name">Legal</span><div class="tv-slot-stack"></div></div>
+            <div class="tv-slot" data-slot="Financial"><span class="tv-slot-name">Financial</span><div class="tv-slot-stack"></div></div>
+            <div class="tv-slot" data-slot="Travel"><span class="tv-slot-name">Travel</span><div class="tv-slot-stack"></div></div>
+          </div>
+
+          <div class="tv-completion" data-completion aria-hidden="true">
+            <span class="tv-completion-mark" aria-hidden="true">✓</span>
+            <p class="tv-completion-title">Everything is in its place.</p>
+            <p class="tv-completion-copy">Five papers filed. Their readable details have already been encrypted.</p>
+            <button class="tv-reset" type="button" data-reset>Try it again</button>
+          </div>
+        </div>
+
+        <p class="tv-sr-only" aria-live="polite" aria-atomic="true" data-live></p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var root = document.querySelector(".tv-demo");
+      var scene = root.querySelector("[data-scene]");
+      var stage = root.querySelector("[data-stage]");
+      var filing = root.querySelector("[data-filing]");
+      var cards = Array.prototype.slice.call(root.querySelectorAll(".tv-card"));
+      var count = root.querySelector("[data-count]");
+      var caption = root.querySelector("[data-caption-out]");
+      var live = root.querySelector("[data-live]");
+      var completion = root.querySelector("[data-completion]");
+      var nextButton = root.querySelector("[data-file-next]");
+      var resetButton = root.querySelector("[data-reset]");
+      var motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      var filedCount = 0;
+      var dragging = null;
+      var suppressClick = false;
+      var encryptionTimers = [];
+
+      function slotFor(card) {
+        return root.querySelector('[data-slot="' + card.dataset.category + '"]');
+      }
+
+      function setCaption(card, encrypted) {
+        if (encrypted) {
+          caption.innerHTML = "<span><strong>Filed.</strong> Passport, ID and account numbers are encrypted before they’re stored — and the same list is kept out of the AI’s context.</span>";
+        } else {
+          caption.innerHTML = "<span><strong>" + card.dataset.caption + ".</strong> Encrypting readable details now.</span>";
+        }
+      }
+
+      function updateProgress() {
+        var percent = (filedCount / cards.length) * 100;
+        count.textContent = filedCount + " / " + cards.length + " filed";
+        scene.style.setProperty("--tv-progress", percent + "%");
+      }
+
+      function finishIfComplete(immediate) {
+        if (filedCount !== cards.length) {
+          return;
+        }
+        window.setTimeout(function () {
+          scene.classList.add("is-complete");
+          completion.setAttribute("aria-hidden", "false");
+          live.textContent = "All five documents filed and encrypted.";
+        }, immediate ? 0 : 620);
+      }
+
+      function encryptCard(card, immediate) {
+        var encrypt = function () {
+          card.classList.add("is-encrypted");
+          setCaption(card, true);
+        };
+        if (immediate) {
+          encrypt();
+          return;
+        }
+        encryptionTimers.push(window.setTimeout(encrypt, 560));
+      }
+
+      function fileCard(card, options) {
+        var settings = options || {};
+        if (card.classList.contains("is-filed")) {
+          return;
+        }
+
+        var reduceMotion = motionQuery.matches || settings.immediate;
+        var start = card.getBoundingClientRect();
+        var slot = slotFor(card);
+        var stack = slot.querySelector(".tv-slot-stack");
+
+        root.querySelectorAll(".tv-slot.is-target").forEach(function (item) {
+          item.classList.remove("is-target");
+        });
+        card.classList.remove("is-dragging");
+        card.style.removeProperty("--tv-drag-x");
+        card.style.removeProperty("--tv-drag-y");
+        card.classList.add("is-filed");
+        card.disabled = true;
+        card.setAttribute("aria-disabled", "true");
+        stack.appendChild(card);
+
+        var end = card.getBoundingClientRect();
+        if (!reduceMotion && card.animate) {
+          card.animate([
+            { transform: "translate(" + (start.left - end.left) + "px, " + (start.top - end.top) + "px) rotate(0deg)", opacity: 0.72 },
+            { transform: "translate(0, 0) rotate(0deg)", opacity: 1 }
+          ], {
+            duration: 480,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)"
+          });
+        }
+
+        filedCount += 1;
+        updateProgress();
+        setCaption(card, false);
+        live.textContent = card.querySelector(".tv-card-name").textContent + " filed under " + card.dataset.category + ".";
+        encryptCard(card, reduceMotion);
+        finishIfComplete(reduceMotion);
+      }
+
+      function fileNext() {
+        var next = cards.find(function (card) {
+          return !card.classList.contains("is-filed");
+        });
+        if (next) {
+          fileCard(next);
+        } else {
+          resetDemo();
+        }
+      }
+
+      function resetDemo() {
+        encryptionTimers.forEach(window.clearTimeout);
+        encryptionTimers = [];
+        scene.classList.remove("is-complete");
+        completion.setAttribute("aria-hidden", "true");
+        root.dataset.reducedMotion = "false";
+        filedCount = 0;
+
+        cards.forEach(function (card) {
+          card.classList.remove("is-filed", "is-encrypted", "is-dragging");
+          card.disabled = false;
+          card.removeAttribute("aria-disabled");
+          card.style.removeProperty("--tv-drag-x");
+          card.style.removeProperty("--tv-drag-y");
+          stage.appendChild(card);
+        });
+
+        updateProgress();
+        caption.innerHTML = "<span><strong>Choose a paper.</strong> Teluva identifies where it belongs.</span>";
+        live.textContent = "Demo reset. Choose a document to file.";
+        cards[0].focus();
+      }
+
+      function distanceToRect(x, y, rect) {
+        var dx = Math.max(rect.left - x, 0, x - rect.right);
+        var dy = Math.max(rect.top - y, 0, y - rect.bottom);
+        return Math.sqrt((dx * dx) + (dy * dy));
+      }
+
+      function beginDrag(event) {
+        var card = event.currentTarget;
+        if (event.pointerType !== "mouse" || card.classList.contains("is-filed") || event.button !== 0) {
+          return;
+        }
+        dragging = {
+          card: card,
+          startX: event.clientX,
+          startY: event.clientY,
+          moved: false,
+          target: slotFor(card)
+        };
+        card.setPointerCapture(event.pointerId);
+      }
+
+      function moveDrag(event) {
+        if (!dragging || event.currentTarget !== dragging.card) {
+          return;
+        }
+        var x = event.clientX - dragging.startX;
+        var y = event.clientY - dragging.startY;
+        if (!dragging.moved && Math.hypot(x, y) < 5) {
+          return;
+        }
+        dragging.moved = true;
+        dragging.card.classList.add("is-dragging");
+        dragging.card.style.setProperty("--tv-drag-x", x + "px");
+        dragging.card.style.setProperty("--tv-drag-y", y + "px");
+        var close = distanceToRect(event.clientX, event.clientY, dragging.target.getBoundingClientRect()) < 82;
+        dragging.target.classList.toggle("is-target", close);
+      }
+
+      function endDrag(event) {
+        if (!dragging || event.currentTarget !== dragging.card) {
+          return;
+        }
+        var state = dragging;
+        var targetRect = state.target.getBoundingClientRect();
+        var close = distanceToRect(event.clientX, event.clientY, targetRect) < 82;
+        state.target.classList.remove("is-target");
+        state.card.classList.remove("is-dragging");
+        state.card.style.removeProperty("--tv-drag-x");
+        state.card.style.removeProperty("--tv-drag-y");
+        dragging = null;
+
+        if (state.moved) {
+          suppressClick = true;
+          window.setTimeout(function () {
+            suppressClick = false;
+          }, 0);
+          if (close) {
+            fileCard(state.card);
+          }
+        }
+      }
+
+      cards.forEach(function (card) {
+        card.addEventListener("click", function () {
+          if (!suppressClick) {
+            fileCard(card);
+          }
+        });
+        card.addEventListener("pointerdown", beginDrag);
+        card.addEventListener("pointermove", moveDrag);
+        card.addEventListener("pointerup", endDrag);
+        card.addEventListener("pointercancel", endDrag);
+      });
+
+      nextButton.addEventListener("click", fileNext);
+      resetButton.addEventListener("click", resetDemo);
+
+      updateProgress();
+      if (motionQuery.matches) {
+        root.dataset.reducedMotion = "true";
+        cards.forEach(function (card) {
+          fileCard(card, { immediate: true });
+        });
+      }
+    }());
+  </script>
+</body>
+</html>

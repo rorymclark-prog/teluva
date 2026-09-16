@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { X, Download, Share2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { looksLikePdf } from '../utils/fileType';
 import { canShare, srcToFile, shareFile } from '../utils/share';
@@ -7,7 +9,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 interface Props {
   src: string | null;
   onClose: () => void;
-  /** Optional nicer filename for downloads/shares, e.g. "Sophie South African Passport". */
+  /** Optional nicer filename for downloads/shares, e.g. "Mia South African Passport". */
   name?: string;
   /** Optional explicit mime type — more reliable than sniffing the src string. */
   mimeType?: string;
@@ -17,6 +19,16 @@ interface Props {
 // (which is how you email or message a file on mobile). Click the backdrop to close.
 export default function ImageLightbox({ src, onClose, name = 'Teluva document', mimeType }: Props) {
   useBodyScrollLock(!!src);
+
+  // Escape closes it. Without this the ONLY way out is hitting the backdrop or
+  // a 40px button in one corner — and a photo sized to the viewport leaves
+  // very little backdrop to hit.
+  useEffect(() => {
+    if (!src) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [src, onClose]);
 
   const isPdf = !!src && looksLikePdf(src, mimeType);
   async function handleDownload() {
@@ -43,7 +55,11 @@ export default function ImageLightbox({ src, onClose, name = 'Teluva document', 
 
   const btn = 'p-2 rounded-full bg-white/90 text-ink-700 hover:bg-white shadow-soft transition-colors cursor-pointer';
 
-  return (
+  // Portalled to <body> for the same reason the scanner is: it opens from the
+  // chat panel, whose `.glass` backdrop-filter turns it into the containing
+  // block for fixed children — in place, this overlay would be trapped inside
+  // (and clipped by) the sheet that opened it.
+  return createPortal(
     <AnimatePresence>
       {src && (
         <motion.div
@@ -73,12 +89,15 @@ export default function ImageLightbox({ src, onClose, name = 'Teluva document', 
               transition={{ type: 'spring', stiffness: 260, damping: 26 }}
               src={src}
               alt={name}
-              onClick={(e) => e.stopPropagation()}
-              style={{ width: 'min(92vw, 90vh)' }}
-              className="max-w-[92vw] max-h-[90dvh] rounded-3xl shadow-2xl object-contain bg-white"
+              /* Clicking the picture closes it, like every photo viewer. It used
+                 to stopPropagation — correct for the PDF below, which is a
+                 document you interact with, but on a photo it made the most
+                 obvious gesture do nothing at all. */
+              onClick={onClose}
+              className="max-w-[92vw] max-h-[90dvh] w-auto h-auto rounded-3xl shadow-2xl object-contain cursor-zoom-out"
             />
           )}
-          <div className="absolute top-5 right-5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute top-5 right-5 z-10 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
             <button onClick={handleDownload} className={btn} title="Download">
               <Download className="w-5 h-5" />
             </button>
@@ -93,6 +112,7 @@ export default function ImageLightbox({ src, onClose, name = 'Teluva document', 
           </div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }

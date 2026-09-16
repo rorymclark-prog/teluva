@@ -90,3 +90,119 @@ export function claimDeadlineLabel(claimDeadlineMonths?: number): string | null 
   if (!claimDeadlineMonths || claimDeadlineMonths <= 0) return null;
   return `Claim must be lodged within ${claimDeadlineMonths} month${claimDeadlineMonths === 1 ? '' : 's'} of death`;
 }
+
+/* ── The funeral-cover summary shown on the Wills & Estate page ──────────────
+ *
+ * WHY THIS LIVES HERE AND NOT IN Insurance.
+ *
+ * The fields are all on InsurancePolicy and Insurance stays their ONE writer —
+ * nothing below writes anything. But the moment these are needed is not a
+ * moment anyone goes looking under Finances. Somebody has died, and the first
+ * useful act of the day is phoning a claims line. Putting a read-only copy on
+ * the estate page is the difference between "the number is in the app" and
+ * "the number is where they are already standing".
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO: it never says a policy WILL pay. A waiting
+ * period is reported as a fact about the policy's own dates, never as a verdict
+ * on a claim, because this app is not told when anybody died and must not imply
+ * it has decided anything. See claimDeadlineFromDeath — same rule.
+ */
+
+export interface FuneralCoverLine {
+  id: string;
+  provider: string;
+  type: string;
+  policyNumber?: string;
+  /** The number to ring. A burial society has no claims line, only a person. */
+  callLabel?: string;
+  callValue?: string;
+  /** True when that value is a phone number we can offer as a tel: link. */
+  callIsPhone: boolean;
+  /** The digits to dial — NOT callValue, which may carry a name around them. */
+  callTel?: string;
+  beneficiary?: string;
+  repatriation?: string;
+  /** Present only while the policy is still inside its waiting period. */
+  waitingNote?: string;
+  /** True when nothing useful is on file beyond the provider's name. */
+  bare: boolean;
+}
+
+/**
+ * The number to actually dial out of a free-text contact, or null.
+ *
+ * EXTRACT, DO NOT JUDGE. A burial society contact is typically written as a
+ * person and a number together — "MaDlamini 082 555 1234" — and an earlier
+ * version of this rejected anything containing letters, which threw that away.
+ * Counting digits across the whole string is the opposite failure: "Paid up
+ * since 2019, office 9-5" has plenty of digits and dials 201995.
+ *
+ * So we look for one CONTIGUOUS phone-shaped run and dial that. A number the
+ * family can see but not tap is a small annoyance; a tappable button that
+ * dials nonsense on the worst morning of their life is not.
+ */
+export function dialableNumber(v?: string): string | null {
+  const s = (v || '').trim();
+  if (!s) return null;
+  // +? then 7+ digits, allowing the spaces, dashes, dots and parens people type.
+  const m = /\+?\d[\d\s().-]{5,}\d/.exec(s);
+  if (!m) return null;
+  const digits = m[0].replace(/[^\d]/g, '');
+  if (digits.length < 7) return null;
+  return (m[0].trim().startsWith('+') ? '+' : '') + digits;
+}
+
+/** True when there is something in here we can offer as a tel: link. */
+export function looksDialable(v?: string): boolean {
+  return dialableNumber(v) !== null;
+}
+
+/**
+ * One display line per funeral policy, ordered so the one you can actually
+ * claim on comes first.
+ *
+ * ORDER MATTERS MORE THAN IT LOOKS. A family reads the top line and rings it.
+ * A policy still inside its waiting period sorts BELOW a policy that is
+ * through — not hidden, because it may still pay on an accidental death and
+ * hiding it would be its own kind of lie, but not offered first either.
+ */
+export function funeralCoverLines(
+  policies: InsurancePolicy[],
+  today: Date = new Date(),
+): FuneralCoverLine[] {
+  const lines = (policies || []).filter(p => p && isFuneralPolicy(p.type)).map((p) => {
+    // A burial society is an informal arrangement: there is no claims line, so
+    // the named contact IS the number. Prefer the formal one when both exist.
+    const society = (p.burialSocietyContact || '').trim();
+    const claims = (p.claimsPhone || '').trim();
+    const callValue = claims || society || undefined;
+    const callLabel = claims ? 'Claims' : society ? 'Burial society' : undefined;
+    const waiting = inWaitingPeriod(p, today.getTime());
+    const days = waiting ? daysUntilWaitingPeriodEnd(p, today.getTime()) : null;
+    return {
+      id: p.id,
+      provider: (p.provider || '').trim() || 'Unnamed policy',
+      type: (p.type || 'Funeral cover').trim(),
+      policyNumber: (p.policyNumber || '').trim() || undefined,
+      callLabel,
+      callValue,
+      callIsPhone: dialableNumber(callValue) !== null,
+      callTel: dialableNumber(callValue) || undefined,
+      beneficiary: (p.beneficiary || '').trim() || undefined,
+      repatriation: p.repatriationIncluded
+        ? `Repatriation included${p.repatriationDestination ? ` — ${p.repatriationDestination.trim()}` : ''}`
+        : undefined,
+      waitingNote: waiting
+        ? (days !== null && days > 0
+            ? `Waiting period ends in ${days} ${days === 1 ? 'day' : 'days'} — a natural-cause claim may not pay before then`
+            : 'Still inside its waiting period — a natural-cause claim may not pay yet')
+        : undefined,
+      bare: !claims && !society && !(p.policyNumber || '').trim(),
+    };
+  });
+  // Stable: through-waiting first, otherwise the order Insurance holds them in.
+  return lines
+    .map((l, i) => ({ l, i }))
+    .sort((a, b) => (a.l.waitingNote ? 1 : 0) - (b.l.waitingNote ? 1 : 0) || a.i - b.i)
+    .map(x => x.l);
+}

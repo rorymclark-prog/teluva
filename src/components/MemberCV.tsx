@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { FamilyMember, FamilyDocument, CvRole, CvEducationEntry, CvQualification, MemberCv } from '../types';
 import { todayISO } from '../utils/age';
+import { appConfirm } from '../utils/appConfirm';
+import { qualificationExpiryStatus } from '../utils/qualificationExpiry';
 import {
   Briefcase, Plus, Trash2, Pencil, Check, X, Building2, GraduationCap, Award,
   Languages, Tags, Upload, FileText, Eye, RefreshCcw, AlertCircle, FileImage,
@@ -40,9 +42,9 @@ const fmtDate = (d?: string) => {
 
 function ExpiryChip({ expiryDate }: { expiryDate?: string }) {
   if (!expiryDate) return null;
-  const diffDays = Math.ceil((new Date(expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return <span className="chip bg-rosa-100 text-rosa-700">Expired</span>;
-  if (diffDays / 30.4375 <= 2) return <span className="chip bg-honey-100 text-honey-700">Expires soon</span>;
+  const status = qualificationExpiryStatus(expiryDate);
+  if (status === 'expired') return <span className="chip bg-rosa-100 text-rosa-700">Expired</span>;
+  if (status === 'soon') return <span className="chip bg-honey-100 text-honey-700">Expires soon</span>;
   return <span className="chip bg-sage-100 text-sage-700">Valid</span>;
 }
 
@@ -329,9 +331,9 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
     reader.readAsDataURL(file);
   };
 
-  const removeFile = () => {
+  const removeFile = async () => {
     if (!cvFile) return;
-    if (!window.confirm('Remove the filed CV? This deletes the stored file (the roles/education/skills below are kept).')) return;
+    if (!(await appConfirm('Remove the filed CV? This deletes the stored file (the roles/education/skills below are kept).', { danger: true, confirmLabel: 'Remove' }))) return;
     const nextDocs = (member.documents || []).filter(d => d.id !== cv.fileDocumentId);
     onUpdate({ documents: nextDocs, cv: { ...cv, fileDocumentId: undefined } });
   };

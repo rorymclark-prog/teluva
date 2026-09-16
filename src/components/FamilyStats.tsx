@@ -9,6 +9,8 @@ import { FamilyMember, CalendarEvent } from '../types';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import EmptyState from './EmptyState';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
+import { hiddenKey } from '../utils/hiddenPeople';
 
 // ── Small, dependency-free helpers (this file owns all its own math) ───────
 
@@ -172,6 +174,8 @@ export default function FamilyStats({ members, events, onClose }: {
   onClose: () => void;
 }) {
   const [selectedId, setSelectedId] = useState<string>('all');
+  // Ages still count; a hidden person's next birthday is just not announced.
+  const { hidden } = useHiddenPeople();
 
   // Parent only mounts this component while the modal should be visible
   // ({showFamilyStats && <FamilyStats .../>}), so it is "always open" while mounted.
@@ -246,6 +250,7 @@ export default function FamilyStats({ members, events, onClose }: {
 
     let nextBirthday: { member: FamilyMember; days: number; dateLabel: string } | null = null;
     members.forEach((m) => {
+      if (hidden.keys.has(hiddenKey.member(m.id))) return;
       const d = daysUntilNextBirthday(m.birthdate);
       if (d && (!nextBirthday || d.days < nextBirthday.days)) nextBirthday = { member: m, ...d };
     });
@@ -274,7 +279,7 @@ export default function FamilyStats({ members, events, onClose }: {
       languages, nationalities, passportCountries, tallest, biggestShoe, smallestShoe,
       docCount, nextBirthday, onRecordYears, onRecordSinceLabel,
     };
-  }, [members, events]);
+  }, [members, events, hidden]);
 
   const familyTiles: Tile[] = useMemo(() => {
     const t: Tile[] = [];
@@ -402,7 +407,7 @@ export default function FamilyStats({ members, events, onClose }: {
     }
     const docs = (selectedMember.documents?.length || 0) + (selectedMember.passports?.length || 0) + (selectedMember.passport ? 1 : 0);
     if (docs > 0) t.push({ icon: FileStack, label: 'Documents on file', value: `${docs}`, tone: 'dusk' });
-    const bday = daysUntilNextBirthday(selectedMember.birthdate);
+    const bday = hidden.keys.has(hiddenKey.member(selectedMember.id)) ? null : daysUntilNextBirthday(selectedMember.birthdate);
     if (bday) {
       t.push({
         icon: CalendarHeart,
@@ -413,13 +418,13 @@ export default function FamilyStats({ members, events, onClose }: {
       });
     }
     return t;
-  }, [selectedMember, stats.tallest]);
+  }, [selectedMember, stats.tallest, hidden]);
 
   const personOneLiner = useMemo(() => {
     if (!selectedMember) return null;
     const first = firstName(selectedMember.name);
     const age = ageLabel(selectedMember.birthdate);
-    const bday = daysUntilNextBirthday(selectedMember.birthdate);
+    const bday = hidden.keys.has(hiddenKey.member(selectedMember.id)) ? null : daysUntilNextBirthday(selectedMember.birthdate);
     let line = `${first} is ${age ? `${age} old` : 'part of the family'}`;
     if (bday) {
       line += bday.days === 0 ? ' and it is their birthday today!' : ` — next birthday in ${bday.days} day${bday.days === 1 ? '' : 's'}.`;
@@ -427,7 +432,7 @@ export default function FamilyStats({ members, events, onClose }: {
       line += '.';
     }
     return line;
-  }, [selectedMember]);
+  }, [selectedMember, hidden]);
 
   const isEmpty = members.length === 0;
 

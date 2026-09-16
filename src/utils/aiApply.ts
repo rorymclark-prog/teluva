@@ -1,9 +1,15 @@
-import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind, ExtendedBirthday, HouseholdVendor, HomeServiceRecord, PetHealthRecord } from '../types';
+import { FamilyMember, FamilyInfo, MemberRole, CalendarEvent, HouseholdInfo, FinancesInfo, FamilyTimeline, ShoppingItem, FamilyWord, HealthcareProvider, Recipe, CvRole, CvEducationEntry, CvQualification, EstateRecord, SlipItem, DesignatedSuccessor, EmergencyInstructions, HubSettings, NonResidentGuardian, GuardianRelationship, AnniversaryRecord, AnniversaryKind, ExtendedBirthday, HouseholdVendor, HomeServiceRecord, PetHealthRecord, TripDocRole, VaultDocument } from '../types';
 import type { AiEdit } from '../components/AIChatbot';
 import { suggestReturnBy } from './slip';
 import { AVATAR_COLORS } from './avatarPalette';
 import { partitionNewEvents } from './calendarDedup';
+import { appointmentMatchesEvent } from './referralAppointment';
+import { importantOverride, type ImportanceOptions } from './importantEvents';
 import { isValidNameDay } from './nameDay';
+import { suggestTripRole } from './trip';
+import { normalizeVehicleKind } from './vehicle';
+import { lifeCategoryFromWord, parseLifeDate } from './lifeTimeline';
+import type { LifeCategory, TimelineEntry } from '../types';
 
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 const VALID_FAMILY_ROLES: MemberRole[] = ['Parent', 'Child', 'Grandparent', 'Other'];
@@ -37,6 +43,21 @@ const setTravel = (m: FamilyMember, k: string, v: string): FamilyMember => ({ ..
 const setPrefs = (m: FamilyMember, k: string, v: string): FamilyMember => ({ ...m, preferences: { ...(m.preferences || {}), [k]: v } });
 
 // Canonical AI field key -> how to write it onto a member.
+/**
+ * Run ONE member-field edit's writer over a copy of `m`, exactly as the apply
+ * pass above would, and hand back the result — or null when the field name is
+ * not one this map knows.
+ *
+ * Exists so utils/aiNoOp can ask "would this edit change anything?" by running
+ * the real writer and comparing, rather than keeping a parallel map of getters
+ * that would drift out of step with MEMBER_FIELD_MAP the first time a field is
+ * added here and nowhere else. Pure — `m` is not mutated.
+ */
+export function applyMemberFieldEdit(m: FamilyMember, field: string, value: string): FamilyMember | null {
+  const fn = MEMBER_FIELD_MAP[field];
+  return fn ? fn(m, value) : null;
+}
+
 const MEMBER_FIELD_MAP: Record<string, (m: FamilyMember, v: string) => FamilyMember> = {
   name: (m, v) => ({ ...m, name: v }),
   nickname: (m, v) => ({ ...m, nickname: v }),
@@ -503,7 +524,21 @@ type CalendarCat = typeof VALID_CALENDAR_CATS[number];
 // tapping Apply again — silently made a second copy, which is how one live
 // vault ended up with four identical "Re-test Ferritin and Vitamin D" entries
 // twelve minutes apart. See utils/calendarDedup.ts.
-export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], members: FamilyMember[]): CalendarEvent[] {
+//
+// Appointments get one more, looser check (2026-09-13). A scanned referral
+// letter now proposes a companion calendar_event, and so does telling the
+// assistant about an appointment — while the same visit may already be on the
+// calendar from a Google import, worded differently ("Termin Orthopädie" vs
+// "Orthopaedic surgeon — Dr Example") and at a different time. An Appointment
+// for a named person is skipped when that person (or nobody in particular)
+// already has an entry that day sharing a meaningful word with it — see
+// appointmentMatchesEvent. Untagged or non-Appointment proposals keep the
+// exact-match rule only.
+//
+// `important` is stored only when it differs from what the app would decide
+// on its own (importantOverride): a new medical appointment is important
+// without the flag, and writing it anyway would freeze the choice.
+export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], members: FamilyMember[], opts: ImportanceOptions = {}): CalendarEvent[] {
   const candidates: CalendarEvent[] = [];
   for (const e of edits) {
     if (e.kind !== 'calendar_event') continue;
@@ -517,6 +552,16 @@ export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], mem
     const memberIds = (e.memberNames || [])
       .map(n => resolveMember(members, n)?.id)
       .filter((id): id is string => Boolean(id));
+    // endDate/destination are Travel-only. Accepting them on an Appointment
+    // would put a return date on a dentist visit, and utils/trip.ts only ever
+    // reads them off Travel events anyway — so they are dropped rather than
+    // stored where nothing will ever look for them.
+    const isTrip = cat === 'Travel';
+    const endDate = isTrip && e.endDate && e.endDate >= e.date ? e.endDate : undefined;
+    const important = typeof e.important === 'boolean'
+      ? importantOverride({ title: e.title, description: '' }, e.important, opts)
+      : undefined;
+
     candidates.push({
       id: newId(),
       title: e.title,
@@ -526,11 +571,131 @@ export function applyCalendarEdits(events: CalendarEvent[], edits: AiEdit[], mem
       category: cat,
       remindMe: false,
       memberIds: memberIds.length ? memberIds : undefined,
+      ...(endDate ? { endDate } : {}),
+      ...(isTrip && e.destination ? { destination: e.destination } : {}),
+      ...(typeof important === 'boolean' ? { important } : {}),
     });
   }
   const { fresh } = partitionNewEvents(events, candidates);
-  return [...events, ...fresh];
+  const kept: CalendarEvent[] = [];
+  for (const c of fresh) {
+    const ids = c.category === 'Appointment' ? c.memberIds || [] : [];
+    const sameVisit = ids.length > 0 && [...events, ...kept].some((ev) =>
+      ids.some((memberId) => appointmentMatchesEvent(ev, { date: c.date, memberId, title: c.title }, members)));
+    if (!sameVisit) kept.push(c);
+  }
+  return [...events, ...kept];
 }
+
+/* ---------------------------------------------------------------------------
+ * trip_attach — link an EXISTING vault document into a trip's travel pack.
+ *
+ * Born from a live failure: "attach it to the travel pack!!!!!" and the
+ * assistant, having no edit kind for it, proposed a calendar event and then
+ * CLAIMED it had attached the paper — a promise with no code behind it, the
+ * worst kind of refusal. This is the code behind the promise.
+ *
+ * Everything resolves by NAME, client-side and deterministically: the model
+ * names a document (from FAMILY DATA's documents list) and optionally a trip
+ * and role; ids never travel through the model. Anything that cannot be
+ * resolved lands in `notes` so the Apply card can say what did NOT happen —
+ * never a silent no-op.
+ * ------------------------------------------------------------------------- */
+
+const TRIP_ATTACH_ROLES: TripDocRole[] = ['ticket', 'accommodation', 'insurance', 'consent', 'birthCertificate', 'visa', 'passportCopy', 'other'];
+/** Roles that belong to ONE person — mirror of TripPack's personal-role rule. */
+const PERSONAL_TRIP_ROLES = new Set<TripDocRole>(['consent', 'birthCertificate', 'visa', 'passportCopy']);
+
+function resolveVaultDocByName(docs: VaultDocument[], name: string): VaultDocument | undefined {
+  const q = name.trim().toLowerCase();
+  if (!q) return undefined;
+  return docs.find(d => d.name.toLowerCase() === q)
+    || docs.find(d => d.name.toLowerCase().startsWith(q))
+    || docs.find(d => d.name.toLowerCase().includes(q))
+    // The model sometimes returns a LONGER phrase than the stored name
+    // ("the Parental Consent Affidavit for Ben" vs "Parental Consent
+    // Affidavit - Ben SA Trip") — match the other direction too.
+    || docs.find(d => q.includes(d.name.toLowerCase()) && d.name.length >= 8);
+}
+
+export interface TripAttachResult {
+  events: CalendarEvent[];
+  /** One sentence per edit that could NOT be applied (and why). */
+  notes: string[];
+  /** Human lines for what WAS attached — for the reply/toast. */
+  attached: string[];
+}
+
+export function applyTripAttachEdits(
+  events: CalendarEvent[],
+  edits: AiEdit[],
+  members: FamilyMember[],
+  vaultDocs: VaultDocument[],
+  now: Date = new Date(),
+): TripAttachResult {
+  let next = events;
+  const notes: string[] = [];
+  const attached: string[] = [];
+  const today = now.toISOString().slice(0, 10);
+
+  for (const e of edits) {
+    if (e.kind !== 'trip_attach') continue;
+
+    const doc = resolveVaultDocByName(vaultDocs, e.document || '');
+    if (!doc) {
+      notes.push(`Couldn't attach "${e.document}" — no document with that name is in the vault yet.`);
+      continue;
+    }
+
+    // Trip resolution: an explicitly named trip first (title or destination,
+    // case-insensitive substring), otherwise the current-or-next Travel event
+    // — which is what "the travel pack", said today, means.
+    const travelEvents = next.filter(ev => ev.category === 'Travel');
+    let trip: CalendarEvent | undefined;
+    if (e.trip && e.trip.trim()) {
+      const q = e.trip.trim().toLowerCase();
+      trip = travelEvents.find(ev => ev.title.toLowerCase().includes(q) || (ev.destination || '').toLowerCase().includes(q));
+    }
+    if (!trip) {
+      trip = travelEvents
+        .filter(ev => (ev.endDate && ev.endDate >= ev.date ? ev.endDate : ev.date) >= today)
+        .sort((a, b) => a.date.localeCompare(b.date))[0];
+    }
+    if (!trip) {
+      notes.push(`Couldn't attach "${doc.name}" — no current or upcoming trip${e.trip ? ` matching "${e.trip}"` : ''} is on the calendar.`);
+      continue;
+    }
+
+    // Role: the model's word if valid, else the same name-based suggestion the
+    // pack's own picker uses, else the catch-all bucket.
+    const role: TripDocRole = (TRIP_ATTACH_ROLES as string[]).includes(e.role || '')
+      ? (e.role as TripDocRole)
+      : (suggestTripRole(doc.name) ?? 'other');
+    const memberId = PERSONAL_TRIP_ROLES.has(role)
+      ? ((e.member ? resolveMember(members, e.member)?.id : undefined) ?? doc.memberId ?? undefined)
+      : undefined;
+
+    const tripId = trip.id;
+    next = next.map(ev => {
+      if (ev.id !== tripId) return ev;
+      const existing = ev.tripDocs || [];
+      // Same semantics as the pack's own attach (Dashboard.handleAttachTripDoc):
+      // attach beats hide, identical refs never double up, and the update never
+      // carries an explicit-undefined key (Firestore rejects those).
+      const out = { ...ev };
+      const hidden = (ev.tripDocsHidden || []).filter(id => id !== doc.id);
+      if (hidden.length) out.tripDocsHidden = hidden; else delete out.tripDocsHidden;
+      if (!existing.some(ref => ref.id === doc.id && ref.role === role && ref.memberId === memberId)) {
+        out.tripDocs = [...existing, { id: doc.id, role, ...(memberId ? { memberId } : {}) }];
+      }
+      return out;
+    });
+    attached.push(`"${doc.name}" → ${trip.title}`);
+  }
+  return { events: next, notes, attached };
+}
+
+export const hasTripAttachEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'trip_attach');
 
 /**
  * Which calendar edits in this batch are already on the calendar — so the
@@ -572,7 +737,15 @@ export function applyHouseholdEdits(h: HouseholdInfo, edits: AiEdit[]): Househol
       if (e.value && e.value.trim()) next = { ...next, [e.field]: e.value.trim() };
     } else if (e.kind === 'list_add') {
       if (e.list === 'vehicles') {
-        next = { ...next, vehicles: [...(next.vehicles || []), { id: newId(), ...e.item } as any] };
+        // `kind` onto the closed VehicleKind set ("bike" → bicycle, "scooter"
+        // → moped). A car arrives with no kind at all — absent means car — and
+        // an unrecognised word ("boat") lands as 'other', never as raw text.
+        const item: Record<string, unknown> = { ...e.item };
+        if ('kind' in item) {
+          const kind = normalizeVehicleKind(item.kind);
+          if (kind && kind !== 'car') item.kind = kind; else delete item.kind;
+        }
+        next = { ...next, vehicles: [...(next.vehicles || []), { id: newId(), ...item } as any] };
       } else if (e.list === 'pets') {
         // list_add items are Record<string, string> — the model can only send
         // text. Pet.birthdateEstimated is the one BOOLEAN in any of these
@@ -611,19 +784,85 @@ export function applyFinancesEdits(f: FinancesInfo, edits: AiEdit[]): FinancesIn
   return next;
 }
 
-// Append an entry to the family timeline.
-export function applyTimelineEdits(t: FamilyTimeline, edits: AiEdit[]): FamilyTimeline {
-  // Clamp type to the values TimelineView can render — an off-list type from
-  // the AI (e.g. "Anniversary") must degrade to Other, not crash the view.
-  const VALID_TYPES = ['Birth', 'Wedding', 'Graduation', 'Milestone', 'Memory', 'Other'];
-  const added = edits
-    .filter((e): e is Extract<AiEdit, { kind: 'list_add' }> => e.kind === 'list_add' && e.list === 'timeline')
-    .map(e => {
-      const item: any = { id: newId(), ...e.item };
-      if (item.type && !VALID_TYPES.includes(item.type)) item.type = 'Other';
-      return item;
+// Append a moment to the life timeline.
+//
+// `members` is a list of names ("Mia, Ben", "Mia and Ben"); none means the
+// whole family. A name that matches nobody is dropped, not guessed at — the
+// moment then shows as the whole family's, which is visible and editable,
+// rather than silently landing on the wrong person — and the drop is REPORTED
+// in `notes`, the same way applyMemberEdits reports a member it couldn't pin
+// down, so the Apply card never says "done" about a tag that never happened.
+//
+// `date` may be a year or a month on its own ("2009", "2019-06") because that
+// is often all anyone remembers; it is stored as the first of that period with
+// its precision, so it sorts correctly and is shown as "2009", not "1 Jan 2009".
+// A date in no recognisable shape is kept as undated, never invented. An
+// explicit `datePrecision` of "month" or "year" may make a date COARSER (the
+// model wrote "2019-01-01" but meant "2019"), never finer; any other value is
+// ignored.
+//
+// The stored row is built from a whitelist — nothing else the model puts in
+// `item` reaches the store (not an id, not photos, not an importBatchId) — and
+// is marked source: 'assistant', so it can be told apart from a moment typed
+// by hand or imported.
+export function applyTimelineEdits(
+  t: FamilyTimeline, edits: AiEdit[], members: FamilyMember[] = [],
+): { timeline: FamilyTimeline; notes: string[] } {
+  const added: TimelineEntry[] = [];
+  const notes: string[] = [];
+  for (const e of edits) {
+    if (e.kind !== 'list_add' || e.list !== 'timeline') continue;
+    const item = e.item || {};
+    const title = (item.title || '').trim();
+    if (!title) continue;
+
+    const parsed = parseLifeDate(item.date);
+    const askedPrecision = String(item.datePrecision || '').trim().toLowerCase();
+    let { date, datePrecision } = parsed;
+    if (date && askedPrecision === 'year' && datePrecision !== 'year') {
+      date = `${date.slice(0, 4)}-01-01`;
+      datePrecision = 'year';
+    } else if (date && askedPrecision === 'month' && !datePrecision) {
+      date = `${date.slice(0, 7)}-01`;
+      datePrecision = 'month';
+    }
+
+    const asked = item.category || item.type || '';
+    const category: LifeCategory = lifeCategoryFromWord(asked) || (asked.trim() ? 'other' : 'memory');
+
+    const names = (item.members || '')
+      .split(/\s*(?:,|;|&|\band\b)\s*/i)
+      .map(n => n.trim())
+      .filter(Boolean);
+    const memberIds: string[] = [];
+    const unknown: string[] = [];
+    for (const n of names) {
+      const id = resolveMember(members, n)?.id;
+      if (id) { if (!memberIds.includes(id)) memberIds.push(id); }
+      else unknown.push(n);
+    }
+    if (unknown.length) {
+      notes.push(`Added “${title}” to the timeline, but couldn't tell who ${unknown.join(', ')} ${unknown.length === 1 ? 'is' : 'are'}, so it isn't tagged to ${unknown.length === 1 ? 'them' : 'those names'}.`);
+    }
+
+    const endDate = !datePrecision && /^\d{4}-\d{2}-\d{2}$/.test(item.endDate || '') && item.endDate > date
+      ? item.endDate
+      : undefined;
+
+    added.push({
+      id: newId(),
+      date,
+      title,
+      category,
+      ...(datePrecision ? { datePrecision } : {}),
+      ...(memberIds.length ? { memberIds } : {}),
+      ...(endDate ? { endDate } : {}),
+      ...(item.place?.trim() ? { place: item.place.trim() } : {}),
+      ...(item.note?.trim() ? { note: item.note.trim() } : {}),
+      source: 'assistant',
     });
-  return { ...t, entries: [...(t.entries || []), ...added] };
+  }
+  return { timeline: { ...t, entries: [...(t.entries || []), ...added] }, notes };
 }
 
 export const hasCalendarEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'calendar_event');

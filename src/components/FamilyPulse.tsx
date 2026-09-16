@@ -1,5 +1,8 @@
-import { ArrowRight, CalendarDays, CheckCircle2, FileWarning, Ruler, Sparkles } from 'lucide-react';
+import { ArrowRight, CalendarDays, CheckCircle2, FileWarning, Plane, Ruler, Sparkles } from 'lucide-react';
 import { CalendarEvent, FamilyMember, HubStatus } from '../types';
+import type { Trip } from '../utils/trip';
+import type { ImportantItem } from '../utils/importantEvents';
+import ImportantComingUp from './ImportantComingUp';
 
 export interface PulseExpiryWarning {
   memberId: string;
@@ -19,6 +22,72 @@ interface FamilyPulseProps {
   onOpenMemberIds: (memberId: string) => void;
   onOpenPeople: () => void;
   isBusinessSpace?: boolean;
+
+  /** Trips happening now or close enough to prepare for. */
+  trips?: Trip[];
+  /**
+   * The profile belonging to the signed-in account, when it can be resolved
+   * (utils/me.ts). Personalisation ONLY — never an access decision.
+   */
+  me?: FamilyMember | null;
+  onOpenTrip?: (tripId: string, memberId?: string) => void;
+  /** Open the family photo full size. */
+  onViewPhoto?: (url: string) => void;
+  /** Important events of the next 30 days (utils/importantEvents.ts). Empty hides the card. */
+  importantItems?: readonly ImportantItem[];
+}
+
+/**
+ * The travel banner's copy, split out so it can be asserted without rendering.
+ *
+ * Two audiences, one component. If the person reading this is ON the trip, the
+ * banner is theirs and speaks in the second person — that is the case where the
+ * papers are needed at a desk and the tone should be "here they are". If they
+ * are at home while somebody else travels, the same trip is a status update
+ * about a person they are worried about, so it leads with the NAME. Same data,
+ * opposite emphasis; getting this backwards would give a parent a "your papers"
+ * button for a trip they are not on.
+ */
+export function tripBannerCopy(trip: Trip, me: FamilyMember | null | undefined, members: readonly FamilyMember[]) {
+  const viewerIsTravelling = !!me && (trip.memberIds.length === 0 || trip.memberIds.includes(me.id));
+  const firstNames = trip.memberIds
+    .map((id) => members.find((member) => member.id === id))
+    .filter((member): member is FamilyMember => !!member)
+    .map((member) => member.name.split(' ')[0]);
+
+  const who = viewerIsTravelling
+    ? 'You'
+    : firstNames.length === 0 ? 'The family'
+      : firstNames.length === 1 ? firstNames[0]
+        : firstNames.length === 2 ? `${firstNames[0]} and ${firstNames[1]}`
+          : `${firstNames.slice(0, -1).join(', ')} and ${firstNames[firstNames.length - 1]}`;
+
+  const plural = who === 'You' || firstNames.length > 1 || who === 'The family';
+
+  let headline: string;
+  if (trip.status === 'active') {
+    // Already there: "in Lisbon".
+    const place = trip.destination ? ` in ${trip.destination}` : ' away';
+    const home = trip.daysUntilEnd === 0 ? 'home today'
+      : trip.daysUntilEnd === 1 ? 'home tomorrow'
+        : `home in ${trip.daysUntilEnd} days`;
+    headline = `${who} ${plural ? 'are' : 'is'}${place} — ${home}.`;
+  } else {
+    // Not yet gone: "leave FOR Lisbon". Reusing "in" here produced "You leave
+    // in Lisbon, Portugal tomorrow", which reads as though they are already
+    // there. Caught by FamilyPulse.test.ts.
+    const place = trip.destination ? ` for ${trip.destination}` : '';
+    const leaves = trip.daysUntilStart === 0 ? 'today'
+      : trip.daysUntilStart === 1 ? 'tomorrow'
+        : `in ${trip.daysUntilStart} days`;
+    headline = `${who} ${plural ? 'leave' : 'leaves'}${place} ${leaves}.`;
+  }
+
+  return {
+    viewerIsTravelling,
+    headline,
+    action: viewerIsTravelling ? 'Your travel papers' : `Open the travel pack`,
+  };
 }
 
 const DAY = 86_400_000;
@@ -42,7 +111,7 @@ function dateLabel(event: CalendarEvent): string {
 function positiveMoment(members: FamilyMember[], isBusinessSpace: boolean): { title: string; note: string; growth: boolean } | null {
   if (isBusinessSpace) {
     return members.length > 0
-      ? { title: `${members.length} ${members.length === 1 ? 'person' : 'people'}, one team.`, note: 'Open People to keep the team record current', growth: false }
+      ? { title: `${members.length} ${members.length === 1 ? 'person' : 'people'}, one team.`, note: 'Open Team to keep the team record current', growth: false }
       : null;
   }
   for (const member of members) {
@@ -93,7 +162,7 @@ export function pulseSpaceCopy(isBusinessSpace: boolean) {
   };
 }
 
-export default function FamilyPulse({ members, events, status, familyPhotoUrl, expiryWarnings, onOpenCalendar, onOpenMemberIds, onOpenPeople, isBusinessSpace = false }: FamilyPulseProps) {
+export default function FamilyPulse({ members, events, status, familyPhotoUrl, expiryWarnings, onOpenCalendar, onOpenMemberIds, onOpenPeople, isBusinessSpace = false, trips = [], me = null, onOpenTrip, onViewPhoto, importantItems = [] }: FamilyPulseProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const upcoming = events
@@ -128,6 +197,14 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
   const nextEvent = upcoming[0]?.event;
   const nextDate = nextEvent ? localDate(nextEvent.date) : null;
 
+  // Pick ONE trip. A banner that stacks is a list, and a list is the thing this
+  // is meant to replace. Preference order: a trip the viewer is on, then the
+  // one happening soonest (buildTrips already sorts active-before-upcoming).
+  const bannerTrip = trips.find((trip) => !!me && (trip.memberIds.length === 0 || trip.memberIds.includes(me.id))) || trips[0] || null;
+  const tripBanner = bannerTrip
+    ? { trip: bannerTrip, copy: tripBannerCopy(bannerTrip, me, members) }
+    : null;
+
   return (
     <div className="family-pulse">
       <section className="pulse-hero">
@@ -139,7 +216,21 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
         </div>
         <div className={`pulse-family-scene ${familyPhotoUrl ? 'has-photo' : ''}`} aria-label={copy.sceneAria}>
           {familyPhotoUrl ? (
-            <img src={familyPhotoUrl} alt={copy.sceneAlt} />
+            /* The one photo on the home screen is the one people most want to
+               look AT. A plain <img> here was the only family face in the app
+               that could not be opened. */
+            onViewPhoto ? (
+              <button
+                type="button"
+                onClick={() => onViewPhoto(familyPhotoUrl)}
+                className="pulse-scene-photo"
+                aria-label="See the family photo full size"
+              >
+                <img src={familyPhotoUrl} alt={copy.sceneAlt} />
+              </button>
+            ) : (
+              <img src={familyPhotoUrl} alt={copy.sceneAlt} />
+            )
           ) : (
             <>
               <span className="pulse-scene-label">{copy.sceneLabel}</span>
@@ -162,6 +253,35 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
           )}
         </div>
       </section>
+
+      {/* Travel sits directly under the hero — second thing on the screen, above
+          the review — because the moment it matters you are not browsing. It is
+          shown ONLY while a trip is current, so it costs nothing the rest of the
+          year. A trip the viewer is on wins over one they are not: a traveller
+          needing their own papers outranks a status update about someone else. */}
+      {tripBanner && (
+        <section className="pulse-trip" aria-label="Travel">
+          <div className="pulse-trip-icon"><Plane className="h-5 w-5" /></div>
+          <div className="pulse-trip-copy">
+            <span className="pulse-eyebrow">{tripBanner.trip.title}</span>
+            <h2>{tripBanner.copy.headline}</h2>
+          </div>
+          {onOpenTrip && (
+            <button
+              type="button"
+              className="pulse-trip-action"
+              onClick={() => onOpenTrip(tripBanner.trip.id, tripBanner.copy.viewerIsTravelling ? me?.id : undefined)}
+            >
+              {tripBanner.copy.action} <ArrowRight className="h-4 w-4" />
+            </button>
+          )}
+        </section>
+      )}
+
+      {/* Important — coming up. Above the review, because marking something
+          important is asking for it to be seen first; absent when there is
+          nothing in the next 30 days. */}
+      <ImportantComingUp variant="ember" items={importantItems} members={members} onOpenCalendar={onOpenCalendar} />
 
       <div className="pulse-grid">
         <section className="pulse-decisions">

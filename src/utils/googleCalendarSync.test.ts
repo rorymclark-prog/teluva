@@ -173,4 +173,31 @@ const lateNight = buildGoogleCalendarEventBody({ ...base, time: '23:30' });
 assert.strictEqual(lateNight.start.dateTime, '2026-08-01T23:30:00');
 assert.strictEqual(lateNight.end.dateTime, '2026-08-02T00:30:00', 'end rolls into the next calendar day');
 
+// ── reminders on important events ───────────────────────────────────────────
+// An important event replaces the account's default reminder with two
+// pop-ups: a day before and two hours before. Everything else sends no
+// `reminders` key, so Google applies the family's own default.
+{
+  const want = { useDefault: false, overrides: [{ method: 'popup', minutes: 1440 }, { method: 'popup', minutes: 120 }] };
+
+  // "Dentist" is medical, so important without anyone marking it.
+  assert.deepStrictEqual(buildGoogleCalendarEventBody(base).reminders, want, 'a medical appointment carries the two reminders');
+
+  const play: CalendarEvent = { ...base, title: 'School play', category: 'School', important: true };
+  assert.deepStrictEqual(buildGoogleCalendarEventBody(play).reminders, want, 'an event the family marked carries them too');
+  assert.deepStrictEqual(buildGoogleCalendarEventBody({ ...play, time: undefined }).reminders, want, 'all-day events get the same overrides');
+
+  // CONTROL: an ordinary event sends no reminders key at all.
+  const football: CalendarEvent = { ...base, title: 'Football practice', category: 'Other' };
+  assert.ok(!('reminders' in buildGoogleCalendarEventBody(football)), 'an ordinary event keeps the account default');
+  assert.ok(!('reminders' in buildGoogleCalendarEventBody({ ...base, important: false })), 'an appointment the family un-marked keeps the default');
+
+  // A business space has no automatic medical rule: only a hand-marked event.
+  assert.ok(!('reminders' in buildGoogleCalendarEventBody(base, { business: true })), 'no automatic rule in a business space');
+  assert.deepStrictEqual(buildGoogleCalendarEventBody({ ...football, important: true }, { business: true }).reminders, want);
+
+  // The rest of the body is unchanged by it.
+  assert.strictEqual(buildGoogleCalendarEventBody(play).summary, '[Family Hub] School play');
+}
+
 console.log('googleCalendarSync.test.ts: all assertions passed');

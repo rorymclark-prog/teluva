@@ -201,7 +201,7 @@ export function diffFinancesUndo(before: FinancesInfo, after: FinancesInfo): Und
 
 // Field-set edits mutate existing records in place, so they cannot be reversed
 // by deleting a created id. Count them so the Undo affordance can say plainly
-// that these particular changes remain (e.g. "Sophie's shoe size stays set").
+// that these particular changes remain (e.g. "Mia's shoe size stays set").
 //
 // delete_record and update_record belong in this same bucket and were missing
 // (found 2026-08-15, chat-function audit, independently twice): they never
@@ -221,7 +221,7 @@ export function countIrreversibleEdits(edits: AiEdit[]): number {
 
 // --- Where-it-landed (task A) -----------------------------------------------
 // A short, display-only destination line per applied edit, e.g.
-//   "Sophie's profile · ID & Passports"  or  "Document Vault (Identity)".
+//   "Mia's profile · ID & Passports"  or  "Document Vault (Identity)".
 // `resolveName` maps a member reference to the person's display name (or
 // undefined) — the same owner resolution Apply already uses; passed in so this
 // stays a pure function with no dependency on component state.
@@ -246,7 +246,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
     case 'list_add': {
       if (e.list === 'vehicles' || e.list === 'pets' || e.list === 'utilities') return `Household · ${cap(e.list)}`;
       if (e.list === 'banks' || e.list === 'insurance' || e.list === 'benefits') return `Finances · ${cap(e.list)}`;
-      if (e.list === 'timeline') return 'Family timeline';
+      if (e.list === 'timeline') return 'Timeline';
       if (e.list === 'shopping') return 'Shopping list';
       return 'Saved';
     }
@@ -286,7 +286,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
         home_service: 'Household · work done on the house',
         pet_health: 'Household · Pets · medical history',
         bank: 'Finances · Banks', insurance: 'Finances · Insurance', benefit: 'Finances · Benefits',
-        timeline: 'Family timeline', calendar_event: 'Calendar', slip: 'Slips', asset: 'Assets',
+        timeline: 'Timeline', calendar_event: 'Calendar', slip: 'Slips', asset: 'Assets',
       };
       return SECTION[tk] || cap(tk.replace(/_/g, ' '));
     }

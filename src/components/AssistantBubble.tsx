@@ -55,17 +55,39 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
     if (d) { setPendingDraft(d); setOpen(true); }
   }, [draftSignal, consumeChatDraft]);
 
+  // Tell the document the chat is open, so a shell that parks fixed furniture
+  // over the page can stand it down. The panel is z-40 and CANNOT simply be
+  // raised: it opens the scanner, the document reader and the lightbox, which
+  // sit above it on the normal modal layer, and lifting the panel past them
+  // would bury the very things it opens. So the chrome yields instead — see
+  // the [data-assistant-open] rules in index.css. Cleared on unmount too, or a
+  // route change with the panel open would leave the nav hidden for good.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (open) root.dataset.assistantOpen = '1';
+    else delete root.dataset.assistantOpen;
+    return () => { delete root.dataset.assistantOpen; };
+  }, [open]);
+
   // Close on any click outside the panel (the launcher is excluded — it toggles
   // itself) and on Escape. This is what makes clicking the page dismiss the chat.
   useEffect(() => {
     if (!open) return;
+    // A modal opened FROM the chat (scanner, document reader, lightbox) is
+    // portalled to <body> — it has to be, or the panel's own backdrop-filter
+    // would trap and clip it. That puts it outside panelRef, so every tap
+    // inside the scanner read as "clicked outside the chat" and closed the
+    // panel, unmounting the scanner mid-scan. While any modal layer is up the
+    // chat holds its ground; the modal has its own close.
+    const modalUp = () => !!document.documentElement.dataset.modalOpen;
     const onDown = (e: MouseEvent) => {
       const target = e.target as Node;
       if (panelRef.current?.contains(target)) return;
       if (launcherRef.current?.contains(target)) return;
+      if (modalUp()) return;
       setOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !modalUp()) setOpen(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -151,11 +173,12 @@ export default function AssistantBubble({ members, onApplyEdits, onAddMemberDoc,
         onClick={() => setOpen((o) => !o)}
         aria-label={open ? t.btn_close : t.nav_assistant}
         aria-expanded={open}
-        className="fixed z-30 bottom-4 right-4 w-14 h-14 rounded-full text-white flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer"
-        style={{
-          backgroundImage: 'linear-gradient(135deg, var(--color-clay-500), var(--color-clay-600))',
-          boxShadow: 'var(--shadow-glow)',
-        }}
+        /* `assistant-launcher` is a styling hook, not a Tailwind class: the Ember
+           interface parks a fixed z-60 nav bar across the bottom of a phone
+           screen, exactly where `bottom-4 right-4` puts this button. Without a
+           selector to grab it by, the launcher renders UNDER that bar — visible
+           to nobody and tappable by nobody. See index.css. */
+        className="assistant-launcher fixed z-30 bottom-4 right-4 w-14 h-14 rounded-full text-white flex items-center justify-center transition-transform hover:scale-105 active:scale-95 cursor-pointer"
       >
         {open ? <X className="w-6 h-6" /> : <Sparkles className="w-6 h-6" />}
       </button>

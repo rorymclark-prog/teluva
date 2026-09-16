@@ -3,10 +3,10 @@ import {
   X, Sparkles, Camera, Upload, RefreshCcw, Save, Search, PartyPopper, Star, BellRing, BellOff, Trash2, BookOpen,
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
-import { FamilyMember, MemberRole, NameCelebration, NameMeaning, SurnameMeaning, IdCountry } from '../types';
+import { FamilyMember, FamilyMemberRole, MemberRole, NameCelebration, NameMeaning, SurnameMeaning, IdCountry } from '../types';
 import { listTimeZones } from '../utils/timeZone';
 import { auth } from '../lib/firebase';
-import { loadSpaceInfo, saveSuppressReligiousSuggestions, loadFamilyInfo, saveFamilyInfo, loadSettings } from '../utils/db';
+import { loadSpaceInfo, saveSuppressReligiousSuggestions, loadFamilyInfo, saveFamilyInfo, loadSettings, loadFamilyRoles } from '../utils/db';
 import { motion, AnimatePresence } from 'motion/react';
 import { AVATAR_COLORS, warmAvatarColor } from '../utils/avatarPalette';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -47,9 +47,10 @@ const timeZoneOptions = listTimeZones();
 export default function EditMemberModal({ isOpen, member, onClose, onSave, isBusinessSpace = false }: EditMemberModalProps) {
   useBodyScrollLock(isOpen && !!member);
 
-  // Only for the family-wide religious-suggestion switch below — that endpoint
-  // is admin-only, so a non-admin must not be shown a control for it.
-  const { isAdmin } = useFamilyCtx();
+  // isAdmin: the family-wide religious-suggestion switch and the linked-login
+  // picker below are both admin-only controls, so a non-admin must not be
+  // shown either. familyId: to list the space's logins for that picker.
+  const { isAdmin, familyId } = useFamilyCtx();
 
   const [name, setName] = useState('');
   const [nickname, setNickname] = useState('');
@@ -119,6 +120,19 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   const [workAddress, setWorkAddress] = useState('');
   const [selectedColor, setSelectedColor] = useState(AVATAR_COLORS[0]);
   const [isOnline, setIsOnline] = useState(false);
+  // Which sign-in account this PROFILE belongs to ('' = not linked). The link
+  // is what turns "a member of the space" into "this person in the family":
+  // resolveMe (utils/me.ts) uses it for the cosmetic whose-greeting question,
+  // and the upcoming own-only medical rules will key on it — a child login can
+  // only ever be granted their OWN record if something says which record is
+  // theirs. Until now the field existed on FamilyMember with NO UI writing it
+  // (the documented AI-writable-no-manual-UI gap class); only the email
+  // heuristic ever matched. Admin-only, like the role controls.
+  const [linkedUid, setLinkedUid] = useState('');
+  // The space's logins (uid -> role/email/displayName), loaded once per open
+  // for the picker. null = not loaded yet, render nothing rather than an
+  // empty select that looks like "no logins exist".
+  const [spaceLogins, setSpaceLogins] = useState<Record<string, FamilyMemberRole> | null>(null);
 
   // Profile Image states
   const [avatarMode, setAvatarMode] = useState<'current' | 'color' | 'upload' | 'camera'>('current');
@@ -175,6 +189,7 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       setAddress(member.address || '');
       setPhone(member.phone || '');
       setEmail(member.email || '');
+      setLinkedUid(member.linkedUid || '');
       setSpouse(member.spouse || '');
       setEmployer(member.employer || '');
       setJobTitle(member.jobTitle || '');
@@ -229,6 +244,16 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       .catch(() => { /* falls back to the AT default inside minWorkingAge */ });
     return () => { cancelled = true; };
   }, [isOpen]);
+
+  // The space's logins for the linked-login picker. Admin-gated: the roles
+  // collection is member-readable, but only an admin sees the control, so
+  // don't fetch for anyone else. loadFamilyRoles already fails soft to {}.
+  useEffect(() => {
+    if (!isOpen || !isAdmin || !familyId) return;
+    let cancelled = false;
+    loadFamilyRoles(familyId).then((roles) => { if (!cancelled) setSpaceLogins(roles); });
+    return () => { cancelled = true; };
+  }, [isOpen, isAdmin, familyId]);
 
   // Surname meanings, from the shared Important Info document. Read on open so
   // a name already researched by someone else shows up here without a second
@@ -413,12 +438,23 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
   // notifications by default"), and the modal's primary-choice screen
   // promises exactly that for the one not chosen. Leaving notify true on the
   // demoted entry produced two annual pushes the family never opted into.
-  const handleConfirmCelebration = (celebration: NameCelebration) => {
+  //
+  // A BATCH, not one entry: a name can have two catalogued days and a family
+  // may keep both (Maria — see keptDaysFor in utils/nameCelebrations.ts). The
+  // demotion below must therefore be decided ONCE for the whole batch and
+  // applied to `prev` only. Folding the two days in one at a time would run
+  // the demotion twice and the second pass would strip the primary flag off
+  // the day the first pass had just added — leaving a member with two name
+  // days and no main one, which is precisely the state the primary flag
+  // exists to prevent.
+  const handleConfirmCelebration = (confirmed: NameCelebration[]) => {
+    const added = confirmed.filter(Boolean);
+    if (!added.length) return;
     setNameCelebrations((prev) => {
-      const rest = celebration.primary
+      const rest = added.some((c) => c.primary)
         ? prev.map((c) => (c.primary ? { ...c, primary: false, notify: false } : c))
         : prev;
-      return [...rest, celebration];
+      return [...rest, ...added];
     });
     setNameCelebrationDismissed(false); // confirming an answer un-declines the question
     setShowCelebrationModal(false);
@@ -507,6 +543,11 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
       address: address.trim() || undefined,
       phone: phone.trim() || undefined,
       email: email.trim() || undefined,
+      // Explicit, not left to the ...member spread: picking "Not linked" is an
+      // unlink and must actually clear the stored value. Non-admins never see
+      // the picker, and their state was initialised from member.linkedUid, so
+      // for them this writes back what was already there.
+      linkedUid: linkedUid || undefined,
       spouse: spouse.trim() || undefined,
       employer: employer.trim() || undefined,
       jobTitle: jobTitle.trim() || undefined,
@@ -564,6 +605,193 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
 
             {/* Form */}
             <form onSubmit={handleSaveSubmit} className="mt-4 space-y-4">
+              {/* THE PHOTO GOES FIRST. It used to sit at the very bottom of a
+                  fifteen-field form — below name days, nationality, birth hospital
+                  and the notification toggles. Rory scrolled this modal and
+                  concluded the app could not upload a photo at all, even though the
+                  header has always promised "and photo". A control nobody reaches is
+                  the same as a control that does not exist. */}
+              {/* Profile Avatar Selection Section */}
+              <div className="space-y-2.5">
+                <label className="field-label">Profile Representation / Photo</label>
+
+                {/* Mode Selector Tabs */}
+                <div className="flex bg-cream-100 p-1 rounded-xl select-none border border-cream-300">
+                  <button
+                    type="button"
+                    onClick={() => { stopCamera(); setAvatarMode(uploadedBase64 ? 'current' : 'color'); }}
+                    className={`flex-1 py-1.5 text-[13px] font-semibold rounded-lg transition-all text-center ${
+                      avatarMode === 'current' || (avatarMode === 'color' && !uploadedBase64)
+                        ? 'bg-white text-ink-900 shadow-soft'
+                        : 'text-ink-500 hover:text-ink-800'
+                    }`}
+                  >
+                    {uploadedBase64 ? 'Current Portrait' : 'Initials'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { stopCamera(); setAvatarMode('upload'); }}
+                    className={`flex-1 py-1.5 text-[13px] font-semibold rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
+                      avatarMode === 'upload'
+                        ? 'bg-white text-ink-900 shadow-soft'
+                        : 'text-ink-500 hover:text-ink-800'
+                    }`}
+                  >
+                    <Upload className="w-3 h-3" />
+                    Upload Image
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAvatarMode('camera'); startCamera(); }}
+                    className={`flex-1 py-1.5 text-[13px] font-semibold rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
+                      avatarMode === 'camera'
+                        ? 'bg-white text-ink-900 shadow-soft'
+                        : 'text-ink-500 hover:text-ink-800'
+                    }`}
+                  >
+                    <Camera className="w-3 h-3" />
+                    Take Snapshot
+                  </button>
+                </div>
+
+                {/* Case 1: Colors & Initials */}
+                {avatarMode === 'color' && (
+                  <div className="p-3 bg-cream-50 border border-cream-300 rounded-2xl space-y-2">
+                    <p className="section-label">Select color palette</p>
+                    <div className="flex items-center flex-wrap gap-2">
+                      {AVATAR_COLORS.map((colorClass) => (
+                        <button
+                          key={colorClass}
+                          type="button"
+                          onClick={() => setSelectedColor(colorClass)}
+                          className={`relative w-8 h-8 rounded-xl ${colorClass} transition-transform hover:scale-105 focus:outline-none ${
+                            selectedColor === colorClass
+                              ? 'ring-2 ring-ink-900 ring-offset-2 ring-offset-white'
+                              : ''
+                          }`}
+                        >
+                          {selectedColor === colorClass && (
+                            <span className="absolute inset-0 flex items-center justify-center">
+                              <Sparkles className="w-4 h-4 text-white drop-shadow-sm" />
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Case 1.1: Current Portrait Loaded */}
+                {avatarMode === 'current' && (
+                  <div className="p-3 bg-cream-50 border border-cream-300 rounded-2xl flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl overflow-hidden border border-cream-300 bg-white shadow-soft">
+                        <img src={uploadedBase64} alt="Avatar profile direct view" className="w-full h-full object-cover" />
+                      </div>
+                      <div>
+                        <p className="text-[13px] font-semibold text-ink-800">Has Custom Photo</p>
+                        <p className="text-[13px] font-semibold text-ink-500">Saved to this profile.</p>
+                      </div>
+                    </div>
+                    <ConfirmDeleteButton
+                      onConfirm={handleClearImage}
+                      ariaLabel="Remove this photo and use a standard color instead"
+                      confirm={false}
+                    />
+                  </div>
+                )}
+
+                {/* Case 2: Upload File Image */}
+                {avatarMode === 'upload' && (
+                  <div className="p-4 bg-cream-100 border border-cream-300 rounded-2xl space-y-3">
+                    <div className="flex items-center gap-3">
+                      {uploadedBase64 ? (
+                        <div className="w-12 h-12 rounded-xl border border-cream-300 overflow-hidden shrink-0 bg-white shadow-soft">
+                          <img src={uploadedBase64} alt="Avatar profile snapshot" className="w-full h-full object-cover" />
+                        </div>
+                      ) : (
+                        <div className={`w-12 h-12 rounded-xl ${warmAvatarColor(selectedColor)} text-white font-bold text-lg flex items-center justify-center shrink-0 uppercase shadow-soft`}>
+                          {name.trim() ? name.trim().charAt(0) : '?'}
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <label className="inline-flex items-center gap-1 px-3 py-1.5 bg-dusk-50 text-dusk-700 hover:bg-dusk-100/80 rounded-lg text-[13px] font-semibold cursor-pointer transition-all border border-dusk-200">
+                          <Upload className="w-3 h-3" />
+                          <span>Choose New Image</span>
+                          <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                        </label>
+                        <p className="text-[13px] font-semibold text-ink-400 truncate max-w-[200px]">
+                          {uploadFileName || 'No new image chosen.'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Case 3: Live Camera Snapshot */}
+                {avatarMode === 'camera' && (
+                  <div className="p-4 bg-cream-100 border border-cream-300 rounded-2xl space-y-3">
+                    {isCameraActive ? (
+                      <div className="space-y-2.5">
+                        <div className="aspect-square w-full max-w-[200px] mx-auto rounded-2xl overflow-hidden bg-ink-900 border border-cream-300 relative">
+                          <video
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
+                            className="w-full h-full object-cover scale-x-[-1]"
+                          />
+                          <div className="absolute inset-0 border border-white/10 pointer-events-none rounded-2xl"></div>
+                        </div>
+                        <div className="flex justify-center">
+                          <button
+                            type="button"
+                            onClick={capturePhoto}
+                            className="btn-danger flex items-center gap-1"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            <span>Capture snap</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 bg-cream-100 border border-dashed border-cream-300 rounded-2xl">
+                        {cameraError ? (
+                          <div className="space-y-2 px-3">
+                            <p className="text-[13px] font-semibold text-rosa-700">{cameraError}</p>
+                            <button
+                              type="button"
+                              onClick={startCamera}
+                              className="btn-quiet inline-flex items-center gap-1.5"
+                            >
+                              <RefreshCcw className="w-3 h-3" /> Wait &amp; Retry
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {uploadedBase64 ? (
+                              <div className="w-16 h-16 rounded-2xl border border-cream-300 overflow-hidden mx-auto bg-white shadow-soft">
+                                <img src={uploadedBase64} alt="Captured portrait avatar" className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-dusk-100 text-dusk-500 flex items-center justify-center mx-auto">
+                                <Camera className="w-5 h-5" />
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={startCamera}
+                              className="btn-quiet"
+                            >
+                              Activate Stream / webcam
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="field-label">Full name</label>
@@ -861,7 +1089,16 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                 </div>
                 <div>
                   <label className="field-label">Gender <span className="normal-case text-ink-300 font-normal">· optional</span></label>
+                  {/* A free-text box with a reason attached, not a demographic
+                      slot. The app uses this in exactly one place — the GEDCOM
+                      export, where the file format demands M/F/U and anything
+                      it does not recognise stays U rather than being pushed
+                      into a box. It does not cross to connected families, it
+                      drives no label, and leaving it blank costs nothing. */}
                   <input type="text" placeholder="e.g. Female, Male, Non-binary" value={gender} onChange={(e) => setGender(e.target.value)} className="field" />
+                  <p className="text-[11.5px] text-ink-400 mt-1">
+                    Only used when you export a family tree, which needs it. Blank is fine.
+                  </p>
                 </div>
               </div>
 
@@ -1031,6 +1268,41 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                 </div>
               </div>
 
+              {/* Which sign-in account is this person? Admin-only. Rendered
+                  only once the logins have loaded — an empty select would
+                  read as "this space has no logins". If the stored link
+                  points at a login that has since been removed from the
+                  space, it is surfaced as its own option rather than
+                  silently blanked: the admin should SEE the dangling link
+                  and choose to clear it. */}
+              {isAdmin && spaceLogins && (
+                <div>
+                  <label className="field-label" htmlFor="linked-login">Linked login</label>
+                  <select
+                    id="linked-login"
+                    className="field"
+                    value={linkedUid}
+                    onChange={(e) => setLinkedUid(e.target.value)}
+                  >
+                    <option value="">Not linked</option>
+                    {linkedUid && !spaceLogins[linkedUid] && (
+                      <option value={linkedUid}>A login no longer in this space</option>
+                    )}
+                    {Object.keys(spaceLogins).map((uid) => {
+                      const login: FamilyMemberRole = spaceLogins[uid];
+                      return (
+                        <option key={uid} value={uid}>
+                          {(login.displayName || login.email || uid) + (login.email && login.displayName ? ` — ${login.email}` : '')} ({login.role})
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <p className="mt-1 text-[12px] text-ink-400 leading-snug">
+                    Connects this profile to the account that person signs in with — their name greets them and their own things surface first. Link each login to only one person.
+                  </p>
+                </div>
+              )}
+
               {/* Spouse or partner — the adult counterpart of the gate below.
                   Same birthdate-as-typed keying, same refusal to hide a value
                   already on file.
@@ -1135,187 +1407,6 @@ export default function EditMemberModal({ isOpen, member, onClose, onSave, isBus
                   />
                   <div className="w-9 h-5 bg-cream-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-cream-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sage-500"></div>
                 </label>
-              </div>
-
-              {/* Profile Avatar Selection Section */}
-              <div className="space-y-2.5">
-                <label className="field-label">Profile Representation / Photo</label>
-
-                {/* Mode Selector Tabs */}
-                <div className="flex bg-cream-100 p-1 rounded-xl select-none border border-cream-300">
-                  <button
-                    type="button"
-                    onClick={() => { stopCamera(); setAvatarMode(uploadedBase64 ? 'current' : 'color'); }}
-                    className={`flex-1 py-1.5 text-[13px] font-semibold rounded-lg transition-all text-center ${
-                      avatarMode === 'current' || (avatarMode === 'color' && !uploadedBase64)
-                        ? 'bg-white text-ink-900 shadow-soft'
-                        : 'text-ink-500 hover:text-ink-800'
-                    }`}
-                  >
-                    {uploadedBase64 ? 'Current Portrait' : 'Initials'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { stopCamera(); setAvatarMode('upload'); }}
-                    className={`flex-1 py-1.5 text-[13px] font-semibold rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
-                      avatarMode === 'upload'
-                        ? 'bg-white text-ink-900 shadow-soft'
-                        : 'text-ink-500 hover:text-ink-800'
-                    }`}
-                  >
-                    <Upload className="w-3 h-3" />
-                    Upload Image
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setAvatarMode('camera'); startCamera(); }}
-                    className={`flex-1 py-1.5 text-[13px] font-semibold rounded-lg transition-all text-center flex items-center justify-center gap-1 ${
-                      avatarMode === 'camera'
-                        ? 'bg-white text-ink-900 shadow-soft'
-                        : 'text-ink-500 hover:text-ink-800'
-                    }`}
-                  >
-                    <Camera className="w-3 h-3" />
-                    Take Snapshot
-                  </button>
-                </div>
-
-                {/* Case 1: Colors & Initials */}
-                {avatarMode === 'color' && (
-                  <div className="p-3 bg-cream-50 border border-cream-300 rounded-2xl space-y-2">
-                    <p className="section-label">Select color palette</p>
-                    <div className="flex items-center flex-wrap gap-2">
-                      {AVATAR_COLORS.map((colorClass) => (
-                        <button
-                          key={colorClass}
-                          type="button"
-                          onClick={() => setSelectedColor(colorClass)}
-                          className={`relative w-8 h-8 rounded-xl ${colorClass} transition-transform hover:scale-105 focus:outline-none ${
-                            selectedColor === colorClass
-                              ? 'ring-2 ring-ink-900 ring-offset-2 ring-offset-white'
-                              : ''
-                          }`}
-                        >
-                          {selectedColor === colorClass && (
-                            <span className="absolute inset-0 flex items-center justify-center">
-                              <Sparkles className="w-4 h-4 text-white drop-shadow-sm" />
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Case 1.1: Current Portrait Loaded */}
-                {avatarMode === 'current' && (
-                  <div className="p-3 bg-cream-50 border border-cream-300 rounded-2xl flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl overflow-hidden border border-cream-300 bg-white shadow-soft">
-                        <img src={uploadedBase64} alt="Avatar profile direct view" className="w-full h-full object-cover" />
-                      </div>
-                      <div>
-                        <p className="text-[13px] font-semibold text-ink-800">Has Custom Photo</p>
-                        <p className="text-[13px] font-semibold text-ink-500">Saved to this profile.</p>
-                      </div>
-                    </div>
-                    <ConfirmDeleteButton
-                      onConfirm={handleClearImage}
-                      ariaLabel="Remove this photo and use a standard color instead"
-                      confirm={false}
-                    />
-                  </div>
-                )}
-
-                {/* Case 2: Upload File Image */}
-                {avatarMode === 'upload' && (
-                  <div className="p-4 bg-cream-100 border border-cream-300 rounded-2xl space-y-3">
-                    <div className="flex items-center gap-3">
-                      {uploadedBase64 ? (
-                        <div className="w-12 h-12 rounded-xl border border-cream-300 overflow-hidden shrink-0 bg-white shadow-soft">
-                          <img src={uploadedBase64} alt="Avatar profile snapshot" className="w-full h-full object-cover" />
-                        </div>
-                      ) : (
-                        <div className={`w-12 h-12 rounded-xl ${warmAvatarColor(selectedColor)} text-white font-bold text-lg flex items-center justify-center shrink-0 uppercase shadow-soft`}>
-                          {name.trim() ? name.trim().charAt(0) : '?'}
-                        </div>
-                      )}
-                      <div className="space-y-1">
-                        <label className="inline-flex items-center gap-1 px-3 py-1.5 bg-dusk-50 text-dusk-700 hover:bg-dusk-100/80 rounded-lg text-[13px] font-semibold cursor-pointer transition-all border border-dusk-200">
-                          <Upload className="w-3 h-3" />
-                          <span>Choose New Image</span>
-                          <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-                        </label>
-                        <p className="text-[13px] font-semibold text-ink-400 truncate max-w-[200px]">
-                          {uploadFileName || 'No new image chosen.'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Case 3: Live Camera Snapshot */}
-                {avatarMode === 'camera' && (
-                  <div className="p-4 bg-cream-100 border border-cream-300 rounded-2xl space-y-3">
-                    {isCameraActive ? (
-                      <div className="space-y-2.5">
-                        <div className="aspect-square w-full max-w-[200px] mx-auto rounded-2xl overflow-hidden bg-ink-900 border border-cream-300 relative">
-                          <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            className="w-full h-full object-cover scale-x-[-1]"
-                          />
-                          <div className="absolute inset-0 border border-white/10 pointer-events-none rounded-2xl"></div>
-                        </div>
-                        <div className="flex justify-center">
-                          <button
-                            type="button"
-                            onClick={capturePhoto}
-                            className="btn-danger flex items-center gap-1"
-                          >
-                            <Camera className="w-3.5 h-3.5" />
-                            <span>Capture snap</span>
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center py-4 bg-cream-100 border border-dashed border-cream-300 rounded-2xl">
-                        {cameraError ? (
-                          <div className="space-y-2 px-3">
-                            <p className="text-[13px] font-semibold text-rosa-700">{cameraError}</p>
-                            <button
-                              type="button"
-                              onClick={startCamera}
-                              className="btn-quiet inline-flex items-center gap-1.5"
-                            >
-                              <RefreshCcw className="w-3 h-3" /> Wait &amp; Retry
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {uploadedBase64 ? (
-                              <div className="w-16 h-16 rounded-2xl border border-cream-300 overflow-hidden mx-auto bg-white shadow-soft">
-                                <img src={uploadedBase64} alt="Captured portrait avatar" className="w-full h-full object-cover" />
-                              </div>
-                            ) : (
-                              <div className="w-10 h-10 rounded-full bg-dusk-100 text-dusk-500 flex items-center justify-center mx-auto">
-                                <Camera className="w-5 h-5" />
-                              </div>
-                            )}
-                            <button
-                              type="button"
-                              onClick={startCamera}
-                              className="btn-quiet"
-                            >
-                              Activate Stream / webcam
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Actions */}

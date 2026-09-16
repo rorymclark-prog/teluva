@@ -5,6 +5,7 @@ import { warmAvatarColor } from '../utils/avatarPalette';
 import { relativeDayLabel, todayIsoLocal } from '../utils/memberAppointments';
 import { buildGiftOccasions, OccasionKind, MemberOccasion } from '../utils/giftOccasions';
 import EmptyState from './EmptyState';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
 
 interface Props {
   members: FamilyMember[];
@@ -47,7 +48,8 @@ export default function GiftsOccasionsView({ members, onSelectMember }: Props) {
   // convention as HealthTimeline.tsx.
   const now = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => todayIsoLocal(now), [now]);
-  const result = useMemo(() => buildGiftOccasions({ members, now }), [members, now]);
+  const { hidden } = useHiddenPeople();
+  const result = useMemo(() => buildGiftOccasions({ members, now, hidden }), [members, now, hidden]);
 
   return (
     <div className="max-w-3xl space-y-6">

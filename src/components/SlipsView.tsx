@@ -11,6 +11,7 @@ import { daysUntil } from '../utils/vehicle';
 import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { appConfirm } from '../utils/appConfirm';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -81,7 +82,7 @@ const TONE_CLASS: Record<'urgent' | 'warn' | 'ok' | 'muted', string> = {
   muted: 'bg-cream-200 text-ink-500',
 };
 
-export default function SlipsView() {
+export default function SlipsView({ isBusinessSpace = false }: { isBusinessSpace?: boolean } = {}) {
   const { canWrite } = useFamilyCtx();
   const [slips, setSlips] = useState<SlipItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -218,7 +219,7 @@ export default function SlipsView() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this slip? This cannot be undone.')) return;
+    if (!(await appConfirm('Delete this slip? This cannot be undone.', { danger: true, confirmLabel: 'Delete' }))) return;
     const existing = slips.find(s => s.id === id);
     if (existing?.photoStoragePath) await deleteSlipPhoto(existing.photoStoragePath);
     await persist(slips.filter(s => s.id !== id));
@@ -567,7 +568,7 @@ export default function SlipsView() {
                   <label className="field-label">Whose</label>
                   <input
                     type="text"
-                    placeholder="e.g. Household, Mia"
+                    placeholder={isBusinessSpace ? 'e.g. Office, Workshop' : 'e.g. Household, Mia'}
                     value={form.assignedTo}
                     onChange={e => setForm(prev => (prev ? { ...prev, assignedTo: e.target.value } : prev))}
                     className="field w-full"

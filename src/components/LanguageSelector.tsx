@@ -13,6 +13,7 @@ const FLAGS: Record<LangCode, string> = {
   nl: '🇳🇱',
   pl: '🇵🇱',
   af: '🇿🇦',
+  ro: '🇷🇴',
 };
 
 export default function LanguageSelector() {

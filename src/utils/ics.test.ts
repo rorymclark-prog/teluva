@@ -6,7 +6,7 @@ import {
 import type { CalendarEvent } from '../types';
 
 const MEMBERS = [
-  { id: 'sophie', name: 'Sophie Clark' },
+  { id: 'mia', name: 'Mia Clark' },
   { id: 'ganga', name: 'Ganga Clark' },
 ];
 
@@ -18,8 +18,8 @@ const MEMBERS = [
 // Apple Calendar folds aggressively; a parser that ignores folding truncates
 // every long title at 75 characters and never says so.
 {
-  const folded = 'SUMMARY:Sophie – appointment with the orthodontist about\r\n  the retainer';
-  assert.deepEqual(unfoldIcs(folded), ['SUMMARY:Sophie – appointment with the orthodontist about the retainer']);
+  const folded = 'SUMMARY:Mia – appointment with the orthodontist about\r\n  the retainer';
+  assert.deepEqual(unfoldIcs(folded), ['SUMMARY:Mia – appointment with the orthodontist about the retainer']);
   assert.deepEqual(unfoldIcs('A:1\r\nB:2'), ['A:1', 'B:2'], 'plain lines are untouched');
   assert.deepEqual(unfoldIcs('A:1\n\tcontinued'), ['A:1continued'], 'a tab continues a line too');
 }
@@ -34,9 +34,9 @@ const MEMBERS = [
   const url = parseIcsLine('URL:https://example.com/a:b')!;
   assert.equal(url.value, 'https://example.com/a:b', 'only the FIRST colon separates');
 
-  const quoted = parseIcsLine('ATTENDEE;CN="Clark, Sophie":mailto:s@example.com')!;
-  assert.equal(quoted.params.CN, 'Clark, Sophie', 'a semicolon rule must not split inside quotes');
-  assert.equal(quoted.value, 'mailto:s@example.com');
+  const quoted = parseIcsLine('ATTENDEE;CN="Clark, Mia":mailto:m@example.com')!;
+  assert.equal(quoted.params.CN, 'Clark, Mia', 'a semicolon rule must not split inside quotes');
+  assert.equal(quoted.value, 'mailto:m@example.com');
 
   assert.equal(parseIcsLine('NOCOLONHERE'), null);
 }
@@ -159,7 +159,7 @@ const APPLE = [
   'UID:A1B2C3@icloud.com',
   'DTSTART;TZID=Europe/Vienna:20260815T150000',
   'DTEND;TZID=Europe/Vienna:20260815T160000',
-  'SUMMARY:Sophie – Orthodontist (Dr. Lena Hofer-Mayr)',
+  'SUMMARY:Mia – Orthodontist (Dr. Lena Hofer-Mayr)',
   'LOCATION:Ahornweg 42\\, 1120 Wien',
   'DESCRIPTION:Bring the referral\\nand the e-card',
   'END:VEVENT',
@@ -177,7 +177,7 @@ const APPLE = [
   assert.equal(r.events.length, 2);
 
   const ortho = r.events[0];
-  assert.equal(ortho.title, 'Sophie – Orthodontist (Dr. Lena Hofer-Mayr)');
+  assert.equal(ortho.title, 'Mia – Orthodontist (Dr. Lena Hofer-Mayr)');
   // A TZID event is an absolute moment, so its LOCAL date depends on where it
   // is being read: 15:00 in Vienna is still 15 August in Europe, but already
   // the 16th for a reader in UTC+14. Asserting the literal '2026-08-15' passed
@@ -189,7 +189,7 @@ const APPLE = [
   assert.equal(ortho.category, 'Appointment');
   // The whole point of the earlier eventMemberMatch work, reused here: an
   // imported appointment lands on the right person's profile.
-  assert.deepEqual(ortho.memberIds, ['sophie']);
+  assert.deepEqual(ortho.memberIds, ['mia']);
   assert.match(ortho.description!, /Bring the referral\nand the e-card/);
   assert.match(ortho.description!, /Location: Ahornweg 42, 1120 Wien/);
 
@@ -283,7 +283,7 @@ const OUTLOOK = [
 // ---------------------------------------------------------------------------
 
 const OUT: CalendarEvent[] = [
-  { id: 'e1', title: 'Sophie; dentist, 3pm', date: '2026-08-15', time: '15:00', category: 'Appointment', remindMe: true, description: 'Room 4\nbring card' },
+  { id: 'e1', title: 'Mia; dentist, 3pm', date: '2026-08-15', time: '15:00', category: 'Appointment', remindMe: true, description: 'Room 4\nbring card' },
   { id: 'e2', title: 'School starts', date: '2026-09-01', category: 'School', remindMe: false },
 ];
 
@@ -295,7 +295,7 @@ const OUT: CalendarEvent[] = [
   assert.match(ics, /\r\n/, 'CRLF line endings, as the spec requires');
 
   // Separators inside a value must be escaped or the file is corrupt.
-  assert.match(ics, /SUMMARY:Sophie\\; dentist\\, 3pm/);
+  assert.match(ics, /SUMMARY:Mia\\; dentist\\, 3pm/);
   assert.match(ics, /DESCRIPTION:Room 4\\nbring card/);
 
   assert.match(ics, /DTSTART:20260815T150000/);
@@ -309,7 +309,7 @@ const OUT: CalendarEvent[] = [
   const ics = buildIcs(OUT, 'Teluva', new Date(Date.UTC(2026, 6, 29, 12, 0, 0)));
   const back = parseIcs(ics, MEMBERS, new Date(2026, 6, 29));
   assert.equal(back.events.length, 2, 'everything we wrote comes back');
-  assert.equal(back.events[0].title, 'Sophie; dentist, 3pm', 'punctuation survives the round trip');
+  assert.equal(back.events[0].title, 'Mia; dentist, 3pm', 'punctuation survives the round trip');
   assert.equal(back.events[0].date, '2026-08-15');
   assert.equal(back.events[0].time, '15:00', 'a floating time is not shifted by a zone we never set');
   assert.equal(back.events[1].date, '2026-09-01');

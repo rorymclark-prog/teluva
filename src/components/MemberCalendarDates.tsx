@@ -4,6 +4,7 @@ import { X, CalendarDays, ChevronRight } from 'lucide-react';
 import { FamilyMember, Vehicle } from '../types';
 import { loadHousehold } from '../utils/db';
 import { computeNudges, computeVehicleNudges, Nudge, Tone } from './NeedsAttention';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface Props {
@@ -90,7 +91,10 @@ export default function MemberCalendarDates({ member, isBusinessSpace, onClose, 
   // member's name (no memberId link exists on Vehicle), matching VehiclesView.
   const memberVehicles = vehicles.filter((v) => v.assignedMember === member.name);
 
-  const items = [...computeNudges([member]), ...computeVehicleNudges(memberVehicles)]
+  // A member whose dates are hidden keeps every other date here (a passport, a
+  // check-up) — only the birthday ones go. See utils/hiddenPeople.ts.
+  const { hidden: hiddenPeople } = useHiddenPeople();
+  const items = [...computeNudges([member], hiddenPeople), ...computeVehicleNudges(memberVehicles)]
     .filter((n): n is Nudge & { date: string; days: number } => n.date != null && n.days != null)
     .filter((n) => !(isBusinessSpace && HIDDEN_TABS_IN_BUSINESS.has(n.tab)))
     .sort((a, b) => a.days - b.days);

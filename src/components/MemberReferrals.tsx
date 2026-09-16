@@ -5,6 +5,8 @@ import { isDemoMode } from '../utils/demoData';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { computeFileHash, hashDataUrl, findLikelyDuplicate, DupMatch } from '../utils/documentDedup';
 import { buildReferralGroups, ReferralSeries } from '../utils/referralGrouping';
+import { appConfirm } from '../utils/appConfirm';
+import { referralStatusOnSave } from '../utils/referralAppointment';
 import PdfThumbnail from './PdfThumbnail';
 import type { ScannedFile } from './DocumentScannerModal';
 const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
@@ -120,7 +122,7 @@ export default function MemberReferrals({ member, onUpdate }: MemberReferralsPro
 
   const handleDelete = async (rec: ReferralRecord) => {
     const label = rec.reason ? `${rec.kind} — ${rec.reason}` : rec.kind;
-    if (!window.confirm(`Delete "${label}"? This removes the file and its details from ${member.name}'s Referrals & Results. This can't be undone.`)) return;
+    if (!(await appConfirm(`Delete "${label}"? This removes the file and its details from ${member.name}'s Referrals & Results. This can't be undone.`, { danger: true, confirmLabel: 'Delete' }))) return;
     if (!demo) await deleteReferralFile(rec.storagePath);
     persist(records.filter((r) => r.id !== rec.id));
   };
@@ -290,7 +292,7 @@ function ReferralRow({
           )}
           {rec.providerName && <span>{rec.providerName}</span>}
           {status === 'booked' && rec.appointmentDate && (
-            <span className="tabular-nums">Appt {rec.appointmentDate}</span>
+            <span className="tabular-nums">Appt {rec.appointmentDate}{rec.appointmentTime ? ` ${rec.appointmentTime}` : ''}</span>
           )}
         </div>
         {rec.notes && <p className="text-[12px] text-ink-400 italic">{rec.notes}</p>}
@@ -379,7 +381,7 @@ function ReferralSeriesCard({
             </span>
             {latest.providerName && <span>{latest.providerName}</span>}
             {latestStatus === 'booked' && latest.appointmentDate && (
-              <span className="tabular-nums">Appt {latest.appointmentDate}</span>
+              <span className="tabular-nums">Appt {latest.appointmentDate}{latest.appointmentTime ? ` ${latest.appointmentTime}` : ''}</span>
             )}
           </div>
           {latest.notes && <p className="text-[12px] text-ink-400 italic">{latest.notes}</p>}
@@ -492,6 +494,7 @@ function ReferralForm({
   const [providerName, setProviderName] = useState(initial?.providerName || '');
   const [reason, setReason] = useState(initial?.reason || '');
   const [appointmentDate, setAppointmentDate] = useState(initial?.appointmentDate || '');
+  const [appointmentTime, setAppointmentTime] = useState(initial?.appointmentTime || '');
   const [notes, setNotes] = useState(initial?.notes || '');
 
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null);
@@ -590,15 +593,26 @@ function ReferralForm({
       return;
     }
 
+    // `...initial` first: this form only knows the fields it shows, and a key
+    // missing from a rebuilt record is a DELETE once it is saved. Anything a
+    // newer path writes onto a referral survives an edit here.
+    //
+    // Status follows the appointment date when the date changes
+    // (utils/referralAppointment.ts referralStatusOnSave): a new date books
+    // it, clearing the date re-opens it, and 'done' stays done.
+    // Before 2026-09-13 a date typed here left the referral 'open' — so it
+    // never reached the calendar, which only shows booked appointments.
     const rec: ReferralRecord = {
+      ...initial,
       id: recordId,
       kind: finalKind,
       date: date || undefined,
       providerId: providerId || undefined,
       providerName: providerName.trim() || undefined,
       reason: reason.trim() || undefined,
-      status: initial?.status || 'open',
+      status: referralStatusOnSave(initial?.status, initial?.appointmentDate, appointmentDate),
       appointmentDate: appointmentDate || undefined,
+      appointmentTime: appointmentDate && appointmentTime ? appointmentTime : undefined,
       notes: notes.trim() || undefined,
       ...fileMeta,
       addedAt: initial?.addedAt || new Date().toISOString(),
@@ -722,9 +736,15 @@ function ReferralForm({
           </div>
         </div>
 
-        <div>
-          <label className="field-label">Appointment date <span className="normal-case text-ink-300 font-normal">· optional, once booked</span></label>
-          <input type="date" className="field" value={appointmentDate} onChange={(e) => setAppointmentDate(e.target.value)} />
+        <div className="grid grid-cols-[1fr_auto] gap-3">
+          <div>
+            <label className="field-label" htmlFor="referral-appt-date">Appointment date <span className="normal-case text-ink-300 font-normal">· once booked — puts it on the calendar</span></label>
+            <input id="referral-appt-date" type="date" className="field" value={appointmentDate} onChange={(e) => setAppointmentDate(e.target.value)} />
+          </div>
+          <div>
+            <label className="field-label" htmlFor="referral-appt-time">Time</label>
+            <input id="referral-appt-time" type="time" className="field" value={appointmentTime} disabled={!appointmentDate} onChange={(e) => setAppointmentTime(e.target.value)} />
+          </div>
         </div>
 
         <div>

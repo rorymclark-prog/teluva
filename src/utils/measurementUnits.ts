@@ -70,5 +70,5 @@ export function weightUnitFor(system: UnitSystem): WeightUnit {
 export function shoeSystemForCountry(country?: IdCountry): ShoeSystem {
   if (country === 'US') return 'US';
   if (country === 'UK' || country === 'ZA') return 'UK';
-  return 'EU'; // AT, 'other', and the unset default
+  return 'EU'; // AT, RO, 'other', and the unset default
 }

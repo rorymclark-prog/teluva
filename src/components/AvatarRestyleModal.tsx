@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ImageLightbox from './ImageLightbox';
 import { X, Sparkles, RefreshCw, Check, Undo2 } from 'lucide-react';
 import type { FamilyMember } from '../types';
 import { auth } from '../lib/firebase';
@@ -43,6 +44,10 @@ function parseDataUrl(src: string): { mimeType: string; data: string } | null {
 const styleLabel = (key: string | null) => STYLES.find((s) => s.key === key)?.label ?? (key === 'custom' ? 'Custom' : '');
 
 export default function AvatarRestyleModal({ member, onClose, onApply, onReset }: Props) {
+  /* You are asked to accept a face from a thumbnail. At 56px you cannot see
+   * what the AI actually did to it, so every preview here opens full size
+   * before you commit. Nothing is applied by looking. */
+  const [zoom, setZoom] = useState<string | null>(null);
   // Parent only mounts this component while the modal should be visible
   // ({restyleMemberId && <AvatarRestyleModal .../>} in Dashboard.tsx), so
   // the modal is "always open" for as long as it's mounted.
@@ -115,6 +120,7 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
   const isStyled = !!member.avatarStyle && !!member.avatarOriginalUrl;
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-ink-900/40 sm:p-4"
       onClick={onClose}
@@ -146,15 +152,15 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
             <div className="space-y-5">
               <div className="flex items-center justify-center gap-5">
                 <div className="text-center">
-                  <div className="avatar-ring">
+                  <button type="button" onClick={() => setZoom(sourceUrl)} className="avatar-ring cursor-zoom-in" aria-label="See the original photo full size">
                     <img src={sourceUrl} className="w-24 h-24 rounded-full object-cover" alt="original" />
-                  </div>
+                  </button>
                   <p className="text-[11px] text-ink-400 mt-1.5 font-semibold">Original</p>
                 </div>
                 <div className="text-center">
-                  <div className="avatar-ring">
+                  <button type="button" onClick={() => setZoom(result)} className="avatar-ring cursor-zoom-in" aria-label={`See the ${activeLabel} version full size`}>
                     <img src={result} className="w-24 h-24 rounded-full object-cover" alt="restyled" />
-                  </div>
+                  </button>
                   <p className="text-[11px] text-clay-600 mt-1.5 font-semibold">{activeLabel}</p>
                 </div>
               </div>
@@ -185,8 +191,13 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
               {funJob?.status === 'done' && funJob.resultDataUrl && (
                 <div className="rounded-2xl border border-clay-300 bg-clay-50 p-3 space-y-3">
                   <div className="flex items-center gap-3">
-                    <img src={funJob.resultDataUrl} className="w-14 h-14 rounded-full object-cover border border-cream-300 shrink-0" alt={funJob.presetLabel} />
-                    <p className="text-[13px] font-semibold text-ink-800">🎉 {funJob.presetLabel} is ready!</p>
+                    <button type="button" onClick={() => setZoom(funJob.resultDataUrl!)} className="shrink-0 cursor-zoom-in rounded-full" aria-label={`See the ${funJob.presetLabel} avatar full size`}>
+                      <img src={funJob.resultDataUrl} className="w-14 h-14 rounded-full object-cover border border-cream-300" alt={funJob.presetLabel} />
+                    </button>
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-ink-800">🎉 {funJob.presetLabel} is ready!</p>
+                      <p className="text-[11.5px] text-ink-500">Tap it to see it properly first.</p>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -332,5 +343,7 @@ export default function AvatarRestyleModal({ member, onClose, onApply, onReset }
         </div>
       </div>
     </div>
+    <ImageLightbox src={zoom} onClose={() => setZoom(null)} name={`${member.name} avatar`} />
+    </>
   );
 }

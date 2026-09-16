@@ -40,6 +40,42 @@ import { isMedicalFlaggedEvent, isAnniversaryFlaggedEvent, MEDICAL_KEYWORDS, ANN
   assert.ok(isMedicalFlaggedEvent({ title: 'Blutabnahme' }), 'Blutabnahme (blood draw) must be flagged');
 }
 
+// ── medical: specialists from Rory's 2026-09-13 report ─────────────────────
+// An orthopaedic-surgeon and a psychiatry appointment, as they arrive from a
+// Google calendar or an Austrian letter. Fictional names throughout.
+{
+  for (const title of [
+    'Orthopädie Dr. Beispiel', 'Termin Orthopäde', 'Orthopaedic surgeon — Dr Example',
+    'Orthopedic surgeon', 'Psychiatrie Ambulanz', 'Psychiater Termin', 'Psychiatry follow-up',
+    'Psychiatrist', 'Unfallchirurgie Kontrolle', 'Chirurg', 'AKH Ambulanz', 'Spital 9:00',
+    'Facharzttermin', 'Kontrolltermin Knie', 'Neurologe', 'Hospital',
+  ]) {
+    assert.ok(isMedicalFlaggedEvent({ title }), `"${title}" must be flagged medical`);
+  }
+}
+
+// ── medical: keywords that START with an umlaut match as whole words ───────
+// JavaScript's \b is ASCII-only, so before 2026-09-13 a standalone "Ärztin"
+// never matched even though 'ärztin' was in the list. CONTROL: prove the old
+// \b form really does fail on it, so this block is testing the fix and not a
+// string that would have passed either way.
+{
+  assert.ok(isMedicalFlaggedEvent({ title: 'Ärztin 14:00' }), 'a standalone "Ärztin" must be flagged');
+  assert.ok(isMedicalFlaggedEvent({ title: 'Termin bei der ärztin' }), 'a lowercase standalone "ärztin" must be flagged');
+  assert.ok(isMedicalFlaggedEvent({ title: '(Orthopädie)' }), 'a keyword in brackets must be flagged');
+  const oldStyle = new RegExp('\\b(?:ärztin)\\b', 'i');
+  assert.ok(!oldStyle.test('Ärztin 14:00'), 'CONTROL: the old ASCII \\b matcher must fail here, or this block proves nothing');
+}
+
+// ── medical: common German words that are NOT medical stay unflagged ───────
+{
+  assert.ok(!isMedicalFlaggedEvent({ title: 'Termin Bank' }), 'bare "Termin" must not be flagged — it is any appointment');
+  assert.ok(!isMedicalFlaggedEvent({ title: 'Vorstellung im Burgtheater' }), '"Vorstellung" (a theatre performance) must not be flagged');
+  assert.ok(!isMedicalFlaggedEvent({ title: 'Überweisung Miete' }), '"Überweisung" (a bank transfer) must not be flagged');
+  assert.ok(!isMedicalFlaggedEvent({ title: 'Hospitality training' }), '"hospital" must not match inside "Hospitality"');
+  assert.ok(!isMedicalFlaggedEvent({ title: 'Spitalgasse Wohnung Besichtigung' }), '"spital" must not match inside a street name');
+}
+
 // ── medical: word-boundary correctness — no false positives from substrings ─
 {
   assert.ok(!isMedicalFlaggedEvent({ title: 'Enter the competition' }), '"Enter" must not match "ent" as a substring');

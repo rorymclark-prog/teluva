@@ -4,7 +4,7 @@ import { loadTravelTimeline, saveTravelTimeline, uploadTravelPhoto, deleteTravel
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import RemoteChangeHint from './RemoteChangeHint';
 import { compressImageToAvatar } from '../utils/imageCompress';
-import { extractTravelMeta } from '../utils/travelGeo';
+import { extractTravelMeta, countryCodeForName, type TravelMeta } from '../utils/travelGeo';
 import { emojiFlag } from '@rapideditor/country-coder';
 import ImageLightbox from './ImageLightbox';
 import {
@@ -410,6 +410,10 @@ function TravelEntryForm({
   const [photoUrl, setPhotoUrl] = useState(entry.photoUrl || '');
   const [error, setError] = useState<string | null>(null);
   const [attaching, setAttaching] = useState(false);
+  /* Detection from a photo attached during THIS edit. Held rather than applied,
+     because a photo may disagree with a country the person deliberately typed,
+     and the person is the one who knows which is right. */
+  const [photoMeta, setPhotoMeta] = useState<TravelMeta | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const handleAttachPhoto = () => photoInputRef.current?.click();
@@ -420,20 +424,75 @@ function TravelEntryForm({
     if (!file) return;
     setAttaching(true);
     try {
+      /* PARSE THE RAW FILE FIRST. compressImageToAvatar re-encodes through
+         <canvas>.toDataURL, which strips every EXIF tag including GPS — the
+         same ordering the add-a-trip path depends on. It was missing here, so
+         attaching a photo while editing quietly threw away both the country
+         and the capture date, while the empty state one screen away promises
+         "we'll detect the country from its location data". */
+      const meta = await extractTravelMeta(file);
       const dataUrl = await readFileAsDataUrl(file);
       const compressed = await compressImageToAvatar(dataUrl, 1600, 0.85);
       setPhotoUrl(compressed);
+      setPhotoMeta(meta);
+      // Filling a BLANK field takes nothing away, so it needs no asking. A
+      // field with something already in it does — see the suggestion row.
+      if (meta?.countryCode && !country.trim()) setCountry(meta.countryName || meta.countryCode);
+      if (meta?.date && !date.trim()) setDate(meta.date);
     } finally {
       setAttaching(false);
     }
   };
 
+  /* What the attached photo says, when it disagrees with what is in the form. */
+  const photoCountry = photoMeta?.countryCode
+    ? (photoMeta.countryName || photoMeta.countryCode) : null;
+  const countryDiffers = !!photoCountry
+    && photoCountry.toLowerCase() !== country.trim().toLowerCase();
+  const dateDiffers = !!photoMeta?.date && photoMeta.date !== date.trim();
+  const applyPhotoDetails = () => {
+    if (photoCountry) setCountry(photoCountry);
+    if (photoMeta?.date) setDate(photoMeta.date);
+  };
+
   const save = () => {
-    if (!country.trim()) { setError('Country is required'); return; }
+    const typed = country.trim();
+    if (!typed) { setError('Country is required'); return; }
     if (!date.trim()) { setError('Date is required'); return; }
+
+    /* THE CODE, THE PIN AND THE BADGE ALL BELONG TO THE OLD COUNTRY.
+     *
+     * `...entry` used to carry countryCode, lat, lng and source straight
+     * through, so retyping "Austria" as "France" kept countryCode AT — and the
+     * row rendered an Austrian flag beside the word France, counted AT in the
+     * countries-visited total, and still wore the "Auto-tagged" badge claiming
+     * the app had worked it out from the photo. Three wrong answers from one
+     * spread.
+     *
+     * So when the name changes, everything derived from the old one goes with
+     * it, and we try to earn a new code from the typed name. countryCodeForName
+     * returns null for plenty of real countries (the Netherlands among them),
+     * which is why null drops the flag rather than blocking the save. */
+    const nameChanged = typed.toLowerCase() !== (entry.country || '').trim().toLowerCase();
+
+    // A photo attached in this edit outranks the typed name, but only when the
+    // person left the field agreeing with it — accepting the suggestion is what
+    // makes an entry auto-tagged again.
+    const fromPhoto = photoMeta?.countryCode
+      && (photoMeta.countryName || photoMeta.countryCode).toLowerCase() === typed.toLowerCase()
+      ? photoMeta : null;
+
+    const resolved = fromPhoto ? fromPhoto.countryCode
+      : nameChanged ? countryCodeForName(typed)
+      : entry.countryCode;
+
     onSave({
       ...entry,
-      country: country.trim(),
+      country: typed,
+      countryCode: resolved || undefined,
+      lat: fromPhoto ? fromPhoto.lat : nameChanged ? undefined : entry.lat,
+      lng: fromPhoto ? fromPhoto.lng : nameChanged ? undefined : entry.lng,
+      source: fromPhoto ? 'exif' : nameChanged ? 'manual' : entry.source,
       place: place.trim() || undefined,
       date: date.trim(),
       notes: notes.trim() || undefined,
@@ -449,6 +508,27 @@ function TravelEntryForm({
         <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/70 text-[12px] text-dusk-700 font-medium">
           <Sparkles className="w-3.5 h-3.5 shrink-0" />
           <span>{detectedNote}</span>
+        </div>
+      )}
+
+      {/* The photo disagrees with the form. Offer, never overwrite: a photo
+          taken on the drive home is genuinely a different country from the trip
+          it belongs to, and only the person editing knows which they meant. */}
+      {(countryDiffers || dateDiffers) && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/70 text-[12px] text-dusk-700 font-medium">
+          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1">
+            This photo was taken
+            {photoCountry ? <> in <strong>{photoCountry}</strong></> : null}
+            {photoMeta?.date ? <> on <strong>{formatDate(photoMeta.date)}</strong></> : null}.
+          </span>
+          <button
+            type="button"
+            onClick={applyPhotoDetails}
+            className="shrink-0 px-2.5 py-1 rounded-lg bg-dusk-100 text-dusk-700 font-semibold hover:bg-dusk-200 transition-colors cursor-pointer"
+          >
+            Use it
+          </button>
         </div>
       )}
 

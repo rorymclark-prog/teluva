@@ -46,12 +46,35 @@ const looksEncrypted = (v: unknown): v is string => typeof v === 'string' && v.s
 // hits and misses. This is what lets a screen like Emergency essentials keep
 // showing a real SV number offline, once it has been viewed at least once
 // while online, exactly like every other offline-cached field in this app.
-const REVEAL_CACHE_KEY = 'vault_reveal_cache_v1';
 const REVEAL_CACHE_MAX = 400;
+
+// Design-audit P0 (2026-08-24): the cache used to live under ONE global key,
+// so it survived sign-out and a different account on the same browser could
+// read the previous family's decrypted values straight out of localStorage.
+// Now the key is scoped per signed-in user (the module stays Firebase-free —
+// the app injects the uid via setRevealCacheScope on auth changes), and
+// clearRevealCaches() wipes every scope at sign-out.
+let revealScope = 'anon';
+const cacheKey = () => `vault_reveal_cache_v2:${revealScope}`;
+
+/** Called on every auth change (App). Also retires the old global v1 key. */
+export function setRevealCacheScope(uid: string | null | undefined): void {
+  revealScope = uid || 'anon';
+  try { localStorage.removeItem('vault_reveal_cache_v1'); } catch { /* non-fatal */ }
+}
+
+/** Sign-out: no decrypted value outlives the session on this device. */
+export function clearRevealCaches(): void {
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('vault_reveal_cache'))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch { /* non-fatal */ }
+}
 
 function readRevealCache(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(REVEAL_CACHE_KEY);
+    const raw = localStorage.getItem(cacheKey());
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
@@ -67,7 +90,7 @@ function writeRevealCache(cache: Record<string, string>): void {
       // family's data volume, no need for real LRU bookkeeping.
       for (const k of keys.slice(0, keys.length - REVEAL_CACHE_MAX)) delete cache[k];
     }
-    localStorage.setItem(REVEAL_CACHE_KEY, JSON.stringify(cache));
+    localStorage.setItem(cacheKey(), JSON.stringify(cache));
   } catch {
     // Private-mode / quota — the cache just won't persist this round. Not
     // fatal: values still decrypt fine whenever there's a connection.

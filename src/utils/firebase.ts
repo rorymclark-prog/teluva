@@ -1,6 +1,6 @@
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { silentAccessToken, interactiveAccessToken, tokenIsFresh } from './googleToken';
+import { silentAccessToken, interactiveAccessToken, chooseAccountAccessToken, tokenIsFresh } from './googleToken';
 import { GOOGLE_SCOPES } from './googleScopes';
 
 // Single shared Firebase app — initialized once in lib/firebase.ts.
@@ -56,6 +56,37 @@ function setToken(token: string | null, expiresAt: number | null) {
 let silentFailedAt = 0;
 const SILENT_RETRY_MS = 5 * 60_000;
 
+// WHY DISCONNECT NEEDS A PERSISTED FLAG AND NOT JUST A CLEARED TOKEN.
+//
+// Clearing cachedAccessToken alone is a disconnect that undoes itself. The
+// GRANT still exists at Google, so the very next getAccessToken() — an
+// automatic sync, a reload, anything — re-mints a token silently and the
+// connection is simply back, without anybody pressing a thing. The person
+// pressed Disconnect, watched it say Offline, reopened the app and found it
+// Connected again: worse than having no button at all, because it looks like
+// the app ignored them.
+//
+// Keyed by uid, so two people sharing a laptop do not inherit each other's
+// choice, and cleared the moment someone deliberately presses Connect.
+const DISCONNECT_KEY = 'teluva.gcal.disconnected';
+
+function readDisconnected(uid: string | undefined | null): boolean {
+  if (!uid) return false;
+  try { return localStorage.getItem(`${DISCONNECT_KEY}.${uid}`) === '1'; } catch { return false; }
+}
+
+function writeDisconnected(uid: string | undefined | null, off: boolean) {
+  if (!uid) return;
+  // A browser that refuses storage (private mode) still gets the in-memory
+  // clear below for this session — it just cannot remember the choice across
+  // a reload. Losing the preference is acceptable; throwing here would abort
+  // the disconnect itself, which is not.
+  try {
+    if (off) localStorage.setItem(`${DISCONNECT_KEY}.${uid}`, '1');
+    else localStorage.removeItem(`${DISCONNECT_KEY}.${uid}`);
+  } catch { /* no storage: session-only disconnect */ }
+}
+
 /**
  * Try to re-mint the Google API token without any UI. Returns null if that
  * isn't possible, which means "the user needs to press Connect" — not an error.
@@ -65,6 +96,9 @@ async function trySilentToken(): Promise<string | null> {
   // guard the signed-out login screen fired a Google token request of its own,
   // which the browser then blocked as an uninvited popup.
   if (!auth.currentUser) return null;
+  // The deliberate disconnect. Checked here rather than in getAccessToken so
+  // that EVERY silent path is covered, including initAuth's own on reload.
+  if (readDisconnected(auth.currentUser.uid)) return null;
   if (silentInFlight) return silentInFlight;
   if (Date.now() - silentFailedAt < SILENT_RETRY_MS) return null;
 
@@ -142,14 +176,43 @@ export const getAccessToken = async (): Promise<string | null> => {
  * Returns null if GIS is unavailable — the caller should then fall back to
  * googleSignIn(), which is the pre-existing path and still works.
  */
-export const connectGoogleAccess = async (): Promise<string | null> => {
-  const silent = await trySilentToken();
-  if (silent) return silent;
-  const r = await interactiveAccessToken();
+export const connectGoogleAccess = async (
+  options?: { chooseAccount?: boolean },
+): Promise<string | null> => {
+  // Pressing Connect IS the un-disconnect, and the flag must be cleared before
+  // the silent attempt below — trySilentToken refuses to mint while it is set.
+  writeDisconnected(auth.currentUser?.uid, false);
+  // `chooseAccount` skips the silent path on purpose: a silent mint would hand
+  // back the account already attached, which is the one the person is trying
+  // to move away from.
+  if (!options?.chooseAccount) {
+    const silent = await trySilentToken();
+    if (silent) return silent;
+  }
+  const r = options?.chooseAccount
+    ? await chooseAccountAccessToken()
+    : await interactiveAccessToken();
   if (!r) return null;
   setToken(r.token, r.expiresAt);
   return r.token;
 };
+
+/**
+ * Detach the Google account from calendar sync, and MEAN it — see
+ * DISCONNECT_KEY above for why clearing the token alone is not enough.
+ *
+ * Deliberately not a Google-side revoke: the same grant covers Drive import,
+ * and someone turning off calendar sync has not asked to lose that too. Nothing
+ * further is read or written until they connect again.
+ */
+export const disconnectGoogleAccess = () => {
+  writeDisconnected(auth.currentUser?.uid, true);
+  setToken(null, null);
+  silentFailedAt = 0;
+};
+
+/** Whether the CURRENT user chose to stay disconnected. */
+export const isGoogleDisconnected = (): boolean => readDisconnected(auth.currentUser?.uid);
 
 // Clears the cached Google OAuth access token WITHOUT signing the user out
 // of Firebase Auth (that's logout() below, a much bigger action). Exists for

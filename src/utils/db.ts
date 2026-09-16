@@ -1,8 +1,12 @@
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, KinLink, FamilyTreeDoc, WillsAccessDoc, PendingWillReader } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, KinLink, FamilyTreeDoc, WillsAccessDoc, PendingWillReader, HiddenDatePerson, PersonalPrefsDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
+import {
+  isLoggableKind, visibilityFor, visibilitiesFor, orderActivity, shouldLog,
+  DEDUPE_WINDOW_MS, type ActivityEntry,
+} from './activity';
 import { markDirty, clearDirty, isDirty } from './pendingSync';
 import {
   protectIdentity, revealIdentity, protectPassports, revealPassports,
@@ -158,6 +162,7 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
       const targets = members.filter(m => m.id);
       const memberRefs = targets.map(m => doc(db, 'families', FAMILY_ID, 'family_members', m.id));
 
+      let written: { name: string; isNew: boolean }[] = [];
       const { mergedIds, mergedMembers } = await runTransaction(db, async (tx) => {
         // ALL reads before ANY write — the metadata index and every member
         // doc being touched, read together up front.
@@ -183,6 +188,12 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
         const toWrite = mergedMembers
           .map((merged, i) => ({ merged, ref: memberRefs[i], server: servers[i] }))
           .filter(({ merged, server }) => server === undefined || !deepEqual(merged, server));
+        // Reported out of the transaction, never logged inside it — a retry
+        // would otherwise write the same trail entries twice.
+        written = toWrite.map(({ merged, server }) => ({
+          name: String((merged as FamilyMember).name || 'Someone'),
+          isNew: server === undefined,
+        }));
         const protectedWrites = await Promise.all(toWrite.map(async ({ merged, ref }) => ({
           ref,
           value: await protectMemberSensitive(merged),
@@ -195,6 +206,14 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
 
       noteSeen(MEMBER_IDS_KEY, mergedIds);
       for (const m of mergedMembers) noteSeen(memberSeenKey(m.id), m);
+      /* `written` comes from the same filter tx.set() used, so a save that
+       * touched nobody logs nothing — and a save that touched three people
+       * logs three lines, named, rather than one anonymous "profiles updated".
+       * First name only: the trail is read by children, and in a business
+       * space a members entry is admin-tier anyway (see visibilityFor). */
+      for (const w of written) {
+        recordActivity('members', w.isNew ? 'added' : 'updated', w.name.split(/\s+/)[0] || w.name);
+      }
       cloudOk = true;
     } catch (error) {
       console.error('Error saving to Firestore:', error);
@@ -268,9 +287,28 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
       if (metaSnap.exists()) {
         const ids = metaSnap.data().ids as string[];
         noteSeen(MEMBER_IDS_KEY, ids);   // merge base for the next index write
+        /* allSettled, NOT all — one refused document must not blank the app.
+         *
+         * In a BUSINESS space firestore.rules only lets an employee read their
+         * own record (a colleague's is an HR file, not a profile). The index at
+         * metadata/members still lists everybody, because the index is not
+         * secret and the roster has to work; so an employee's load asks for
+         * documents it will be refused. Promise.all rejects on the first of
+         * those and takes the entire member list with it — every screen in the
+         * app empty, for a permission boundary working exactly as designed.
+         *
+         * A refusal here is an ordinary outcome, not an error. What comes back
+         * is what this account may see. */
         const membersReqs = ids.map(id => getDoc(doc(db, 'families', FAMILY_ID, 'family_members', id)));
-        const snaps = await Promise.all(membersReqs);
-        const rawMembers = snaps.map(s => s.data() as FamilyMember).filter(Boolean);
+        const settled = await Promise.allSettled(membersReqs);
+        const refused = settled.filter(r => r.status === 'rejected').length;
+        if (refused) {
+          console.info(`[members] ${refused} of ${ids.length} records are not readable by this account`);
+        }
+        const rawMembers = settled
+          .flatMap(r => (r.status === 'fulfilled' ? [r.value] : []))
+          .map(s => s.data() as FamilyMember)
+          .filter(Boolean);
 
         // Decrypt ID numbers/passport/visa numbers (see revealMemberSensitive
         // above). The underlying reveal* calls use a local ciphertext cache
@@ -341,6 +379,7 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boole
       const targets = events.filter(e => e.id);
       const eventRefs = targets.map(e => doc(db, 'families', FAMILY_ID, 'calendar_events', e.id));
 
+      let eventsWritten = 0;
       const { mergedIds, mergedEvents } = await runTransaction(db, async (tx) => {
         const metaSnap = await tx.get(metaRef);
         const eventSnaps = await Promise.all(eventRefs.map(r => tx.get(r)));
@@ -352,9 +391,11 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boole
         const mergedEvents = targets.map((local, i) =>
           mergeShared<CalendarEvent>(getSeen<CalendarEvent>(eventSeenKey(local.id)), local, servers[i]));
 
+        eventsWritten = 0;
         mergedEvents.forEach((merged, i) => {
           const server = servers[i];
           if (server !== undefined && deepEqual(merged, server)) return; // untouched — nothing to write
+          eventsWritten += 1;
           tx.set(eventRefs[i], merged as any);
         });
 
@@ -363,6 +404,11 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boole
       });
       noteSeen(EVENT_IDS_KEY, mergedIds);
       for (const e of mergedEvents) noteSeen(eventSeenKey(e.id), e);
+      /* One line for the sitting, not one per event. A calendar save routinely
+       * carries the whole list, and a sync that touched six events is still one
+       * thing the person did. Counted inside the transaction and reset on each
+       * attempt, so a retry does not accumulate. */
+      if (eventsWritten > 0) recordActivity('calendar', 'updated');
       cloudOk = true;
     } catch (error) {
       console.error('Error saving to Firestore:', error);
@@ -564,16 +610,30 @@ async function saveReferenceDoc<T>(
     const mergeBase = base !== undefined ? base : getSeen<T>(key);
     try {
       const docRef = doc(db, 'families', FAMILY_ID, 'reference', key);
+      /* Set inside the transaction, read after it. A transaction can RETRY —
+       * writing the trail entry in there would log the same change twice on a
+       * contended save, which is the one thing a "what changed" list must not
+       * do. So the transaction only reports, and the entry is written once,
+       * below, on the value that actually landed. */
+      let existed = false;
+      let changed = true;
       persisted = await runTransaction(db, async (tx) => {
         const snap = await tx.get(docRef);
         const serverRaw = snap.exists() ? (snap.data() as T) : undefined;
         const server = serverRaw !== undefined ? await reveal(serverRaw) : undefined;
         const merged = mergeShared<T>(mergeBase, value, server);
+        existed = server !== undefined;
+        changed = server === undefined || !deepEqual(merged as unknown, server as unknown);
         tx.set(docRef, (await protect(merged)) as any);
         return merged;
       });
       cloudOk = true;
       noteSeen(key, persisted);
+      /* A save that merged to exactly what was already there is not news. This
+       * matters more than it looks: several screens save on mount to migrate a
+       * shape, and a trail that recorded those would report a household
+       * editing itself every morning. */
+      if (changed) recordActivity(key, existed ? 'updated' : 'added');
     } catch (error) {
       console.error(`Error saving ${key}:`, error);
       persisted = value;
@@ -868,6 +928,11 @@ export async function saveWillsAccess(readerUids: string[], updatedBy?: string):
       { readerUids, updatedAt: new Date().toISOString(), updatedBy: updatedBy || '' },
       { merge: true },
     );
+    /* Who may read the will is the single most consequential switch in this
+     * app, and until now it changed with no record anywhere. Admin-tier, like
+     * the document itself — and no names in the entry: WHO was added is the
+     * disclosure, THAT the list changed is the alarm. */
+    recordActivity('willsAccess', 'updated');
     return true;
   } catch (error) {
     console.error('Error saving willsAccess:', error);
@@ -887,6 +952,95 @@ export async function saveWillsAccess(readerUids: string[], updatedBy?: string):
  * `replacePendingId` re-sends an invite that expired unredeemed, replacing the
  * old row instead of stacking a second one for the same person.
  */
+/* This family's forward-to-file address, if inbound mail is switched on.
+ *
+ * Returns null for every "not available" case — feature dormant, signed out,
+ * server unreachable — because the caller's only decision is whether to show
+ * a row. A thrown error here would take down the vault screen over a feature
+ * that is, in production today, deliberately off (see docs/INBOUND-MAIL.md).
+ *
+ * The address is derived server-side from the CALLER'S OWN family. It is a
+ * write capability into that family's vault, so it is never accepted from,
+ * or computed on, the client.
+ */
+export async function fetchInboundMailAddress(): Promise<string | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  try {
+    const token = await user.getIdToken();
+    const res = await fetch('/api/inbound-mail/address', { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    return data?.enabled && typeof data.address === 'string' ? data.address : null;
+  } catch {
+    return null;
+  }
+}
+
+/* ── The Gmail bridge ───────────────────────────────────────────────────────
+ *
+ * Teluva cannot read Gmail: every scope that can is a Google RESTRICTED scope
+ * needing an annual CASA assessment (the same regime googleScopes.ts avoids
+ * for Drive). Instead an Apps Script runs in the person's OWN account, reads
+ * their own mailbox, and posts attachments here — see
+ * apps-script/teluva-gmail-bridge.
+ *
+ * A bridge token is a WRITE CAPABILITY into the family vault: anyone holding
+ * it can put documents in. So the raw token is returned by the server exactly
+ * ONCE, at creation, and never again — only its hash is stored. If it is lost,
+ * the answer is to create a new one, which revokes the old.
+ */
+
+export type GmailBridgeStatus = {
+  connected: boolean;
+  createdAt?: string;
+  createdBy?: string;
+  lastUsedAt?: string | null;
+  filedCount?: number;
+};
+
+export async function fetchGmailBridgeStatus(): Promise<GmailBridgeStatus | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  try {
+    const token = await user.getIdToken();
+    const res = await fetch('/api/gmail-bridge/status', { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return data && typeof data.connected === 'boolean' ? (data as GmailBridgeStatus) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Mints a token and returns the RAW value — the only time it is ever available. */
+export async function createGmailBridgeToken(): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in');
+  const token = await user.getIdToken();
+  const res = await fetch('/api/gmail-bridge/token', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.token) throw new Error(data.error || 'Could not create the token. Please try again.');
+  return data.token as string;
+}
+
+export async function revokeGmailBridgeToken(): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in');
+  const token = await user.getIdToken();
+  const res = await fetch('/api/gmail-bridge/token', {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Could not disconnect. Please try again.');
+  }
+}
+
 export async function createEstateInvite(
   forName: string,
   replacePendingId?: string,
@@ -1052,6 +1206,28 @@ export async function deleteTravelPhoto(storagePath: string): Promise<void> {
     await deleteObject(ref(storage, storagePath));
   } catch (e) {
     console.error('Travel photo delete failed (entry will still be removed):', e);
+  }
+}
+
+// --- Life timeline photos: same reasoning as travel photos — the timeline is
+// ONE shared Firestore doc, so a photo is a Storage file and only its URL is
+// stored. `photoId` is unique per photo (a moment can have several).
+export async function uploadTimelinePhoto(dataUrl: string, photoId: string): Promise<{ storagePath: string; downloadUrl: string }> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const storagePath = `families/${FAMILY_ID}/timeline-photos/${photoId}.jpg`;
+  const r = ref(storage, storagePath);
+  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
+  const downloadUrl = await getDownloadURL(r);
+  return { storagePath, downloadUrl };
+}
+
+export async function deleteTimelinePhoto(storagePath: string): Promise<void> {
+  if (!storagePath) return;
+  try {
+    await deleteObject(ref(storage, storagePath));
+  } catch (e) {
+    console.error('Timeline photo delete failed (the moment is still saved):', e);
   }
 }
 
@@ -1394,7 +1570,11 @@ export async function loadAiUsage(): Promise<AiUsage | null> {
     if (!res.ok) return null;
     const data = await res.json().catch(() => null);
     if (!data || typeof data.used !== 'number' || typeof data.limit !== 'number') return null;
-    return { plan: data.plan === 'paid' ? 'paid' : 'free', used: data.used, limit: data.limit, resetsOn: String(data.resetsOn || '') };
+    // Narrowed against the same allowlist the server uses — an unrecognised
+    // tier name must display as 'free' (the most conservative reading), never
+    // be trusted through as-is.
+    const plan = data.plan === 'paid' ? 'paid' : data.plan === 'trial' ? 'trial' : 'free';
+    return { plan, used: data.used, limit: data.limit, resetsOn: String(data.resetsOn || '') };
   } catch {
     return null;
   }
@@ -1501,7 +1681,14 @@ export async function loadSpaceInfo(): Promise<FamilyInfoDoc | null> {
   if (!user) return null;
   try {
     const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'info', 'info'));
-    return snap.exists() ? (snap.data() as FamilyInfoDoc) : null;
+    const info = snap.exists() ? (snap.data() as FamilyInfoDoc) : null;
+    /* Remembered so recordActivity can classify a profile edit without an
+     * extra read on every save. It only ever decides WHO SEES a trail entry
+     * about a member record — family news in a household, an HR matter in a
+     * business — and when it has never been written, recordActivity assumes
+     * business, which is the narrower answer. */
+    try { localStorage.setItem(spaceTypeKey(), info?.type === 'business' ? 'business' : 'family'); } catch { /* private mode */ }
+    return info;
   } catch (error) {
     console.error('Error loading space info:', error);
     return null;
@@ -1756,6 +1943,46 @@ export async function saveChatHistory(
   await setDoc(doc(db, 'families', FAMILY_ID, 'chat', uid), { messages: slim }, { merge: true });
 }
 
+// ── Personal prefs: one account's own settings in one space ──
+// families/{FAMILY_ID}/prefs/{uid}, readable and writable by that account only
+// (firestore.rules). Today it holds one thing: the people whose dates THIS
+// person has chosen not to see (utils/hiddenPeople.ts). The family's shared
+// list is HubSettings.hiddenDatePeople instead.
+export async function loadPersonalPrefs(uid: string): Promise<PersonalPrefsDoc> {
+  try {
+    const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'prefs', uid));
+    return snap.exists() ? (snap.data() as PersonalPrefsDoc) : {};
+  } catch (error) {
+    console.error('Error loading personal prefs:', error);
+    return {};
+  }
+}
+
+/**
+ * Change this account's hidden-dates list. `change` is applied to the list as
+ * it is on the server right now, inside a transaction, so hiding someone on
+ * the phone and showing someone else again on the laptop both survive.
+ * Returns the list as saved, or null if the write failed.
+ */
+export async function updatePersonalHiddenDates(
+  uid: string,
+  change: (list: HiddenDatePerson[]) => HiddenDatePerson[],
+): Promise<HiddenDatePerson[] | null> {
+  try {
+    const prefsRef = doc(db, 'families', FAMILY_ID, 'prefs', uid);
+    return await runTransaction(db, async (tx) => {
+      const snap = await tx.get(prefsRef);
+      const cur = (snap.exists() ? (snap.data() as PersonalPrefsDoc).hiddenDatePeople : undefined) || [];
+      const next = change(Array.isArray(cur) ? cur : []);
+      tx.set(prefsRef, { hiddenDatePeople: next }, { merge: true });
+      return next;
+    });
+  } catch (error) {
+    console.error('Error saving personal prefs:', error);
+    return null;
+  }
+}
+
 // ── Assets ──
 export async function loadAssets(): Promise<AssetItem[]> {
   const snap = await getDocs(collection(db, 'families', FAMILY_ID, 'assets'));
@@ -1766,6 +1993,7 @@ export async function loadAssets(): Promise<AssetItem[]> {
 export async function saveAsset(asset: AssetItem): Promise<boolean> {
   try {
     await setDoc(doc(db, 'families', FAMILY_ID, 'assets', asset.id), asset);
+    recordActivity('assets', 'updated', asset.name);
     return true;
   } catch (error) {
     console.error('Error saving asset:', error);
@@ -1775,6 +2003,9 @@ export async function saveAsset(asset: AssetItem): Promise<boolean> {
 
 export async function deleteAsset(id: string): Promise<void> {
   await deleteDoc(doc(db, 'families', FAMILY_ID, 'assets', id));
+  // No name here — this function is given an id, and reading the doc back
+  // purely to label a trail entry is not worth a round trip on a delete.
+  recordActivity('assets', 'removed');
 }
 
 // ── Secrets-vault encryption ──
@@ -1819,13 +2050,31 @@ export async function revealSecrets(values: string[]): Promise<string[]> {
   }
 }
 
+// The caller's role in the active space, pushed in by FamilyContext the same
+// way setRevealCacheScope is — so this module can decide about reveals
+// without a React context. UX ONLY: the server refuses child reveals itself
+// (/api/vault/reveal-shared); knowing the role here just lets a child
+// account skip a doomed network call and see clean empty fields instead of
+// raw 'enc:...' ciphertext strings.
+let accountRole: string | null = null;
+export function setAccountRole(role: string | null): void {
+  accountRole = role;
+}
+
 // Same round-trip as revealSecrets, but for SHARED family records (identity
 // numbers, household codes, bank details) rather than personal credentials —
-// see /api/vault/reveal-shared's comment for why that endpoint has no
-// admin-only gate. Kept as a separate function (not a parameter) so call
+// adult-gated rather than admin-gated; see /api/vault/reveal-shared's comment
+// for the reasoning. Kept as a separate function (not a parameter) so call
 // sites are unambiguous about which class of data they're touching.
+//
+// Child accounts (role/capability matrix, 2026-08-24): the server would 403,
+// so don't ask — map every encrypted value to '' locally. Legacy PLAINTEXT
+// values (saved before at-rest encryption, never re-saved) pass through: they
+// are indistinguishable from ordinary non-secret strings here, and re-saving
+// by any adult encrypts them.
 export async function revealSharedSecrets(values: string[]): Promise<string[]> {
   if (!values.length) return values;
+  if (accountRole === 'child') return values.map(v => (typeof v === 'string' && v.startsWith('enc:') ? '' : v));
   const user = auth.currentUser;
   if (!user) return values;
   try {
@@ -1863,10 +2112,17 @@ export async function loadPasswords(): Promise<PasswordEntry[]> {
 export async function savePassword(entry: PasswordEntry): Promise<void> {
   const [enc] = await protectSecrets([entry.password || '']);
   await setDoc(doc(db, 'families', FAMILY_ID, 'passwords', entry.id), { ...entry, password: enc });
+  /* Deliberately unnamed. The entry's LABEL is half the secret — "Revolut",
+   * "the safe" — and a passwords entry is admin-tier anyway, so naming it
+   * would buy nothing and risk exactly the thing this collection exists to
+   * protect. That a password changed, and who changed it, is the whole point
+   * of logging it at all. */
+  recordActivity('passwords', 'updated');
 }
 
 export async function deletePassword(id: string): Promise<void> {
   await deleteDoc(doc(db, 'families', FAMILY_ID, 'passwords', id));
+  recordActivity('passwords', 'removed');
 }
 
 // ── Delete a document EVERYWHERE ──────────────────────────────────────────
@@ -2064,4 +2320,238 @@ export async function deletePushSubscription(endpoint: string): Promise<boolean>
     body: JSON.stringify({ endpoint }),
   });
   return res.ok;
+}
+
+/* ── Releasing the will: the doorbell ────────────────────────────────────────
+ *
+ * All four go through the server because willsAccess is admin-write-only in
+ * firestore.rules, and the whole point is that a NON-admin can ring the bell.
+ * The rule is not loosened to let them: the server holds the pen, and it checks
+ * eligibility from the roles collection rather than from anything the caller
+ * sends. See server/willsRelease.mjs for the decisions themselves.
+ */
+
+export interface ReleaseRequestRow {
+  id: string;
+  requestedBy: string;
+  requestedByName?: string;
+  requestedAt: string;
+  approvals?: string[];
+  declinedAt?: string;
+  declinedBy?: string;
+  releasedAt?: string;
+  releasedBecause?: string;
+}
+
+/** Rung one: who holds the signed will. Mirrors projectFindability's output. */
+export interface FindabilityEntry {
+  kind: string;
+  heldBy?: string;
+  notaryName?: string;
+  registered?: 'registered';
+  registryName?: string;
+  originalLocation?: string;
+  /** Nothing at all was recorded — said plainly so they can ask while they can. */
+  unrecorded?: boolean;
+}
+
+export interface ReleaseState {
+  requests: ReleaseRequestRow[];
+  youMayRead: boolean;
+  /** An estate invite named them. They still cannot read it — see v329. */
+  youAreNamed?: boolean;
+  findability?: FindabilityEntry[] | null;
+}
+
+/* One authenticated POST to our own API, with the strict parse below.
+ * Named for what it is rather than for the wills-release endpoints it was
+ * written for — the staff directory uses it too, and anything else that must
+ * not mistake the SPA's catch-all for an answer should. */
+async function authedPost<T>(path: string, body?: unknown): Promise<T> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Must be signed in');
+  const token = await user.getIdToken();
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body || {}),
+  });
+  /* An UNKNOWN /api path does not 404 here — the SPA catch-all answers it with
+   * index.html and a 200. Parsing that leniently would hand the caller `{}`:
+   * a doorbell that silently reports no requests and no access, which is the
+   * worst possible refusal on this particular screen. So a non-JSON body is an
+   * error even when the status is 200. */
+  const isJson = (res.headers.get('content-type') || '').includes('application/json');
+  const data = isJson ? await res.json().catch(() => null) : null;
+  if (!res.ok) {
+    throw new Error(
+      (data && typeof data.error === 'string' && data.error)
+        || 'Something went wrong. Please try again.',
+    );
+  }
+  if (!data || typeof data !== 'object') {
+    throw new Error('Could not reach the vault. Please try again.');
+  }
+  return data as T;
+}
+
+/* ── THE ACTIVITY TRAIL ──────────────────────────────────────────────────── */
+
+const spaceTypeKey = () => `teluva.spaceType_${FAMILY_ID}`;
+const activitySeenKey = () => `teluva.activitySeen_${FAMILY_ID}`;
+
+/**
+ * Write down that something changed. Fire-and-forget, and deliberately so.
+ *
+ * NEVER AWAITED BY A SAVE, AND NEVER ABLE TO FAIL ONE. The trail is a record
+ * of work, not the work. A save that succeeded and then reported failure
+ * because its diary entry did not write would be a strictly worse app than one
+ * with no trail at all, and the person it would confuse is the one who just
+ * typed something important.
+ *
+ * NO VALUES. `what` names the thing — a first name, a document title — and
+ * never what it was changed to. That rule is what lets an entry be readable by
+ * more people than the document it describes.
+ */
+export function recordActivity(
+  kind: string,
+  action: 'added' | 'updated' | 'removed',
+  what?: string,
+): void {
+  void (async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user || !isLoggableKind(kind)) return;
+
+      /* Autosave means one act of editing arrives as many saves. Collapsed
+       * against a small local record of what this device last wrote — local,
+       * because the dedupe is about one person's editing session, not about
+       * what the household did. */
+      const signature = `${kind}|${what || ''}|${action}`;
+      let seen: Record<string, number> = {};
+      try { seen = JSON.parse(localStorage.getItem(activitySeenKey()) || '{}'); } catch { seen = {}; }
+      if (!shouldLog(signature, seen)) return;
+
+      let businessSpace = true;   // unknown → the narrower answer
+      try { businessSpace = localStorage.getItem(spaceTypeKey()) !== 'family'; } catch { /* private mode */ }
+
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      const entry: ActivityEntry = {
+        id,
+        at: new Date().toISOString(),
+        actorUid: user.uid,
+        // First name only. The trail is read by children and, in a business,
+        // by colleagues; a full email address in it would be a disclosure the
+        // entry never needed to make.
+        actorName: (user.displayName || user.email || 'Someone').trim().split(/[\s@]+/)[0] || 'Someone',
+        kind,
+        action,
+        visibility: visibilityFor(kind, businessSpace),
+      };
+      if (what) entry.what = what.trim().slice(0, 80);
+
+      await setDoc(doc(db, 'families', FAMILY_ID, 'activity', id), entry);
+
+      seen[signature] = Date.now();
+      /* Keep the local dedupe record from growing without bound — anything
+       * older than the window can never suppress anything again. */
+      const cutoff = Date.now() - DEDUPE_WINDOW_MS;
+      for (const [k, t] of Object.entries(seen)) if (!(typeof t === 'number' && t > cutoff)) delete seen[k];
+      try { localStorage.setItem(activitySeenKey(), JSON.stringify(seen)); } catch { /* private mode */ }
+    } catch {
+      /* Swallowed on purpose — see the doc comment. A trail entry is never
+       * worth a toast, and never worth failing the save it describes. */
+    }
+  })();
+}
+
+/**
+ * Read the trail, as much of it as this role may see.
+ *
+ * THE FILTER IS NOT BELT-AND-BRACES, IT IS THE ONLY WAY THE QUERY SUCCEEDS.
+ * firestore.rules gates each entry on its own `visibility`, and Firestore
+ * fails a WHOLE list when one returned document fails the rule — so a member
+ * asking for the collection unfiltered gets nothing at all, not a filtered
+ * subset. Asking for exactly the tiers this role may read means every returned
+ * document passes, which is what makes the query legal. The emulator asserts
+ * both halves of that contract.
+ *
+ * Sorted here rather than by Firestore: `where in` plus `orderBy` on a
+ * different field needs a composite index, and this collection is small and
+ * capped by the cron's retention sweep.
+ */
+export async function loadActivity(role: string | null | undefined): Promise<ActivityEntry[]> {
+  const user = auth.currentUser;
+  if (!user) return [];
+  try {
+    const col = collection(db, 'families', FAMILY_ID, 'activity');
+    const snap = role === 'admin'
+      ? await getDocs(col)
+      : await getDocs(query(col, where('visibility', 'in', visibilitiesFor(role))));
+    return orderActivity(snap.docs.map((d) => d.data() as ActivityEntry));
+  } catch (error) {
+    console.error('Error loading activity:', error);
+    return [];
+  }
+}
+
+/** One colleague as the team directory shows them. Mirrors DIRECTORY_FIELDS. */
+export interface DirectoryEntry {
+  id: string;
+  name: string;
+  role?: string;
+  jobTitle?: string;
+  workPhone?: string;
+  workAddress?: string;
+  employer?: string;
+  startDate?: string;
+  avatarColor?: string;
+}
+
+/**
+ * Who works here — business spaces only.
+ *
+ * Goes through the server because it HAS to: firestore.rules refuses an
+ * employee every colleague document (v330), and rules gate documents, not
+ * fields, so there is no version of this the client could read directly
+ * without reopening the HR file. server/directory.mjs holds the allowlist.
+ */
+export const loadBusinessDirectory = () =>
+  authedPost<{ members: DirectoryEntry[] }>('/api/business/directory');
+
+/** Settle any request whose seven days have run out, and report the state. */
+export const loadReleaseState = () =>
+  authedPost<ReleaseState>('/api/wills-release/state');
+
+export const requestWillRelease = () =>
+  authedPost<{ reason: string; requests: ReleaseRequestRow[] }>('/api/wills-release/request');
+
+export const approveWillRelease = (requestId: string) =>
+  authedPost<{ reason: string; released: boolean; requests: ReleaseRequestRow[] }>(
+    '/api/wills-release/approve', { requestId },
+  );
+
+export const declineWillRelease = (requestId: string) =>
+  authedPost<{ reason: string; requests: ReleaseRequestRow[] }>(
+    '/api/wills-release/decline', { requestId },
+  );
+
+/**
+ * "I am still here", from an admin's device, at most once a day.
+ *
+ * Throttled in localStorage rather than by asking the server, because the point
+ * is to avoid the write, not to avoid the answer. Failure is SILENT and that is
+ * correct: not recording a heartbeat can only make the fast door slower, and an
+ * error toast about a background write nobody asked for is worse than the miss.
+ */
+const HEARTBEAT_KEY = 'teluva:ownerHeartbeatAt';
+export async function recordOwnerStillHere(): Promise<void> {
+  try {
+    const last = Number(localStorage.getItem(HEARTBEAT_KEY) || 0);
+    if (Number.isFinite(last) && Date.now() - last < 24 * 3600 * 1000) return;
+    await authedPost('/api/wills-release/still-here');
+    localStorage.setItem(HEARTBEAT_KEY, String(Date.now()));
+  } catch {
+    /* see the doc comment: a missed heartbeat is safe, a toast is not */
+  }
 }

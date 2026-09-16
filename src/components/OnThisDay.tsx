@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { FamilyMember, CalendarEvent, ExtendedBirthday, NameCelebration } from '../types';
 import { resolveCelebrations, daysUntilCelebration } from '../utils/nameCelebrations';
 import { nameDayOccurrenceInYear } from '../utils/nameDay';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
+import { hiddenKey, NO_HIDDEN_PEOPLE, visibleEvents, visibleExtendedBirthdays, type HiddenPeople } from '../utils/hiddenPeople';
 
 // "On this day" — the emotional daily hook on the home screen. Pure/presentational:
 // everything here is derived from members + events + the current date, no network,
@@ -372,7 +374,13 @@ function recordInsight(members: FamilyMember[], events: CalendarEvent[], today: 
 
 // Rank every candidate, always keep "today or very soon" items, and gently rotate
 // the long tail by day-of-year so it isn't always the same 2-4 items.
-function buildInsights(members: FamilyMember[], events: CalendarEvent[], extendedBirthdays: ExtendedBirthday[] = []): Insight[] {
+// `hidden`: people whose dates this account has chosen not to see
+// (utils/hiddenPeople.ts) — no birthday or name day for them, no typed
+// "Nora's birthday" event, no extended-family birthday. Their growth and
+// sayings still count: those are memories, not dates.
+function buildInsights(members: FamilyMember[], allEvents: CalendarEvent[], allExtended: ExtendedBirthday[] = [], hidden: HiddenPeople = NO_HIDDEN_PEOPLE): Insight[] {
+  const events = visibleEvents(allEvents, hidden);
+  const extendedBirthdays = visibleExtendedBirthdays(allExtended, hidden);
   if (members.length === 0 && events.length === 0 && extendedBirthdays.length === 0) return [];
 
   const today = new Date();
@@ -380,9 +388,10 @@ function buildInsights(members: FamilyMember[], events: CalendarEvent[], extende
 
   const candidates: Insight[] = [];
   for (const m of members) {
-    const b = birthdayInsight(m, today);
+    const datesHidden = hidden.keys.has(hiddenKey.member(m.id));
+    const b = datesHidden ? null : birthdayInsight(m, today);
     if (b) candidates.push(b);
-    const n = nameDayInsight(m, today);
+    const n = datesHidden ? null : nameDayInsight(m, today);
     if (n) candidates.push(n);
     const g = growthInsight(m, today);
     if (g) candidates.push(g);
@@ -420,7 +429,8 @@ function buildInsights(members: FamilyMember[], events: CalendarEvent[], extende
 }
 
 export default function OnThisDay({ members, events, extendedBirthdays }: { members: FamilyMember[]; events: CalendarEvent[]; extendedBirthdays?: ExtendedBirthday[] }) {
-  const items = buildInsights(members, events, extendedBirthdays);
+  const { hidden } = useHiddenPeople();
+  const items = buildInsights(members, events, extendedBirthdays, hidden);
   if (items.length === 0) return null;
 
   return (

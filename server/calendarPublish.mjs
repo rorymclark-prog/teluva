@@ -22,6 +22,8 @@
 // Pure functions only — no firebase-admin import — so this file can be
 // `node --test`ed without credentials or network.
 
+import { isImportantEvent } from './importantEvents.mjs';
+
 // How far either side of today the feed reaches. Bounded because a feed is
 // re-fetched forever by every subscriber: unbounded history would grow without
 // limit and be re-downloaded every refresh, for events nobody is looking at.
@@ -189,6 +191,21 @@ export function yearlyRrule(date) {
 }
 
 /**
+ * The reminders an important event carries (RFC 5545 §3.6.6, ACTION:DISPLAY).
+ *
+ * A timed event: a day before, and two hours before. An all-day event has no
+ * hour to count back from — its DTSTART is midnight — so it gets one, at
+ * 09:00 the day before (-PT15H from that midnight), not a 00:00 buzz on the
+ * day itself. Triggers are relative to DTSTART, so they stay floating with it.
+ */
+export function importantAlarms(ev) {
+  const timed = !!(ev.time && /^\d{2}:\d{2}$/.test(ev.time));
+  const triggers = timed ? ['-P1D', '-PT2H'] : ['-PT15H'];
+  const text = foldLine(`DESCRIPTION:${escapeIcsText(ev.title || 'Appointment')}`);
+  return triggers.flatMap((t) => ['BEGIN:VALARM', 'ACTION:DISPLAY', text, `TRIGGER:${t}`, 'END:VALARM']);
+}
+
+/**
  * Serialize a published feed.
  *
  * Times are FLOATING (no zone, no trailing Z) because that is honestly what
@@ -207,6 +224,9 @@ export function buildPublishedIcs(events, options = {}) {
     // whether this link may carry them; by the time they arrive here the
     // opt-in and the busy-mode exclusion have already been applied.
     occasions = [],
+    // A business space: no automatic "medical means important" rule, so only
+    // events someone marked by hand get a reminder (see importantEvents.mjs).
+    business = false,
   } = options;
 
   const lines = [
@@ -251,6 +271,13 @@ export function buildPublishedIcs(events, options = {}) {
     // Busy-mode events must still occupy time in the subscriber's free/busy
     // view — that is the entire point of the mode.
     lines.push('TRANSP:OPAQUE');
+    // Decided on the stored event, not the redacted one — redaction drops the
+    // title the rule reads. Busy mode never carries alarms: an alarm on some
+    // slots and not others says which ones are important, which is exactly
+    // the kind of thing that mode exists to withhold.
+    if (mode !== 'busy' && isImportantEvent(source, { business })) {
+      lines.push(...importantAlarms(ev));
+    }
     lines.push('END:VEVENT');
   }
 

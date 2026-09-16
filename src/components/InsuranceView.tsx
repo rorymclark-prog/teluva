@@ -12,6 +12,7 @@ import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import { INSURANCE_READER_ENABLED } from '../config/features';
 import { isFuneralPolicy, inWaitingPeriod, daysUntilWaitingPeriodEnd } from '../utils/funeralCover';
+import { appConfirm } from '../utils/appConfirm';
 import SheetGrabber from './SheetGrabber';
 import EmptyState from './EmptyState';
 
@@ -309,7 +310,7 @@ export default function InsuranceView({ members, canUseAI = false, isBusinessSpa
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this insurance policy? This cannot be undone.')) return;
+    if (!(await appConfirm('Delete this insurance policy? This cannot be undone.', { danger: true, confirmLabel: 'Delete' }))) return;
     await persistPolicies(policies.filter(p => p.id !== id));
     if (editingPolicy?.id === id) closeForm();
   };
@@ -636,7 +637,7 @@ export default function InsuranceView({ members, canUseAI = false, isBusinessSpa
                     <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                       <HandCoins className="w-3.5 h-3.5" /> Beneficiary — who the payout is made to
                     </label>
-                    <input type="text" placeholder="e.g. Barbara Hubauer, or Estate" value={editing.beneficiary || ''} onChange={e => patch({ beneficiary: e.target.value })} className="field w-full" />
+                    <input type="text" placeholder="e.g. Erika Muster, or Estate" value={editing.beneficiary || ''} onChange={e => patch({ beneficiary: e.target.value })} className="field w-full" />
                   </div>
 
                   <div>

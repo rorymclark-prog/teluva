@@ -6,6 +6,20 @@ const ACTIVE_SCOPE_KEY = 'teluva.emergencyPack.active.v2';
 const LEGACY_PACK_KEY = 'teluva.emergencyPack.v1';
 const PACK_KEY_PREFIX = 'teluva.emergencyPack.v2:';
 
+/**
+ * The pack self-destructs after this long without a refresh (design-audit P0:
+ * a plaintext device copy must not persist indefinitely). 60 days balances the
+ * two failure modes: a shorter fuse risks an EMPTY pack in a real emergency on
+ * a device that simply hadn't been opened for a while, while no fuse means a
+ * device sold, lost or handed down carries the family's medical facts forever.
+ * In practice the fuse rarely burns down: opening Emergency online refreshes
+ * the pack automatically (see EmergencyView), so only an abandoned device
+ * expires — which is exactly the device that should.
+ */
+export const PACK_EXPIRY_DAYS = 60;
+/** Age at which the offline page starts warning the facts may be stale. */
+export const PACK_STALE_DAYS = 30;
+
 export interface EmergencyPackScope {
   ownerUid: string;
   spaceId: string;
@@ -15,6 +29,8 @@ export interface EmergencyPackScope {
 export interface EmergencyPack extends EmergencyPackScope {
   version: typeof PACK_VERSION;
   savedAt: string;
+  /** Absent on packs saved before expiry existed — derived from savedAt then. */
+  expiresAt?: string;
   shellVerifiedAt?: string;
   shellVersion?: string;
   country: IdCountry;
@@ -51,6 +67,27 @@ function identityAllowlist(record?: IdentityRecord): EmergencyIdentity | undefin
   return { svNumber: record.svNumber, eCardNumber: record.eCardNumber };
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** When this pack stops being served, absent field derived for old packs. */
+export function packExpiryTime(pack: Pick<EmergencyPack, 'savedAt' | 'expiresAt'>): number {
+  const explicit = pack.expiresAt ? Date.parse(pack.expiresAt) : NaN;
+  if (!Number.isNaN(explicit)) return explicit;
+  const saved = Date.parse(pack.savedAt);
+  return Number.isNaN(saved) ? 0 : saved + PACK_EXPIRY_DAYS * DAY_MS;
+}
+
+export function packExpired(pack: Pick<EmergencyPack, 'savedAt' | 'expiresAt'>, now = Date.now()): boolean {
+  return now >= packExpiryTime(pack);
+}
+
+/** Whole days since the pack was saved (0 for today). */
+export function packAgeDays(pack: Pick<EmergencyPack, 'savedAt'>, now = Date.now()): number {
+  const saved = Date.parse(pack.savedAt);
+  if (Number.isNaN(saved)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.floor((now - saved) / DAY_MS));
+}
+
 export function buildEmergencyPack(
   members: FamilyMember[],
   country: IdCountry,
@@ -60,6 +97,7 @@ export function buildEmergencyPack(
   return {
     version: PACK_VERSION,
     savedAt,
+    expiresAt: new Date(Date.parse(savedAt) + PACK_EXPIRY_DAYS * DAY_MS).toISOString(),
     country,
     ...scope,
     members: members.map(member => ({
@@ -106,7 +144,7 @@ function readScope(): EmergencyPackScope | null {
   }
 }
 
-export function loadEmergencyPack(scope?: EmergencyPackScope): EmergencyPack | null {
+export function loadEmergencyPack(scope?: EmergencyPackScope, now = Date.now()): EmergencyPack | null {
   try {
     localStorage.removeItem(LEGACY_PACK_KEY);
     const requestedScope = scope || readScope();
@@ -118,10 +156,36 @@ export function loadEmergencyPack(scope?: EmergencyPackScope): EmergencyPack | n
       typeof value.spaceId !== 'string' || typeof value.spaceName !== 'string' ||
       !sameScope(value as EmergencyPackScope, requestedScope)
     ) return null;
+    // Lazy expiry, same pattern as the trial: the moment an expired pack is
+    // asked for is the moment it is deleted — not merely hidden, so the
+    // plaintext copy actually leaves the device rather than lingering
+    // unreachable in localStorage.
+    if (packExpired(value as EmergencyPack, now)) {
+      localStorage.removeItem(storageKey(requestedScope));
+      return null;
+    }
     return value as EmergencyPack;
   } catch {
     return null;
   }
+}
+
+/**
+ * Re-stamp an EXISTING pack with current data, preserving its shell
+ * verification. Never creates a pack — consent lives at the first save; this
+ * is maintenance of a copy the person already agreed to keep. Also pushes the
+ * expiry out, so an actively used device never hits the fuse.
+ */
+export function refreshEmergencyPack(members: FamilyMember[], country: IdCountry, scope: EmergencyPackScope): EmergencyPack | null {
+  const existing = loadEmergencyPack(scope);
+  if (!existing) return null;
+  const pack: EmergencyPack = {
+    ...buildEmergencyPack(members, country, scope),
+    shellVerifiedAt: existing.shellVerifiedAt,
+    shellVersion: existing.shellVersion,
+  };
+  localStorage.setItem(storageKey(scope), JSON.stringify(pack));
+  return pack;
 }
 
 export function markEmergencyPackVerified(scope: EmergencyPackScope, verifiedAt = new Date().toISOString()): EmergencyPack | null {

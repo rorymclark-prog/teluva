@@ -51,7 +51,10 @@ const todayLocal = () => new Date().toLocaleDateString('en-CA');
 const MAX_UPLOAD_BYTES = 700 * 1024;
 
 // Category chip styling
-const categoryChipClass = (cat: string) => {
+// Exported so MemberIdOverview.tsx's Section B (every document, at a glance)
+// colours its category chips identically rather than a second hand-picked
+// palette that could drift from this one.
+export const categoryChipClass = (cat: string) => {
   switch (cat) {
     case 'ID':         return 'chip bg-dusk-100 text-dusk-700';
     case 'Health':     return 'chip bg-rosa-100 text-rosa-700';
@@ -703,6 +706,16 @@ export default function MemberDocuments({
                       <span className={categoryChipClass(doc.category)}>
                         {doc.category}
                       </span>
+                      {/* The CV filed on the CV tab lands here too, and it has
+                          nowhere better to go: FamilyDocument's category list
+                          has no 'CV' value, so MemberCV.tsx files it as
+                          'Other' — indistinguishable from any uncategorised
+                          scan. Say what it is rather than hiding it: hiding it
+                          would strand its own delete and share controls, which
+                          live on this screen and nowhere else. */}
+                      {doc.id === member.cv?.fileDocumentId && (
+                        <span className="chip bg-clay-100 text-clay-700">Filed CV</span>
+                      )}
                     </div>
                     <p className="text-[12px] text-ink-400 font-mono tabular-nums">
                       {doc.uploadedAt}

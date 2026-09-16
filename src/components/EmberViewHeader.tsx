@@ -1,4 +1,4 @@
-import type { ElementType } from 'react';
+import { useEffect, useState, type ElementType } from 'react';
 import { ArrowRight, Heart, Home, Layers3, Map, ShieldCheck, Sparkles, Users } from 'lucide-react';
 
 export interface EmberViewItem {
@@ -73,6 +73,7 @@ const businessCopy: Record<string, { kicker: string; title: string; note: string
   profiles: { kicker: 'Team · People records', title: 'The team, at a glance.', note: 'Roles, contact details and the records each person needs for work.' },
   profilesTodo: { kicker: 'Team · To-do & readiness', title: 'Finish what matters.', note: 'Missing records, expiring qualifications and timely checks in one worklist.' },
   info: { kicker: 'Team · Compliance', title: 'The facts close to hand.', note: 'Professional contacts, registrations and practical business details without the folder hunt.' },
+  timeline: { kicker: 'Team · Business story', title: 'How the business got here.', note: 'First customers, new locations, licences and the documents behind them, year by year.' },
   chat: { kicker: 'Team · Private chat', title: 'Keep the work conversation together.', note: 'A private thread for decisions and updates that belong to this team.' },
   calendar: { kicker: 'Plan · Business horizon', title: 'The next seven days first.', note: 'People, deadlines and the dates shaping the team’s week.' },
   household: { kicker: 'Operations · Locations', title: 'Every workplace accounted for.', note: 'Locations, utilities, providers and operational knowledge in one shared place.' },
@@ -95,6 +96,26 @@ function destinationFor(viewId: string): Destination | null {
 }
 
 export default function EmberViewHeader({ current, views, onSelect, isBusinessSpace = false }: EmberViewHeaderProps) {
+  // The hero is 22rem on a phone — over a third of the screen spent on a
+  // title, on EVERY section, before a single fact appears. It collapses on
+  // scroll instead of being cut down: full height when you arrive (the
+  // arrival is the point of it), then a slim pinned bar carrying the kicker
+  // and the section pills, so the subnav stops being something you have to
+  // scroll back up to reach. Phone only — the CSS lives behind a media query;
+  // this class is inert above 768px, where the hero costs a much smaller
+  // share of the screen.
+  //
+  // Asymmetric thresholds on purpose: collapse at 120px, expand again only
+  // below 48. One threshold makes the hero flap open and shut when a finger
+  // rests near it.
+  const [tight, setTight] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setTight((t) => (t ? window.scrollY > 48 : window.scrollY > 120));
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   const destinationId = destinationFor(current);
   const meta = emberViewCopy(current, isBusinessSpace);
   if (!destinationId || !meta) return null;
@@ -109,7 +130,7 @@ export default function EmberViewHeader({ current, views, onSelect, isBusinessSp
   const DestinationIcon = destination.icon;
 
   return (
-    <section className={`ember-view-heading ember-view-heading-${destinationId}`}>
+    <section className={`ember-view-heading ember-view-heading-${destinationId}${tight ? ' is-tight' : ''}`}>
       <div className="ember-view-heading-copy">
         <span className="ember-view-destination"><DestinationIcon className="h-3.5 w-3.5" />{meta.kicker}</span>
         <h1>{meta.title}</h1>

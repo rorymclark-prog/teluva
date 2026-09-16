@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { HeartHandshake, Plus, Pencil, Trash2, X, Sparkles, CalendarClock } from 'lucide-react';
+import { HeartHandshake, Plus, Pencil, Trash2, X, Sparkles, CalendarClock, EyeOff } from 'lucide-react';
 import { AnniversaryRecord, AnniversaryKind, FamilyMember, CalendarEvent } from '../types';
 import { loadAnniversaries, saveAnniversaries, loadCalendarEvents } from '../utils/db';
 import { anniversarySuggestions, AnniversarySuggestion } from '../utils/anniversarySuggestions';
@@ -11,6 +11,9 @@ import EmptyState from './EmptyState';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { isValidNameDay, formatNameDay, daysUntilNameDay } from '../utils/nameDay';
 import { todayIsoLocal, relativeDayLabel } from '../utils/memberAppointments';
+import { appConfirm } from '../utils/appConfirm';
+import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
+import { anniversaryIsHidden, visibleEvents } from '../utils/hiddenPeople';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
@@ -133,6 +136,7 @@ function toForm(a: AnniversaryRecord): AnniversaryForm {
 
 export default function AnniversariesView({ members }: { members: FamilyMember[] }) {
   const { canWrite } = useFamilyCtx();
+  const { hidden: hiddenPeople, openManager } = useHiddenPeople();
   const [anniversaries, setAnniversaries] = useState<AnniversaryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewingId, setViewingId] = useState<string | null>(null);
@@ -272,7 +276,7 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this? This cannot be undone.')) return;
+    if (!(await appConfirm('Delete this? This cannot be undone.', { danger: true, confirmLabel: 'Delete' }))) return;
     await persist(anniversaries.filter(a => a.id !== id));
     if (form?.id === id) closeForm();
     if (viewingId === id) setViewingId(null);
@@ -292,7 +296,9 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
   // anniversary-shaped events, this screen saw only the records, so the one
   // place meant to spare you hunting through the calendar was blind to what
   // was in it.
-  const suggestions = anniversarySuggestions(events, anniversaries);
+  // A calendar entry that is one of a hidden person's dates isn't offered here
+  // either — suggesting it would surface it again.
+  const suggestions = anniversarySuggestions(visibleEvents(events, hiddenPeople), anniversaries);
 
   const todayIso = todayIsoLocal();
 
@@ -368,6 +374,21 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-ink-800 text-[14px] leading-tight truncate">{a.title}</p>
                     <p className="text-[12px] text-ink-400 mt-0.5 truncate">{dateLine(a)}</p>
+                    {/* Kept on this list, not shown anywhere else. */}
+                    {anniversaryIsHidden(a, hiddenPeople) && (
+                      <p className="text-[12px] text-ink-500 mt-0.5 flex items-center gap-1">
+                        <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                        Hidden with someone&rsquo;s dates
+                        <span aria-hidden="true">&middot;</span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); openManager(); }}
+                          className="font-semibold text-dusk-700 hover:underline cursor-pointer"
+                        >
+                          Manage
+                        </button>
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">

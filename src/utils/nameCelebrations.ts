@@ -357,3 +357,107 @@ export function suggestLocal(
 
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// TWO DATES FOR ONE NAME — which of them the family keeps.
+//
+// WHY THIS EXISTS
+// nameDay.ts has always known that several names genuinely have two days
+// (`Entry.alsoOn`): Maria is Mariä Namen on 12 September, but plenty of
+// Austrian Marias are congratulated on Mariä Himmelfahrt on 15 August because
+// that is the public holiday everyone notices. Benedikt moved from 21 March to
+// 11 July when the calendar was revised and both are still in use.
+//
+// The table carried that fact all the way to the screen and then dropped it:
+// the modal printed "Some families instead keep 15 August" as a footnote with
+// nothing to press. A family whose Maria is congratulated in August had to
+// decline the suggestion outright and re-enter the day by hand through
+// "Choose our own date" — losing the feast name and the explanation in the
+// process — and a family that keeps BOTH had no way to say so at all.
+//
+// WHICH ONE IS "THE" DAY IS A FAMILY FACT, NOT A LOOKUP. That is the same rule
+// the top of nameDay.ts states, and this is the function that finally lets a
+// family answer it. Nothing here decides anything on its own: `pick` and
+// `mainWhenBoth` come from what a person tapped.
+//
+// PURE ON PURPOSE, and this is why it lives here rather than in the modal:
+// the primary/notify invariant below ("exactly one primary, and only the
+// primary notifies") is the part that would silently produce two annual push
+// notifications nobody opted into if it were re-derived inside JSX.
+export type NameDayPick = 'suggested' | 'also' | 'both';
+
+/** One day the family has decided to keep, ready to become a NameCelebration. */
+export interface KeptDay {
+  date: string;   // 'MM-DD'
+  feast: string;
+  explanation: string;
+  primary: boolean;
+  notify: boolean;
+}
+
+/** The slice of a LocalSuggestion this needs — structural, so the tests can
+ *  pass a plain object rather than run a real lookup to reach an alsoOn name. */
+export interface TwoDaySuggestion {
+  matchedName: string;
+  date: string;
+  feast: string;
+  explanation: string;
+  alsoOn?: { date: string; feast: string };
+}
+
+const dayLabel = (d: { date: string; feast: string }) => `${d.feast} (${formatNameDay(d.date)})`;
+
+/**
+ * What to store for a name the Namenskalender keeps on two days.
+ *
+ * The ORIGINAL explanation is preserved untouched for the plain 'suggested'
+ * case — that is the pre-existing path and its wording is already tested
+ * elsewhere. The other two cases get an explanation naming BOTH days, because
+ * the entry is read again months later on the day itself, when "why is this
+ * the date?" is exactly the question, and an explanation that mentions only
+ * the date the family didn't keep is how the app ends up looking wrong about
+ * a fact it was right about.
+ *
+ * @param mainWhenBoth Which of the two notifies when both are kept. Ignored
+ *   unless `pick` is 'both'.
+ * @param hasExistingPrimary The member already keeps another celebration as
+ *   THE day. When true nothing here claims primary — the caller's
+ *   primary-choice screen asks the person instead, and demoting a day the
+ *   family chose earlier is never this function's call to make.
+ */
+export function keptDaysFor(
+  suggestion: TwoDaySuggestion,
+  pick: NameDayPick,
+  mainWhenBoth: 'suggested' | 'also' = 'suggested',
+  hasExistingPrimary = false,
+): KeptDay[] {
+  const suggested = { date: suggestion.date, feast: suggestion.feast };
+  const alsoOn = suggestion.alsoOn;
+
+  // No alternative on record: `pick` cannot mean anything, and inventing a
+  // second day to satisfy it would break nameDay.ts's one rule.
+  if (!alsoOn) {
+    return [{ ...suggested, explanation: suggestion.explanation, primary: !hasExistingPrimary, notify: !hasExistingPrimary }];
+  }
+
+  const bothText = `${suggestion.matchedName} has two days in the Austrian Namenskalender: `
+    + `${dayLabel(suggested)} and ${dayLabel(alsoOn)}.`;
+
+  const ordered: { date: string; feast: string; explanation: string }[] =
+    pick === 'suggested'
+      ? [{ ...suggested, explanation: suggestion.explanation }]
+      : pick === 'also'
+        ? [{ ...alsoOn, explanation: `${bothText} Your family keeps ${dayLabel(alsoOn)}.` }]
+        : (mainWhenBoth === 'also' ? [alsoOn, suggested] : [suggested, alsoOn])
+            .map((d) => ({ ...d, explanation: `${bothText} Your family keeps both.` }));
+
+  // Exactly one primary, and only the primary notifies — the first entry is
+  // the one the family named as the main day. Anything beyond it is an opt-in
+  // extra and stays silent until someone turns its reminder on by hand, which
+  // is the spec's "do not generate multiple annual notifications by default".
+  return ordered.map((d, i) => ({
+    ...d,
+    primary: i === 0 && !hasExistingPrimary,
+    notify: i === 0 && !hasExistingPrimary,
+  }));
+}

@@ -28,16 +28,32 @@
  * document doesn't mention that", because a word OCR missed looks exactly like
  * a word that was never there.
  *
- * Low-confidence pages are treated as pages we could not read AT ALL rather
- * than pages we read badly. An unread page is named out loud and blocks the
- * negative; a badly-read page silently answers the question wrong. Given a
- * choice between a noisier UI and a wrong clause on a lease someone is about to
- * rely on, this file always takes the noise.
+ * Low-confidence pages USED to be treated as pages we could not read at all,
+ * on the reasoning that an unread page is named out loud while a badly-read one
+ * silently answers the question wrong. The reasoning was right and the
+ * implementation was the wrong lever. Vision scores a photo of a plastic card
+ * around 0.5 because it is curved and glossy, not because it is illegible, and
+ * the app then told its owner "I couldn't make out any words in this document"
+ * about a card they can read at arm's length. That sentence is false and
+ * unappealable — the words existed and were deleted one function call earlier.
  *
- * DOCUMENT_TEXT_DETECTION rather than TEXT_DETECTION: the former is Vision's
- * dense-document model, which understands paragraphs, reading order and column
- * layout. TEXT_DETECTION is tuned for signage and street scenes and returns
- * contract text in an order that makes clause expansion meaningless.
+ * The safety property was never held by the deletion. Nothing OCR touches can
+ * produce a negative claim, because mergeOcrCoverage() sets verifiable:false for
+ * the whole document and canRenderNegative() requires verifiable — so "your
+ * lease says nothing about deposits" is already impossible from OCR'd text, at
+ * full confidence or none. What the deletion actually bought was the illusion of
+ * a second gate, paid for with the text. Low-confidence pages now come back
+ * flagged, and the flag is logged rather than acted on.
+ *
+ * BOTH Vision text models, in that order. DOCUMENT_TEXT_DETECTION is the
+ * dense-document model — paragraphs, reading order, column layout — and it is
+ * right for the leases and contracts this feature was built for. It is also
+ * capable of returning nothing at all for a handful of short lines on a
+ * coloured background, which is what an ID card, a licence or a medical-aid
+ * card is. TEXT_DETECTION reads those. So: document model first, and where it
+ * finds nothing, the sparse model on that page alone. The order matters —
+ * TEXT_DETECTION returns contract text in an order that makes clause expansion
+ * meaningless, so it must never be what reads a page the other model could.
  * ------------------------------------------------------------------------- */
 
 // How many page images go into one images:annotate call. Vision accepts up to
@@ -178,20 +194,67 @@ export function imageBatches(images, per = OCR_PAGES_PER_REQUEST, maxBytes = OCR
  * confidence — because the caller records those as pages it could NOT read.
  * That distinction is the whole safety story: see the header.
  */
+/**
+ * The text out of a Vision response, from EITHER annotation.
+ *
+ * `fullTextAnnotation` is what DOCUMENT_TEXT_DETECTION produces and it is the
+ * right shape for dense document text. `textAnnotations[0].description` is the
+ * flat whole-image string, and it is populated for sparse imagery where the
+ * document model finds no block structure to report.
+ *
+ * A photograph of a plastic card — an e-card, a driving licence, a medical-aid
+ * card — is exactly that sparse case: a handful of short lines over a coloured
+ * background with glare and curvature. Reading only `fullTextAnnotation` meant
+ * a perfectly legible card could come back with nothing at all, and the app
+ * then told the user the page was blank. Preferring the document annotation and
+ * falling back to the flat one costs nothing and is the difference between
+ * reading a card and denying it exists.
+ */
+export function textFromVisionResponse(resp) {
+  const full = resp?.fullTextAnnotation?.text;
+  if (typeof full === 'string' && full.trim()) return full;
+  const flat = resp?.textAnnotations?.[0]?.description;
+  if (typeof flat === 'string' && flat.trim()) return flat;
+  return '';
+}
+
 export function pageFromVisionResponse(resp, fallbackPageNumber) {
   if (!resp || resp.error) return null;
-  const ann = resp.fullTextAnnotation;
-  const text = typeof ann?.text === 'string' ? ann.text : '';
+  const text = textFromVisionResponse(resp);
   if (!text.trim()) return null;
 
   // Vision reports confidence per detected page inside the annotation; a
   // files:annotate response carries exactly one. Absent confidence is treated
   // as usable — the field is documented as optional, and refusing a page for
   // lacking an optional field would throw away good reads.
-  const conf = ann?.pages?.[0]?.confidence;
-  if (typeof conf === 'number' && conf < OCR_MIN_PAGE_CONFIDENCE) return null;
+  const conf = resp.fullTextAnnotation?.pages?.[0]?.confidence;
+
+  // A LOW-CONFIDENCE PAGE IS NOW RETURNED, FLAGGED — NOT DISCARDED.
+  //
+  // This used to return null, on the principle that a page we cannot trust is a
+  // page we did not read. The principle is right; deleting the text was the
+  // wrong way to hold it. Vision would read a card correctly, score it 0.5
+  // because it is a curved glossy surface rather than a flat page, and the app
+  // would tell the user "I couldn't make out any words in this document" about
+  // an image they can read perfectly themselves. That sentence is false, and it
+  // is unfalsifiable from the outside — the words existed and were thrown away
+  // one function call earlier.
+  //
+  // The safety property was never owned by this deletion anyway. What must
+  // never happen is the app claiming a document does NOT say something, and
+  // that is decided by COVERAGE: a low-confidence page stays out of the
+  // read-page list, so it still counts as unread for every negative claim. The
+  // text comes through badged instead of vanishing, which is strictly more
+  // honest in both directions — the user sees what was read AND that it may be
+  // misread.
+  const lowConfidence = typeof conf === 'number' && conf < OCR_MIN_PAGE_CONFIDENCE;
 
   const n = resp.context?.pageNumber ?? fallbackPageNumber;
-  return { n, text, confidence: typeof conf === 'number' ? conf : null };
+  return {
+    n,
+    text,
+    confidence: typeof conf === 'number' ? conf : null,
+    lowConfidence,
+  };
 }
 

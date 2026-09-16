@@ -164,4 +164,29 @@ const ev = (overrides: Partial<CalendarEvent> & { id: string; date: string }): C
   assert.equal(counts.undated, 2); // v2, r2
 }
 
+// Rule 7: a medical moment from the life timeline is part of that person's
+// health history — and only theirs, and only a medical one.
+{
+  const m = member({ id: 'mia', name: 'Mia' });
+  const moments = [
+    { id: 't1', date: '2026-08-12', title: 'Broke her arm at the playground', category: 'medical' as const, memberIds: ['mia'], place: 'AKH Kinderklinik' },
+    { id: 't2', date: '2026-08-20', title: 'Cast off', category: 'medical' as const, memberIds: ['ben'] },
+    { id: 't3', date: '2026-06-01', title: 'First swim', category: 'memory' as const, memberIds: ['mia'] },
+    { id: 't4', date: '', title: 'Chickenpox', category: 'medical' as const, memberIds: ['mia'] },
+  ];
+  const result = buildHealthTimeline({ member: m, events: [], members: [m], now: NOW, moments });
+  const rows = [...result.upcoming, ...result.years.flatMap((y) => y.items), ...result.undated];
+  assert.deepEqual(rows.map((r) => r.title).sort(), ['Broke her arm at the playground', 'Chickenpox'],
+    'her own medical moments only — not someone else’s, not a non-medical memory');
+  const arm = rows.find((r) => r.title.startsWith('Broke'))!;
+  assert.equal(arm.kind, 'moment');
+  assert.equal(arm.provider, 'AKH Kinderklinik', 'the place is shown where a provider would be');
+  assert.equal(result.undated.length, 1, 'an undated moment is bucketed, never dropped');
+  assert.equal(result.counts.total, result.counts.upcoming + result.counts.dated + result.counts.undated + result.counts.omitted);
+  assert.equal(result.counts.total, 2);
+
+  const without = buildHealthTimeline({ member: m, events: [], members: [m], now: NOW });
+  assert.equal(without.counts.total, 0, 'callers that pass no moments get the old result');
+}
+
 console.log('healthTimeline.test.ts: all assertions passed');

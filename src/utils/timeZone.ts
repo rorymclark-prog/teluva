@@ -78,7 +78,7 @@ export function listTimeZones(): string[] {
     if (all?.length) return all;
   } catch { /* fall through */ }
   return [
-    'Africa/Johannesburg', 'Europe/Vienna', 'Europe/London', 'Europe/Berlin',
+    'Africa/Johannesburg', 'Europe/Vienna', 'Europe/Bucharest', 'Europe/London', 'Europe/Berlin',
     'America/New_York', 'America/Los_Angeles', 'Asia/Kolkata', 'Australia/Sydney', 'UTC',
   ];
 }

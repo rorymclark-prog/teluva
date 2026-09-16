@@ -148,7 +148,7 @@ Mobile-first. See `design/mockups/profile.html`.
 │          ┌────────┐          │
 │          │ AVATAR │          │  120px circle, 4px sunset ring + 3px surface gap,
 │          └───✨───┘          │  ✨ Restyle badge bottom-right (32px)
-│         Sophie "Soso"        │  30px / 800 / -0.02em, centered
+│          Mia "Mimi"          │  30px / 800 / -0.02em, centered
 │      [Child] [9 years]       │  pills, 12px
 │      born 2016 · O+          │  13px muted
 │     (📞)   (✉)   (📍)        │  48px circular action buttons + 11px labels

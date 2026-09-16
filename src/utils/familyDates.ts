@@ -16,6 +16,7 @@ import { resolveCelebrations, daysUntilCelebration } from './nameCelebrations';
 import { careNextDue, careDueLabel, CareStatus } from './care';
 import { parseDateOnly } from './age';
 import { isMedicalFlaggedEvent, isAnniversaryFlaggedEvent } from './eventKeywordFlags';
+import { eventCoversReferral } from './referralAppointment';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -394,10 +395,21 @@ export function buildCalendarMedicalChecks(
   // be deduped against the care/referral items above — there's no link
   // between a plain calendar event and a structured record for the same
   // real-world appointment.
+  //
+  // One exception (2026-09-13): a calendar event that is plainly the SAME
+  // visit as a booked referral already listed above (same person, same day —
+  // see eventCoversReferral) is skipped, so a scanned letter that now also
+  // books a calendar event doesn't show up here twice. The referral row is
+  // the one kept: it carries the provider and the booked status.
+  const bookedReferrals = members.flatMap((m) =>
+    (m.referrals || [])
+      .filter((r) => r.status === 'booked' && !!r.appointmentDate)
+      .map((r) => ({ r, memberId: m.id })));
   for (const ev of events) {
     if (!isMedicalFlaggedEvent(ev)) continue;
     const evDate = parseDateOnly(ev.date);
     if (!evDate) continue;
+    if (bookedReferrals.some(({ r, memberId }) => eventCoversReferral(ev, r, memberId, members))) continue;
     const daysUntil = Math.round((evDate.getTime() - t0.getTime()) / DAY_MS);
     // Unlike a referral, a plain calendar event carries no "still
     // outstanding" state — once its date is past we have no way to know

@@ -77,12 +77,13 @@ test('cancelling an unknown id is a no-op, not an error', () => {
 // Redeeming — the grant
 // ---------------------------------------------------------------------------
 
-test('redeeming moves the uid onto readerUids and consumes the row', () => {
+test('redeeming names the uid, consumes its row, and leaves other rows alone', () => {
   const access = { readerUids: ['u-old'], pendingReaders: [entry('a'), entry('b')] };
   const r = redeemPendingReader(access, { willReaderId: 'a', uid: 'u-new', role: 'member' });
   assert.equal(r.granted, true);
-  assert.equal(r.reason, 'granted');
-  assert.deepEqual(r.readerUids, ['u-old', 'u-new']);
+  assert.equal(r.reason, 'named');
+  assert.deepEqual(r.namedUids, ['u-new']);
+  assert.deepEqual(r.readerUids, ['u-old'], 'the reader list is never widened by a redemption');
   assert.deepEqual(r.pendingReaders.map((p) => p.id), ['b']);
 });
 
@@ -127,15 +128,59 @@ test('a row inside its window is honoured', () => {
   const access = { readerUids: [], pendingReaders: [entry('a', { expiresAt: '2026-09-01T00:00:00.000Z' })] };
   const r = redeemPendingReader(access, { willReaderId: 'a', uid: 'u-new', role: 'member', now: '2026-08-20T00:00:00.000Z' });
   assert.equal(r.granted, true);
-  assert.deepEqual(r.readerUids, ['u-new']);
+  assert.deepEqual(r.namedUids, ['u-new']);
 });
 
-test('an existing named reader redeeming again is not duplicated', () => {
+/* ── v329: REDEEMING NAMES YOU, IT DOES NOT OPEN THE WILL ────────────────── */
+
+test('redeeming NAMES the person and leaves readerUids alone', () => {
+  const access = { readerUids: [], pendingReaders: [entry('a')] };
+  const r = redeemPendingReader(access, { willReaderId: 'a', uid: 'u-new', role: 'member' });
+  assert.equal(r.granted, true);
+  assert.equal(r.reason, 'named');
+  assert.deepEqual(r.namedUids, ['u-new'], 'they are named');
+  assert.deepEqual(r.readerUids, [], 'accepting an invite must NOT open the will — this is the whole of v329');
+  assert.deepEqual(r.pendingReaders, []);
+});
+
+test('an existing reader is untouched by a redemption', () => {
+  const access = { readerUids: ['u-old'], pendingReaders: [entry('a')] };
+  const r = redeemPendingReader(access, { willReaderId: 'a', uid: 'u-new', role: 'member' });
+  assert.deepEqual(r.readerUids, ['u-old'], 'somebody else reading it is not disturbed, and not joined');
+  assert.deepEqual(r.namedUids, ['u-new']);
+});
+
+test('being named twice does not duplicate', () => {
+  const access = { namedUids: ['u-new'], readerUids: [], pendingReaders: [entry('a')] };
+  const r = redeemPendingReader(access, { willReaderId: 'a', uid: 'u-new', role: 'member' });
+  assert.equal(r.granted, true);
+  assert.equal(r.reason, 'already-named');
+  assert.deepEqual(r.namedUids, ['u-new']);
+  assert.deepEqual(r.pendingReaders, []);
+});
+
+test('NO refusal path may name anybody', () => {
+  for (const [label, args, acc] of [
+    ['cancelled', { willReaderId: 'zz', uid: 'u', role: 'member' }, { pendingReaders: [entry('a')] }],
+    ['child', { willReaderId: 'a', uid: 'u', role: 'child' }, { pendingReaders: [entry('a')] }],
+    ['expired', { willReaderId: 'a', uid: 'u', role: 'member', now: '2026-09-09T00:00:00.000Z' },
+      { pendingReaders: [entry('a', { expiresAt: '2026-08-01T00:00:00.000Z' })] }],
+    ['no invite', { willReaderId: '', uid: 'u', role: 'member' }, { pendingReaders: [] }],
+  ]) {
+    const r = redeemPendingReader(acc, args);
+    assert.equal(r.granted, false, label);
+    assert.deepEqual(r.namedUids, [], `${label}: a refusal named somebody`);
+    assert.deepEqual(r.readerUids, [], `${label}: a refusal opened the will`);
+  }
+});
+
+test('somebody an admin already let read it is not also named', () => {
   const access = { readerUids: ['u-new'], pendingReaders: [entry('a')] };
   const r = redeemPendingReader(access, { willReaderId: 'a', uid: 'u-new', role: 'member' });
   assert.equal(r.granted, true);
   assert.equal(r.reason, 'already-a-reader');
-  assert.deepEqual(r.readerUids, ['u-new']);
+  assert.deepEqual(r.readerUids, ['u-new'], 'not widened');
+  assert.deepEqual(r.namedUids, [], 'naming somebody who already reads it says nothing');
   assert.deepEqual(r.pendingReaders, []);
 });
 
@@ -143,7 +188,8 @@ test('an admin redeeming an estate invite is fine (they can read it regardless)'
   const access = { readerUids: [], pendingReaders: [entry('a')] };
   const r = redeemPendingReader(access, { willReaderId: 'a', uid: 'u-adm', role: 'admin' });
   assert.equal(r.granted, true);
-  assert.deepEqual(r.readerUids, ['u-adm']);
+  assert.deepEqual(r.namedUids, ['u-adm']);
+  assert.deepEqual(r.readerUids, [], 'an admin reads it by rule, not by a list entry');
 });
 
 test('nothing mutates the document it was handed', () => {
@@ -152,5 +198,6 @@ test('nothing mutates the document it was handed', () => {
   addPendingReader(access, entry('b'));
   removePendingReader(access, 'a');
   assert.deepEqual(access.readerUids, ['u-old']);
+  assert.equal(access.namedUids, undefined, 'the handed document grew no new field either');
   assert.deepEqual(access.pendingReaders.map((p) => p.id), ['a']);
 });

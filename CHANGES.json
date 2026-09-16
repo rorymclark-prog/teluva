@@ -1,10 +1,8 @@
 {
-  "label": "v254",
+  "label": "v356",
   "changes": [
-    "Teluva now uses the new white-and-coral wordmark consistently in the main navigation, onboarding and sign-in experience.",
-    "Family tree now has a direct Add a child action, so a parent never has to leave the tree to create the child’s profile.",
-    "New child profiles appear in the tree automatically, then Teluva opens the parent-and-child link with the child already selected.",
-    "Parent relationships are always confirmed by the family rather than guessed when a household has more than one possible parent.",
-    "A ready-to-use private-beta survey is included for consistent feedback alongside WhatsApp conversations."
+    "Admins can now change how someone's dates are hidden without undoing it first. In Settings, under \"Hidden dates\", every hidden person has \"Change who\": pick \"Just for me\", \"Everyone in this family\" or \"Choose who\" and tick exactly who shouldn't see them. The new choice replaces the old one.",
+    "\"Choose people to hide\" now offers \"Choose who\" to admins too, so you can hide several people from chosen accounts at once. A person who is already hidden has \"Change who\" on their card as well, so the card is never a dead end.",
+    "If a change only half saves, the person stays hidden from more people rather than fewer, and the row tells you what's still hidden so you can try again."
   ]
 }

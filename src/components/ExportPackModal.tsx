@@ -25,7 +25,7 @@ interface Props {
   onClose: () => void;
 }
 
-// The screen between "prepare a folder of Sophie's medical records" and that
+// The screen between "prepare a folder of Mia's medical records" and that
 // folder leaving the device.
 //
 // It exists because the assistant chose what goes in. The model can only pick

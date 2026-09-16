@@ -21,10 +21,31 @@ assert.ok(start > 0, 'sanitizeReadDoc not found in server.js');
 const rest = SRC.slice(start);
 const fnSrc = rest.slice(0, rest.indexOf('\n}\n') + 3);
 
-const FEATURE_INSURANCE_READER = false;
+/* The two scope flags the evaluated source closes over.
+ *
+ * Declared as `let` and driven by the helper below rather than fixed, because
+ * a suite that only ever exercises the CLOSED posture is testing a
+ * configuration production does not run: both of these are "1" in
+ * run-service.yaml. The gate has to be proven in both states — closed, so the
+ * refusal is real, and open, so the flag is genuinely the thing deciding and
+ * not a category check that denies regardless. */
+let FEATURE_INSURANCE_READER = false;
+let FEATURE_MEDICAL_READER = false;
 // eslint-disable-next-line no-eval
 const sanitizeReadDoc = eval(`(${fnSrc.replace('function sanitizeReadDoc', 'function')})`);
-void isEligible; void FEATURE_INSURANCE_READER;   // closed over by the evaluated source
+void isEligible; void FEATURE_INSURANCE_READER; void FEATURE_MEDICAL_READER;   // closed over by the evaluated source
+
+/** Run `fn` with the reader flags set, then put them back however it exits. */
+function withFlags({ insurance = false, medical = false }, fn) {
+  const prevI = FEATURE_INSURANCE_READER;
+  const prevM = FEATURE_MEDICAL_READER;
+  FEATURE_INSURANCE_READER = insurance;
+  FEATURE_MEDICAL_READER = medical;
+  try { return fn(); } finally {
+    FEATURE_INSURANCE_READER = prevI;
+    FEATURE_MEDICAL_READER = prevM;
+  }
+}
 
 const LEASE = { id: '1785493248830419', name: 'Home Lease Agreement - Treustraße 54', category: 'Legal' };
 const DOCS = [LEASE, { id: '1781850807102478', name: 'Rory Clark - Rosuvastatin HCS Medication', category: 'Medical' }];
@@ -81,8 +102,30 @@ test('a document the client never sent is still refused', () => {
 });
 
 test('the medical and business gates are not bypassed by the name fallback', () => {
-  assert.equal(ask({ id: 'wrong', name: 'Rory Clark - Rosuvastatin HCS Medication', question: 'q' }), null);
-  assert.equal(ask({ id: LEASE.id, name: LEASE.name, question: 'q' }, DOCS, 'business'), null);
+  withFlags({ medical: false }, () => {
+    assert.equal(ask({ id: 'wrong', name: 'Rory Clark - Rosuvastatin HCS Medication', question: 'q' }), null);
+  });
+  // Business is not a flag and never opens — it is checked before anything
+  // else and holds whatever the two reader flags are set to.
+  withFlags({ insurance: true, medical: true }, () => {
+    assert.equal(ask({ id: LEASE.id, name: LEASE.name, question: 'q' }, DOCS, 'business'), null);
+  });
+});
+
+test('the medical gate follows FEATURE_MEDICAL_READER in BOTH directions', () => {
+  const med = DOCS[1];
+  // Closed: the refusal above is real.
+  withFlags({ medical: false }, () => {
+    assert.equal(ask({ id: med.id, name: med.name, question: 'q' }), null, 'flag off denies');
+  });
+  /* Open — and this is the assertion that matters, because it is the
+   * configuration production actually runs (FEATURE_MEDICAL_READER=1 in
+   * run-service.yaml). Without it the suite would pass identically against a
+   * server that denied every medical document no matter what the flag said,
+   * and the feature would have been "shipped" while being off. */
+  withFlags({ medical: true }, () => {
+    assert.equal(ask({ id: med.id, name: med.name, question: 'q' })?.id, med.id, 'flag on admits');
+  });
 });
 
 test('a question is carried through whole, not truncated to a keyword', () => {
