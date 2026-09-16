@@ -1,6 +1,7 @@
 import {
   CalendarEvent, FamilyMember, HealthcareProvider, VaultDocument,
 } from '../types';
+import { educationDocumentLinks } from './education';
 import { memberAppointments } from './memberAppointments';
 
 // Building a folder of whatever the user just asked for.
@@ -474,6 +475,13 @@ export function buildPack(request: PackRequest, data: PackData): Pack {
       bump('identity', passports.length + visas.length);
     }
 
+    if (has('contact') && member.addressHistory?.length) {
+      section('Previous addresses', tableBlock(
+        ['Name', 'Address', 'Moved in', 'Moved out', 'Notes'],
+        member.addressHistory.map(a => [a.label || '', a.address, a.startDate || '', a.endDate || '', a.notes || '']),
+      ));
+    }
+
     if (has('education')) {
       const ed = member.education;
       section('Education', factsBlock([
@@ -484,7 +492,23 @@ export function buildPack(request: PackRequest, data: PackData): Pack {
         ['Room', ed?.roomNumber],
         ['Schedule notes', ed?.scheduleNotes],
       ]));
-      bump('education', ed?.schoolName ? 1 : 0);
+      for (const year of ed?.schoolYears || []) {
+        section(`School year ${year.label}`, factsBlock([
+          ['School', year.schoolName], ['Class / grade', year.grade], ['Teacher', year.teacherName],
+          ['Teacher contact', year.teacherContact], ['Room', year.roomNumber],
+          ['Schedule', year.scheduleNotes], ['Other teachers / staff', year.staffNotes], ['Notes', year.notes],
+        ]));
+        for (const report of year.reports || []) {
+          section(`${year.label} — ${report.title}`, factsBlock([
+            ['Type', report.kind || 'Report'], ['Term', report.term], ['Date', report.date], ['Results', report.results], ['Notes', report.notes],
+          ]));
+        }
+      }
+      section('Qualifications and courses', tableBlock(
+        ['Qualification', 'Institution / issuer', 'Completed', 'Expires', 'Notes'],
+        (ed?.qualifications || []).map(q => [q.name, q.issuer || '', q.issueDate || '', q.expiryDate || '', q.notes || '']),
+      ));
+      bump('education', (ed?.schoolName ? 1 : 0) + (ed?.schoolYears?.length || 0) + (ed?.qualifications?.length || 0));
     }
 
     if (has('travel')) {
@@ -514,7 +538,9 @@ export function buildPack(request: PackRequest, data: PackData): Pack {
     const memberDocCats = new Set(
       topics.flatMap((t) => TOPIC_MEMBER_DOC_CATEGORIES[t] || []),
     );
-    const personalDocs = (member.documents || []).filter((d) => memberDocCats.has(d.category));
+    const educationLinks = has('education') ? educationDocumentLinks(member.education) : [];
+    const personalDocs = (member.documents || []).filter((d) => memberDocCats.has(d.category)
+      || educationLinks.some(l => l.source === 'member' && l.documentId === d.id));
     personalDocs.forEach((d) => {
       if (d.fileData) {
         addFile({
@@ -530,8 +556,11 @@ export function buildPack(request: PackRequest, data: PackData): Pack {
 
     const vaultCats = new Set(topics.flatMap((t) => TOPIC_VAULT_CATEGORIES[t] || []));
     const theirVaultDocs = vaultDocuments.filter(
-      (d) => d.memberId === member.id && vaultCats.has(d.category),
+      (d) => (d.memberId === member.id && vaultCats.has(d.category))
+        || ((!d.memberId || d.memberId === member.id) && educationLinks.some(l => l.source === 'vault' && l.documentId === d.id)),
     );
+    recordsWithoutFiles += educationLinks.filter(l => l.source === 'member'
+      ? !personalDocs.some(d => d.id === l.documentId) : !theirVaultDocs.some(d => d.id === l.documentId)).length;
     theirVaultDocs.forEach((d) => {
       if (d.downloadUrl) {
         addFile({

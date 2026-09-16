@@ -1,353 +1,135 @@
-import React, { useState, useEffect } from 'react';
-import { FamilyTimeline, TimelineEntry } from '../types';
-import { loadTimeline, saveTimeline } from '../utils/db';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarHeart, Plus, Search, SlidersHorizontal, HeartPulse, GraduationCap, MapPin, TrendingUp, Plane, CalendarDays } from 'lucide-react';
+import type { CalendarEvent, FamilyMember, FamilyTimeline, TimelineEntry, TravelTimelineDoc, VaultDocument } from '../types';
+import { loadTimeline, saveTimeline, loadTravelTimeline, loadDocuments } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
-import {
-  CalendarHeart, Plus, Pencil, Check, X,
-  Cloud, CloudOff
-} from 'lucide-react';
-import ConfirmDeleteButton from './ConfirmDeleteButton';
-import EmptyState from './EmptyState';
+import { buildFamilyTimeline, filterFamilyTimeline, TIMELINE_CATEGORIES, TIMELINE_LABELS, type FamilyTimelineItem, type TimelineCategory } from '../utils/familyTimeline';
+import VisualTimeline from './VisualTimeline';
 
-const EMPTY: FamilyTimeline = { entries: [] };
-
-function newId() {
-  return Date.now().toString() + Math.floor(Math.random() * 1000);
-}
-
-const TIMELINE_TYPES = ['Birth', 'Wedding', 'Graduation', 'Milestone', 'Memory', 'Other'] as const;
-
-const TYPE_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  Birth: { bg: 'bg-rosa-50', text: 'text-rosa-700', dot: 'bg-rosa-500' },
-  Wedding: { bg: 'bg-dusk-50', text: 'text-dusk-700', dot: 'bg-dusk-500' },
-  Graduation: { bg: 'bg-sage-100', text: 'text-sage-700', dot: 'bg-sage-500' },
-  Milestone: { bg: 'bg-honey-50', text: 'text-honey-900', dot: 'bg-honey-500' },
-  Memory: { bg: 'bg-cream-100', text: 'text-ink-700', dot: 'bg-ink-500' },
-  Other: { bg: 'bg-clay-50', text: 'text-clay-700', dot: 'bg-clay-500' },
+const ICONS = { memories: CalendarHeart, medical: HeartPulse, education: GraduationCap, addresses: MapPin, growth: TrendingUp, travel: Plane, calendar: CalendarDays };
+const STYLES: Record<TimelineCategory, string> = {
+  memories: 'bg-clay-100 text-clay-700', medical: 'bg-rosa-100 text-rosa-700', education: 'bg-sage-100 text-sage-700',
+  addresses: 'bg-honey-100 text-honey-900', growth: 'bg-sage-100 text-sage-700', travel: 'bg-dusk-100 text-dusk-700', calendar: 'bg-cream-200 text-ink-700',
 };
+const TYPES = ['Birth', 'Wedding', 'Graduation', 'Milestone', 'Memory', 'Other'];
 
-export default function TimelineView({ openAddSignal = 0, emberMode = false }: { openAddSignal?: number; emberMode?: boolean }) {
-  const [timeline, setTimeline] = useState<FamilyTimeline>(EMPTY);
-  const [loaded, setLoaded] = useState(false);
+
+export default function TimelineView({ members = [], events = [], openAddSignal = 0, emberMode = false, canEdit = false, demo = false, spaceId = '', onOpenRecord }: {
+  key?: number; members?: FamilyMember[]; events?: CalendarEvent[]; openAddSignal?: number; emberMode?: boolean;
+  canEdit?: boolean; demo?: boolean; spaceId?: string; onOpenRecord?: (target: NonNullable<FamilyTimelineItem['target']>) => void;
+}) {
+  const [timeline, setTimeline] = useState<FamilyTimeline>({ entries: [] });
+  const [travel, setTravel] = useState<TravelTimelineDoc>({ entries: [] });
+  const [vault, setVault] = useState<VaultDocument[]>([]);
+  const [loaded, setLoaded] = useState(demo);
+  const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
-  const [localAddSignal, setLocalAddSignal] = useState(0);
-
+  const [editor, setEditor] = useState<TimelineEntry | 'new' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [memberId, setMemberId] = useState('');
+  const [search, setSearch] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const preferencesKey = `teluva-timeline-categories:${demo ? 'demo' : spaceId}`;
+  const [categories, setCategories] = useState<TimelineCategory[]>(() => {
+    try { const saved = JSON.parse(localStorage.getItem(preferencesKey) || 'null');
+      if (Array.isArray(saved)) return saved.filter(c => TIMELINE_CATEGORIES.includes(c));
+    } catch { /* Use all categories if saved preferences are unavailable. */ }
+    return [...TIMELINE_CATEGORIES];
+  });
+  const current = useRef(timeline); current.current = timeline;
   useEffect(() => {
+    if (demo) return;
     let active = true;
-    (async () => {
-      const data = await loadTimeline();
-      if (active) {
-        setTimeline(data && data.entries ? { entries: data.entries } : EMPTY);
-        setLoaded(true);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
-
-  // Live updates from other family members. Applied silently: the add/edit
-  // forms live in the child rows below and keep their own draft state, so a
-  // list refresh never disturbs what someone is typing.
-  useSharedDoc<FamilyTimeline>('timeline', (v) => setTimeline({ entries: v.entries || [] }));
-
-  const persist = async (next: FamilyTimeline) => {
-    setTimeline(next);
-    const ok = await saveTimeline(next);
-    setCloudSynced(ok);
-  };
-
-  if (!loaded) {
-    return (
-      <div className="card flex items-center justify-center py-24">
-        <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-clay-500" />
-      </div>
-    );
-  }
-
-  const storyEntries = [...timeline.entries].sort((a, b) => b.date.localeCompare(a.date));
-  const latestYear = storyEntries[0]?.date.slice(0, 4) || String(new Date().getFullYear());
-  const chapterEntries = storyEntries.filter(entry => entry.date.startsWith(latestYear));
-  const featured = chapterEntries[0];
-
-  return (
-    <div className="space-y-6 font-sans">
-      {!emberMode && <div className="card p-5 sm:p-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-2xl bg-clay-100 text-clay-700 shrink-0">
-            <CalendarHeart className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="font-display text-2xl font-semibold text-ink-900">Family timeline</h2>
-            <p className="text-[13px] text-ink-500 font-medium">
-              Births, weddings, graduations, milestones and memories.
-            </p>
-          </div>
-        </div>
-      </div>}
-
-      {emberMode && (
-        <>
-          <section className="ember-story-stage">
-            <div className="ember-story-year">
-              <span>Our year</span>
-              <strong>{latestYear}</strong>
-              <p>{chapterEntries.length ? `${chapterEntries.length} ${chapterEntries.length === 1 ? 'moment' : 'moments'} kept by the family` : 'A chapter waiting for its first moment'}</p>
-            </div>
-            <div className="ember-story-feature">
-              <span className="pulse-eyebrow">{featured ? `${featured.type || 'Memory'} · latest chapter` : 'Your first chapter'}</span>
-              <h2>{featured?.title || 'What should this year remember?'}</h2>
-              <p>{featured?.note || 'Keep the small story while the words are still close.'}</p>
-              <button type="button" onClick={() => setLocalAddSignal(signal => signal + 1)} className="btn-primary">
-                <Plus className="h-4 w-4" /> Add to this chapter
-              </button>
-            </div>
-            <div className="ember-story-orbit" aria-hidden="true"><i /><i /><i /></div>
-          </section>
-          {chapterEntries.length > 0 && (
-            <div className="ember-story-strip" aria-label={`${latestYear} chapter highlights`}>
-              {chapterEntries.slice(0, 4).map(entry => (
-                <article key={entry.id}>
-                  <span>{new Date(`${entry.date}T12:00:00`).toLocaleDateString('en-GB', { month: 'short' })}</span>
-                  <b>{entry.title}</b>
-                  <small>{entry.type || 'Memory'}</small>
-                </article>
-              ))}
-            </div>
-          )}
-          <section className="ember-story-prompt">
-            <div><span className="pulse-eyebrow">A small prompt for everyone</span><b>What did this year feel like?</b></div>
-            <button type="button" onClick={() => setLocalAddSignal(signal => signal + 1)}>Keep the answer <Plus className="h-4 w-4" /></button>
-          </section>
-        </>
-      )}
-
-      <div className="card p-5 sm:p-6 space-y-6">
-        <TimelineSection
-          entries={timeline.entries}
-          openAddSignal={openAddSignal + localAddSignal}
-          emberMode={emberMode}
-          onAdd={(e) => persist({ entries: [...timeline.entries, e] })}
-          onUpdate={(e) => persist({ entries: timeline.entries.map(en => en.id === e.id ? e : en) })}
-          onDelete={(id) => persist({ entries: timeline.entries.filter(en => en.id !== id) })}
-        />
-      </div>
-
-      <div className="text-center">
-        <div className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white rounded-full border border-cream-300/70 shadow-soft text-[12px] font-semibold text-ink-500">
-          {cloudSynced === false ? (
-            <><CloudOff className="w-3.5 h-3.5 text-honey-700" /><span>Saved on this device — cloud sync unavailable</span></>
-          ) : (
-            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your family{cloudSynced ? ' · synced' : ''}</span></>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* --- Timeline Section --- */
-
-function TimelineSection({ entries, openAddSignal = 0, emberMode = false, onAdd, onUpdate, onDelete }: {
-  entries: TimelineEntry[];
-  openAddSignal?: number;
-  emberMode?: boolean;
-  onAdd: (e: TimelineEntry) => void;
-  onUpdate: (e: TimelineEntry) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [adding, setAdding] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!openAddSignal) return;
-    setAdding(true);
-    setEditId(null);
-  }, [openAddSignal]);
-
-  const sorted = [...entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-  return (
-    <>
-      <div className="flex items-center justify-between pb-4 border-b border-cream-200">
-        <h3 className="section-label">Moments</h3>
-        <button
-          onClick={() => { setAdding(true); setEditId(null); }}
-          className="btn-primary text-xs px-3 py-1.5"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add moment
-        </button>
-      </div>
-
-      {adding && (
-        <div className="mb-6">
-          <TimelineForm
-            onSave={(e) => { onAdd(e); setAdding(false); }}
-            onCancel={() => setAdding(false)}
-          />
-        </div>
-      )}
-
-      {sorted.length === 0 && !adding ? (
-        <EmptyState
-          icon={CalendarHeart}
-          title="No moments yet"
-          description="Add births, anniversaries, graduations, and memories to build your family story."
-        />
-      ) : (
-        <div className="relative space-y-4 pt-2">
-          {sorted.map((entry, idx) => (
-            <div key={entry.id} className="relative">
-              {emberMode && (idx === 0 || sorted[idx - 1].date.slice(0, 4) !== entry.date.slice(0, 4)) && (
-                <div className="ember-story-chapter">
-                  <span>{entry.date.slice(0, 4) || 'Undated'}</span>
-                  <i>{sorted.filter(item => item.date.slice(0, 4) === entry.date.slice(0, 4)).length} moments</i>
-                </div>
-              )}
-              {/* Vertical line connecting dots */}
-              {idx < sorted.length - 1 && (
-                <div className="absolute left-[11px] top-12 w-0.5 h-12 bg-cream-300" />
-              )}
-
-              {editId === entry.id ? (
-                <TimelineForm
-                  initial={entry}
-                  onSave={(upd) => { onUpdate(upd); setEditId(null); }}
-                  onCancel={() => setEditId(null)}
-                />
-              ) : (
-                <div className="flex gap-4">
-                  {/* Timeline dot and line */}
-                  <div className="flex flex-col items-center pt-1 shrink-0">
-                    <div className={`w-6 h-6 rounded-full border-2 border-white shadow-soft ${(TYPE_COLORS[entry.type || 'Other'] ?? TYPE_COLORS.Other).dot}`} />
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 pb-2 pt-1">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className="font-mono tabular-nums text-[12px] font-semibold text-ink-500">
-                            {new Date(entry.date).toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric',
-                            })}
-                          </span>
-                          {entry.type && (
-                            <span className={`chip ${(TYPE_COLORS[entry.type] ?? TYPE_COLORS.Other).bg} ${(TYPE_COLORS[entry.type] ?? TYPE_COLORS.Other).text}`}>
-                              {entry.type}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[15px] font-display font-semibold text-ink-900 mb-1">
-                          {entry.title}
-                        </p>
-                        {entry.note && (
-                          <p className="text-[13px] text-ink-600 leading-relaxed">
-                            {entry.note}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => { setEditId(entry.id); setAdding(false); }}
-                          className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg"
-                          title="Edit"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <ConfirmDeleteButton
-                          onConfirm={() => onDelete(entry.id)}
-                          ariaLabel={`Delete "${entry.title || 'this'}" from the timeline`}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
-/* --- Timeline Form --- */
-
-function TimelineForm({ initial, onSave, onCancel }: {
-  initial?: TimelineEntry;
-  onSave: (e: TimelineEntry) => void;
-  onCancel: () => void;
-}) {
-  const [date, setDate] = useState(initial?.date || '');
-  const [title, setTitle] = useState(initial?.title || '');
-  const [type, setType] = useState(initial?.type || 'Memory');
-  const [note, setNote] = useState(initial?.note || '');
-
-  const save = () => {
-    if (!date.trim() || !title.trim()) { onCancel(); return; }
-    onSave({
-      id: initial?.id || newId(),
-      date: date.trim(),
-      title: title.trim(),
-      type: type || undefined,
-      note: note.trim() || undefined,
+    Promise.allSettled([loadTimeline(), loadTravelTimeline(), loadDocuments()]).then(([story, trips, documents]) => {
+      if (!active) return;
+      if (story.status === 'fulfilled') { setTimeline(story.value || { entries: [] }); setLoaded(true); }
+      else setLoadError('Saved memories could not be loaded. Reload to try again.');
+      if (documents.status === 'fulfilled') setVault(documents.value || []);
+      else setLoadError(old => `${old} Linked vault previews could not be loaded.`.trim());
+      if (trips.status === 'fulfilled') setTravel(trips.value || { entries: [] });
+      else setLoadError(old => `${old} Travel history could not be loaded.`.trim());
     });
-  };
+    return () => { active = false; };
+  }, [demo]);
+  useSharedDoc<FamilyTimeline>('timeline', value => { setTimeline(value); setLoaded(true); }, { disabled: demo, hold: !!editor || busy });
+  useSharedDoc<{ docs: VaultDocument[] }>('documents', value => setVault(value.docs || []), { disabled: demo });
+  useSharedDoc<TravelTimelineDoc>('travelTimeline', setTravel, { disabled: demo });
+  useEffect(() => { if (openAddSignal && canEdit) setEditor('new'); }, [openAddSignal, canEdit]);
+  useEffect(() => { try { localStorage.setItem(preferencesKey, JSON.stringify(categories)); } catch { /* Device preference only. */ } }, [categories, preferencesKey]);
 
-  return (
-    <div className="p-3.5 rounded-2xl border border-clay-200 bg-clay-50/60 space-y-2.5">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        <div>
-          <label className="field-label">Date</label>
-          <input
-            autoFocus
-            type="date"
-            className="field"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="field-label">Type</label>
-          <select
-            className="field"
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-          >
-            {TIMELINE_TYPES.map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-        </div>
+  const all = useMemo(() => buildFamilyTimeline({ members, events, memories: timeline.entries, travel: travel.entries, vault }), [members, events, timeline, travel, vault]);
+  const visible = filterFamilyTimeline(all, { categories, memberId, search, oldestFirst: true });
+  const matching = filterFamilyTimeline(all, { categories: [...TIMELINE_CATEGORIES], memberId, search });
+  const personName = (id: string) => members.find(m => m.id === id)?.name || 'Family member';
+  const persist = async (entries: TimelineEntry[]) => {
+    if (!canEdit || !loaded) return;
+    const next = { ...current.current, entries };
+    setSaveError(''); setBusy(true);
+    try {
+      const ok = demo || await saveTimeline(next);
+      setTimeline(next); setCloudSynced(ok); setEditor(null);
+    } catch { setSaveError('Could not save this moment. Please try again.'); }
+    finally { setBusy(false); }
+  };
+  const reset = () => { setCategories([...TIMELINE_CATEGORIES]); setMemberId(''); setSearch(''); };
+
+  const filterControls = <>
+      <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Timeline categories">
+        {TIMELINE_CATEGORIES.map(category => {
+          const Icon = ICONS[category]; const enabled = categories.includes(category);
+          return <button key={category} type="button" aria-pressed={enabled} onClick={() => setCategories(old => enabled ? old.filter(c => c !== category) : [...old, category])}
+            className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors ${enabled ? `${STYLES[category]} border-transparent` : 'border-cream-300 text-ink-400 bg-cream-50'}`}>
+            <Icon className="w-4 h-4" />{TIMELINE_LABELS[category]}<span className="tabular-nums">{matching.filter(i => i.category === category).length}</span>
+          </button>;
+        })}
       </div>
-      <div>
-        <label className="field-label">Title</label>
-        <input
-          className="field"
-          placeholder="e.g. Mia's graduation"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+        <label><span className="field-label">Person</span><select className="field" value={memberId} onChange={e => setMemberId(e.target.value)}><option value="">Whole family</option>{members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+        <label><span className="field-label">Search timeline</span><div className="relative"><Search className="w-4 h-4 absolute left-3 top-3 text-ink-400" /><input className="field pl-9" value={search} onChange={e => setSearch(e.target.value)} placeholder="School, home, appointment…" /></div></label>
+
       </div>
-      <div>
-        <label className="field-label">Note (optional)</label>
-        <textarea
-          className="field resize-none"
-          placeholder="Add any details, memories, or context…"
-          rows={3}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
+      <div className="flex justify-between items-center gap-2 mt-4"><p className="text-xs text-ink-500" aria-live="polite">{visible.length} {visible.length === 1 ? 'record' : 'records'} across your history{memberId ? ` for ${personName(memberId)}` : ''}</p><button type="button" className="btn-quiet text-xs" onClick={reset}>Reset filters</button></div>
+  </>;
+
+  return <div className="space-y-5 font-sans">
+    <section className="card p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div><h2 className="font-display text-xl font-semibold text-ink-900">{emberMode ? 'Choose your chapters' : 'Family timeline'}</h2>
+          <p className="text-xs text-ink-500 mt-1">{visible.length} moments across your history · {categories.length} categories shown</p></div>
+        <div className="flex items-center gap-2"><button type="button" className="btn-quiet text-sm" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}><SlidersHorizontal className="w-4 h-4" />Filters</button>{canEdit && loaded && !editor && <button type="button" onClick={() => setEditor('new')} className="btn-primary text-sm"><Plus className="w-4 h-4" /> Add moment</button>}</div>
       </div>
-      <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="btn-quiet text-xs px-3 py-1.5">
-          <X className="w-3.5 h-3.5" /> Cancel
-        </button>
-        <button onClick={save} className="btn-primary text-xs px-3 py-1.5">
-          <Check className="w-3.5 h-3.5" /> Save
-        </button>
-      </div>
-    </div>
-  );
+      {filtersOpen && filterControls}
+    </section>
+    {loadError && <p role="alert" className="text-sm text-rosa-700">{loadError}</p>}
+    {!loaded && !loadError && <p role="status" className="text-sm text-ink-500">Loading saved memories…</p>}
+    {cloudSynced === false && <p role="status" className="text-sm text-honey-900">Saved on this device — cloud sync unavailable.</p>}
+    {saveError && <p role="alert" className="text-sm text-rosa-700">{saveError}</p>}
+    {editor && canEdit && loaded && <MomentForm key={editor === 'new' ? 'new' : editor.id} initial={editor === 'new' ? undefined : editor} members={members} busy={busy}
+      onCancel={() => setEditor(null)} onSave={entry => persist(current.current.entries.some(e => e.id === entry.id)
+        ? current.current.entries.map(e => e.id === entry.id ? entry : e) : [...current.current.entries, entry])} />}
+    {!visible.length && <div className="card p-8 text-center"><CalendarHeart className="w-8 h-8 text-clay-500 mx-auto mb-3" /><h3 className="font-semibold text-ink-900">{all.length ? 'No records match these filters' : 'Your story starts here'}</h3><p className="text-sm text-ink-500 mt-2">{all.length ? 'Turn a category back on, choose another person or reset your filters.' : 'Add a memory or save education, address and health records on a profile.'}</p></div>}
+    {!!all.length && <VisualTimeline filters={filterControls} items={visible} members={members} onOpenRecord={onOpenRecord} busy={busy}
+      onEdit={canEdit && loaded && !editor ? setEditor : undefined}
+      onDelete={canEdit && loaded && !editor ? entry => persist(current.current.entries.filter(e => e.id !== entry.id)) : undefined} />}
+  </div>;
+}
+
+function MomentForm({ initial, members, onSave, onCancel, busy }: {
+  key?: string; initial?: TimelineEntry; members: FamilyMember[]; onSave: (entry: TimelineEntry) => Promise<void>; onCancel: () => void; busy: boolean;
+}) {
+  const [draft, setDraft] = useState<TimelineEntry>(initial || { id: crypto.randomUUID(), date: '', title: '', type: 'Memory', memberIds: [] });
+  const [error, setError] = useState('');
+  return <form className="card p-5 space-y-4" onSubmit={e => { e.preventDefault(); if (!draft.title.trim()) { setError('Please add a title.'); return; } void onSave({ ...draft, title: draft.title.trim() }); }}>
+    <h3 className="font-semibold text-ink-900">{initial ? 'Edit moment' : 'Add a family moment'}</h3>
+    <fieldset disabled={busy} className="space-y-3 min-w-0">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><label><span className="field-label">Date *</span><input type="date" required className="field" value={draft.date} onChange={e => setDraft({ ...draft, date: e.target.value })} /></label>
+        <label><span className="field-label">Type</span><select className="field" value={draft.type || 'Memory'} onChange={e => setDraft({ ...draft, type: e.target.value })}>{[...new Set([...TYPES, draft.type || 'Memory'])].map(t => <option key={t}>{t}</option>)}</select></label></div>
+      <label className="block"><span className="field-label">Title *</span><input required className="field" maxLength={300} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} /></label>
+      <label className="block"><span className="field-label">Notes</span><textarea className="field" rows={3} maxLength={10000} value={draft.note || ''} onChange={e => setDraft({ ...draft, note: e.target.value })} /></label>
+      <fieldset><legend className="field-label">People (optional)</legend><div className="flex flex-wrap gap-3">{members.map(m => <label key={m.id} className="flex items-center gap-2 text-sm text-ink-700"><input type="checkbox" checked={(draft.memberIds || []).includes(m.id)} onChange={e => setDraft({ ...draft, memberIds: e.target.checked ? [...(draft.memberIds || []), m.id] : draft.memberIds?.filter(id => id !== m.id) })} />{m.name}</label>)}</div></fieldset>
+      {error && <p role="alert" className="text-sm text-rosa-700">{error}</p>}
+      <div className="flex justify-end gap-2"><button type="button" className="btn-quiet text-sm" onClick={onCancel}>Cancel</button><button className="btn-primary text-sm" type="submit">{busy ? 'Saving…' : 'Save moment'}</button></div>
+    </fieldset>
+  </form>;
 }

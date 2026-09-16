@@ -75,7 +75,16 @@ export const DEMO_MEMBERS: FamilyMember[] = [
     favorites: [
       { id: 'demo-fav-2', title: 'Drawing set', category: 'Toy', imageUrl: '', addedAt: iso(-20), isWishlist: true, targetPrice: '€19.90' },
     ],
-    education: { schoolName: 'Volksschule am Park', grade: '1a', teacherName: 'Fr. Berger' },
+    education: {
+      schoolName: 'Volksschule am Park', grade: '1a', teacherName: 'Fr. Berger', currentYearId: 'demo-school-year',
+      schoolYears: [{ id: 'demo-school-year', label: '2026–27', schoolName: 'Volksschule am Park', grade: '1a', teacherName: 'Fr. Berger',
+        staffNotes: 'Music: Frau Fischer', reports: [
+          { id: 'demo-school-start', kind: 'Memory', title: 'First week at school', date: '2026-09-11', notes: 'Found the library and made a new friend.' },
+          { id: 'demo-school-project', kind: 'Project', title: 'My family tree', notes: 'A drawing of everyone in our family.' },
+        ] }],
+      qualifications: [{ id: 'demo-swimming', name: 'Swimming badge', issuer: 'Local swimming club', issueDate: '2026-07-12' }],
+    },
+    addressHistory: [{ id: 'demo-previous-home', label: 'Our first family flat', address: '12 Example Street\nVienna', startDate: '2020-03-01', endDate: '2023-08-31' }],
     // Dental check-up due in ~3 weeks → "due-soon" care nudge + Overview banner.
     careSchedule: [
       { id: 'demo-care-mia-1', kind: 'Dental check-up', provider: 'Dr. Müller (Zahnarzt)', lastVisit: iso(-160), intervalMonths: 6 },
