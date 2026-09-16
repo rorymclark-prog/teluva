@@ -38,3 +38,9 @@ photoMember.education!.schoolYears![0].reports![0].documents = [{ id: 'vault:pic
 const vaultPhoto = { ...photoMember.documents[0], category: 'Education' as const, storagePath: '', memberId: 'someone-else', downloadUrl: 'https://example.test/private.jpg' };
 assert.equal(buildFamilyTimeline({ members: [photoMember], vault: [vaultPhoto] }).find(i => i.id === 'report:photo-owner:report')?.imageUrl, undefined, 'a wrong-owner vault attachment must not be exposed in a timeline preview');
 assert.equal(buildFamilyTimeline({ members: [photoMember], vault: [{ ...vaultPhoto, memberId: photoMember.id }] }).find(i => i.id === 'report:photo-owner:report')?.imageUrl, vaultPhoto.downloadUrl);
+
+photoMember.education!.qualifications = [{id:'cert',name:'Certificate',documents:[{id:'member:picture',source:'member',documentId:'picture'}, {id:'vault:picture',source:'vault',documentId:'picture'}]}];
+const certificate = buildFamilyTimeline({members:[photoMember],vault:[vaultPhoto]}).find(i => i.id === 'qualification:photo-owner:cert');
+assert.deepEqual(certificate?.documents?.map(d => d.fileData), [photoMember.documents[0].fileData], 'qualification carries its certificate, excluding a wrong-owner linked file');
+photoMember.education!.qualifications[0].documents = [{id:'missing',source:'member',documentId:'deleted'}];
+assert.deepEqual(buildFamilyTimeline({members:[photoMember]}).find(i => i.id === 'qualification:photo-owner:cert')?.documents, [], 'deleted attachment is not replaced by another certificate');

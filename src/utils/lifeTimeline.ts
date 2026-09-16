@@ -39,6 +39,7 @@ import {
   BusinessMilestoneEntry,
   CalendarEvent,
   FamilyMember,
+  FamilyDocument,
   LifeCategory,
   TimelineEntry,
   TimelinePhoto,
@@ -93,6 +94,7 @@ export interface LifeTimelineItem {
   healthKind?: HealthTimelineKind;
   /** The file behind a referral or document row, for "open". */
   fileUrl?: string;
+  documents?: FamilyDocument[];
   /** Only `entry` rows are edited here; everything else is edited where it lives. */
   editable: boolean;
   profileTab?: string;
@@ -503,7 +505,7 @@ export function buildLifeTimeline(input: LifeTimelineInput): LifeTimelineResult 
         category: item.category === 'education' ? 'school' : item.category === 'addresses' ? 'home' : 'medical',
         date: item.date.length === 4 ? `${item.date}-01-01` : item.date, endDate: item.endDate,
         precision: item.date.length === 4 ? 'year' : 'day', title: item.title, detail: item.sourceLabel,
-        note: item.note, memberIds: item.memberIds, editable: false, profileTab: item.target?.tab, imageUrl: item.imageUrl });
+        note: item.note, memberIds: item.memberIds, editable: false, profileTab: item.target?.tab, imageUrl: item.imageUrl, documents: item.documents });
     }
   }
 
@@ -640,4 +642,17 @@ export function lifeDateLabel(item: Pick<LifeTimelineItem, 'date' | 'endDate' | 
   if (end.getFullYear() !== y) return `${start} ${y} – ${end.getDate()} ${MONTH_SHORT[end.getMonth()]} ${end.getFullYear()}`;
   if (end.getMonth() === d.getMonth()) return `${d.getDate()}–${end.getDate()} ${MONTH_SHORT[d.getMonth()]} ${y}`;
   return `${start} – ${end.getDate()} ${MONTH_SHORT[end.getMonth()]} ${y}`;
+}
+
+/** Resolve only files from the accessible input records; keep all attachments. */
+export function lifeTimelineDocuments(item: LifeTimelineItem, members: readonly FamilyMember[], vault: readonly VaultDocument[]): FamilyDocument[] {
+  const attached: FamilyDocument[] = [...(item.documents || [])];
+  for (const d of vault) if (item.docIds?.includes(d.id) || (item.fileUrl && d.downloadUrl === item.fileUrl)) {
+    attached.push({ ...d, category: d.category === 'Education' ? 'Education' : d.category === 'Medical' ? 'Health' : 'Other', fileData: d.downloadUrl });
+  }
+  if (item.fileUrl) for (const member of members) {
+    const doc = member.documents?.find(d => d.fileData === item.fileUrl);
+    if (doc) attached.push(doc);
+  }
+  return attached.filter((d, i) => !!d.fileData && d.fileData !== 'PLACEHOLDER' && attached.findIndex(other => other.fileData === d.fileData) === i);
 }

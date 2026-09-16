@@ -400,3 +400,12 @@ assert.ok(!allItems(buildLifeTimeline({ ...learningInput, isBusinessSpace: true 
  assert.equal(allItems(buildLifeTimeline(input))[0].fileUrl,document.fileData,'imported event opens its original profile document');
  assert.equal(allItems(buildLifeTimeline({...input,members:[]}))[0].fileUrl,undefined,'inaccessible or deleted profile files never expose stale URLs');
 }
+
+// Linked education certificates survive both timeline projections, with all files and no duplicate copies.
+const { lifeTimelineDocuments } = await import('./lifeTimeline');
+const attachmentMember = {id:'attached',name:'Example',documents:[{id:'pdf',name:'Certificate PDF',category:'Education',fileName:'cert.pdf',fileType:'application/pdf',fileSize:1,fileData:'https://example.test/cert.pdf',uploadedAt:'2026-01-01'},{id:'photo',name:'Class photo',category:'Education',fileName:'class.png',fileType:'image/png',fileSize:1,fileData:'https://example.test/class.png',uploadedAt:'2026-01-01'}],education:{qualifications:[{id:'q',name:'Degree',issueDate:'2010-01-01',documents:[{id:'p',source:'member',documentId:'pdf'},{id:'i',source:'member',documentId:'photo'}]}]}} as FamilyMember;
+const attachmentTimeline = buildLifeTimeline({members:[attachmentMember],entries:[],events:[],now:new Date('2026-09-01')});
+const degree = attachmentTimeline.years.flatMap(y=>y.items).find(i=>i.id==='qualification:attached:q')!;
+assert.equal(lifeTimelineDocuments(degree,[attachmentMember],[]).length,2);
+assert.deepEqual(lifeTimelineDocuments({...degree, documents:[],fileUrl:'https://example.test/deleted.pdf'},[],[]),[],'inaccessible files cannot be resolved');
+assert.equal(lifeTimelineDocuments({...degree,fileUrl:attachmentMember.documents[0].fileData},[attachmentMember],[]).length,2,'raw link and linked source do not duplicate files');

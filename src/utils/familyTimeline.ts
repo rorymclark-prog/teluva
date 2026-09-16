@@ -1,5 +1,5 @@
 import { isMedicalCalendarEvent } from './medicalCalendarEvent';
-import type { CalendarEvent, FamilyMember, TimelineEntry, TravelTimelineEntry, VaultDocument } from '../types';
+import type { CalendarEvent, FamilyDocument, FamilyMember, TimelineEntry, TravelTimelineEntry, VaultDocument } from '../types';
 import { buildHealthTimeline } from './healthTimeline';
 import { parseDateOnly } from './age';
 import { educationDocuments } from './education';
@@ -16,6 +16,7 @@ export interface FamilyTimelineItem {
   date: string; // YYYY for a known academic year; YYYY-MM-DD for exact dates; blank for undated.
   dateLabel?: string;
   imageUrl?: string;
+  documents?: FamilyDocument[];
   endDate?: string; // Only a known end date; never infer an ongoing residence.
   rangeLabel?: string;
   title: string;
@@ -38,6 +39,10 @@ export function buildFamilyTimeline({ members, events = [], memories = [], trave
   for (const member of members) {
     const docOptions = educationDocuments(member, vault);
     const linkedDate = (links: import('../types').EducationDocumentLink[] = []) => links.map(link => docOptions.find(option => option.link.source === link.source && option.link.documentId === link.documentId)?.date).find(Boolean);
+    const linkedDocuments = (links: import('../types').EducationDocumentLink[] = []) => links.flatMap(link => {
+      const doc = docOptions.find(option => option.link.source === link.source && option.link.documentId === link.documentId)?.document;
+      return doc?.fileData ? [doc] : [];
+    });
     const memberIds = [member.id];
     const target = (tab: string) => ({ memberId: member.id, tab });
     if (member.birthdate) items.push({ id: `birth:${member.id}`, category: 'memories', date: validDate(member.birthdate),
@@ -55,11 +60,11 @@ export function buildFamilyTimeline({ members, events = [], memories = [], trave
       for (const report of year.reports || []) {
         const photo = (report.documents || []).map(link => educationDocuments(member, vault).find(option => option.link.source === link.source && option.link.documentId === link.documentId)?.document).find(doc => doc?.fileType.startsWith('image/') && doc.fileData);
         items.push({ id: `report:${member.id}:${report.id}`, category: 'education', date: validDate(report.date || linkedDate(report.documents)),
-        title: report.title, imageUrl: photo?.fileData, note: [year.label, year.schoolName, report.term, report.results, report.notes].filter(Boolean).join('\n'), memberIds, sourceLabel: report.kind || 'School report', target: target('education') });
+        title: report.title, documents: linkedDocuments(report.documents), imageUrl: photo?.fileData, note: [year.label, year.schoolName, report.term, report.results, report.notes].filter(Boolean).join('\n'), memberIds, sourceLabel: report.kind || 'School report', target: target('education') });
       }
     }
     for (const q of member.education?.qualifications || []) items.push({ id: `qualification:${member.id}:${q.id}`, category: 'education',
-      date: validDate(q.issueDate || linkedDate(q.documents)), title: q.name, note: [q.issuer, q.notes].filter(Boolean).join('\n'), memberIds, sourceLabel: 'Qualification', target: target('education') });
+      date: validDate(q.issueDate || linkedDate(q.documents)), title: q.name, documents: linkedDocuments(q.documents), note: [q.issuer, q.notes].filter(Boolean).join('\n'), memberIds, sourceLabel: 'Qualification', target: target('education') });
     const health = buildHealthTimeline({ member, members, events, now });
     for (const h of [...health.years.flatMap(y => y.items), ...health.undated, ...health.upcoming]) {
       const item: FamilyTimelineItem = { id: `health:${member.id}:${h.id}`, category: h.kind === 'growth' ? 'growth' : 'medical', date: validDate(h.date),

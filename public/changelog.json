@@ -1,5 +1,14 @@
 [
   {
+    "label": "v362",
+    "changes": [
+      "Timeline qualifications and school reports now carry their linked certificates and documents through to the timeline.",
+      "Select a single document card or record title to open its file. Grouped chapters let you choose a moment; records with several attachments show each file.",
+      "Document opening works from expanded timelines as well as the normal timeline and All records view."
+    ],
+    "date": "2026-09-16"
+  },
+  {
     "label": "v361",
     "changes": [
       "Build my timeline can read saved profile and vault documents, or a PDF / Word CV, and offer work, education and other moments for review before adding them.",

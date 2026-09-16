@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  AnniversaryRecord, BusinessMilestoneEntry, CalendarEvent, FamilyMember, FamilyTimeline,
+  AnniversaryRecord, BusinessMilestoneEntry, CalendarEvent, FamilyDocument, FamilyMember, FamilyTimeline,
   LifeCategory, TimelineEntry, TimelinePhoto, TravelTimelineDoc, TravelTimelineEntry, VaultDocument,
 } from '../types';
 import {
@@ -12,7 +12,7 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import {
   buildLifeTimeline, categoryOfEntry, countByCategory, filterLifeTimeline, holidaySummary,
-  LIFE_CATEGORIES, lifeDateLabel, LifeSource, LifeTimelineItem, suggestMemberFromTitle,
+  LIFE_CATEGORIES, lifeDateLabel, lifeTimelineDocuments, LifeSource, LifeTimelineItem, suggestMemberFromTitle,
 } from '../utils/lifeTimeline';
 import {
   CalendarHeart, Plus, Pencil, Check, X, Cloud, CloudOff, Star, Bandage, Plane,
@@ -26,6 +26,7 @@ import EmptyState from './EmptyState';
 import VisualTimeline from './VisualTimeline';
 import type { FamilyTimelineItem, TimelineCategory } from '../utils/familyTimeline';
 import ImageLightbox from './ImageLightbox';
+import DocumentViewer from './DocumentViewer';
 import { timelineDocumentSources } from '../utils/timelineDocuments';
 import TimelineImportModal from './TimelineImportModal';
 
@@ -132,6 +133,7 @@ export default function TimelineView({
   const [includeFamily, setIncludeFamily] = useState(true);
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  const [documentView, setDocumentView] = useState<FamilyDocument | null>(null);
   const [photoView, setPhotoView] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(openImportInitially);
   useEffect(() => { if (openImportInitially) onInitialImportHandled?.(); }, []);
@@ -321,10 +323,11 @@ export default function TimelineView({
     onDelete: deleteMoment,
     onTag: tagMoment,
     onOpenPhoto: setPhotoView,
+    onOpenDocument: setDocumentView,
     onOpenHealth, onOpenView, onOpenMemberTab,
   };
 
-  const renderRow = (item: LifeTimelineItem) => {
+  const renderRow = (item: LifeTimelineItem, openDocument: (document: FamilyDocument) => void = setDocumentView) => {
     if (item.editable && editId === item.sourceId) {
       const entry = entries.find((e) => e.id === item.sourceId);
       if (entry) {
@@ -342,7 +345,7 @@ export default function TimelineView({
         );
       }
     }
-    return <LifeRow item={item} {...rowProps} />;
+    return <LifeRow item={item} {...rowProps} onOpenDocument={openDocument} />;
   };
 
   const visualSource = [...shown.upcoming, ...flat.map(f => f.item), ...shown.undated];
@@ -352,7 +355,7 @@ export default function TimelineView({
     date: item.precision === 'year' ? item.date.slice(0, 4) : item.precision === 'month' ? item.date.slice(0, 7) : item.date,
     dateLabel: lifeDateLabel(item), title: item.title, note: item.note, memberIds: item.memberIds,
     sourceLabel: item.detail || CATEGORY_ONE[item.category], imageUrl: item.imageUrl || item.photos?.[0]?.url,
-    endDate: item.endDate, rangeLabel: item.title,
+    endDate: item.endDate, rangeLabel: item.title, documents: lifeTimelineDocuments(item, members, documents),
   });
   const visualItems = visualSource.map(toVisualItem);
   const domainItems = [...scoped.upcoming, ...scoped.years.flatMap(y => y.items), ...scoped.undated].map(toVisualItem);
@@ -549,7 +552,7 @@ export default function TimelineView({
           <div className="story-scale" role="group" aria-label="Timeline presentation"><button type="button" aria-pressed={visual} onClick={() => setVisual(true)}>Visual timeline</button><button type="button" aria-pressed={!visual} onClick={() => setVisual(false)}>All records</button></div>
           <label><span className="sr-only">Search timeline</span><input className="field text-sm" placeholder="Search timeline…" value={search} onChange={e => setSearch(e.target.value)} /></label>
         </div>
-        {visual && <VisualTimeline items={visualItems} domainItems={domainItems} members={members} isBusinessSpace={isBusinessSpace} renderDetails={item => renderRow(visualSource.find(source => source.id === item.id)!)} />}
+        {visual && <VisualTimeline onOpenDocument={setDocumentView} items={visualItems} domainItems={domainItems} members={members} isBusinessSpace={isBusinessSpace} renderDetails={(item, openDocument) => renderRow(visualSource.find(source => source.id === item.id)!, openDocument)} />}
         {!visual && (total === 0 && !adding ? (
           <EmptyState
             icon={CalendarHeart}
@@ -613,6 +616,7 @@ export default function TimelineView({
         </div>
       )}
 
+      <DocumentViewer document={documentView} memberName={person?.name || (isBusinessSpace ? "Business" : "Family")} onClose={() => setDocumentView(null)} />
       <ImageLightbox src={photoView} onClose={() => setPhotoView(null)} name="Timeline photo" />
       {canImport && (
         <TimelineImportModal
@@ -633,7 +637,7 @@ export default function TimelineView({
 
 /* --- One row --- */
 
-function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, onDelete, onTag, onOpenPhoto, onOpenHealth, onOpenView, onOpenMemberTab }: {
+function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, onDelete, onTag, onOpenPhoto, onOpenDocument, onOpenHealth, onOpenView, onOpenMemberTab }: {
   item: LifeTimelineItem;
   members: FamilyMember[];
   documents: VaultDocument[];
@@ -643,6 +647,7 @@ function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, o
   onDelete: (id: string) => void;
   onTag: (id: string, memberId: string) => void;
   onOpenPhoto: (url: string) => void;
+  onOpenDocument: (document: FamilyDocument) => void;
   onOpenMemberTab?: (memberId: string, tab: string) => void;
   onOpenHealth?: (memberId: string) => void;
   onOpenView?: (view: TimelineOpenTarget) => void;
@@ -651,9 +656,7 @@ function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, o
   const who = item.memberIds
     .map((id) => members.find((m) => m.id === id))
     .filter((m): m is FamilyMember => !!m);
-  const docs = (item.docIds || [])
-    .map((id) => documents.find((d) => d.id === id))
-    .filter((d): d is VaultDocument => !!d && d.id !== item.sourceId);
+  const docs = lifeTimelineDocuments(item, members, documents);
   const where = [item.place, item.detail].filter(Boolean).join(' · ');
   // Only on the family's own moments, and only for someone who can edit them.
   const suggested = item.editable && canEdit && !isBusinessSpace && who.length === 0
@@ -678,7 +681,7 @@ function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, o
               <span className={`chip ${style.chip}`}>{CATEGORY_ONE[item.category]}</span>
               {item.countryCode && <span className="text-[15px] leading-none" aria-hidden="true">{flag(item.countryCode)}</span>}
             </div>
-            <p className="text-[15px] font-display font-semibold text-ink-900 break-words">{item.title}</p>
+            <p className="text-[15px] font-display font-semibold text-ink-900 break-words">{docs.length === 1 ? <button type="button" className="text-left hover:underline" onClick={() => onOpenDocument(docs[0])} aria-label={`Open document for ${item.title}`}>{item.title}</button> : item.title}</p>
             {where && (
               <p className="text-[12.5px] text-ink-500 font-medium flex items-center gap-1 mt-0.5">
                 {item.place && <MapPin className="w-3 h-3 shrink-0" aria-hidden="true" />}
@@ -737,11 +740,11 @@ function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, o
             </button>
           )}
           {docs.map((d) => (
-            <a key={d.id} href={d.downloadUrl} target="_blank" rel="noopener noreferrer" className="chip bg-ink-50 text-ink-700 hover:bg-ink-100 inline-flex items-center gap-1">
-              <Paperclip className="w-3 h-3" aria-hidden="true" /> {d.name}
-            </a>
+            <button type="button" key={`${d.id}:${d.fileData}`} onClick={() => onOpenDocument(d)} className="chip bg-ink-50 text-ink-700 hover:bg-ink-100 inline-flex items-center gap-1">
+              <Paperclip className="w-3 h-3" aria-hidden="true" /> Open {d.name}
+            </button>
           ))}
-          {item.fileUrl && (
+          {item.fileUrl && !docs.some(d => d.fileData === item.fileUrl) && (
             <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" className="chip bg-ink-50 text-ink-700 hover:bg-ink-100 inline-flex items-center gap-1">
               <ExternalLink className="w-3 h-3" aria-hidden="true" /> {item.source === 'health' ? 'Open letter' : 'Open document'}
             </a>
