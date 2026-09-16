@@ -117,3 +117,6 @@
   .story-timeline--expanded .story-card-copy strong { font-size: 12px; margin-top: 3px; }
   .story-timeline--expanded .story-card-copy small { display: none; }
 }
+.story-life-span { font-family: var(--font-display); font-size: 29px; font-weight: 600; letter-spacing: -.04em; white-space: nowrap; }
+.story-timeline--life .story-card { width: 160px; left: -80px; }
+@media (min-width: 600px) { .story-life-span { font-size: 34px; } }

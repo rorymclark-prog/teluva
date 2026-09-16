@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { FamilyTimelineItem } from './familyTimeline';
-import { preferredTimelineYear, timelineChapters, timelineRange, timelineYears } from './visualTimeline';
+import { lifeTimelineChapters, preferredTimelineYear, timelineChapters, timelineRange, timelineYears } from './visualTimeline';
 const event = (id: string, date: string): FamilyTimelineItem => ({ id, date, title: id, category: 'memories', memberIds: [], sourceLabel: 'Memory' });
 const records = [event('leap-day', '2024-02-29'), event('same-day', '2024-02-29'), event('next-month', '2024-03-01'), event('unknown', ''), event('school-year', '2024'), event('old', '1988-06-01')];
 const chapters = timelineChapters(records, 2024, 1, 'year');
@@ -17,3 +17,17 @@ assert.equal(timelineRange({ ...home, endDate: undefined }, 2022, 0, 'year'), nu
 assert.equal(timelineRange({ ...home, endDate: '2019-01-01' }, 2022, 0, 'year'), null);
 assert.equal(timelineRange({ ...home, endDate: '2023-08-31' }, 2023, 8, 'month'), null);
 console.log('visualTimeline.test.ts: date precision, dense chapters, leap days, year selection and residence clipping passed');
+
+const life = lifeTimelineChapters(records, 4, 2026);
+assert.deepEqual(life.flatMap(chapter => chapter.items.map(item => item.id)).sort(), records.filter(item => item.date).map(item => item.id).sort(), 'life retains every dated record across decades, including year-only records');
+assert.ok(life[0].index < life.at(-1)!.index, 'old and recent chapters retain their order across the full span');
+assert.equal(lifeTimelineChapters([event('birth', '1988-06-01')], 4, 2026)[0].index, 0, 'a birth-only profile still has a lifespan extending through the present');
+assert.equal(lifeTimelineChapters([event('unknown', '')], 4).length, 0);
+const dense = Array.from({ length: 120 }, (_, i) => event(String(i), `${1900 + i}-01-01`));
+for (const slots of [1, 2, 8]) {
+  const grouped = lifeTimelineChapters(dense, slots, 2026);
+  assert.ok(grouped.length <= slots);
+  assert.equal(new Set(grouped.flatMap(chapter => chapter.items.map(item => item.id))).size, 120, 'responsive grouping must not discard records');
+}
+const lifetimeBand = timelineRange(home, 2026, 0, 'life', [1988, 2026]);
+assert.ok(lifetimeBand && lifetimeBand.start > 0 && lifetimeBand.end < 1 && lifetimeBand.end > lifetimeBand.start, 'life residence bands use the entire lifespan');

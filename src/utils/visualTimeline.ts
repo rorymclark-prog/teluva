@@ -1,9 +1,9 @@
 import type { FamilyTimelineItem } from './familyTimeline';
 
-export type TimelineScale = 'year' | 'month';
+export type TimelineScale = 'life' | 'year' | 'month';
 export interface TimelineChapter { key: string; index: number; label: string; items: FamilyTimelineItem[] }
 // Calendar buckets deliberately avoid pretending an unknown school start date is January 1.
-export function timelineChapters(items: FamilyTimelineItem[], year: number, month: number, scale: TimelineScale): TimelineChapter[] {
+export function timelineChapters(items: FamilyTimelineItem[], year: number, month: number, scale: Exclude<TimelineScale, 'life'>): TimelineChapter[] {
   const grouped = new Map<number, FamilyTimelineItem[]>();
   for (const item of items) {
     if (item.date.length !== 10 || Number(item.date.slice(0, 4)) !== year) continue;
@@ -28,11 +28,30 @@ export function preferredTimelineYear(items: FamilyTimelineItem[], now = new Dat
   return years.includes(now.getFullYear()) ? now.getFullYear() : years.filter(year => year <= now.getFullYear()).at(-1) ?? years[0] ?? now.getFullYear();
 }
 // UTC arithmetic keeps residence bands stable across daylight-saving changes.
-export function timelineRange(item: FamilyTimelineItem, year: number, month: number, scale: TimelineScale): { start: number; end: number } | null {
+export function timelineRange(item: FamilyTimelineItem, year: number, month: number, scale: TimelineScale, lifeYears?: [number, number]): { start: number; end: number } | null {
   if (item.date.length !== 10 || !item.endDate || item.endDate <= item.date) return null;
-  const start = Date.UTC(year, scale === 'year' ? 0 : month, 1);
-  const end = Date.UTC(year, scale === 'year' ? 12 : month + 1, 1);
+  const start = scale === 'life' ? Date.UTC(lifeYears?.[0] ?? year, 0, 1) : Date.UTC(year, scale === 'year' ? 0 : month, 1);
+  const end = scale === 'life' ? Date.UTC((lifeYears?.[1] ?? year) + 1, 0, 1) : Date.UTC(year, scale === 'year' ? 12 : month + 1, 1);
   const from = Date.parse(`${item.date}T00:00:00Z`), to = Date.parse(`${item.endDate}T00:00:00Z`);
   if (!Number.isFinite(from) || !Number.isFinite(to) || from >= end || to < start) return null;
   return { start: Math.max(0, (from - start) / (end - start)), end: Math.min(1, (to - start) / (end - start)) };
+}
+
+// Life fits the complete recorded span on screen. Nearby years share a chapter
+// when space is tight; every record remains available in that chapter's detail.
+export function lifeTimelineChapters(items: FamilyTimelineItem[], slots: number, throughYear = new Date().getFullYear()): TimelineChapter[] {
+  const years = timelineYears(items);
+  if (!years.length) return [];
+  const first = years[0], span = Math.max(throughYear, years.at(-1)!) - first + 1;
+  const grouped = new Map<number, FamilyTimelineItem[]>();
+  for (const item of items) {
+    if (!item.date) continue;
+    const index = Math.min(slots - 1, Math.floor((Number(item.date.slice(0, 4)) - first) / span * slots));
+    grouped.set(index, [...(grouped.get(index) || []), item]);
+  }
+  return [...grouped.entries()].sort(([a], [b]) => a - b).map(([index, records]) => {
+    records.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+    const from = records[0].date.slice(0, 4), to = records.at(-1)!.date.slice(0, 4);
+    return { key: `life:${index}`, index, label: from === to ? from : `${from}–${to}`, items: records };
+  });
 }
