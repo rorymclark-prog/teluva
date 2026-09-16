@@ -276,7 +276,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'addresses', label: 'Addresses', icon: Home },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'secrets', label: 'Secrets', icon: Key },
-  { id: 'cv', label: 'CV', icon: Briefcase },
+  { id: 'cv', label: 'Work', icon: Briefcase },
 ];
 
 type ProfileLens = 'essentials' | 'health' | 'life' | 'story';
@@ -297,9 +297,8 @@ function profileLensFor(tab: TabId): ProfileLens {
 // 'timeline' too: a person's life timeline carries their health history,
 // which has no place in an employee's record (lifeTimeline.ts rule 4).
 const HIDDEN_IN_BUSINESS: TabId[] = ['education', 'addresses', 'care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse', 'guardians', 'timeline'];
-// Mirror image: tabs that only make sense for an employee in a business space
-// (a CV/résumé — career history, qualifications) have no family equivalent.
-const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
+// Work/CV belongs in personal as well as business profiles.
+const HIDDEN_IN_FAMILY: TabId[] = [];
 // Same idea, one level up — top-level nav sections that are family-only (the
 // keepsake dictionary, the family memory timeline, a personal shopping list —
 // no small-business equivalent researched). Insurance/Vehicles/Household/
@@ -553,6 +552,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     try { localStorage.setItem('teluva.familyListCollapsed', next ? '1' : '0'); } catch { /* private mode */ }
     setListCollapsed(next);
   };
+  const [buildTimelineOnOpen, setBuildTimelineOnOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [peoplePane, setPeoplePane] = useState<'profiles' | 'todo'>('profiles');
@@ -3812,6 +3812,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                 <Suspense fallback={<div className="py-16 text-center text-[13px] text-ink-400">Loading…</div>}>
                                   <TimelineView
                                     key={aiDataVersion}
+                                    openImportInitially={buildTimelineOnOpen}
+                                    onInitialImportHandled={() => setBuildTimelineOnOpen(false)}
                                     memberId={selectedMember.id}
                                     members={members}
                                     events={events}
@@ -3872,6 +3874,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                   onUpdate={handlePatchSelectedMember}
                                   onViewDocument={handleViewDocument}
                                   canEdit={demo || canWrite}
+                                  onBuildTimeline={!isBusinessSpace ? () => {setBuildTimelineOnOpen(true);setActiveTab('timeline');} : undefined}
                                 />
                               )}
                             </>

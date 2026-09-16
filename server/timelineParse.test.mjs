@@ -157,11 +157,12 @@ test('isValidTimelineDate: precision rules and calendar validity', () => {
   assert.equal(isValidTimelineDate('2019-3-1', undefined), false);
 });
 
-test('an empty date (unreadable) is dropped, never defaulted', () => {
+test('an empty date survives for explicit undated review, never defaulted', () => {
   const out = sanitizeTimelineRows({
     rows: [{ date: '', title: 'Something happened', category: 'other', memberIds: [], sourceText: 'Nora was born' }],
   }, MEMBERS, TEXT);
-  assert.deepEqual(out, []);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].date, '');
 });
 
 test('an impossible calendar date (31 Feb) is rejected', () => {
@@ -230,4 +231,11 @@ test('server.js wires the route with the member/quota preamble and the sanitiser
   }
   // CONTROL: the slice really is the route body, not the whole file.
   assert.ok(!body.includes("app.post('/api/doc-key-facts'"), 'the route slice must stop at its own closing brace');
+});
+
+
+test('historical documents preserve relative dates and distinguish delivered training from education', () => {
+  const prompt = timelineParseSystem(MEMBERS, '2026-09-16', true);
+  assert.match(prompt, /Do not resolve present/);
+  assert.match(prompt, /trainer belong to work/);
 });

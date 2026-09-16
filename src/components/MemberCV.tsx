@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FamilyMember, FamilyDocument, CvRole, CvEducationEntry, CvQualification, MemberCv } from '../types';
+import { uploadVaultFile } from '../utils/db';
+import { isDemoMode } from '../utils/demoData';
 import { todayISO } from '../utils/age';
 import { appConfirm } from '../utils/appConfirm';
 import { qualificationExpiryStatus } from '../utils/qualificationExpiry';
@@ -13,16 +15,15 @@ import EmptyState from './EmptyState';
 
 const newId = () => 'cv-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-// Files are stored inline as base64 inside the member's own Firestore document
-// (same convention MemberDocuments.tsx already established — 700 KB keeps
-// comfortably under the 1 MB per-document cap).
-const MAX_UPLOAD_BYTES = 700 * 1024;
+// Production files live in Storage; only their metadata and URL belong in the profile.
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 interface Props {
   member: FamilyMember;
   onUpdate: (patch: Partial<FamilyMember>) => void;
   onViewDocument: (doc: FamilyDocument, memberName: string) => void;
   canEdit?: boolean;
+  onBuildTimeline?: () => void;
 }
 
 const formatBytes = (bytes: number) => {
@@ -238,8 +239,10 @@ function TagEditor({ values, onChange, placeholder, canEdit }: { values: string[
   );
 }
 
-export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = false }: Props) {
+export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = false, onBuildTimeline }: Props) {
   const cv: MemberCv = member.cv || {};
+  const latest = useRef(member);
+  latest.current = member;
   const first = member.name.split(/\s+/)[0] || member.name;
 
   const [summary, setSummary] = useState(cv.summary || '');
@@ -250,6 +253,8 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
   const [addingQual, setAddingQual] = useState(false);
   const [editQualId, setEditQualId] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [uploadingWork, setUploadingWork] = useState(false);
+  const workFileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -296,39 +301,41 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
   const skills = cv.skills || [];
   const languages = cv.languages || [];
 
+  const workDocuments = (member.documents || []).filter(d => cv.workDocumentIds?.includes(d.id));
+  const uploadWorkDocument = async (file: File) => {
+    if (!canEdit || uploadingWork) return;
+    if (file.size > 20*1024*1024) {setFileError('Choose a file smaller than 20 MB.');return;}
+    if (!/\.(pdf|docx|txt|jpg|jpeg|png|webp)$/i.test(file.name)) {setFileError('Choose a PDF, Word, text or image document.');return;}
+    setUploadingWork(true);setFileError(null);
+    try {
+      const id = 'work-' + newId();
+      const stored = isDemoMode() ? {storagePath:'',downloadUrl:await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);})} : await uploadVaultFile(file,id);
+      const document:FamilyDocument = {id,name:file.name,category:'Other',fileName:file.name,fileType:file.type || 'application/octet-stream',fileSize:file.size,uploadedAt:todayISO(),fileData:stored.downloadUrl,storagePath:stored.storagePath};
+      if (latest.current.id !== member.id) throw new Error('Profile changed during upload. Please reopen the original profile.');
+      await onUpdate({documents:[...(latest.current.documents || []),document],cv:{...latest.current.cv,workDocumentIds:[...(latest.current.cv?.workDocumentIds || []),id]}});
+    } catch(e) {setFileError(e instanceof Error ? e.message : 'Could not save this document.');}
+    finally {setUploadingWork(false);if(workFileInputRef.current) workFileInputRef.current.value='';}
+  };
+
   /* CV file (single slot, pointed to by cv.fileDocumentId, stored in member.documents) */
   const cvFile = (member.documents || []).find(d => d.id === cv.fileDocumentId);
 
-  const triggerUpload = () => fileInputRef.current?.click();
+  const triggerUpload = () => { if (!uploadingWork) fileInputRef.current?.click(); };
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
+    if (!canEdit || uploadingWork) return;
     setFileError(null);
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setFileError(`"${file.name}" is ${formatBytes(file.size)} — too large for cloud sync. Files must be under 700 KB.`);
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      if (typeof ev.target?.result !== 'string') return;
-      const newDoc: FamilyDocument = {
-        id: 'doc-' + newId(),
-        name: `${member.name}'s CV`,
-        category: 'Other',
-        fileType: file.type,
-        fileName: file.name,
-        fileSize: file.size,
-        uploadedAt: todayISO(),
-        fileData: ev.target.result,
-      };
-      // One combined patch — swap the old CV document out and the new one in,
-      // and repoint cv.fileDocumentId, all in a single write (avoids a
-      // separate add+delete+patch race across three calls).
-      const nextDocs = (member.documents || []).filter(d => d.id !== cv.fileDocumentId);
-      nextDocs.push(newDoc);
-      onUpdate({ documents: nextDocs, cv: { ...cv, fileDocumentId: newDoc.id } });
-    };
-    reader.onerror = () => setFileError('Failed to read the file. Try a different format.');
-    reader.readAsDataURL(file);
+    if (file.size > MAX_UPLOAD_BYTES) {setFileError('Choose a CV smaller than 20 MB.');return;}
+    if (!/\.(pdf|docx|txt|jpg|jpeg|png|webp)$/i.test(file.name)) {setFileError('Choose a PDF, Word, text or image CV.');return;}
+    setUploadingWork(true);
+    try {
+      const id = 'doc-' + newId();
+      const stored = isDemoMode() ? {storagePath:'',downloadUrl:await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);})} : await uploadVaultFile(file,id);
+      const newDoc:FamilyDocument = {id,name:`${member.name}'s CV`,category:'Other',fileName:file.name,fileType:file.type || 'application/octet-stream',fileSize:file.size,uploadedAt:todayISO(),fileData:stored.downloadUrl,storagePath:stored.storagePath};
+      if (latest.current.id !== member.id) throw new Error('Profile changed during upload. Please reopen the original profile.');
+      await onUpdate({documents:[...(latest.current.documents || []),newDoc],cv:{...latest.current.cv,fileDocumentId:id}});
+    } catch(e) {setFileError(e instanceof Error ? e.message : 'Could not save CV.');}
+    finally {setUploadingWork(false);if(fileInputRef.current) fileInputRef.current.value='';}
   };
 
   const removeFile = async () => {
@@ -348,12 +355,23 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
           <Briefcase className="w-5 h-5" />
         </div>
         <div>
-          <h3 className="font-display text-lg font-semibold text-ink-900">CV / résumé</h3>
+          <h3 className="font-display text-lg font-semibold text-ink-900">Work & CV</h3>
           <p className="text-[13px] text-ink-500 mt-0.5">
-            {first}'s career history, qualifications and filed CV — searchable by the team assistant.
+            {first}'s roles, projects, CV and work documents.
           </p>
         </div>
       </div>
+
+      {canEdit && onBuildTimeline && <button type="button" className="btn-primary text-sm" onClick={onBuildTimeline}>Build my timeline from a CV or saved documents</button>}
+      <section className="card p-5 space-y-3" aria-label="Work documents">
+        <h4 className="font-semibold">Work documents</h4>
+        <p className="text-xs text-ink-500">Keep contracts, references, project records and supporting files together. They also remain in Documents.</p>
+        {workDocuments.map(doc=><div key={doc.id} className="flex gap-2 items-center"><button type="button" className="btn-quiet text-sm" onClick={()=>onViewDocument(doc,member.name)}><FileText className="w-4 h-4"/>{doc.name}</button>{canEdit && <button type="button" className="btn-quiet text-xs" onClick={()=>patchCv({...cv,workDocumentIds:cv.workDocumentIds?.filter(id=>id!==doc.id)})}>Unlink from Work</button>}</div>)}
+        {canEdit && <><label className="field-label">Link a saved document<select className="field" value="" disabled={uploadingWork} onChange={e=>{if(e.target.value) patchCv({...cv,workDocumentIds:[...(cv.workDocumentIds || []),e.target.value]});}}><option value="">Choose a document…</option>{(member.documents || []).filter(d=>!cv.workDocumentIds?.includes(d.id)).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
+        <input ref={workFileInputRef} type="file" className="hidden" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png,.webp" onChange={e=>{const f=e.target.files?.[0];if(f) void uploadWorkDocument(f);}}/>
+        <button type="button" className="btn-quiet text-sm" disabled={uploadingWork} onClick={()=>workFileInputRef.current?.click()}>{uploadingWork?'Saving document…':'Upload work document'}</button></>}
+        {fileError && <p role="alert" className="text-sm text-rosa-700">{fileError}</p>}
+      </section>
 
       {/* Current role — read-only, sourced from the profile (v111 fields). Editing lives in the member's Edit form, not duplicated here. */}
       {hasCurrentRole && (
@@ -411,13 +429,13 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
             <div className="flex flex-col items-center">
               <Upload className="w-6 h-6 mb-2 text-ink-400" />
               <p className="text-[13px] font-semibold text-ink-700">Upload {first}'s CV</p>
-              <p className="text-[12px] text-ink-400 mt-1">Image or PDF — max 700 KB</p>
+              <p className="text-[12px] text-ink-400 mt-1">PDF, Word, text or image — max 20 MB</p>
             </div>
           </div>
         ) : (
           <EmptyState icon={FileImage} title="No CV filed yet" dashed />
         )}
-        <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden"
+        <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png,.webp" className="hidden"
           onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); e.target.value = ''; }} />
         {fileError && (
           <div className="p-3 rounded-xl bg-rosa-50 border border-rosa-100 text-[13px] text-rosa-700 flex items-start gap-2">

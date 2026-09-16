@@ -1,33 +1,7 @@
-/* ---------------------------------------------------------------------------
- * Timeline import — "we should be able to import a timeline or dates of
- * events". Two steps: bring in dates (paste, or a CSV/ICS/PDF file), then
- * check before adding. Every row is a review item — the family decides what
- * lands on the timeline; nothing is added silently.
- *
- * PIPELINE SPLIT, ON PURPOSE:
- *  - CSV/TSV/ICS and a first honest pass over free text happen entirely in
- *    src/utils/timelineImport.ts — pure, no network, works in demo mode.
- *  - Only the lines that first pass cannot confidently read go to
- *    POST /api/timeline/parse (server/timelineParse.mjs), and only with a
- *    visible notice — nobody's pasted list should silently leave the device.
- *  - Demo mode never calls the endpoint at all: local parsing only, and the
- *    lines it skipped are counted on screen.
- *
- * THE CONTRACT IS THE LIFE TIMELINE'S (src/utils/lifeTimeline.ts): a row's
- * kind is a LifeCategory from LIFE_CATEGORIES (Medical hidden in a business
- * space, as TimelineView's own form does), and a known day is stored with NO
- * datePrecision — 'month' / 'year' only when that is all anyone knows.
- *
- * WHAT THIS MODAL DOES NOT DO: photos/scans are not read here. /api/doc-ocr
- * reads documents already in this family's Vault Storage (isAllowedPath),
- * which a file just picked from the device is not. A PDF is supported ONLY
- * when it has a real text layer (the same extractDocText path the Vault
- * reader uses); a scanned PDF or a photo gets a plain, honest message.
- *
- * CONTRACT WITH THE CALLER: this component owns no storage. `onImport` is
- * handed fresh entries (source: 'import') plus one shared importBatchId, and
- * the caller saves them through its own merge-safe path and offers the undo.
- * ------------------------------------------------------------------------- */
+/* Timeline builder: local CSV/ICS parsing, or AI extraction from complete
+ * historical documents. Every candidate is reviewed; originals are unchanged.
+ * Saved scans use the authenticated document OCR path, with per-file coverage
+ * and errors reported. Demo never invokes AI or OCR. */
 
 import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -36,6 +10,8 @@ import SheetGrabber from './SheetGrabber';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { auth } from '../lib/firebase';
 import { isDemoMode } from '../utils/demoData';
+import { collectDocPages } from '../utils/docReader';
+import { extractTimelineDocx, timelineTextChunks, type TimelineDocumentSource } from '../utils/timelineDocuments';
 import { extractDocText } from '../utils/docText';
 import { LIFE_CATEGORIES } from '../utils/lifeTimeline';
 import {
@@ -54,6 +30,7 @@ import type { LifeCategory, TimelineEntry } from '../types';
 
 export interface TimelineImportModalProps {
   open: boolean;
+  documents?: TimelineDocumentSource[];
   onClose: () => void;
   /** FamilyMember-shaped: `birthdate` lets a "Nora born …" row be recognised as already known. */
   members: TimelineImportMember[];
@@ -67,9 +44,10 @@ export interface TimelineImportModalProps {
 
 interface ReviewRow extends TimelineCandidate {
   checked: boolean;
+  keepUndated?: boolean;
 }
 
-const ACCEPTED_EXTENSIONS = '.csv,.tsv,.txt,.ics,.pdf';
+const ACCEPTED_EXTENSIONS = '.csv,.tsv,.txt,.ics,.pdf,.docx';
 const ACCEPTED_MIME = 'text/csv,text/tab-separated-values,text/plain,text/calendar,application/pdf';
 const IMAGE_NAME_RE = /\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?)$/i;
 const VALID_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -81,7 +59,7 @@ const VALID_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const grainOf = (row: Pick<ReviewRow, 'datePrecision'>): Grain => row.datePrecision || 'day';
 
 function isRowReady(row: ReviewRow): boolean {
-  return VALID_DATE_RE.test(row.date) && row.title.trim().length > 0;
+  return (row.keepUndated || VALID_DATE_RE.test(row.date)) && row.title.trim().length > 0;
 }
 
 function normalizeForGrain(date: string, grain: Grain): string {
@@ -92,7 +70,7 @@ function normalizeForGrain(date: string, grain: Grain): string {
 
 function buildRows(candidates: TimelineCandidate[], defaultMemberId: string | undefined, business: boolean): ReviewRow[] {
   return candidates.map((c) => {
-    const memberIds = c.memberIds.length === 0 && defaultMemberId ? [defaultMemberId] : c.memberIds;
+    const memberIds = c.memberIds.length === 0 && !c.preserveUnassigned && defaultMemberId ? [defaultMemberId] : c.memberIds;
     // No kind given: a birth reads as a milestone, anything else as a memory
     // (what categoryOfEntry shows for an entry without one). Medical never
     // lands on a business timeline.
@@ -140,12 +118,12 @@ const CATEGORY_IDS = new Set<string>(LIFE_CATEGORIES.map((c) => c.id));
  * filtered to the ids we offered); this shapes them into TimelineCandidate
  * and defends against a malformed network response.
  */
-async function fetchAssistantRows(text: string, members: TimelineImportMember[], today: string): Promise<TimelineCandidate[]> {
+async function fetchAssistantRows(text: string, members: TimelineImportMember[], today: string, document = false): Promise<TimelineCandidate[]> {
   const token = await auth.currentUser?.getIdToken();
   const resp = await fetch('/api/timeline/parse', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ text, members: members.map((m) => ({ id: m.id, name: m.name })), today }),
+    body: JSON.stringify({ text, members: members.map((m) => ({ id: m.id, name: m.name })), today, document }),
   });
   if (!resp.ok) {
     let msg = `Could not read that text (${resp.status}).`;
@@ -164,7 +142,7 @@ async function fetchAssistantRows(text: string, members: TimelineImportMember[],
       const precision = r.datePrecision === 'month' || r.datePrecision === 'year' ? r.datePrecision : undefined;
       const category = typeof r.category === 'string' && CATEGORY_IDS.has(r.category) ? (r.category as LifeCategory) : 'other';
       return {
-        key: `ai-${Date.now().toString(36)}-${i}`,
+        key: `ai-${crypto.randomUUID()}`,
         date: r.date as string,
         ...(precision ? { datePrecision: precision } : {}),
         title: r.title as string,
@@ -186,7 +164,7 @@ const todayLocal = () => {
 // ---------------------------------------------------------------------------
 
 export default function TimelineImportModal({
-  open, onClose, members, existing, defaultMemberId, isBusinessSpace = false, demo = false, onImport,
+  open, onClose, members, existing, documents = [], defaultMemberId, isBusinessSpace = false, demo = false, onImport,
 }: TimelineImportModalProps) {
   // Called unconditionally, ahead of the `if (!open) return null` below.
   useBodyScrollLock(open);
@@ -201,6 +179,9 @@ export default function TimelineImportModal({
   const [demoSkippedCount, setDemoSkippedCount] = useState(0);
   const [readError, setReadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [documentSelection, setDocumentSelection] = useState<string[] | null>(null);
+  const [scanReport, setScanReport] = useState<string[]>([]);
+  const stopScan = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const memberList: TimelineImportMember[] = useMemo(
@@ -212,6 +193,8 @@ export default function TimelineImportModal({
 
   function resetState() {
     setStep(1);
+    setScanReport([]);
+    setDocumentSelection(null);
     setPastedText('');
     setRows([]);
     setIsDragging(false);
@@ -225,6 +208,7 @@ export default function TimelineImportModal({
   }
 
   function handleClose() {
+    if (isProcessing || isSubmitting) return;
     resetState();
     onClose();
   }
@@ -265,9 +249,74 @@ export default function TimelineImportModal({
     setStep(2);
   }
 
+  function reviewCandidates(candidates: TimelineCandidate[]) {
+    const prepared = buildRows(candidates, defaultMemberId, isBusinessSpace);
+    setRows(buildRows(findDuplicates(prepared, existing, memberList), undefined, isBusinessSpace));
+    if (candidates.length) setStep(2);
+  }
+
+  async function readHistoricalText(text: string, source: TimelineDocumentSource): Promise<TimelineCandidate[]> {
+    const found: TimelineCandidate[] = [];
+    for (const chunk of timelineTextChunks(text)) {
+      if (stopScan.current) break;
+      const candidates = demoOnly ? localParse(chunk, memberList).candidates : await fetchAssistantRows(chunk, memberList, todayLocal(), true);
+      found.push(...candidates.map(c => ({...c, sourceName: source.name, sourceDocument: source.sourceDocument, preserveUnassigned: true, docIds: source.vaultId ? [source.vaultId] : undefined,
+        memberIds: c.memberIds.length ? c.memberIds : source.memberIds,
+        note: [c.note, `Source: ${source.name}`, `Evidence: ${c.sourceText}`].filter(Boolean).join('\n')})));
+    }
+    return found;
+  }
+
+  async function scanSavedDocuments() {
+    if (isProcessing) return;
+    stopScan.current = false;
+    setIsProcessing(true); setReadError(null); setScanReport([]);
+    const selected = documents.filter(d => documentSelection === null || documentSelection.includes(d.id));
+    const found: TimelineCandidate[] = [];
+    const report: string[] = [];
+    for (let index=0;index<selected.length;index++) {
+      if (stopScan.current) break;
+      const doc = selected[index];
+      setAssistantNotice(`Reading ${index+1} of ${selected.length}: ${doc.name}`);
+      try {
+        let text = '';
+        let partial = false;
+        if (/\.docx$/i.test(doc.fileName || '') || doc.fileType.includes('wordprocessingml')) {
+          const response = await fetch(doc.src);
+          if (!response.ok) throw new Error('File could not be downloaded.');
+          text = await extractTimelineDocx(await response.arrayBuffer());
+        } else if (demoOnly) {
+          const result = await extractDocText(doc.src,doc.fileType);
+          text = result.pages.map(p=>p.text).join('\n');
+          partial = result.coverage.pagesWithoutText.length > 0;
+        } else {
+          const result = await collectDocPages(doc);
+          if (result.kind !== 'ok') throw new Error(result.message);
+          text = result.pages.map(p=>p.text).join('\n');
+          partial = result.coverage.pagesWithoutText.length > 0;
+        }
+        if (!text.trim()) throw new Error('No readable text; open the source and check it.');
+        const candidates = await readHistoricalText(text,doc);
+        found.push(...candidates);
+        report.push(`${doc.name}: ${candidates.length} candidate moments${partial ? ' · some pages could not be read' : ''}${candidates.length >= 80 ? ' · many results; check the source for additional events' : ''}`);
+      } catch (error) {
+        report.push(`${doc.name}: not fully read — ${error instanceof Error ? error.message : 'try again'}`);
+      }
+      setScanReport([...report]);
+    }
+    if (stopScan.current) report.push('Stopped early. Only completed results are shown.');
+    setScanReport(report);
+    setAssistantNotice(null);setIsProcessing(false);
+    if (found.length) reviewCandidates(found);
+    else setReadError('No candidate moments found in the documents read. Check the reading report below; unread files are not proof that your history is empty.');
+  }
+
   async function handleFile(file: File) {
     setReadError(null);
     setDemoSkippedCount(0);
+    if (file.size > 20*1024*1024) { setReadError('Choose a file smaller than 20 MB.'); return; }
+    stopScan.current = false;
+    setScanReport([]);
     const name = file.name.toLowerCase();
     if (file.type.startsWith('image/') || IMAGE_NAME_RE.test(name)) {
       setReadError("Photos can't be read here yet — only text that's typed, pasted, or already inside a PDF or calendar file. Try a CSV, a calendar (.ics) file, or paste the dates as text.");
@@ -275,6 +324,12 @@ export default function TimelineImportModal({
     }
     setIsProcessing(true);
     try {
+      if (name.endsWith('.docx')) {
+        const text = await extractTimelineDocx(await file.arrayBuffer());
+        const candidates = await readHistoricalText(text,{id:'upload',name:file.name,category:'Other',src:'',fileType:file.type,memberIds:defaultMemberId?[defaultMemberId]:[]});
+        if(candidates.length) reviewCandidates(candidates); else setReadError('No candidate moments found. Try pasting the relevant section.');
+        return;
+      }
       if (name.endsWith('.pdf') || file.type === 'application/pdf') {
         const dataUrl = await readFileAsDataUrl(file);
         const { pages } = await extractDocText(dataUrl, 'application/pdf');
@@ -283,7 +338,8 @@ export default function TimelineImportModal({
           setReadError("This PDF has no selectable text — it looks like a scan, which can't be read here. Try pasting the dates as text instead.");
           return;
         }
-        await runPipeline(text);
+        const candidates = await readHistoricalText(text,{id:'upload',name:file.name,category:'Other',src:'',fileType:file.type,memberIds:defaultMemberId?[defaultMemberId]:[]});
+        if(candidates.length) reviewCandidates(candidates); else setReadError('No candidate moments found. Try pasting the relevant section.');
         return;
       }
       const text = await readFileAsText(file);
@@ -313,6 +369,7 @@ export default function TimelineImportModal({
   }
 
   function updateRow(key: string, patch: Partial<ReviewRow>) {
+    if (patch.date) patch.keepUndated = false;
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
   function toggleRowMember(key: string, memberId: string) {
@@ -330,7 +387,7 @@ export default function TimelineImportModal({
   }
   function setGrain(row: ReviewRow, to: Grain) {
     const date = datePrecisionChange(row.date, grainOf(row), to);
-    updateRow(row.key, { datePrecision: to === 'day' ? undefined : to, date, needsDate: !date });
+    updateRow(row.key, { datePrecision: to === 'day' ? undefined : to, date, needsDate: !date, keepUndated:false });
   }
 
   async function handleAdd() {
@@ -352,12 +409,14 @@ export default function TimelineImportModal({
       const category: LifeCategory = isBusinessSpace && r.category === 'medical' ? 'other' : (r.category || 'memory');
       return {
         id: newId('tl'),
-        date: normalizeForGrain(r.date, grain),
-        ...(grain !== 'day' ? { datePrecision: grain } : {}),
+        date: r.keepUndated ? '' : normalizeForGrain(r.date, grain),
+        ...(!r.keepUndated && grain !== 'day' ? { datePrecision: grain } : {}),
         title: r.title.trim(),
         category,
         ...(r.note?.trim() ? { note: r.note.trim() } : {}),
         ...(r.memberIds.length > 0 ? { memberIds: r.memberIds } : {}),
+        ...(r.docIds?.length ? {docIds:r.docIds} : {}),
+        ...(r.sourceDocument ? {sourceDocument:r.sourceDocument} : {}),
         source: 'import',
         importBatchId: batchId,
       };
@@ -390,11 +449,11 @@ export default function TimelineImportModal({
             </div>
             <div className="min-w-0">
               <h3 className="text-[13px] font-semibold text-ink-900">
-                {step === 1 ? 'Import dates' : 'Check before adding'}
+                {step === 1 ? 'Build my timeline' : 'Check before adding'}
               </h3>
               <p className="text-[12px] text-ink-400 mt-0.5">
                 {step === 1
-                  ? "Paste a list, or upload a file — you'll check every moment before it's added."
+                  ? "Read saved documents or upload a CV. Review each moment before adding it."
                   : `${readyCount} moment${readyCount === 1 ? '' : 's'} ready to add`}
               </p>
             </div>
@@ -402,6 +461,7 @@ export default function TimelineImportModal({
           <button
             type="button"
             onClick={handleClose}
+            disabled={isProcessing || isSubmitting}
             className="p-1.5 hover:bg-cream-100 text-ink-400 hover:text-ink-700 rounded-xl transition-colors cursor-pointer shrink-0"
             aria-label="Close"
           >
@@ -413,8 +473,20 @@ export default function TimelineImportModal({
             — see DocumentScannerModal.tsx for why that combination breaks
             scrolling on a short viewport. */}
         <div className="p-5 flex-1 overflow-y-auto flex flex-col min-h-0 gap-4">
+          {scanReport.length > 0 && <details className="rounded-xl border border-cream-200 p-3" open><summary className="text-sm font-semibold">Document reading report</summary><ul className="text-xs space-y-1 mt-2">{scanReport.map((line,i)=><li key={i}>{line}</li>)}</ul></details>}
+          {isProcessing && <button type="button" className="btn-quiet text-xs" onClick={()=>{stopScan.current=true;}}>Stop after this request</button>}
           {step === 1 ? (
             <div className="space-y-3">
+              {documents.length > 0 && <section className="rounded-2xl border border-cream-200 p-4 space-y-3" aria-label="Read uploaded documents">
+                <h4 className="font-semibold">Use documents already uploaded · {documents.length}</h4>
+                <p className="text-xs text-ink-500">Scan saved profile and vault documents, including CVs and certificates. Existing records stay in place; possible duplicates are left unchecked.</p>
+                <details><summary className="text-sm cursor-pointer">Choose documents ({documentSelection === null ? documents.length : documentSelection.length} selected)</summary>
+                  <div className="flex gap-2"><button type="button" disabled={isProcessing} className="btn-quiet text-xs" onClick={()=>setDocumentSelection(null)}>Select all documents</button><button type="button" disabled={isProcessing} className="btn-quiet text-xs" onClick={()=>setDocumentSelection([])}>Clear selection</button></div>
+                  <div className="max-h-44 overflow-y-auto">{documents.map(doc=><label key={doc.id} className="flex gap-2 py-2 text-xs"><input type="checkbox" disabled={isProcessing} checked={documentSelection === null || documentSelection.includes(doc.id)} onChange={e=>setDocumentSelection(previous=>e.target.checked?[...(previous || documents.map(d=>d.id)),doc.id]:(previous || documents.map(d=>d.id)).filter(id=>id!==doc.id))}/>{doc.name} · {doc.category}{!doc.memberIds.length?' · Shared / unassigned':''}</label>)}</div>
+                </details>
+                <p className="text-xs text-ink-500">{demoOnly ? 'Demo reads text locally; AI and scanned-image reading are disabled.' : 'Selected document text is sent to Teluva’s AI service (Google Gemini). Saved scans may also use image reading. This uses your usual AI allowance. Nothing is added until you review it.'}</p>
+                <button type="button" className="btn-primary text-sm" disabled={isProcessing || documentSelection?.length===0} onClick={scanSavedDocuments}>Read selected documents</button>
+              </section>}
               <div>
                 <label className="field-label" htmlFor="timeline-import-text">Paste a list of dates</label>
                 <textarea
@@ -450,8 +522,8 @@ export default function TimelineImportModal({
                 className={`rounded-2xl border-2 border-dashed p-5 text-center transition-colors ${isProcessing ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${isDragging ? 'border-clay-400 bg-clay-50' : 'border-cream-300 hover:border-cream-400 hover:bg-cream-50'}`}
               >
                 <Upload className={`w-6 h-6 mx-auto mb-2 ${isDragging ? 'text-clay-500' : 'text-ink-400'}`} />
-                <p className="text-[13px] font-semibold text-ink-700">Upload a file</p>
-                <p className="text-[12px] text-ink-400 mt-0.5">CSV or TSV (Excel exports work), a calendar (.ics), a text file, or a PDF with selectable text</p>
+                <p className="text-[13px] font-semibold text-ink-700">Upload a CV or timeline file</p>
+                <p className="text-[12px] text-ink-400 mt-0.5">CV in PDF or Word (.docx), CSV / TSV, calendar (.ics), or text. Up to 20 MB.</p>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -482,7 +554,7 @@ export default function TimelineImportModal({
                 </p>
               )}
               <p className="text-[11px] text-ink-400">
-                Lines we can't read ourselves are sent to the assistant, and we'll say so first. Photos can't be read here yet.
+                CV and document text is sent to Google Gemini to find work, education and other dated moments. Review dates and people before saving. For scanned files, save them in the Vault first, then use Read selected documents. Demo uses local text parsing only.
               </p>
             </div>
           ) : (
@@ -521,7 +593,7 @@ export default function TimelineImportModal({
 
               <div className="space-y-2.5">
                 {rows.map((row) => {
-                  const reason = rowReason(row);
+                  const reason = row.keepUndated && !row.duplicateOf ? 'Will be kept without a date' : rowReason(row);
                   const grain = grainOf(row);
                   return (
                     <div
@@ -545,6 +617,7 @@ export default function TimelineImportModal({
                             className="field py-2"
                             aria-label="Title"
                           />
+                          {!row.date && <label className="flex gap-2 text-xs"><input type="checkbox" checked={!!row.keepUndated} onChange={e=>updateRow(row.key,{keepUndated:e.target.checked,checked:e.target.checked})}/>Keep this moment without a date</label>}
                           <div className="flex flex-wrap gap-2">
                             {grain === 'month' ? (
                               <input

@@ -84,7 +84,7 @@ assert.ok(undoIsExact(undoBody(timelineView)), 'undoImport must filter by import
 assert.ok(!undoIsExact(undoBody(timelineView).replace('e.importBatchId !== lastImport.batchId', "e.source !== 'import'")),
   'CONTROL: the undo guard must catch an undo that removes every imported row, not just this batch');
 
-// 4. "Import dates" is offered only to someone who can write, never on the
+// 4. "Build my timeline" is offered only to someone who can write, never on the
 //    business timeline, and sits next to "Add moment" in the header row that
 //    the ember, classic and person views all share.
 const CAN_IMPORT = /const canImport = canEdit && !isBusinessSpace;/;
@@ -93,13 +93,13 @@ assert.ok(!CAN_IMPORT.test(timelineView.replace(CAN_IMPORT, 'const canImport = c
   'CONTROL: the gate guard must catch an import offered in the business space');
 const importNextToAdd = (text: string) => {
   const btn = text.indexOf('{canImport && (\n');
-  const label = text.indexOf('Import dates', btn);
+  const label = text.indexOf('Build my timeline', btn);
   const add = text.indexOf('Add moment', label);
   return btn !== -1 && label - btn < 400 && add - label < 400;
 };
-assert.ok(importNextToAdd(timelineView), 'the Import dates button must sit behind canImport, next to Add moment');
+assert.ok(importNextToAdd(timelineView), 'the Build my timeline button must sit behind canImport, next to Add moment');
 assert.ok(!importNextToAdd(timelineView.replace('{canImport && (\n', '{true && (\n')),
-  'CONTROL: the placement guard must catch an ungated Import dates button');
+  'CONTROL: the placement guard must catch an ungated Build my timeline button');
 const modalGated = (text: string) => /\{canImport && \(\s*<TimelineImportModal\b/.test(text);
 assert.ok(modalGated(timelineView), 'the import modal must only mount behind canImport');
 assert.ok(!modalGated(timelineView.replace(/\{canImport && \(\s*<TimelineImportModal/, '{(\n<TimelineImportModal')),

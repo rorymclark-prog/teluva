@@ -380,3 +380,23 @@ assert.ok(!allItems(buildLifeTimeline({ ...learningInput, isBusinessSpace: true 
  assert.equal(allItems(merged).find(i=>i.category === 'school')?.date,'2012-12-01');
  for(const result of [profile,undated,dated,misfiled,merged]) assertReconciles(result,'education uploads');
 }
+
+{
+ const owner=member({cv:{roles:[{id:'job',title:'Designer',employer:'Example Studio',startDate:'2013',endDate:'2015-06'},{id:'undated',title:'Volunteer'},{id:'current',title:'Director',startDate:'2020-01-01',current:true,endDate:'2024-01-01'}]}});
+ const history=buildLifeTimeline({members:[owner],entries:[],events:[],now:NOW});
+ const work=allItems(history).filter(i=>i.category==='work');
+ assert.equal(work.length,4,'start/end, undated and current roles are represented');
+ assert.equal(work.find(i=>i.title==='Designer')?.precision,'year');
+ assert.equal(work.find(i=>i.title==='Finished Designer')?.precision,'month');
+ assert.ok(history.undated.some(i=>i.title==='Volunteer'));
+ assert.ok(!work.some(i=>i.title==='Finished Director'),'current role does not invent an end');
+ assertReconciles(history,'work history');
+}
+
+{
+ const document={id:'cv-file',name:'CV',category:'Other' as const,fileName:'cv.pdf',fileType:'application/pdf',fileSize:20,uploadedAt:'2026-09-16',fileData:'https://files/cv'};
+ const owner=member({documents:[document]});
+ const input={members:[owner],events:[],entries:[{id:'imported',date:'2013-01-01',title:'Started design work',category:'work' as const,sourceDocument:{memberId:owner.id,documentId:document.id}}],now:NOW};
+ assert.equal(allItems(buildLifeTimeline(input))[0].fileUrl,document.fileData,'imported event opens its original profile document');
+ assert.equal(allItems(buildLifeTimeline({...input,members:[]}))[0].fileUrl,undefined,'inaccessible or deleted profile files never expose stale URLs');
+}

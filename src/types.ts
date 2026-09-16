@@ -1117,6 +1117,7 @@ export interface TimelineEntry {
   docIds?: string[];
   /** How the row got here. Absent = typed by hand before this field existed. */
   source?: 'manual' | 'import' | 'assistant';
+  sourceDocument?: { memberId: string; documentId: string }; // saved profile file behind an import
   importBatchId?: string; // set on imported rows so an import can be undone as a batch
 }
 
@@ -2061,6 +2062,7 @@ export interface CvQualification {
 }
 
 export interface MemberCv {
+  workDocumentIds?: string[]; // profile Documents explicitly filed in Work
   summary?: string;
   roles?: CvRole[];
   education?: CvEducationEntry[];

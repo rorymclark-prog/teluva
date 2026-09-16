@@ -46,6 +46,7 @@ import {
   VaultCategory,
   VaultDocument,
 } from '../types';
+import { parseDateLoose } from './timelineImport';
 import { educationDocumentLinks, educationDocuments, savedEducationDocuments, sameEducationFile } from './education';
 import { buildFamilyTimeline } from './familyTimeline';
 import { buildHealthTimeline, HealthTimelineItem, HealthTimelineKind } from './healthTimeline';
@@ -273,6 +274,7 @@ export function buildLifeTimeline(input: LifeTimelineInput): LifeTimelineResult 
       endDate: isValidIso(e.endDate) && e.endDate >= e.date ? e.endDate : undefined,
       precision: precisionOf(e),
       title: e.title,
+      fileUrl: e.sourceDocument ? members.find(m=>m.id===e.sourceDocument?.memberId)?.documents?.find(d=>d.id===e.sourceDocument?.documentId)?.fileData : undefined,
       note: e.note,
       place: e.place,
       memberIds: [...(e.memberIds || [])],
@@ -420,6 +422,14 @@ export function buildLifeTimeline(input: LifeTimelineInput): LifeTimelineResult 
         editable: false,
       });
     }
+  }
+
+  // Structured work history is already saved: no AI pass is needed to show it.
+  for (const member of members) for (const role of member.cv?.roles || []) {
+    const start = parseDateLoose(role.startDate || '');
+    place({id:`work-${member.id}-${role.id}`,source:'profile',sourceId:role.id,category:'work',date:start?.date || '',precision:start?.datePrecision || 'day',title:role.title,detail:role.employer,note:role.notes,memberIds:[member.id],editable:false,profileTab:'cv'});
+    const end = !role.current && parseDateLoose(role.endDate || '');
+    if (end) place({id:`work-end-${member.id}-${role.id}`,source:'profile',sourceId:role.id,category:'work',date:end.date,precision:end.datePrecision || 'day',title:`Finished ${role.title}`,detail:role.employer,note:role.notes,memberIds:[member.id],editable:false,profileTab:'cv'});
   }
 
   // Education links already represented by a qualification/report should not

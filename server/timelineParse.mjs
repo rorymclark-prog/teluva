@@ -17,9 +17,7 @@
  * THE SAME RULE AS THE CLIENT MODULE, ENFORCED AGAIN HERE SERVER-SIDE:
  * never invent a day, month, or year. A coarse date must come back as the
  * 1st of its month/year with the matching precision; a date the model cannot
- * read at all comes back as "" and is dropped by validation below (the
- * review screen already handles undated rows from the local parsers; the AI
- * path simply declines to add a fabricated one).
+ * read at all comes back as "" and stays undated for explicit review; no fallback date is invented.
  *
  * VALIDATION PHILOSOPHY (same as server/keyFacts.mjs's sanitizeKeyFacts):
  * the model's output is never trusted on its own. Every row is checked
@@ -83,20 +81,22 @@ const norm = (s) => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
  * sanitisation enforces anyway are stated too, because a model that already
  * avoided the mistake produces fewer rows for the filter below to kill.
  */
-export function timelineParseSystem(members, today) {
+export function timelineParseSystem(members, today, document = false) {
   const memberList = (Array.isArray(members) ? members : [])
     .map((m) => `${m?.id}: ${m?.name}`)
     .join('; ');
   return [
     'You read a family\'s own pasted notes, list, or document text and pull out distinct life events for their family timeline.',
     'Return JSON: {"rows":[{"date":"...","datePrecision":"...","title":"...","category":"...","memberIds":[...],"note":"...","sourceText":"..."}]}.',
+    'For CVs and work histories, extract each job/project start and each explicitly dated end as separate events in category work. Courses attended and qualifications belong to school; courses delivered as a trainer belong to work. Preserve employer, institution and role names. Never treat an application, course advert or template as an achieved event. Mark approximate or conflicting dates in note. Document content may describe someone other than its owner; use named people only.',
+    ...(document ? ['This is a historical document, not a note written today. Do not resolve present, current, last year or other relative dates against today. Preserve them in note; unknown dates remain empty.'] : []),
     'One row per distinct event. Do not invent events that are not there, and do not merge two different events into one row.',
     '"sourceText" MUST be copied character-for-character from the input text — the exact line or fragment that event came from. Never paraphrase it.',
     '"date" MUST be YYYY-MM-DD. "datePrecision" is "month" or "year" when only that much is known; leave it out when the exact day is known.',
     // The one rule that matters most, stated in plain words because it is the
     // one a model is most tempted to break to be "helpful".
     'NEVER invent a day, month, or year that the text does not give you. If the text only says a year ("in 2015", "back in \'98"), set datePrecision to "year" and use 01 for the month and day. If it gives a month and year but no day ("March 2019", "last July"), set datePrecision to "month" and use 01 for the day. If you cannot tell even the year, set "date" to an empty string "" — an empty date is fine and expected, a guessed one is not.',
-    `Today's date is ${today || '(not given)'}, only for interpreting relative phrases like "last year" or "when she turned 5" — never as a fallback date for an event with no date of its own.`,
+    document ? 'Dates belong to the document; no current-date anchor is supplied.' : `Today's date is ${today || '(not given)'}, only for interpreting relative phrases like "last year" or "when she turned 5" — never as a fallback date for an event with no date of its own.`,
     `"title" is a short, plain description in the family's own voice, at most ${MAX_TITLE_CHARS} characters — not a formal or clinical rephrasing.`,
     `"category" MUST be one of: ${LIFE_CATEGORY_IDS.map((t) => `"${t}"`).join(', ')}. Births, weddings and big firsts are "milestone"; trips are "holiday"; a move is "home"; use "other" when nothing fits.`,
     memberList
@@ -134,10 +134,9 @@ export function sanitizeTimelineRows(parsed, members, inputText) {
     // "the day is known" — the field is then left absent.
     const precision = r.datePrecision === 'month' || r.datePrecision === 'year' ? r.datePrecision : undefined;
     // An unreadable date is a legitimate outcome, not an error — but a row
-    // with no date is not useful to hand to the review screen from the AI
-    // path (the client's own local parsers already produce needsDate rows
-    // for that case), so rows with an empty or invalid date are dropped here.
-    if (!rawDate || !isValidTimelineDate(rawDate, precision)) continue;
+    // with no date is retained for the user to date or explicitly keep undated.
+    // Invalid non-empty dates are rejected.
+    if (rawDate && !isValidTimelineDate(rawDate, precision)) continue;
 
     const title = typeof r.title === 'string' ? r.title.trim().slice(0, MAX_TITLE_CHARS) : '';
     if (!title) continue;
@@ -164,7 +163,7 @@ export function sanitizeTimelineRows(parsed, members, inputText) {
 
     out.push({
       date: rawDate,
-      ...(precision ? { datePrecision: precision } : {}),
+      ...(rawDate && precision ? { datePrecision: precision } : {}),
       title,
       category,
       memberIds,

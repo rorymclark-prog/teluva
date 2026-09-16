@@ -23,7 +23,7 @@ export function loadPdfjs() {
   if (!pdfjsReady) {
     pdfjsReady = (async () => {
       const pdfjs = await import('pdfjs-dist');
-      const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+      const workerUrl = (await import('./pdfWorkerUrl')).default;
       pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
       return pdfjs;
     })();

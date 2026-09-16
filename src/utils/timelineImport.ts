@@ -52,6 +52,10 @@ export interface TimelineCandidate {
   note?: string;
   /** The exact line/field/fragment this row came from — shown as "from: …". */
   sourceText: string;
+  sourceName?: string;
+  sourceDocument?: { memberId: string; documentId: string };
+  preserveUnassigned?: boolean;
+  docIds?: string[];
   /** An ICS VEVENT with an RRULE — only its first occurrence was imported. */
   repeats?: boolean;
   /** id of an existing TimelineEntry this looks like a repeat of. */
@@ -598,11 +602,11 @@ export function findDuplicates(
   existing: TimelineEntry[],
   members: TimelineImportMember[] = [],
 ): TimelineCandidate[] {
+  const seen = [...existing];
   return candidates.map((c) => {
-    if (!c.date) return c; // nothing to compare a dateless row against
 
-    const existingMatch = existing.find(
-      (e) => sameDate(c.date, c.datePrecision, e) && titlesSimilar(c.title, e.title),
+    const existingMatch = seen.find(
+      (e) => (!c.memberIds.length || !e.memberIds?.length || c.memberIds.some(id => e.memberIds?.includes(id))) && ((!c.date && !e.date) || sameDate(c.date, c.datePrecision, e)) && titlesSimilar(c.title, e.title),
     );
     if (existingMatch) return { ...c, duplicateOf: existingMatch.id };
 
@@ -617,6 +621,7 @@ export function findDuplicates(
       if (memberMatch) return { ...c, duplicateOf: `member:${memberMatch.id}` };
     }
 
+    seen.push({ ...c, id: c.key });
     return c;
   });
 }

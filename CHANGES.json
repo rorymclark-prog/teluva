@@ -1,8 +1,9 @@
 {
-  "label": "v360",
+  "label": "v361",
   "changes": [
-    "Life timelines now show intermediate year labels; select a year to explore it, or switch to Scroll to see every year.",
-    "Work and School filters stay available. Education now surfaces saved profile and vault certificates, including undated uploads, with an option to add qualification details without uploading again.",
-    "Linked certificates appear once in the timeline. Printed document dates are used where available; unknown achievement dates remain clearly undated."
+    "Build my timeline can read saved profile and vault documents, or a PDF / Word CV, and offer work, education and other moments for review before adding them.",
+    "Document imports retain source evidence, flag possible duplicates, preserve month/year precision and let you keep a moment without a date. A reading report identifies files or pages that could not be read.",
+    "Work is now available in family profiles, with career history, CVs and a place to link or upload work documents. Saved roles appear in the timeline under Work.",
+    "Fixed PDF reader loading and increased CV uploads to 20 MB using file storage."
   ]
 }

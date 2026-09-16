@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { timelineDocumentSources, timelineTextChunks } from './timelineDocuments';
 import test from 'node:test';
 import {
   parseDateLoose,
@@ -432,3 +433,32 @@ test('datePrecisionChange: coarser keeps the known parts, finer never invents th
 test('datePrecisionChange: CONTROL — staying at day keeps the full date', () => {
   assert.equal(datePrecisionChange('2019-04-12', 'day', 'day'), '2019-04-12');
 });
+
+
+// Document extraction must compare within a scan and respect different owners.
+{
+ const candidate = {key:'one',date:'2013-01-01',datePrecision:'year' as const,title:'Started at Example Studio',category:'work' as const,memberIds:['a'],sourceText:'2013 Example Studio'};
+ const rows = findDuplicates([candidate,{...candidate,key:'two'},{...candidate,key:'three',memberIds:['b']}],[]);
+ assert.equal(rows[1].duplicateOf,'one');
+ assert.equal(rows[2].duplicateOf,undefined,'different people can share a role or qualification');
+}
+
+{
+ const document = {id:'cert',name:'Certificate',category:'Education' as const,fileName:'cert.pdf',fileType:'application/pdf',fileSize:20,uploadedAt:'2026-09-16',fileData:'https://files/cert',storagePath:'family/cert'};
+ const person = {id:'a',name:'Alex',role:'Parent',clothingSizes:{},documents:[document]} as import('../types').FamilyMember;
+ const vault = {...document,id:'vault-cert',downloadUrl:document.fileData,memberId:'a'};
+ const sources = timelineDocumentSources([person],[vault],'a');
+ assert.equal(sources.length,1,'profile/vault copy is scanned once');
+ assert.equal(sources[0].vaultId,'vault-cert');
+ assert.deepEqual(sources[0].memberIds,['a']);
+ assert.equal(timelineDocumentSources([person],[{...vault,memberId:'b',storagePath:'other',downloadUrl:'other'}],'a').length,1,'another person’s vault file is excluded');
+ const shared = timelineDocumentSources([], [{...vault,memberId:undefined}],'a');
+ assert.deepEqual(shared[0].memberIds,[],'unassigned files never acquire the selected person automatically');
+ const text = 'A'.repeat(18500)+'1999 Completed school'+'B'.repeat(22000);
+ const chunks=timelineTextChunks(text);
+ assert.ok(chunks.every(c=>c.length<=18000));
+ assert.ok(chunks.some(c=>c.includes('1999 Completed school')));
+ assert.equal(chunks[0]+chunks.slice(1).map(c=>c.slice(600)).join(''),text,'chunking retains the entire document');
+}
+
+assert.ok(findDuplicates([{key:'new',date:'',title:'First aid certificate',memberIds:['a'],sourceText:'First aid certificate'}],[{id:'old',date:'',title:'First aid certificate',memberIds:['a']}])[0].duplicateOf,'repeated scans also flag already-saved undated moments');

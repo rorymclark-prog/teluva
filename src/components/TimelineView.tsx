@@ -26,6 +26,7 @@ import EmptyState from './EmptyState';
 import VisualTimeline from './VisualTimeline';
 import type { FamilyTimelineItem, TimelineCategory } from '../utils/familyTimeline';
 import ImageLightbox from './ImageLightbox';
+import { timelineDocumentSources } from '../utils/timelineDocuments';
 import TimelineImportModal from './TimelineImportModal';
 
 // The life timeline: every moment the family typed in, PLUS what the rest of
@@ -95,6 +96,8 @@ export type TimelineOpenTarget = 'travelTimeline' | 'calendar' | 'anniversaries'
 
 interface Props {
   openAddSignal?: number;
+  openImportInitially?: boolean;
+  onInitialImportHandled?: () => void;
   emberMode?: boolean;
   members?: FamilyMember[];
   events?: CalendarEvent[];
@@ -110,7 +113,7 @@ interface Props {
 }
 
 export default function TimelineView({
-  openAddSignal = 0, emberMode = false, members = [], events = [], isBusinessSpace = false,
+  openAddSignal = 0, openImportInitially = false, onInitialImportHandled, emberMode = false, members = [], events = [], isBusinessSpace = false,
   canEdit = true, demo = false, memberId, onOpenHealth, onOpenView, onOpenMemberTab,
 }: Props) {
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
@@ -130,7 +133,8 @@ export default function TimelineView({
   const [adding, setAdding] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [photoView, setPhotoView] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(openImportInitially);
+  useEffect(() => { if (openImportInitially) onInitialImportHandled?.(); }, []);
   // The most recent import, for the "Added 12 moments · Undo" banner.
   const [lastImport, setLastImport] = useState<{ batchId: string; count: number } | null>(null);
 
@@ -500,7 +504,7 @@ export default function TimelineView({
                   onClick={() => setImportOpen(true)}
                   className="btn-quiet text-xs px-3 py-1.5"
                 >
-                  <CalendarPlus className="w-3.5 h-3.5" /> Import dates
+                  <CalendarPlus className="w-3.5 h-3.5" /> Build my timeline
                 </button>
               )}
               <button
@@ -615,7 +619,8 @@ export default function TimelineView({
           open={importOpen}
           onClose={() => setImportOpen(false)}
           members={members}
-          existing={entries}
+          documents={timelineDocumentSources(members, documents, person?.id)}
+          existing={[...result.upcoming,...result.years.flatMap(y=>y.items),...result.undated].map(i=>({id:i.id,date:i.date,datePrecision:i.precision === 'day' ? undefined : i.precision,title:i.title,memberIds:i.memberIds}))}
           defaultMemberId={person?.id}
           isBusinessSpace={isBusinessSpace}
           demo={demo}

@@ -1875,7 +1875,7 @@ app.post('/api/timeline/parse', async (req, res) => {
     console.log('[timeline-parse] request from', who(caller), '—', `${text.length} chars, ${memberList.length} members`);
 
     const gRes = await generateContent(MODEL_TEXT, {
-      systemInstruction: { parts: [{ text: timelineParseSystem(memberList, todayStr) }] },
+      systemInstruction: { parts: [{ text: timelineParseSystem(memberList, todayStr, req.body?.document === true) }] },
       contents: [{ role: 'user', parts: [{ text }] }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0 },
     });
