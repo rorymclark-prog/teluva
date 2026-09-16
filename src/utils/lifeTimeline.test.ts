@@ -347,3 +347,14 @@ function assertReconciles(r: LifeTimelineResult, label: string) {
 }
 
 console.log('lifeTimeline.test.ts: all assertions passed');
+
+// The visual projection must keep the newer production sources and boundaries
+// while bringing in the new profile records.
+const learner = member({ education: { schoolYears: [{ id: 'year', label: '2025–26', schoolName: 'School', reports: [{ id: 'report', title: 'Annual report', date: '2026-06-01' }] }] }, addressHistory: [{ id: 'home', address: 'First home', startDate: '2020-01-01', endDate: '2024-01-01' }] });
+const learningInput = { members: [learner], events: [], entries: [], travel: [], documents: [], anniversaries: [], milestones: [], now: NOW };
+const learning = buildLifeTimeline(learningInput);
+assert.ok(allItems(learning).some(item => item.profileTab === 'education' && item.precision === 'year'));
+assert.ok(allItems(learning).some(item => item.title === 'Annual report' && item.profileTab === 'education'));
+assert.ok(allItems(learning).some(item => item.profileTab === 'addresses' && item.endDate === '2024-01-01'));
+assertReconciles(learning, 'education and previous addresses');
+assert.ok(!allItems(buildLifeTimeline({ ...learningInput, isBusinessSpace: true })).some(item => item.source === 'profile'), 'family education and residential history must not leak into the business timeline');

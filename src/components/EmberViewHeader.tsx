@@ -44,7 +44,7 @@ const copy: Record<string, { kicker: string; title: string; note: string }> = {
   profilesTodo: { kicker: 'People · To-do & readiness', title: 'Finish what matters.', note: 'Missing records and timely checks gathered away from the family profiles.' },
   emergency: { kicker: 'People · Emergency', title: 'Useful with one hand.', note: 'The critical facts and trusted actions your family may need under pressure.' },
   info: { kicker: 'People · Important information', title: 'The facts close to hand.', note: 'Trusted contacts, providers and practical details without the folder hunt.' },
-  timeline: { kicker: 'People · Family story', title: 'A year you can feel.', note: 'Dates, photographs and small family moments gathered into a living timeline.' },
+  timeline: { kicker: 'People · Family story', title: 'Your story, connected.', note: 'Memories, education, health and the places you’ve called home, together through time.' },
   familyWords: { kicker: 'People · Family words', title: 'The language only you share.', note: 'Keep the sayings, nicknames and expressions that make this family itself.' },
   inMemory: { kicker: 'People · In memory', title: 'Quiet, lasting, family-owned.', note: 'A respectful place for a life story, voice and relationships across generations.' },
   familyTree: { kicker: 'People · Family tree', title: 'See how everyone connects.', note: 'Relationships, generations and imported family history in one calm map.' },

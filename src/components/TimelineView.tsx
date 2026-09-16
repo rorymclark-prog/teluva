@@ -23,6 +23,8 @@ import type { LucideIcon } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
 import EmptyState from './EmptyState';
+import VisualTimeline from './VisualTimeline';
+import type { FamilyTimelineItem, TimelineCategory } from '../utils/familyTimeline';
 import ImageLightbox from './ImageLightbox';
 import TimelineImportModal from './TimelineImportModal';
 
@@ -58,6 +60,7 @@ const CATEGORY_ONE: Record<LifeCategory, string> = {
 };
 
 const SOURCE_LABEL: Record<LifeSource, string> = {
+  profile: 'their profile',
   entry: '',
   health: 'health records',
   travel: 'the travel timeline',
@@ -101,13 +104,14 @@ interface Props {
   demo?: boolean;
   /** Pins the view to one person — the Timeline tab on a member's profile. */
   memberId?: string;
+  onOpenMemberTab?: (memberId: string, tab: string) => void;
   onOpenHealth?: (memberId: string) => void;
   onOpenView?: (view: TimelineOpenTarget) => void;
 }
 
 export default function TimelineView({
   openAddSignal = 0, emberMode = false, members = [], events = [], isBusinessSpace = false,
-  canEdit = true, demo = false, memberId, onOpenHealth, onOpenView,
+  canEdit = true, demo = false, memberId, onOpenHealth, onOpenView, onOpenMemberTab,
 }: Props) {
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [travel, setTravel] = useState<TravelTimelineEntry[]>([]);
@@ -118,6 +122,9 @@ export default function TimelineView({
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
   const [localAddSignal, setLocalAddSignal] = useState(0);
   const [personId, setPersonId] = useState<string>('');
+  const [visual, setVisual] = useState(true);
+  const [enabledCategories, setEnabledCategories] = useState<LifeCategory[]>(LIFE_CATEGORIES.map(c => c.id));
+  const [search, setSearch] = useState('');
   const [category, setCategory] = useState<LifeCategory | ''>('');
   const [includeFamily, setIncludeFamily] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -133,6 +140,7 @@ export default function TimelineView({
   entriesRef.current = entries;
 
   useEffect(() => {
+    if (demo) { setLoaded(true); return; }
     let active = true;
     (async () => {
       const [t, tr, docs, ann, ms] = await Promise.all([
@@ -151,15 +159,15 @@ export default function TimelineView({
       setLoaded(true);
     })();
     return () => { active = false; };
-  }, [isBusinessSpace]);
+  }, [isBusinessSpace, demo]);
 
   // Live updates from other family members. Applied silently: the add/edit
   // forms keep their own draft state, so a list refresh never disturbs what
   // someone is typing.
-  useSharedDoc<FamilyTimeline>('timeline', (v) => setEntries(v.entries || []));
-  useSharedDoc<TravelTimelineDoc>('travelTimeline', (v) => setTravel(v.entries || []), { disabled: isBusinessSpace });
-  useSharedDoc<{ docs: VaultDocument[] }>('documents', (v) => setDocuments(v.docs || []));
-  useSharedDoc<{ anniversaries: AnniversaryRecord[] }>('anniversaries', (v) => setAnniversaries(v.anniversaries || []), { disabled: isBusinessSpace });
+  useSharedDoc<FamilyTimeline>('timeline', (v) => setEntries(v.entries || []), { disabled: demo });
+  useSharedDoc<TravelTimelineDoc>('travelTimeline', (v) => setTravel(v.entries || []), { disabled: demo || isBusinessSpace });
+  useSharedDoc<{ docs: VaultDocument[] }>('documents', (v) => setDocuments(v.docs || []), { disabled: demo });
+  useSharedDoc<{ anniversaries: AnniversaryRecord[] }>('anniversaries', (v) => setAnniversaries(v.anniversaries || []), { disabled: demo || isBusinessSpace });
 
   useEffect(() => {
     if (!openAddSignal) return;
@@ -178,7 +186,7 @@ export default function TimelineView({
   // nobody touched that moment since this screen last saw it.
   const persist = async (next: TimelineEntry[], base: TimelineEntry[]) => {
     setEntries(next);
-    const ok = await saveTimeline({ entries: next }, { entries: base });
+    const ok = demo || await saveTimeline({ entries: next }, { entries: base });
     setCloudSynced(ok);
     return ok;
   };
@@ -267,7 +275,14 @@ export default function TimelineView({
     [result, person, includeFamily],
   );
   const counts = useMemo(() => countByCategory(scoped), [scoped]);
-  const shown = useMemo(() => (category ? filterLifeTimeline(scoped, { category }) : scoped), [scoped, category]);
+  const shown = useMemo(() => {
+    const matches = (item: LifeTimelineItem) => enabledCategories.includes(item.category) && `${item.title} ${item.note || ''} ${item.detail || ''}`.toLowerCase().includes(search.trim().toLowerCase());
+    return { ...scoped, years: scoped.years.map(y => ({ ...y, items: y.items.filter(matches) })).filter(y => y.items.length), upcoming: scoped.upcoming.filter(matches), undated: scoped.undated.filter(matches) };
+  }, [scoped, enabledCategories, search]);
+  const toggleCategory = (id: LifeCategory) => {
+    const next = enabledCategories.includes(id) ? enabledCategories.filter(c => c !== id) : [...enabledCategories, id];
+    setEnabledCategories(next); setCategory(next.length === 1 ? next[0] : '');
+  };
   const holidays = useMemo(() => holidaySummary(scoped), [scoped]);
   const categories = LIFE_CATEGORIES.filter((c) => !(isBusinessSpace && c.id === 'medical'));
 
@@ -302,7 +317,7 @@ export default function TimelineView({
     onDelete: deleteMoment,
     onTag: tagMoment,
     onOpenPhoto: setPhotoView,
-    onOpenHealth, onOpenView,
+    onOpenHealth, onOpenView, onOpenMemberTab,
   };
 
   const renderRow = (item: LifeTimelineItem) => {
@@ -326,6 +341,16 @@ export default function TimelineView({
     return <LifeRow item={item} {...rowProps} />;
   };
 
+  const visualSource = [...shown.upcoming, ...flat.map(f => f.item), ...shown.undated];
+  const categoryMap: Record<LifeCategory, TimelineCategory> = { milestone: 'memories', memory: 'memories', medical: 'medical', holiday: 'travel', school: 'education', home: 'addresses', work: 'calendar', papers: 'calendar', other: 'memories' };
+  const visualItems: FamilyTimelineItem[] = visualSource.map(item => ({
+    id: item.id, category: item.profileTab === 'growth' ? 'growth' : categoryMap[item.category],
+    date: item.precision === 'year' ? item.date.slice(0, 4) : item.precision === 'month' ? item.date.slice(0, 7) : item.date,
+    dateLabel: lifeDateLabel(item), title: item.title, note: item.note, memberIds: item.memberIds,
+    sourceLabel: item.detail || CATEGORY_ONE[item.category], imageUrl: item.imageUrl || item.photos?.[0]?.url,
+    endDate: item.endDate, rangeLabel: item.title,
+  }));
+
   return (
     <div className="space-y-6 font-sans">
       {!emberMode && !memberId && <div className="card p-5 sm:p-6">
@@ -344,7 +369,7 @@ export default function TimelineView({
         </div>
       </div>}
 
-      {emberMode && !memberId && (
+      {!visual && emberMode && !memberId && (
         <>
           <section className="ember-story-stage">
             <div className="ember-story-year">
@@ -414,9 +439,9 @@ export default function TimelineView({
           <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1" role="group" aria-label="Kind of moment">
             <button
               type="button"
-              onClick={() => setCategory('')}
-              className={`tab-pill text-[12.5px] shrink-0 ${!category ? 'tab-pill-active' : 'bg-cream-100 hover:bg-cream-200'}`}
-              aria-pressed={!category}
+              onClick={() => { setCategory(''); setEnabledCategories(LIFE_CATEGORIES.map(c => c.id)); }}
+              className={`tab-pill text-[12.5px] shrink-0 ${enabledCategories.length === LIFE_CATEGORIES.length ? 'tab-pill-active' : 'bg-cream-100 hover:bg-cream-200'}`}
+              aria-pressed={enabledCategories.length === LIFE_CATEGORIES.length}
             >
               All
             </button>
@@ -424,9 +449,9 @@ export default function TimelineView({
               <button
                 key={c.id}
                 type="button"
-                onClick={() => setCategory(category === c.id ? '' : c.id)}
-                className={`tab-pill text-[12.5px] shrink-0 ${category === c.id ? 'tab-pill-active' : 'bg-cream-100 hover:bg-cream-200'}`}
-                aria-pressed={category === c.id}
+                onClick={() => toggleCategory(c.id)}
+                className={`tab-pill text-[12.5px] shrink-0 ${enabledCategories.includes(c.id) ? 'tab-pill-active' : 'bg-cream-100 hover:bg-cream-200'}`}
+                aria-pressed={enabledCategories.includes(c.id)}
               >
                 {c.label}{counts[c.id] > 0 && <span className="ml-1 opacity-60 tabular-nums">{counts[c.id]}</span>}
               </button>
@@ -514,7 +539,12 @@ export default function TimelineView({
           />
         )}
 
-        {total === 0 && !adding ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="story-scale" role="group" aria-label="Timeline presentation"><button type="button" aria-pressed={visual} onClick={() => setVisual(true)}>Visual timeline</button><button type="button" aria-pressed={!visual} onClick={() => setVisual(false)}>All records</button></div>
+          <label><span className="sr-only">Search timeline</span><input className="field text-sm" placeholder="Search timeline…" value={search} onChange={e => setSearch(e.target.value)} /></label>
+        </div>
+        {visual && total > 0 && <VisualTimeline items={visualItems} members={members} renderDetails={item => renderRow(visualSource.find(source => source.id === item.id)!)} />}
+        {!visual && (total === 0 && !adding ? (
           <EmptyState
             icon={CalendarHeart}
             title={category ? `No ${CATEGORY_LABEL[category].toLowerCase()} yet` : 'No moments yet'}
@@ -561,7 +591,8 @@ export default function TimelineView({
               </section>
             )}
           </div>
-        )}
+        ))}
+        {visual && total === 0 && <p className="text-sm text-ink-500 py-5">No moments match these filters. Turn a category on, change the search or add a moment.</p>}
       </div>
 
       {!memberId && (
@@ -595,7 +626,7 @@ export default function TimelineView({
 
 /* --- One row --- */
 
-function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, onDelete, onTag, onOpenPhoto, onOpenHealth, onOpenView }: {
+function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, onDelete, onTag, onOpenPhoto, onOpenHealth, onOpenView, onOpenMemberTab }: {
   item: LifeTimelineItem;
   members: FamilyMember[];
   documents: VaultDocument[];
@@ -605,6 +636,7 @@ function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, o
   onDelete: (id: string) => void;
   onTag: (id: string, memberId: string) => void;
   onOpenPhoto: (url: string) => void;
+  onOpenMemberTab?: (memberId: string, tab: string) => void;
   onOpenHealth?: (memberId: string) => void;
   onOpenView?: (view: TimelineOpenTarget) => void;
 }) {
@@ -666,6 +698,8 @@ function LifeRow({ item, members, documents, canEdit, isBusinessSpace, onEdit, o
           )}
         </div>
 
+        {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="max-h-56 rounded-xl object-contain mt-3" loading="lazy" />}
+        {item.profileTab && item.memberIds[0] && onOpenMemberTab && <button type="button" className="btn-quiet text-xs mt-2" onClick={() => onOpenMemberTab(item.memberIds[0], item.profileTab!)}>Open {item.profileTab}<ExternalLink className="w-3 h-3" /></button>}
         {item.photos && item.photos.length > 0 && (
           <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
             {item.photos.map((p) => (
@@ -739,6 +773,9 @@ function MomentForm({ initial, members, documents, defaults, demo, isBusinessSpa
   const [precision, setPrecision] = useState<'day' | 'month' | 'year'>(initial?.datePrecision || 'day');
   const [date, setDate] = useState(initial?.date || '');
   const [endDate, setEndDate] = useState(initial?.endDate || '');
+  const [visual, setVisual] = useState(true);
+  const [enabledCategories, setEnabledCategories] = useState<LifeCategory[]>(LIFE_CATEGORIES.map(c => c.id));
+  const [search, setSearch] = useState('');
   const [category, setCategory] = useState<LifeCategory>(initial ? categoryOfEntry(initial) : defaults.category);
   const [memberIds, setMemberIds] = useState<string[]>(initial?.memberIds || defaults.memberIds);
   const [place, setPlace] = useState(initial?.place || '');
@@ -868,7 +905,7 @@ function MomentForm({ initial, members, documents, defaults, demo, isBusinessSpa
               type="button"
               onClick={() => setCategory(c.id)}
               className={`chip ${category === c.id ? CATEGORY_STYLE[c.id].chip + ' ring-2 ring-offset-1 ring-clay-300' : 'bg-white text-ink-500 border border-cream-200'}`}
-              aria-pressed={category === c.id}
+              aria-pressed={enabledCategories.includes(c.id)}
             >
               {CATEGORY_ONE[c.id]}
             </button>

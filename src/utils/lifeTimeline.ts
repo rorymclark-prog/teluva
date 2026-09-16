@@ -46,6 +46,7 @@ import {
   VaultCategory,
   VaultDocument,
 } from '../types';
+import { buildFamilyTimeline } from './familyTimeline';
 import { buildHealthTimeline, HealthTimelineItem, HealthTimelineKind } from './healthTimeline';
 import { resolveEventMembers } from './eventMemberMatch';
 import { todayIsoLocal } from './memberAppointments';
@@ -53,6 +54,7 @@ import { parseDateOnly } from './age';
 import { hiddenKey, NO_HIDDEN_PEOPLE, visibleAnniversaries, visibleEvents, type HiddenPeople } from './hiddenPeople';
 
 export type LifeSource =
+  | 'profile'      // education, former addresses and growth
   | 'entry'        // a moment typed into the timeline itself — the only editable rows
   | 'health'       // healthTimeline.ts: vaccinations, check-ups, referrals & results, appointments
   | 'travel'       // a country on the travel timeline
@@ -91,6 +93,8 @@ export interface LifeTimelineItem {
   fileUrl?: string;
   /** Only `entry` rows are edited here; everything else is edited where it lives. */
   editable: boolean;
+  profileTab?: string;
+  imageUrl?: string;
 }
 
 export interface LifeTimelineYear {
@@ -459,6 +463,17 @@ export function buildLifeTimeline(input: LifeTimelineInput): LifeTimelineResult 
         memberIds: [],
         editable: false,
       });
+    }
+  }
+
+  if (!business) {
+    for (const item of buildFamilyTimeline({ members: [...members], events, vault: [...(input.documents || [])], now })) {
+      if (!['education', 'addresses', 'growth'].includes(item.category)) continue;
+      place({ id: item.id, source: item.target?.view === 'calendar' ? 'event' : 'profile', sourceId: item.id,
+        category: item.category === 'education' ? 'school' : item.category === 'addresses' ? 'home' : 'medical',
+        date: item.date.length === 4 ? `${item.date}-01-01` : item.date, endDate: item.endDate,
+        precision: item.date.length === 4 ? 'year' : 'day', title: item.title, detail: item.sourceLabel,
+        note: item.note, memberIds: item.memberIds, editable: false, profileTab: item.target?.tab, imageUrl: item.imageUrl });
     }
   }
 

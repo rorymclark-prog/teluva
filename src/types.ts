@@ -40,6 +40,7 @@ export interface FamilyDocument {
   fileSize: number;
   uploadedAt: string;
   notes?: string;
+  storagePath?: string; // owned Storage file, when uploaded directly to a profile
   fileData?: string; // base64 string or url
   contentHash?: string; // SHA-256 of the file bytes — powers duplicate detection; absent on documents saved before this existed
   /** Carried over from the VaultDocument by toFamilyDoc so viewers can show them. */
@@ -129,6 +130,51 @@ export interface EducationDetails {
   teacherContact?: string;
   roomNumber?: string;
   scheduleNotes?: string;
+  currentYearId?: string;
+  schoolYears?: SchoolYear[];
+  qualifications?: EducationQualification[];
+}
+
+// References keep the original document in its existing store. No file copies.
+export interface EducationDocumentLink {
+  id: string;
+  source: 'member' | 'vault';
+  documentId: string;
+}
+
+export interface EducationReport {
+  id: string;
+  kind?: 'Report' | 'Class photo' | 'Achievement' | 'Project' | 'Activity' | 'Memory';
+  title: string;
+  term?: string;
+  date?: string;
+  results?: string;
+  notes?: string;
+  documents?: EducationDocumentLink[];
+}
+
+export interface SchoolYear {
+  id: string;
+  label: string;
+  schoolName: string;
+  grade?: string;
+  teacherName?: string;
+  teacherContact?: string;
+  roomNumber?: string;
+  scheduleNotes?: string;
+  notes?: string;
+  staffNotes?: string;
+  reports?: EducationReport[];
+}
+
+export interface EducationQualification {
+  id: string;
+  name: string;
+  issuer?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  notes?: string;
+  documents?: EducationDocumentLink[];
 }
 
 export interface NationalIdentifiers {
@@ -322,6 +368,7 @@ export interface FamilyMember {
   // Where this member lives + how to reach them. Visible to the whole family
   // (members can live at different addresses, e.g. an adult child or relative).
   address?: string;
+  addressHistory?: PreviousAddress[];
   phone?: string;
   email?: string;
 
@@ -1020,6 +1067,15 @@ export interface FinancesInfo {
   banks?: BankAccount[];
   insurance?: InsurancePolicy[];
   benefits?: BenefitInfo[];
+}
+
+export interface PreviousAddress {
+  id: string;
+  address: string;
+  label?: string;
+  startDate?: string;
+  endDate?: string;
+  notes?: string;
 }
 
 // --- Family timeline ---

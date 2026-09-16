@@ -1148,7 +1148,6 @@ html[data-interface="ember"] body {
 /* Destination bodies should feel composed, not like the old dashboard was
    placed underneath a new masthead. Only title-only cards are suppressed;
    cards that carry add/import controls remain visible as compact toolbars. */
-[data-interface="ember"] .ember-main[data-view="timeline"] > .space-y-6.font-sans > .card:first-child,
 [data-interface="ember"] .ember-main[data-view="household"] > .space-y-6.font-sans > .card:first-child,
 [data-interface="ember"] .ember-main[data-view="finances"] > .space-y-6.font-sans > .card:first-child,
 [data-interface="ember"] .ember-main[data-view="pets"] > .space-y-6.font-sans > .card:first-child { display: none; }

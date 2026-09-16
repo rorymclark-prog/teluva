@@ -78,6 +78,7 @@ const travelInfoBody = extractInterfaceBody(typesSrc, 'TravelInfo');
 const nestedCollections = [
   ...extractArrayFields(medicalRecordBody).map((f) => `medical.${f}`),
   ...extractArrayFields(travelInfoBody).map((f) => `travel.${f}`),
+  ...extractArrayFields(extractInterfaceBody(typesSrc, 'EducationDetails')).map(f => `education.${f}`),
 ];
 
 // See step 2 above: `cv` (MemberCv) is a structured, per-member record with its
@@ -245,6 +246,9 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   sayings: covered('saying'),
   favoriteQuotes: covered('favorite_quote'),
   cv: covered('cv'),
+  addressHistory: manual('Previous addresses are entered in the Addresses tab with dates confirmed by the user; automatic address-history filing is not enabled.'),
+  'education.schoolYears': manual('School years and reports are entered in Education; users select the academic year and attach existing scans. Automatic report extraction is a later feature.'),
+  'education.qualifications': manual('Family qualifications are entered in Education and linked to saved certificates; the business CV assistant does not populate this separate family record.'),
   'travel.transitPasses': covered('transit_pass'),
   'medical.vaccinations': covered('vaccination'), // fixed 2026-07-29 — this was the second occurrence of the bug this test now guards against.
   // referrals deliberately does NOT get its own kind literal — it rides on the

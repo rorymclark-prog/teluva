@@ -143,6 +143,9 @@ import MemberCalendarDates from './MemberCalendarDates';
 import { sunSign, isSameLocalDay, blurbCacheKey } from '../utils/astrology';
 import { computeBirthChart } from '../utils/birthChart';
 import MemberCV from './MemberCV';
+import MemberEducation from './MemberEducation';
+import MemberAddresses from './MemberAddresses';
+import { GraduationCap } from 'lucide-react';
 import CelebrationOverlay from './CelebrationOverlay';
 import InstallPrompt from './InstallPrompt';
 import FirstRunTour from './FirstRunTour';
@@ -252,7 +255,7 @@ function isJoinLinkVisit(): boolean {
   return /^\/join\/.+/.test(window.location.pathname);
 }
 
-type TabId = 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians' | 'timeline';
+type TabId = 'education' | 'addresses' | 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians' | 'timeline';
 type ViewId = 'pulse' | 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -269,6 +272,8 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'preferences', label: 'Likes', icon: Sparkles },
   { id: 'sayings', label: 'Sayings', icon: Quote },
   { id: 'timeline', label: 'Timeline', icon: CalendarHeart },
+  { id: 'education', label: 'Education', icon: GraduationCap },
+  { id: 'addresses', label: 'Addresses', icon: Home },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'secrets', label: 'Secrets', icon: Key },
   { id: 'cv', label: 'CV', icon: Briefcase },
@@ -276,9 +281,9 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 
 type ProfileLens = 'essentials' | 'health' | 'life' | 'story';
 const PROFILE_LENSES: { id: ProfileLens; label: string; note: string; tabs: TabId[] }[] = [
-  { id: 'essentials', label: 'Essentials', note: 'Identity, access and records', tabs: ['overview', 'ids', 'guardians', 'documents', 'secrets'] },
+  { id: 'essentials', label: 'Essentials', note: 'Identity, access and records', tabs: ['overview', 'ids', 'addresses', 'guardians', 'documents', 'secrets'] },
   { id: 'health', label: 'Health', note: 'Care, check-ups and growth', tabs: ['medical', 'care', 'growth', 'timelapse'] },
-  { id: 'life', label: 'Life', note: 'Daily needs, travel and wishes', tabs: ['sizes', 'favorites', 'travel', 'preferences', 'cv'] },
+  { id: 'life', label: 'Life', note: 'Daily needs, travel and wishes', tabs: ['education', 'sizes', 'favorites', 'travel', 'preferences', 'cv'] },
   { id: 'story', label: 'Story', note: 'Words and moments worth keeping', tabs: ['timeline', 'sayings'] },
 ];
 
@@ -291,7 +296,7 @@ function profileLensFor(tab: TabId): ProfileLens {
 // family-custody concept with no equivalent for an employee's HR record.
 // 'timeline' too: a person's life timeline carries their health history,
 // which has no place in an employee's record (lifeTimeline.ts rule 4).
-const HIDDEN_IN_BUSINESS: TabId[] = ['care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse', 'guardians', 'timeline'];
+const HIDDEN_IN_BUSINESS: TabId[] = ['education', 'addresses', 'care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse', 'guardians', 'timeline'];
 // Mirror image: tabs that only make sense for an employee in a business space
 // (a CV/résumé — career history, qualifications) have no family equivalent.
 const HIDDEN_IN_FAMILY: TabId[] = ['cv'];
@@ -584,6 +589,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
 
   const [mainView, setMainView] = useState<ViewId>(() => {
+    if (demo && new URLSearchParams(window.location.search).get('view') === 'timeline') return 'timeline';
     if (!emberInterface) return 'profiles';
     if (initialFirstJob === 'week') return 'calendar';
     if (initialFirstJob === 'vault') return 'vault';
@@ -3095,6 +3101,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             isBusinessSpace={isBusinessSpace}
             canEdit={demo || canWrite}
             demo={demo}
+            onOpenMemberTab={goToMemberTab}
             onOpenHealth={(id) => { setHealthTimelineMemberId(id); setShowHealthTimeline(true); }}
             onOpenView={(view) => setMainView(view)}
           />
@@ -3810,6 +3817,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                     events={events}
                                     canEdit={demo || canWrite}
                                     demo={demo}
+                                    onOpenMemberTab={goToMemberTab}
                                     onOpenHealth={(id) => { setHealthTimelineMemberId(id); setShowHealthTimeline(true); }}
                                     onOpenView={(view) => setMainView(view)}
                                   />
@@ -3821,6 +3829,20 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                   <div className="border-t border-cream-200 my-2" />
                                   <MemberFavoriteQuotes member={selectedMember} onUpdateMember={handleUpdateMember} canEdit={demo || canWrite} />
                                 </>
+                              )}
+                              {activeTab === 'addresses' && (
+                                <MemberAddresses key={selectedMember.id} member={selectedMember} canEdit={demo || canWrite}
+                                  onUpdate={async (patch) => {
+                                    if (!demo && !canWrite) return;
+                                    await persistChanges(membersRef.current.map(m => m.id === selectedMember.id ? { ...m, ...patch } : m));
+                                  }} />
+                              )}
+                              {activeTab === 'education' && (
+                                <MemberEducation key={selectedMember.id} member={selectedMember} canEdit={demo || canWrite}
+                                  onUpdate={async (patch) => {
+                                    if (!demo && !canWrite) return;
+                                    await persistChanges(membersRef.current.map(m => m.id === selectedMember.id ? { ...m, ...patch } : m));
+                                  }} onViewDocument={handleViewDocument} />
                               )}
                               {activeTab === 'documents' && (
                                 <MemberDocuments

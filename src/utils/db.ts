@@ -2218,6 +2218,7 @@ export async function deleteDocumentEverywhere(opts: {
   // removing the metadata, otherwise the user is stuck with an undeletable row.
   const storagePaths = new Set<string>(vaultTargets.map(v => v.storagePath).filter(Boolean));
   if (vaultDoc?.storagePath) storagePaths.add(vaultDoc.storagePath);
+  if (memberDoc?.storagePath) storagePaths.add(memberDoc.storagePath);
   for (const path of storagePaths) await deleteVaultFile(path);
 
   // Match member copies against whatever we know about the vault side. When the
