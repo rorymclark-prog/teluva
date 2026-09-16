@@ -134,3 +134,11 @@
 @media (max-width: 767px) {
   [data-interface="ember"] .ember-main[data-view="timeline"] > .ember-view-heading { position: static; }
 }
+
+.story-year-tick { z-index: 3; border: 0; padding: 0; cursor: pointer; color: var(--color-ink-600); }
+.story-year-tick span { padding: 5px 4px; top: 8px; font-size: 11px; }
+.story-year-tick:hover span { color: var(--color-clay-700); text-decoration: underline; }
+
+.story-year-tick { width: 44px; height: 44px; transform: translateX(-50%); background: transparent; }
+.story-year-tick::before { content: ""; position: absolute; top: 0; left: 50%; height: 9px; width: 1px; background: var(--color-ink-400); }
+.story-year-tick span { left: 50%; }

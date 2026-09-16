@@ -358,3 +358,25 @@ assert.ok(allItems(learning).some(item => item.title === 'Annual report' && item
 assert.ok(allItems(learning).some(item => item.profileTab === 'addresses' && item.endDate === '2024-01-01'));
 assertReconciles(learning, 'education and previous addresses');
 assert.ok(!allItems(buildLifeTimeline({ ...learningInput, isBusinessSpace: true })).some(item => item.source === 'profile'), 'family education and residential history must not leak into the business timeline');
+
+// Uploaded education remains discoverable without fabricated award dates.
+{
+ const doc = { id: 'certificate', name: 'Permaculture certificate', category: 'Education' as const, fileName: 'certificate.pdf', fileType: 'application/pdf', fileSize: 20, uploadedAt: '2026-09-16', fileData: 'https://files/certificate' };
+ const owner = member({documents:[doc]});
+ const profile = buildLifeTimeline({events:[], entries:[], members:[owner], now:NOW});
+ assert.equal(profile.undated.find(i => i.title === doc.name)?.category, 'school');
+ const copy = vaultDoc({category:'Education', memberId:owner.id, downloadUrl:doc.fileData});
+ const undated = buildLifeTimeline({events:[], entries:[], members:[owner], documents:[copy], now:NOW});
+ assert.equal(allItems(undated).filter(i=>i.title === doc.name || i.sourceId === copy.id).length, 1);
+ assert.equal(undated.undated.filter(i=>i.category === 'school').length, 1);
+ const dated = buildLifeTimeline({events:[], entries:[], members:[owner], documents:[{...copy,docDate:'2012-12-01'}], now:NOW});
+ assert.equal(allItems(dated).filter(i=>i.category === 'school').length, 1);
+ assert.equal(allItems(dated).find(i=>i.category === 'school')?.date, '2012-12-01');
+ const misfiled = buildLifeTimeline({events:[], entries:[], members:[owner], documents:[{...copy,category:'Other'}], now:NOW});
+ assert.ok(misfiled.undated.some(i=>i.title === doc.name), 'an undated misfiled vault copy cannot hide the profile certificate');
+ const linked = {...owner,education:{qualifications:[{id:'q',name:'Permaculture',documents:[{id:'vault:d1',source:'vault' as const,documentId:'d1'}]}]}};
+ const merged = buildLifeTimeline({events:[], entries:[], members:[linked],documents:[{...copy,docDate:'2012-12-01'}],now:NOW});
+ assert.equal(allItems(merged).filter(i=>i.category === 'school').length,1, 'linked qualification replaces raw copies');
+ assert.equal(allItems(merged).find(i=>i.category === 'school')?.date,'2012-12-01');
+ for(const result of [profile,undated,dated,misfiled,merged]) assertReconciles(result,'education uploads');
+}

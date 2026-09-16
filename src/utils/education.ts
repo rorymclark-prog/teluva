@@ -14,6 +14,8 @@ export function upsertEducationYear(education: EducationDetails, year: SchoolYea
 export interface EducationDocumentOption {
   link: EducationDocumentLink;
   document: FamilyDocument;
+  date?: string;
+  shared?: boolean;
 }
 
 export function educationDocuments(member: FamilyMember, vault: VaultDocument[]): EducationDocumentOption[] {
@@ -23,10 +25,29 @@ export function educationDocuments(member: FamilyMember, vault: VaultDocument[])
     })),
     ...vault.filter(d => d.memberId === member.id || (!d.memberId && d.category === 'Education')).map(d => ({
       link: { id: `vault:${d.id}`, source: 'vault' as const, documentId: d.id },
-      document: { id: d.id, name: d.name, category: 'Education' as const, fileName: d.fileName,
-        fileType: d.fileType, fileSize: d.fileSize, fileData: d.downloadUrl, uploadedAt: d.uploadedAt, notes: d.notes },
+      date: d.docDate, shared: !d.memberId,
+      document: { id: d.id, name: d.name, category: (d.category === 'Medical' ? 'Health' : d.category === 'Identity' ? 'ID' : ['Education', 'Travel'].includes(d.category) ? d.category : 'Other') as FamilyDocument['category'], fileName: d.fileName,
+        fileType: d.fileType, fileSize: d.fileSize, fileData: d.downloadUrl, storagePath: d.storagePath, contentHash: d.contentHash, uploadedAt: d.uploadedAt, notes: d.notes },
     })),
   ];
+}
+
+export function sameEducationFile(a: Pick<FamilyDocument, 'id' | 'storagePath' | 'contentHash' | 'fileData'>, b: Pick<FamilyDocument, 'id' | 'storagePath' | 'contentHash' | 'fileData'>): boolean {
+  return !!((a.storagePath && a.storagePath === b.storagePath) || (a.contentHash && a.contentHash === b.contentHash) || (a.fileData && a.fileData === b.fileData));
+}
+
+/** Existing uploads are visible without asking the user to upload or enter them again. */
+export function savedEducationDocuments(member: FamilyMember, vault: VaultDocument[]): EducationDocumentOption[] {
+  const options = educationDocuments(member, vault);
+  const links = educationDocumentLinks(member.education);
+  const linked = options.filter(o => links.some(link => link.source === o.link.source && link.documentId === o.link.documentId));
+  const saved: EducationDocumentOption[] = [];
+  for (const option of options.filter(o => o.document.category === 'Education').sort((a, b) => Number(!!b.date) - Number(!!a.date))) {
+    if (linked.some(o => o.link.id === option.link.id || sameEducationFile(o.document, option.document))) continue;
+    if (saved.some(o => sameEducationFile(o.document, option.document))) continue;
+    saved.push(option);
+  }
+  return saved;
 }
 
 export function educationDocumentLinks(education?: EducationDetails): EducationDocumentLink[] {

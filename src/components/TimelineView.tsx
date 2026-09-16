@@ -447,7 +447,7 @@ export default function TimelineView({
             >
               All
             </button>
-            {categories.filter((c) => counts[c.id] > 0 || c.id === category || (c.id === 'holiday' && !isBusinessSpace)).map((c) => (
+            {categories.filter((c) => counts[c.id] > 0 || c.id === category || (['holiday', 'work', 'school'].includes(c.id) && !isBusinessSpace)).map((c) => (
               <button
                 key={c.id}
                 type="button"

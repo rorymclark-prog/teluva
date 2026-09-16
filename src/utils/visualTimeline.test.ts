@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { FamilyTimelineItem } from './familyTimeline';
-import { lifeTimelineChapters, preferredTimelineYear, timelineChapters, timelineRange, timelineYears } from './visualTimeline';
+import { lifeTimelineChapters, lifeTimelineTicks, preferredTimelineYear, timelineChapters, timelineRange, timelineYears } from './visualTimeline';
 const event = (id: string, date: string): FamilyTimelineItem => ({ id, date, title: id, category: 'memories', memberIds: [], sourceLabel: 'Memory' });
 const records = [event('leap-day', '2024-02-29'), event('same-day', '2024-02-29'), event('next-month', '2024-03-01'), event('unknown', ''), event('school-year', '2024'), event('old', '1988-06-01')];
 const chapters = timelineChapters(records, 2024, 1, 'year');
@@ -31,3 +31,13 @@ for (const slots of [1, 2, 8]) {
 }
 const lifetimeBand = timelineRange(home, 2026, 0, 'life', [1988, 2026]);
 assert.ok(lifetimeBand && lifetimeBand.start > 0 && lifetimeBand.end < 1 && lifetimeBand.end > lifetimeBand.start, 'life residence bands use the entire lifespan');
+
+for (const width of [220, 500, 900]) {
+ const ticks = lifeTimelineTicks(1979, 2027, width, true);
+ assert.equal(ticks[0].year, 1979);
+ assert.equal(ticks.at(-1)!.year, 2027);
+ assert.ok(ticks.length > 2, 'fit view includes intermediate year labels');
+ for (let i = 1; i < ticks.length; i++) assert.ok((ticks[i].position - ticks[i-1].position)*width >= 48, 'year labels stay separated on narrow screens');
+}
+assert.equal(lifeTimelineTicks(1979, 2027, 15000, false).length, 49, 'scroll mode labels every year');
+assert.deepEqual(lifeTimelineTicks(2026, 2026, 220, true), [{year:2026,position:0.5}]);

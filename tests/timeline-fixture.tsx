@@ -2,6 +2,7 @@
 // fictional records, no credentials, no writes to household data.
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import MemberEducation from '../src/components/MemberEducation';
 import TimelineView from '../src/components/TimelineView';
 import '../src/index.css';
 import type { FamilyMember, CalendarEvent } from '../src/types';
@@ -12,8 +13,9 @@ const dense = { ...adult, education: { schoolYears: Array.from({ length: 52 }, (
 function Fixture() {
  const [scenario, setScenario] = useState('sparse');
  const [source, setSource] = useState('');
+ const [educationMember, setEducationMember] = useState<FamilyMember>({...adult, documents:[{id:'cert',name:'Permaculture certificate',category:'Education',fileName:'certificate.pdf',fileType:'application/pdf',fileSize:20,fileData:'data:application/pdf;base64,',uploadedAt:'2026-09-16'}]});
  const business = scenario === 'business';
  const list = scenario === 'empty' ? [] : scenario === 'dense' ? [dense, child] : scenario === 'birth-only' ? [{ ...child, education: undefined, addressHistory: [] }] : [adult, child];
- return <main style={{ padding: 12, maxWidth: 1400, margin: 'auto' }}><label>Test scenario <select value={scenario} onChange={e => setScenario(e.target.value)}><option value="sparse">Sparse lifetime</option><option value="dense">Dense lifetime</option><option value="birth-only">Birth only</option><option value="empty">Empty history</option><option value="business">Business</option></select></label><output aria-label="Opened source">{source}</output><section key={scenario}><TimelineView demo members={list} events={scenario === 'birth-only' || scenario === 'empty' ? [] : business ? [{ id: 'milestone', title: 'Business opened', date: '2001-03-01', category: 'Milestone', remindMe: false }] : events} isBusinessSpace={business} onOpenMemberTab={(id, tab) => setSource(`${id}:${tab}`)} /></section></main>;
+ return <main style={{ padding: 12, maxWidth: 1400, margin: 'auto' }}><label>Test scenario <select value={scenario} onChange={e => setScenario(e.target.value)}><option value="sparse">Sparse lifetime</option><option value="dense">Dense lifetime</option><option value="birth-only">Birth only</option><option value="empty">Empty history</option><option value="business">Business</option><option value="education">Education uploads</option></select></label><output aria-label="Opened source">{source}</output><section key={scenario}>{scenario === 'education' ? <><MemberEducation member={educationMember} onUpdate={async patch => setEducationMember(m => ({...m,...patch}))} canEdit onViewDocument={d => setSource(d.name)} /><TimelineView demo members={[educationMember]} events={[]} /></> : <TimelineView demo members={list} events={scenario === 'birth-only' || scenario === 'empty' ? [] : business ? [{ id: 'milestone', title: 'Business opened', date: '2001-03-01', category: 'Milestone', remindMe: false }] : events} isBusinessSpace={business} onOpenMemberTab={(id, tab) => setSource(`${id}:${tab}`)} />}</section></main>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);

@@ -2,6 +2,18 @@ import type { FamilyTimelineItem } from './familyTimeline';
 
 export type TimelineScale = 'life' | 'year' | 'month';
 export interface TimelineChapter { key: string; index: number; label: string; items: FamilyTimelineItem[] }
+export function lifeTimelineTicks(first: number, last: number, width: number, fitted: boolean): { year: number; position: number }[] {
+  if (first === last) return [{ year: first, position: 0.5 }];
+  const span = last - first + 1;
+  const step = fitted ? ([1, 2, 5, 10, 20, 25, 50, 100].find(value => width / span * value >= 64) || 100) : 1;
+  const ticks = [{ year: first, position: 0 }];
+  for (let year = Math.ceil((first + 1) / step) * step; year < last; year += step) {
+    const position = (year - first + 0.5) / span;
+    if (position * width < 48 || (1 - position) * width < 48) continue;
+    ticks.push({ year, position });
+  }
+  return [...ticks, { year: last, position: 1 }];
+}
 /** Group neighbouring calendar periods only when cards would overlap in Fit screen. */
 export function fitTimelineChapters(chapters: TimelineChapter[], periodSlots: number, visibleSlots: number): TimelineChapter[] {
   if (visibleSlots >= periodSlots) return chapters;

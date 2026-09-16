@@ -46,6 +46,7 @@ import {
   VaultCategory,
   VaultDocument,
 } from '../types';
+import { educationDocumentLinks, educationDocuments, savedEducationDocuments, sameEducationFile } from './education';
 import { buildFamilyTimeline } from './familyTimeline';
 import { buildHealthTimeline, HealthTimelineItem, HealthTimelineKind } from './healthTimeline';
 import { resolveEventMembers } from './eventMemberMatch';
@@ -421,11 +422,29 @@ export function buildLifeTimeline(input: LifeTimelineInput): LifeTimelineResult 
     }
   }
 
+  // Education links already represented by a qualification/report should not
+  // produce another raw-document row, including copies in profile and vault.
+  const linkedEducationFiles = business ? [] : members.flatMap(member => {
+    const links = educationDocumentLinks(member.education);
+    return educationDocuments(member, [...(input.documents || [])]).filter(option => links.some(link => link.source === option.link.source && link.documentId === option.link.documentId));
+  });
+  if (!business) for (const member of members) {
+    for (const option of savedEducationDocuments(member, [])) {
+      if (option.link.source !== 'member') continue;
+      // Keep explicit profile ownership unless an Education vault copy belongs to this person.
+      if ((input.documents || []).some(d => d.category === 'Education' && (!d.memberId || d.memberId === member.id) && sameEducationFile(option.document, { ...d, fileData: d.downloadUrl }))) continue;
+      if (educationDocuments(member, [...(input.documents || [])]).some(o => educationDocumentLinks(member.education).some(l => l.source === o.link.source && l.documentId === o.link.documentId) && sameEducationFile(o.document, option.document))) continue;
+      place({ id: `education-document-${member.id}-${option.document.id}`, source: 'profile', sourceId: option.document.id,
+        category: 'school', date: '', precision: 'day', title: option.document.name, note: option.document.notes,
+        detail: 'Education document · date not recorded', memberIds: [member.id], editable: false, profileTab: 'education', fileUrl: option.document.fileData });
+    }
+  }
+
   // --- 7. Documents with the date printed on them (rules 1, 2, 4) ---------
   for (const d of input.documents || []) {
-    if (!isValidIso(d.docDate)) continue;                  // rule 1: no printed date, no position
+    if (!isValidIso(d.docDate) && d.category !== 'Education') continue;                  // rule 1: no printed date, no position
     if (business && d.category === 'Medical') continue;    // rule 4
-    if (linkedDocIds.has(d.id) || (d.storagePath && referralPaths.has(d.storagePath))) {
+    if (linkedDocIds.has(d.id) || linkedEducationFiles.some(option => (option.link.source === 'vault' && option.link.documentId === d.id) || sameEducationFile(option.document, { ...d, fileData: d.downloadUrl })) || (d.storagePath && referralPaths.has(d.storagePath))) {
       total++;
       suppressed++;                                        // rule 2: already on the timeline through another row
       continue;
@@ -435,12 +454,13 @@ export function buildLifeTimeline(input: LifeTimelineInput): LifeTimelineResult 
       source: 'document',
       sourceId: d.id,
       category: VAULT_CATEGORY[d.category] || 'other',
-      date: d.docDate,
+      date: isValidIso(d.docDate) ? d.docDate : '',
       precision: 'day',
       title: d.name,
       detail: d.category,
+      profileTab: !business && d.category === 'Education' && d.memberId ? 'education' : undefined,
       note: d.notes,
-      memberIds: d.memberId ? [d.memberId] : [],
+      memberIds: d.memberId ? [d.memberId] : d.category === 'Education' ? members.filter(m => m.documents?.some(doc => doc.category === 'Education' && sameEducationFile(doc, { ...d, fileData: d.downloadUrl }))).map(m => m.id) : [],
       docIds: [d.id],
       fileUrl: d.downloadUrl,
       editable: false,

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Award, BookOpen, FileText, GraduationCap, Loader2, Pencil, Plus, Upload, X } from 'lucide-react';
 import type { EducationDetails, EducationDocumentLink, EducationQualification, EducationReport, FamilyDocument, FamilyMember, SchoolYear, VaultDocument } from '../types';
-import { educationDocuments, upsertEducationYear, type EducationDocumentOption } from '../utils/education';
+import { savedEducationDocuments, educationDocuments, upsertEducationYear, type EducationDocumentOption } from '../utils/education';
 import { loadDocuments, uploadVaultFile } from '../utils/db';
 import { isDemoMode } from '../utils/demoData';
 import { useSharedDoc } from '../hooks/useSharedDoc';
@@ -156,6 +156,7 @@ export default function MemberEducation({ member, canEdit, onUpdate, onViewDocum
   const qualifications = [...(education.qualifications || [])].sort((a, b) => (b.issueDate || '').localeCompare(a.issueDate || '') || a.name.localeCompare(b.name));
   const year = years.find(y => y.id === selectedYearId) || years[0];
   const options = educationDocuments(member, vault);
+  const savedDocuments = savedEducationDocuments(member, vault);
 
   const save = async (next: EducationDetails, document?: FamilyDocument) => {
     if (!canEdit) return;
@@ -209,6 +210,15 @@ export default function MemberEducation({ member, canEdit, onUpdate, onViewDocum
           className={`tab-pill ${section === 'qualifications' ? 'tab-pill-active' : ''}`}><Award className="w-4 h-4" /> Qualifications · {qualifications.length}</button>
       </div>
     </div>
+    {savedDocuments.length > 0 && <section className="card p-5 space-y-3" aria-label="Saved education documents">
+      <h3 className="font-semibold">Saved education documents · {savedDocuments.length}</h3>
+      <p className="text-sm text-ink-500">Your uploaded certificates and education files are already here. Add qualification details to record when you completed them.</p>
+      {savedDocuments.map(option => <article key={option.link.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-cream-200 pt-3">
+        <div><p className="font-semibold text-sm">{option.document.name}</p><p className="text-xs text-ink-500">{option.shared ? 'Shared vault · not assigned to a person' : 'Saved for this profile'} · {option.date ? `Document date: ${option.date}` : 'Date not recorded · kept in undated timeline moments'}</p></div>
+        <div className="flex gap-2"><button type="button" className="btn-quiet text-xs" disabled={!option.document.fileData} onClick={() => onViewDocument(option.document, member.name)}>Open document</button>
+          {canEdit && <button type="button" className="btn-quiet text-xs" disabled={!!editor} onClick={() => { setSection('qualifications'); setEditor({ kind: 'qualification', qualification: { id: crypto.randomUUID(), name: option.document.name, issueDate: option.date || '', documents: [option.link] } }); }}>Add qualification details</button>}</div>
+      </article>)}
+    </section>}
     {vaultError && <p role="status" className="text-sm text-ink-500">The shared vault could not be loaded. Profile documents are still available; reopen Education to retry.</p>}
     {editor && canEdit && <EducationForm key={`${editor.kind}-${record?.id || 'new'}`} title={`${record ? 'Edit' : 'Add'} ${editor.kind === 'year' ? 'school year' : editor.kind === 'report' ? 'school record' : editor.kind}`}
       fields={fields} initial={valuesFor(record || (editor.kind === 'year' ? education : undefined), fields)}

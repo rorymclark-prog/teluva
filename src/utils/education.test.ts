@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { EducationDetails, FamilyMember, SchoolYear, VaultDocument } from '../types';
-import { educationDocuments, upsertEducationYear } from './education';
+import { educationDocuments, savedEducationDocuments, upsertEducationYear } from './education';
 import { mergeValue } from './mergeShared';
 import { buildPack } from './exportPack';
 
@@ -32,3 +32,15 @@ assert.ok(!pack.summaryMarkdown.includes('https://example.test'), 'export text n
 const contact = buildPack({ title: 'Contact', memberIds: ['child'], topics: ['contact'] }, { members: [member], events: [], vaultDocuments: vault });
 assert.match(contact.summaryMarkdown, /Previous home/);
 console.log('education.test.ts: history, merge, document ownership and exports passed');
+
+const uploaded = { ...member, education: undefined, documents: [{ ...member.documents[0], category: 'Education' as const }] };
+assert.equal(savedEducationDocuments(uploaded, []).length, 1, 'unlinked profile certificates are immediately visible');
+assert.equal(savedEducationDocuments(uploaded, [])[0].date, undefined, 'upload date never becomes achievement date');
+const datedCopy = { ...vault[0], memberId: uploaded.id, downloadUrl: uploaded.documents[0].fileData, docDate: '2012-12-01' };
+assert.equal(savedEducationDocuments(uploaded, [datedCopy]).length, 1, 'profile and vault copies deduplicate');
+assert.equal(savedEducationDocuments(uploaded, [datedCopy])[0].date, '2012-12-01', 'printed date survives deduplication');
+assert.equal(savedEducationDocuments(uploaded, [{ ...datedCopy, category: 'Other' }]).length, 1, 'misfiled vault copy must not hide profile education');
+const linkedUpload = { ...uploaded, education: { qualifications: [{ id: 'q', name: 'Award', documents: [{ id: 'member:doc', source: 'member' as const, documentId: 'doc' }] }] } };
+assert.equal(savedEducationDocuments(linkedUpload, [datedCopy]).length, 0, 'qualification absorbs linked upload and its duplicate');
+assert.equal(savedEducationDocuments(uploaded, vault).filter(d => d.shared).length, 1, 'unassigned education is clearly shared');
+assert.ok(!savedEducationDocuments(uploaded, vault).some(d => d.document.id === 'other'), 'other member ownership remains private');

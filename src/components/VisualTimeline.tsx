@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, ArrowUpRight, CalendarDays, CalendarHeart, Gradu
 import { createPortal } from 'react-dom';
 import type { FamilyMember, TimelineEntry } from '../types';
 import type { FamilyTimelineItem } from '../utils/familyTimeline';
-import { fitTimelineChapters, lifeTimelineChapters, preferredTimelineYear, timelineChapters, timelineRange, timelineYears, type TimelineScale } from '../utils/visualTimeline';
+import { lifeTimelineTicks, fitTimelineChapters, lifeTimelineChapters, preferredTimelineYear, timelineChapters, timelineRange, timelineYears, type TimelineScale } from '../utils/visualTimeline';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import './VisualTimeline.css';
 
@@ -132,7 +132,7 @@ export default function VisualTimeline({ items, domainItems = items, members, is
     <div className="story-scroll" ref={scroller} tabIndex={0} aria-label="Scrollable timeline. Use left and right arrow keys to move." onKeyDown={event => { if (event.target !== event.currentTarget) return; if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { event.preventDefault(); scroll(event.key === 'ArrowRight' ? 1 : -1); } }}>
       <div className="story-canvas" style={{ width }}>
         <div className="story-spine" style={{ left: padding, right: padding }} />
-        {scale === 'life' ? <><div className="story-tick" style={{ left: padding }}><span>{firstYear}</span></div><div className="story-tick" style={{ left: width - padding }}><span>{lastYear}</span></div></> : Array.from({ length: slots }, (_, index) => <div key={index} className="story-tick" style={{ left: 60 + (index + 0.5) * slotWidth }}><span>{scale === 'year' ? monthName(Math.floor(index / slots * periodSlots)).slice(0, 3) : Math.floor(index / slots * periodSlots) + 1}</span></div>)}
+        {scale === 'life' ? lifeTimelineTicks(firstYear, lastYear, width - padding * 2, fitted).map(tick => <button key={tick.year} type="button" className="story-tick story-year-tick" style={{ left: padding + tick.position * (width - padding * 2) }} aria-label={`Explore year ${tick.year}`} onClick={() => jumpToYear(tick.year)}><span>{tick.year}</span></button>) : Array.from({ length: slots }, (_, index) => <div key={index} className="story-tick" style={{ left: 60 + (index + 0.5) * slotWidth }}><span>{scale === 'year' ? monthName(Math.floor(index / slots * periodSlots)).slice(0, 3) : Math.floor(index / slots * periodSlots) + 1}</span></div>)}
         {chapters.map((chapter, index) => {
           const active = chapter.items.find(item => item.id === selected?.id);
           const lead = active || chapter.items.find(item => item.imageUrl) || chapter.items.find(item => ['memories', 'education', 'addresses', 'travel'].includes(item.category)) || chapter.items[0];
