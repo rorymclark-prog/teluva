@@ -111,3 +111,7 @@ assert.ok(prefills(timelineView), 'the import modal must preselect the person wh
 assert.ok(!prefills(timelineView.replace('defaultMemberId={person?.id}', '')), 'CONTROL: the prefill guard must catch a missing defaultMemberId');
 
 console.log('timelineWiring.test.ts: all assertions passed');
+
+const cvSource = fs.readFileSync(new URL('../components/MemberCV.tsx', import.meta.url), 'utf8');
+assert.ok(cvSource.includes('(isDemoMode() || isBusinessSpace) ?'), 'business CV uploads retain record-level access instead of moving to the shared bucket');
+assert.ok(cvSource.includes('isBusinessSpace ? 700*1024'), 'inline business CVs retain the existing Firestore size limit');

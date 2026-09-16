@@ -3874,6 +3874,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                   onUpdate={handlePatchSelectedMember}
                                   onViewDocument={handleViewDocument}
                                   canEdit={demo || canWrite}
+                                  isBusinessSpace={isBusinessSpace}
                                   onBuildTimeline={!isBusinessSpace ? () => {setBuildTimelineOnOpen(true);setActiveTab('timeline');} : undefined}
                                 />
                               )}

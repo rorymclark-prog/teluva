@@ -15,7 +15,8 @@ import EmptyState from './EmptyState';
 
 const newId = () => 'cv-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-// Production files live in Storage; only their metadata and URL belong in the profile.
+// Family files live in Storage. Business CVs stay inside their access-controlled
+// member record: the shared space bucket does not enforce employee ownership.
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 interface Props {
@@ -24,6 +25,7 @@ interface Props {
   onViewDocument: (doc: FamilyDocument, memberName: string) => void;
   canEdit?: boolean;
   onBuildTimeline?: () => void;
+  isBusinessSpace?: boolean;
 }
 
 const formatBytes = (bytes: number) => {
@@ -239,7 +241,9 @@ function TagEditor({ values, onChange, placeholder, canEdit }: { values: string[
   );
 }
 
-export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = false, onBuildTimeline }: Props) {
+export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = false, onBuildTimeline, isBusinessSpace = false }: Props) {
+  const uploadLimit = isBusinessSpace ? 700*1024 : MAX_UPLOAD_BYTES;
+  const uploadLimitLabel = isBusinessSpace ? '700 KB' : '20 MB';
   const cv: MemberCv = member.cv || {};
   const latest = useRef(member);
   latest.current = member;
@@ -304,12 +308,12 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
   const workDocuments = (member.documents || []).filter(d => cv.workDocumentIds?.includes(d.id));
   const uploadWorkDocument = async (file: File) => {
     if (!canEdit || uploadingWork) return;
-    if (file.size > 20*1024*1024) {setFileError('Choose a file smaller than 20 MB.');return;}
+    if (file.size >= uploadLimit) {setFileError(`Choose a file smaller than ${uploadLimitLabel}.`);return;}
     if (!/\.(pdf|docx|txt|jpg|jpeg|png|webp)$/i.test(file.name)) {setFileError('Choose a PDF, Word, text or image document.');return;}
     setUploadingWork(true);setFileError(null);
     try {
       const id = 'work-' + newId();
-      const stored = isDemoMode() ? {storagePath:'',downloadUrl:await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);})} : await uploadVaultFile(file,id);
+      const stored = (isDemoMode() || isBusinessSpace) ? {storagePath:'',downloadUrl:await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);})} : await uploadVaultFile(file,id);
       const document:FamilyDocument = {id,name:file.name,category:'Other',fileName:file.name,fileType:file.type || 'application/octet-stream',fileSize:file.size,uploadedAt:todayISO(),fileData:stored.downloadUrl,storagePath:stored.storagePath};
       if (latest.current.id !== member.id) throw new Error('Profile changed during upload. Please reopen the original profile.');
       await onUpdate({documents:[...(latest.current.documents || []),document],cv:{...latest.current.cv,workDocumentIds:[...(latest.current.cv?.workDocumentIds || []),id]}});
@@ -325,12 +329,12 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
   const handleFile = async (file: File) => {
     if (!canEdit || uploadingWork) return;
     setFileError(null);
-    if (file.size > MAX_UPLOAD_BYTES) {setFileError('Choose a CV smaller than 20 MB.');return;}
+    if (file.size >= uploadLimit) {setFileError(`Choose a CV smaller than ${uploadLimitLabel}.`);return;}
     if (!/\.(pdf|docx|txt|jpg|jpeg|png|webp)$/i.test(file.name)) {setFileError('Choose a PDF, Word, text or image CV.');return;}
     setUploadingWork(true);
     try {
       const id = 'doc-' + newId();
-      const stored = isDemoMode() ? {storagePath:'',downloadUrl:await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);})} : await uploadVaultFile(file,id);
+      const stored = (isDemoMode() || isBusinessSpace) ? {storagePath:'',downloadUrl:await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);})} : await uploadVaultFile(file,id);
       const newDoc:FamilyDocument = {id,name:`${member.name}'s CV`,category:'Other',fileName:file.name,fileType:file.type || 'application/octet-stream',fileSize:file.size,uploadedAt:todayISO(),fileData:stored.downloadUrl,storagePath:stored.storagePath};
       if (latest.current.id !== member.id) throw new Error('Profile changed during upload. Please reopen the original profile.');
       await onUpdate({documents:[...(latest.current.documents || []),newDoc],cv:{...latest.current.cv,fileDocumentId:id}});
@@ -429,7 +433,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
             <div className="flex flex-col items-center">
               <Upload className="w-6 h-6 mb-2 text-ink-400" />
               <p className="text-[13px] font-semibold text-ink-700">Upload {first}'s CV</p>
-              <p className="text-[12px] text-ink-400 mt-1">PDF, Word, text or image — max 20 MB</p>
+              <p className="text-[12px] text-ink-400 mt-1">PDF, Word, text or image — max {uploadLimitLabel}</p>
             </div>
           </div>
         ) : (

@@ -781,7 +781,8 @@ for (const [field, entry] of Object.entries(COVERAGE_MAP)) {
     datePrecision: 'Derived from the shape of "date" (YYYY or YYYY-MM); an explicit value may only make a date coarser.',
     type: 'The legacy kind, read through categoryOfEntry() and never written by anything new.',
     photos: 'Uploaded from the moment form into Storage; the model never holds image bytes or a Storage path.',
-    docIds: 'Linked by hand on the moment form, where the person can see which paper they are pinning.',
+    docIds: 'Linked by the moment form or document importer from actual saved files.',
+    sourceDocument: 'Set only by the document importer from the selected profile file; never chosen by the model.',
     source: 'Set by the app: always "assistant" on this path, "import" from the dates import, "manual" from the form.',
     importBatchId: 'Set only by the dates import, so its Undo removes exactly that batch; never the model\'s to claim.',
   };
@@ -803,12 +804,12 @@ for (const [field, entry] of Object.entries(COVERAGE_MAP)) {
     for (const [field, itemKey] of Object.entries(MODEL_WRITES)) {
       if (!new RegExp(`[(,] ?${itemKey}\\b`).test(prompt)) gaps.push(`the timeline prompt never offers "${itemKey}" (for ${field})`);
     }
-    for (const k of ['source', 'importBatchId', 'photos', 'docIds', 'id']) {
+    for (const k of ['source', 'importBatchId', 'photos', 'docIds', 'sourceDocument', 'id']) {
       if (new RegExp(`[(,] ?${k}\\b`).test(prompt)) gaps.push(`the timeline prompt offers app-only "${k}"`);
     }
     const row = (/^\s*timeline: \{([^}]*)\},?$/m.exec(src.destructive) || [])[1] || '';
     if (!row) gaps.push('could not read UPDATE_FIELDS.timeline from aiDestructive.ts');
-    for (const k of ['source', 'importBatchId', 'photos', 'docIds', 'id']) {
+    for (const k of ['source', 'importBatchId', 'photos', 'docIds', 'sourceDocument', 'id']) {
       if (new RegExp(`\\b${k}:`).test(row)) gaps.push(`UPDATE_FIELDS.timeline lets the model patch app-only "${k}"`);
     }
     return gaps;

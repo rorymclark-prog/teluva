@@ -4,6 +4,6 @@
     "Build my timeline can read saved profile and vault documents, or a PDF / Word CV, and offer work, education and other moments for review before adding them.",
     "Document imports retain source evidence, flag possible duplicates, preserve month/year precision and let you keep a moment without a date. A reading report identifies files or pages that could not be read.",
     "Work is now available in family profiles, with career history, CVs and a place to link or upload work documents. Saved roles appear in the timeline under Work.",
-    "Fixed PDF reader loading and increased CV uploads to 20 MB using file storage."
+    "Fixed PDF reader loading and increased family CV uploads to 20 MB using file storage. Business CVs retain their existing record-level access and size limit."
   ]
 }
