@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calendarWriteBatches, mergeCalendarWrite, reconcileCalendarIndex, removedGoogleMirrorIds, withCalendarWriteLock } from './calendarPersistence';
+import { calendarWriteBatches, canAdoptCalendarRead, mergeCalendarWrite, reconcileCalendarIndex, removedGoogleMirrorIds, withCalendarWriteLock } from './calendarPersistence';
 import { mergeIdList } from './mergeShared';
 import type { CalendarEvent } from '../types';
 const events: CalendarEvent[] = Array.from({ length: 2000 }, (_, i) => ({ id: `event-${i}`, title: 'Work', date: '2026-10-01', category: 'Work', remindMe: true }));
@@ -33,4 +33,15 @@ assert.deepEqual(removedGoogleMirrorIds([{ ...events[0], id: 'gcal-removed' }, e
   await assert.rejects(withCalendarWriteLock('family', async () => { throw new Error('offline'); }), /offline/);
   await withCalendarWriteLock('family', async () => { order.push('retry'); });
   assert.equal(order.at(-1), 'retry', 'a failed cloud save releases the queue for retry');
+}
+
+{
+  const start = { space: 'household', uid: 'mac', cache: 'old snapshot' };
+  const current = { ...start, dirty: false };
+  assert.equal(canAdoptCalendarRead(start, current), true);
+  // Cloud read started first; source refresh finishes and is acknowledged before the read returns.
+  assert.equal(canAdoptCalendarRead(start, { ...current, cache: 'refreshed snapshot' }), false, 'acknowledged newer calendar must survive a delayed old cloud read');
+  assert.equal(canAdoptCalendarRead(start, { ...current, dirty: true }), false, 'pending edits survive even if the serialized cache did not change');
+  assert.equal(canAdoptCalendarRead(start, { ...current, space: 'business' }), false);
+  assert.equal(canAdoptCalendarRead(start, { ...current, uid: 'phone' }), false);
 }

@@ -2,7 +2,7 @@ import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, F
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { calendarWriteBatches, mergeCalendarWrite, reconcileCalendarIndex, withCalendarWriteLock, type CalendarSaveOptions } from './calendarPersistence';
+import { calendarWriteBatches, canAdoptCalendarRead, mergeCalendarWrite, reconcileCalendarIndex, withCalendarWriteLock, type CalendarSaveOptions } from './calendarPersistence';
 import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
 import {
   isLoggableKind, visibilityFor, visibilitiesFor, orderActivity, shouldLog,
@@ -501,6 +501,8 @@ export function readCachedCalendarEvents(): CalendarEvent[] | null {
 
 export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
   const user = auth.currentUser;
+  const spaceAtStart = FAMILY_ID;
+  const localKey = calendarKey();
 
   if (user) {
     try {
@@ -516,19 +518,26 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
             }
           } catch { /* corrupt local cache — fall through to a normal load */ }
         }
-        clearDirty('calendar', FAMILY_ID);
+        // saveCalendarEvents owns acknowledgment; a newer edit may have arrived.
+        if (isDirty('calendar', spaceAtStart)) return readCachedCalendarEvents();
       }
 
-      const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'events');
+      const cacheAtReadStart = localStorage.getItem(localKey);
+      const canAdoptRead = () => canAdoptCalendarRead(
+        { space: spaceAtStart, uid: user.uid, cache: cacheAtReadStart },
+        { space: FAMILY_ID, uid: auth.currentUser?.uid, dirty: isDirty('calendar', spaceAtStart), cache: localStorage.getItem(localKey) });
+      const metaRef = doc(db, 'families', spaceAtStart, 'metadata', 'events');
       const metaSnap = await getDoc(metaRef);
 
       if (metaSnap.exists()) {
         const ids = metaSnap.data().ids as string[];
-        noteSeen(EVENT_IDS_KEY, ids);    // merge base for the next index write
-        const snapshot = await getDocs(collection(db, 'families', FAMILY_ID, 'calendar_events'));
+        const snapshot = await getDocs(collection(db, 'families', spaceAtStart, 'calendar_events'));
         const wanted = new Set(ids);
         const events = snapshot.docs.filter(s => wanted.has(s.id)).map(s => s.data() as CalendarEvent);
 
+        // A cloud read begun before a local save must never restore its older cache.
+        if (!canAdoptRead()) return readCachedCalendarEvents();
+        noteSeen(EVENT_IDS_KEY, ids);
         // Merge base for the next per-event write (see saveCalendarEvents).
         for (const e of events) noteSeen(eventSeenKey(e.id), e);
 
@@ -540,6 +549,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
       // per space, ever (see the members loader above for why: without the
       // flag, a deliberate server-side delete gets silently undone on the
       // next load from a stale local cache).
+      if (!canAdoptRead()) return readCachedCalendarEvents();
       const migratedKey = migratedFlagKey('events');
       if (!localStorage.getItem(migratedKey)) {
         const local = localStorage.getItem(calendarKey());

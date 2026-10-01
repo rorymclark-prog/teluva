@@ -41,3 +41,8 @@ export async function withCalendarWriteLock<T>(space: string, write: () => Promi
   try { return await write(); }
   finally { release(); if (writesBySpace.get(space) === current) writesBySpace.delete(space); }
 }
+
+/** Reject delayed reads after local changes, account switches, or pending writes. */
+export function canAdoptCalendarRead(start: { space: string; uid: string; cache: string | null }, current: { space: string; uid?: string; cache: string | null; dirty: boolean }): boolean {
+  return start.space === current.space && start.uid === current.uid && !current.dirty && start.cache === current.cache;
+}
