@@ -1,5 +1,13 @@
 [
   {
+    "label": "v373",
+    "changes": [
+      "Mac calendar backup now recovers from full browser storage. Google-event merge history moves to IndexedDB, leaving room for the current calendar while preserving native-event history and pending edits.",
+      "Recovery requires server-confirmed calendar data and protects newer local edits from delayed cloud reads."
+    ],
+    "date": "2026-10-01"
+  },
+  {
     "label": "v372",
     "changes": [
       "Calendar recovery now requires a server-confirmed read and protects newer local changes from delayed responses. Offline cached responses no longer count as successful cloud verification."

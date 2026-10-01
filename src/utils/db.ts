@@ -1,8 +1,9 @@
+import { readCalendarBaselines, storeCalendarBaseline } from './calendarBaselines';
 import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, KinLink, FamilyTreeDoc, WillsAccessDoc, PendingWillReader, HiddenDatePerson, PersonalPrefsDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, getDocFromServer, getDocsFromServer, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { calendarWriteBatches, canAdoptCalendarRead, mergeCalendarWrite, reconcileCalendarIndex, withCalendarWriteLock, type CalendarSaveOptions } from './calendarPersistence';
+import { calendarWriteBatches, canAdoptCalendarRead, evictGoogleMergeBases, mergeCalendarWrite, reconcileCalendarIndex, withCalendarWriteLock, type CalendarSaveOptions } from './calendarPersistence';
 import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
 import {
   isLoggableKind, visibilityFor, visibilitiesFor, orderActivity, shouldLog,
@@ -369,6 +370,23 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
 // the same shape without the reveal/protect wrapper.
 const eventSeenKey = (id: string) => `event:${id}`;
 
+// Imported source records can be re-read authoritatively. Keeping a second copy
+// of thousands of recurring instances exhausts localStorage and blocks the cache.
+function cacheCalendarEvents(key: string, events: CalendarEvent[]): void {
+  const prefix = `family_mergeBase_${auth.currentUser?.uid || 'anon'}_${FAMILY_ID}::event:gcal-`;
+  for (const storedKey of Object.keys(localStorage)) {
+    if (!storedKey.startsWith(prefix)) continue;
+    try {
+      const value = JSON.parse(localStorage.getItem(storedKey)!);
+      const key = storedKey.slice(`family_mergeBase_${auth.currentUser?.uid || 'anon'}_`.length);
+      if (!lastSeen.has(key)) lastSeen.set(key, value);
+      void storeCalendarBaseline(storedKey, value);
+    } catch { /* corrupt redundant baseline */ }
+  }
+  evictGoogleMergeBases(localStorage, auth.currentUser?.uid || 'anon', FAMILY_ID);
+  localStorage.setItem(key, JSON.stringify(events));
+}
+
 let calendarBackupError: string | null = null;
 export function getCalendarBackupError(): string | null { return calendarBackupError; }
 
@@ -378,7 +396,7 @@ export async function saveCalendarEvents(events: CalendarEvent[], options: Calen
   const localKey = calendarKey();
   const removedGoogleIds = rememberGoogleRemovals(spaceAtStart, options.removedGoogleIds || []);
   // Preserve intent before any awaited network call, including when the tab closes.
-  try { localStorage.setItem(localKey, JSON.stringify(events)); } catch (error) { console.error('Local calendar save failed', error); }
+  try { cacheCalendarEvents(localKey, events); } catch (error) { console.error('Local calendar save failed', error); }
   markDirty('calendar', spaceAtStart);
   calendarBackupError = null;
   let cloudOk = false;
@@ -481,7 +499,7 @@ export function subscribeCalendarEvents(cb: (events: CalendarEvent[]) => void, o
     const events = ids.map(id => records!.get(id)!);
     noteSeen(EVENT_IDS_KEY, ids);
     for (const event of events) noteSeen(eventSeenKey(event.id), event);
-    try { localStorage.setItem(calendarKey(), JSON.stringify(events)); } catch { /* best effort */ }
+    try { cacheCalendarEvents(calendarKey(), events); } catch { /* best effort */ }
     cb(events);
   };
   const stopEvents = onSnapshot(collection(db, 'families', space, 'calendar_events'), { includeMetadataChanges: true }, snapshot => {
@@ -505,6 +523,12 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
   const localKey = calendarKey();
 
   if (user) {
+    const prefix = `family_mergeBase_${user.uid}_${spaceAtStart}::event:gcal-`;
+    for (const [storedKey, value] of await readCalendarBaselines(prefix)) {
+      if (FAMILY_ID !== spaceAtStart || auth.currentUser?.uid !== user.uid) return readCachedCalendarEvents();
+      const key = storedKey.slice(`family_mergeBase_${user.uid}_`.length);
+      if (!lastSeen.has(key)) lastSeen.set(key, value);
+    }
     try {
       // See loadFamilyMembers above for why this guard exists.
       if (isDirty('calendar', FAMILY_ID)) {
@@ -542,7 +566,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
         // Merge base for the next per-event write (see saveCalendarEvents).
         for (const e of events) noteSeen(eventSeenKey(e.id), e);
 
-        localStorage.setItem(calendarKey(), JSON.stringify(events));
+        cacheCalendarEvents(calendarKey(), events);
         return events.length > 0 ? events : null;
       }
 
@@ -639,7 +663,10 @@ const seenKey = (key: string) => `${FAMILY_ID}::${key}`;
 
 function noteSeen<T>(key: string, value: T): void {
   lastSeen.set(seenKey(key), value);
-  if (auth.currentUser) {
+  if (auth.currentUser && key.startsWith('event:gcal-')) {
+    void storeCalendarBaseline(`family_mergeBase_${auth.currentUser.uid}_${seenKey(key)}`, value);
+  }
+  if (auth.currentUser && !key.startsWith('event:gcal-')) {
     try { localStorage.setItem(`family_mergeBase_${auth.currentUser?.uid || 'anon'}_${seenKey(key)}`, JSON.stringify(value)); } catch { /* best effort */ }
   }
 }

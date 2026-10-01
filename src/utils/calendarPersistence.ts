@@ -46,3 +46,10 @@ export async function withCalendarWriteLock<T>(space: string, write: () => Promi
 export function canAdoptCalendarRead(start: { space: string; uid: string; cache: string | null }, current: { space: string; uid?: string; cache: string | null; dirty: boolean }): boolean {
   return start.space === current.space && start.uid === current.uid && !current.dirty && start.cache === current.cache;
 }
+
+/** Evict only redundant Google merge bases; never calendar data or native baselines. */
+export function evictGoogleMergeBases(storage: Pick<Storage, 'length' | 'key' | 'removeItem'>, uid: string, space: string): void {
+  const prefix = `family_mergeBase_${uid}_${space}::event:gcal-`;
+  const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
+  for (const key of keys) if (key?.startsWith(prefix)) storage.removeItem(key);
+}

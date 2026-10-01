@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calendarWriteBatches, canAdoptCalendarRead, mergeCalendarWrite, reconcileCalendarIndex, removedGoogleMirrorIds, withCalendarWriteLock } from './calendarPersistence';
+import { calendarWriteBatches, canAdoptCalendarRead, evictGoogleMergeBases, mergeCalendarWrite, reconcileCalendarIndex, removedGoogleMirrorIds, withCalendarWriteLock } from './calendarPersistence';
 import { mergeIdList } from './mergeShared';
 import type { CalendarEvent } from '../types';
 const events: CalendarEvent[] = Array.from({ length: 2000 }, (_, i) => ({ id: `event-${i}`, title: 'Work', date: '2026-10-01', category: 'Work', remindMe: true }));
@@ -44,4 +44,11 @@ assert.deepEqual(removedGoogleMirrorIds([{ ...events[0], id: 'gcal-removed' }, e
   assert.equal(canAdoptCalendarRead(start, { ...current, dirty: true }), false, 'pending edits survive even if the serialized cache did not change');
   assert.equal(canAdoptCalendarRead(start, { ...current, space: 'business' }), false);
   assert.equal(canAdoptCalendarRead(start, { ...current, uid: 'phone' }), false);
+}
+
+{
+  const keys = ['family_mergeBase_mac_household::event:gcal-1', 'family_mergeBase_mac_household::event:gcal-2', 'family_mergeBase_mac_household::event:native', 'family_mergeBase_phone_household::event:gcal-1', 'family_mergeBase_mac_business::event:gcal-1', 'family_calendar_v2_household'];
+  const storage = { get length() { return keys.length; }, key: (i: number) => keys[i] ?? null, removeItem: (key: string) => { keys.splice(keys.indexOf(key), 1); } };
+  evictGoogleMergeBases(storage, 'mac', 'household');
+  assert.deepEqual(keys, ['family_mergeBase_mac_household::event:native', 'family_mergeBase_phone_household::event:gcal-1', 'family_mergeBase_mac_business::event:gcal-1', 'family_calendar_v2_household'], 'quota recovery keeps actual calendar data, native edit baselines and other spaces/accounts');
 }
