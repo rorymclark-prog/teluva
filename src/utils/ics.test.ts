@@ -398,3 +398,31 @@ const OUT: CalendarEvent[] = [
 }
 
 console.log('ics.test.ts: all assertions passed');
+
+// Detached recurring exceptions replace the original occurrence, irrespective of order.
+{
+  const calendar = `BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:work-series
+DTSTART:20261001T080000
+RRULE:FREQ=DAILY;COUNT=3
+SUMMARY:Work shift
+END:VEVENT
+BEGIN:VEVENT
+UID:work-series
+RECURRENCE-ID:20261002T080000
+DTSTART:20261002T100000
+SUMMARY:Work shift moved
+END:VEVENT
+BEGIN:VEVENT
+UID:work-series
+RECURRENCE-ID:20261003T080000
+STATUS:CANCELLED
+END:VEVENT
+END:VCALENDAR`;
+  const parsed = parseIcs(calendar, [], new Date('2026-10-01T12:00:00'));
+  assert.equal(parsed.events.length, 2);
+  assert.equal(parsed.events.find(e => e.date === '2026-10-02')?.time, '10:00');
+  assert.ok(parsed.events.every(e => e.category === 'Work'));
+  assert.ok(!parsed.events.some(e => e.date === '2026-10-03'));
+}

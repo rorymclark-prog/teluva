@@ -1221,6 +1221,8 @@ export interface HubSettings {
   // publishes an .ics link). See utils/calendarFeeds.ts — these are mirrors,
   // not imports: a refresh replaces the events each feed owns.
   calendarFeeds?: CalendarFeed[];
+  /** Exact source titles explicitly identified as work by this household. */
+  calendarWorkTitles?: string[];
   country?: IdCountry;       // drives which ID & Passports field set renders (default 'AT')
   // Per-SPACE opt-out of the birthday/work-anniversary/business-anniversary
   // confetti celebration and its "needs attention" nudges. Default ON
@@ -1571,7 +1573,7 @@ export interface CalendarEvent {
   date: string; // YYYY-MM-DD
   time?: string; // HH:MM
   description?: string;
-  category: 'Milestone' | 'Appointment' | 'School' | 'Travel' | 'Other';
+  category: 'Milestone' | 'Appointment' | 'Work' | 'School' | 'Travel' | 'Other';
   /** The calendar form confirmed this category; legacy Google labels were only guesses. */
   categoryConfirmed?: boolean;
   remindMe: boolean;
@@ -1623,6 +1625,8 @@ export interface CalendarEvent {
   // Its purpose is purely to stop the SAME event being pushed to Google a
   // second time (e.g. on a page reload, or if the auto-sync effect re-runs).
   googleSynced?: boolean;
+  /** Signed-in importer; legacy records have no owner until reconciled. */
+  googleImportOwner?: string;
 
   // Set when this event came from a SUBSCRIBED calendar (utils/calendarFeeds.ts)
   // rather than being typed here, imported from a file, or pulled from Google.

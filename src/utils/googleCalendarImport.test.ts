@@ -10,6 +10,7 @@
 // network: a fake fetch serves fixture pages. Fictional people throughout.
 import assert from 'node:assert';
 import {
+  reconcileGoogleEvents, classifyGoogleEvent, calendarRefreshSlot, isScheduledCalendarRefreshDue,
   fetchAllGoogleEvents,
   googleEventsToCalendarEvents,
   importGoogleEvents,
@@ -55,7 +56,7 @@ function fakeFetch(pages: { past: GoogleEventItem[][]; future: GoogleEventItem[]
   const urls: string[] = [];
   const impl = async (url: string) => {
     urls.push(url);
-    const windowName = url.includes('timeMax=') ? 'past' : 'future';
+    const windowName = url.includes('timeMin=2025-') ? 'past' : 'future';
     const m = url.match(/pageToken=([^&]+)/);
     const idx = m ? Number(decodeURIComponent(m[1]).split('-')[1]) : 0;
     const list = pages[windowName];
@@ -99,10 +100,10 @@ function fakeFetch(pages: { past: GoogleEventItem[][]; future: GoogleEventItem[]
 {
   const { impl, urls } = fakeFetch({ past: [[]], future: [[]] });
   await fetchAllGoogleEvents('tok', { now: NOW, fetchImpl: impl });
-  const pastUrl = urls.find((u) => u.includes('timeMax='))!;
-  const futureUrl = urls.find((u) => !u.includes('timeMax='))!;
+  const pastUrl = urls.find((u) => u.includes('timeMax=2026-09-13T08:00:00.000Z'))!;
+  const futureUrl = urls.find((u) => !u.includes('timeMax=2026-09-13T08:00:00.000Z'))!;
   assert.ok(pastUrl.includes('timeMin=2025-09-13T08:00:00.000Z') && pastUrl.includes('timeMax=2026-09-13T08:00:00.000Z'));
-  assert.ok(futureUrl.includes('timeMin=2026-09-13T08:00:00.000Z'), 'future window has no upper bound');
+  assert.ok(futureUrl.includes('timeMin=2026-09-13T08:00:00.000Z'), 'future window starts now');
 }
 
 // ── a dead token is a distinct error the callers can act on ────────────────
@@ -126,14 +127,14 @@ function fakeFetch(pages: { past: GoogleEventItem[][]; future: GoogleEventItem[]
     item('x3', 'Mia - Zahnarzt', '2026-09-24', true),
     { id: 'x4', summary: 'No start' },
   ], existing, members);
-  assert.deepEqual(out.map((e) => e.id), ['gcal-x1', 'gcal-x3']);
-  const ortho = out[0];
+  assert.deepEqual(out.map((e) => e.id), ['gcal-already', 'gcal-x1', 'gcal-x3']);
+  const ortho = out[1];
   assert.equal(ortho.date, '2026-09-22');
   assert.equal(ortho.time, '10:30');
   assert.equal(ortho.category, 'Appointment');
   assert.deepEqual(ortho.memberIds, [], 'no name in the title: untagged (the whose-is-this prompt asks)');
-  assert.equal(out[1].time, '12:00', 'all-day keeps the old noon placeholder');
-  assert.deepEqual(out[1].memberIds, ['m2'], 'a name in the title is read on the way in');
+  assert.equal(out[2].time, undefined, 'all-day stays all-day');
+  assert.deepEqual(out[2].memberIds, ['m2'], 'a name in the title is read on the way in');
 }
 
 // ── importGoogleEvents: one at a time ─────────────────────────────────────
@@ -142,7 +143,7 @@ function fakeFetch(pages: { past: GoogleEventItem[][]; future: GoogleEventItem[]
   const gate = new Promise<void>((r) => { release = r; });
   const slow = async (url: string) => {
     await gate;
-    return { ok: true, status: 200, json: async () => ({ items: url.includes('timeMax=') ? [] : [item('n1', 'Dentist', '2026-09-15T09:00:00+02:00')] }) };
+    return { ok: true, status: 200, json: async () => ({ items: url.includes('timeMax=2026-09-13T08:00:00.000Z') ? [] : [item('n1', 'Dentist', '2026-09-15T09:00:00+02:00')] }) };
   };
   const first = importGoogleEvents('tok', [], members, { now: NOW, fetchImpl: slow });
   assert.equal(isGoogleImportRunning(), true);
@@ -185,7 +186,7 @@ function fakeFetch(pages: { past: GoogleEventItem[][]; future: GoogleEventItem[]
   };
   assert.equal(shouldImportOnStartup(base), true, 'stale, and this person imports here: import');
   assert.equal(shouldImportOnStartup({ ...base, lastIso: null }), true, 'no record yet but Google events already here (everyone before this release)');
-  assert.equal(shouldImportOnStartup({ ...base, lastIso: '2026-09-13T06:00:00Z' }), false, 'imported two hours ago: not due');
+  assert.equal(shouldImportOnStartup({ ...base, lastIso: '2026-09-13T05:30:00Z' }), false, 'imported two hours ago: not due');
   assert.equal(shouldImportOnStartup({ ...base, lastIso: null, hasGoogleEvents: false }), false, 'never used the import in this space: never start it uninvited');
   assert.equal(shouldImportOnStartup({ ...base, disconnected: true }), false, 'a deliberate Disconnect is respected');
   assert.equal(shouldImportOnStartup({ ...base, isBusinessSpace: true }), false, 'never pulls a personal calendar into a business space at start-up');
@@ -210,3 +211,53 @@ function fakeFetch(pages: { past: GoogleEventItem[][]; future: GoogleEventItem[]
 }
 
 console.log('googleCalendarImport: paging, window, lock, start-up decision and last-synced wording OK (1 control fails as it should)');
+
+// Complete mirror reconciliation: moved instance, deleted instance, native and history.
+{
+  const existing: CalendarEvent[] = [
+    { id: 'gcal-series_20261001', title: 'Work Karin', date: '2026-10-01', category: 'Work', remindMe: false, memberIds: ['m1'] },
+    { id: 'gcal-deleted', title: 'Cancelled', date: '2026-10-01', category: 'Other', remindMe: true },
+    { id: 'native', title: 'Keep', date: '2026-10-01', category: 'Other', remindMe: true },
+    { id: 'gcal-history', title: 'History', date: '2024-01-01', category: 'Other', remindMe: true },
+    { id: 'gcal-other-user', title: 'Other user', date: '2026-10-01', category: 'Other', remindMe: true, googleImportOwner: 'u2' },
+  ];
+  const now = new Date('2026-10-01T08:00:00Z');
+  const snapshot = googleEventsToCalendarEvents([item('series_20261001', 'Work Karin moved', '2026-10-02T10:00:00+02:00')], existing, members);
+  const result = reconcileGoogleEvents(existing, snapshot, now, 'u1');
+  assert.equal(result.find(e => e.id === 'gcal-series_20261001')?.date, '2026-10-02');
+  assert.equal(result.find(e => e.id === 'gcal-series_20261001')?.remindMe, false);
+  assert.deepEqual(result.find(e => e.id === 'gcal-series_20261001')?.memberIds, ['m1']);
+  assert.ok(!result.some(e => e.id === 'gcal-deleted'));
+  assert.ok(result.some(e => e.id === 'native') && result.some(e => e.id === 'gcal-history') && result.some(e => e.id === 'gcal-other-user'));
+  assert.equal(reconcileGoogleEvents(existing, [], now, 'u1').length, 3, 'empty successful snapshot clears current Google mirror');
+  assert.deepEqual(googleEventsToCalendarEvents([{ ...item('cancelled', 'Work', '2026-10-01'), status: 'cancelled' }], [], members), []);
+  await assert.rejects(importGoogleEvents('tok', existing, members, { now, maxPages: 1, fetchImpl: fakeFetch({ past: [[]], future: [[item('one', 'Work', '2026-10-01')], [item('two', 'Work', '2026-10-02')]] }).impl }), /incomplete/);
+}
+{
+  assert.equal(classifyGoogleEvent({ summary: 'Work Karin' }), 'Work');
+  assert.equal(classifyGoogleEvent({ summary: 'Karin' }), 'Other', 'person name alone is not evidence of work');
+  assert.equal(classifyGoogleEvent({ summary: 'Blood work at doctor' }), 'Appointment');
+  assert.equal(classifyGoogleEvent({ summary: 'Unknown', extendedProperties: { private: { teluvaCategory: 'Work' } } }), 'Work');
+  assert.equal(calendarRefreshSlot(new Date('2026-10-01T04:59:00Z')), '2026-09-30-19');
+  assert.equal(calendarRefreshSlot(new Date('2026-10-01T05:00:00Z')), '2026-10-01-07');
+  assert.equal(calendarRefreshSlot(new Date('2026-10-01T17:00:00Z')), '2026-10-01-19');
+  assert.equal(calendarRefreshSlot(new Date('2026-10-25T06:00:00Z')), '2026-10-25-07', 'DST ends: 07 Vienna is 06 UTC');
+  assert.equal(isScheduledCalendarRefreshDue('2026-10-01T05:00:00Z', new Date('2026-10-01T16:59:00Z')), false);
+  assert.equal(isScheduledCalendarRefreshDue('2026-10-01T05:00:00Z', new Date('2026-10-01T17:00:00Z')), true);
+}
+
+// The shared lock lasts through persistence, so a scheduled refresh cannot race a manual one.
+{
+  let release!: () => void;
+  let entered!: () => void;
+  const saving = new Promise<void>(r => { entered = r; });
+  const gate = new Promise<void>(r => { release = r; });
+  const first = importGoogleEvents('tok', [], members, { now: NOW, fetchImpl: fakeFetch({ past: [[]], future: [[]] }).impl, commit: async () => { entered(); await gate; } });
+  await saving;
+  assert.equal(isGoogleImportRunning(), true);
+  assert.equal(await importGoogleEvents('tok', [], members, { now: NOW, fetchImpl: fakeFetch({ past: [[]], future: [[]] }).impl }), null);
+  release(); await first;
+  assert.equal(isGoogleImportRunning(), false);
+  assert.equal(classifyGoogleEvent({ summary: 'Karin' }, ['Karin', 'Barbara']), 'Work');
+  assert.equal(classifyGoogleEvent({ summary: 'Barbara' }, ['Karin', 'Barbara']), 'Work');
+}

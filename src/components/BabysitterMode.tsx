@@ -49,6 +49,7 @@ function todayISO(): string {
 }
 
 const CATEGORY_STYLE: Record<CalendarEvent['category'], string> = {
+  Work: 'bg-sage-100 text-sage-700',
   School: 'bg-dusk-100 text-dusk-700',
   Travel: 'bg-honey-100 text-honey-900',
   Appointment: 'bg-rosa-100 text-rosa-700',

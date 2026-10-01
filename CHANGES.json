@@ -1,7 +1,8 @@
 {
-  "label": "v368",
+  "label": "v369",
   "changes": [
-    "Alarms can now set themselves. Set it up once and every morning your iPhone checks Teluva and sets a real Clock alarm for each important appointment in the next 24 hours, ringing through silent mode until you tap Stop. Open the Alarm button on any appointment and choose \"Set alarms automatically, every morning\".",
-    "Choose which appointments ring (important ones, or everything with a time) and how early. The screen shows when it last ran and warns you if it has missed a morning. The alarm link carries only clock times, never appointment names, and you can turn it off at any time."
+    "Calendar refresh now updates changed events and removes deleted or cancelled Google instances. Refresh calendar is visible at the top, with last-updated and error details. Automatic refresh checks run at 07:00 and 19:00 Vienna time while the app is open, and catch up when reopened.",
+    "Choose Day, Week or Month, with separate all-day entries, hourly columns, previous/next navigation and Today. Work is one category, including Karin and Barbara.",
+    "Calendar imports cover the past and next year rather than expanding endless recurring series. Cloud saves send changed records in small transactions; Retry cloud backup keeps local changes safe, and calendar updates appear across devices."
   ]
 }

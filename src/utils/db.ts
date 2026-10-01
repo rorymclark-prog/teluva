@@ -2,6 +2,7 @@ import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, F
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { calendarWriteBatches, mergeCalendarWrite } from './calendarPersistence';
 import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
 import {
   isLoggableKind, visibilityFor, visibilitiesFor, orderActivity, shouldLog,
@@ -273,8 +274,8 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
           try {
             const pending = JSON.parse(pendingRaw) as FamilyMember[];
             if (Array.isArray(pending)) {
-              await saveFamilyMembers(pending);   // clears the dirty flag on success
-              return pending.length > 0 ? pending : null;
+              const backedUp = await saveFamilyMembers(pending);
+              if (!backedUp) return pending.length > 0 ? pending : null;
             }
           } catch { /* corrupt local cache — fall through to a normal load */ }
         }
@@ -368,42 +369,49 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
 // the same shape without the reveal/protect wrapper.
 const eventSeenKey = (id: string) => `event:${id}`;
 
+let calendarBackupError: string | null = null;
+export function getCalendarBackupError(): string | null { return calendarBackupError; }
+
 export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boolean> {
   const user = auth.currentUser;
+  const spaceAtStart = FAMILY_ID;
+  const localKey = calendarKey();
+  // Preserve intent before any awaited network call, including when the tab closes.
+  try { localStorage.setItem(localKey, JSON.stringify(events)); } catch (error) { console.error('Local calendar save failed', error); }
+  markDirty('calendar', spaceAtStart);
+  calendarBackupError = null;
   let cloudOk = false;
 
   if (user) {
     try {
-      const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'events');
+      const metaRef = doc(db, 'families', spaceAtStart, 'metadata', 'events');
       const localIds = events.map(e => e.id).filter(Boolean);
       const targets = events.filter(e => e.id);
-      const eventRefs = targets.map(e => doc(db, 'families', FAMILY_ID, 'calendar_events', e.id));
-
+      // A single edit must not fan out into thousands of reads of unchanged
+      // recurring instances. Bound each transaction, then publish its index.
+      const bases = new Map(targets.flatMap(e => { const base = getSeen<CalendarEvent>(eventSeenKey(e.id)); return base ? [[e.id, base] as const] : []; }));
+      const indexBase = getSeen<string[]>(EVENT_IDS_KEY);
       let eventsWritten = 0;
-      const { mergedIds, mergedEvents } = await runTransaction(db, async (tx) => {
-        const metaSnap = await tx.get(metaRef);
-        const eventSnaps = await Promise.all(eventRefs.map(r => tx.get(r)));
-
-        const serverIds = (metaSnap.exists() ? (metaSnap.data().ids as string[]) : undefined) || [];
-        const ids = mergeIdList(getSeen<string[]>(EVENT_IDS_KEY), localIds, serverIds);
-
-        const servers = eventSnaps.map(snap => (snap.exists() ? (snap.data() as CalendarEvent) : undefined));
-        const mergedEvents = targets.map((local, i) =>
-          mergeShared<CalendarEvent>(getSeen<CalendarEvent>(eventSeenKey(local.id)), local, servers[i]));
-
-        eventsWritten = 0;
-        mergedEvents.forEach((merged, i) => {
-          const server = servers[i];
-          if (server !== undefined && deepEqual(merged, server)) return; // untouched — nothing to write
-          eventsWritten += 1;
-          tx.set(eventRefs[i], merged as any);
+      for (const chunk of calendarWriteBatches(targets, bases)) {
+        const refs = chunk.map(e => doc(db, 'families', spaceAtStart, 'calendar_events', e.id));
+        const merged = await runTransaction(db, async tx => {
+          const snaps = [];
+          for (let i = 0; i < refs.length; i += 10) snaps.push(...await Promise.all(refs.slice(i, i + 10).map(r => tx.get(r))));
+          const values = chunk.map((local, i) => mergeCalendarWrite(local, bases.get(local.id), snaps[i].exists() ? snaps[i].data() as CalendarEvent : undefined));
+          values.forEach((value, i) => { if (!snaps[i].exists() || !deepEqual(value, snaps[i].data())) tx.set(refs[i], value); });
+          return values;
         });
-
+        if (FAMILY_ID === spaceAtStart) for (const event of merged) noteSeen(eventSeenKey(event.id), event);
+        eventsWritten += merged.length;
+      }
+      const mergedIds = await runTransaction(db, async tx => {
+        const snap = await tx.get(metaRef);
+        const serverIds = snap.exists() ? (snap.data().ids as string[]) || [] : [];
+        const ids = mergeIdList(indexBase, localIds, serverIds);
         tx.set(metaRef, { ids });
-        return { mergedIds: ids, mergedEvents };
+        return ids;
       });
-      noteSeen(EVENT_IDS_KEY, mergedIds);
-      for (const e of mergedEvents) noteSeen(eventSeenKey(e.id), e);
+      if (FAMILY_ID === spaceAtStart) noteSeen(EVENT_IDS_KEY, mergedIds);
       /* One line for the sitting, not one per event. A calendar save routinely
        * carries the whole list, and a sync that touched six events is still one
        * thing the person did. Counted inside the transaction and reset on each
@@ -411,20 +419,68 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boole
       if (eventsWritten > 0) recordActivity('calendar', 'updated');
       cloudOk = true;
     } catch (error) {
+      calendarBackupError = (error as { code?: string }).code === 'unavailable' ? 'The family cloud is unavailable. Keep your local data and retry when the connection recovers.' : error instanceof Error ? error.message : 'Calendar cloud backup failed.';
       console.error('Error saving to Firestore:', error);
     }
   }
 
-  try {
-    localStorage.setItem(calendarKey(), JSON.stringify(events));
-  } catch (e) {
-    console.error('LocalStorage fallback failed', e);
-  }
-
-  // See pendingSync.ts / saveFamilyMembers above for why this exists.
-  if (cloudOk) clearDirty('calendar', FAMILY_ID); else markDirty('calendar', FAMILY_ID);
+  try { if (cloudOk && localStorage.getItem(localKey) === JSON.stringify(events)) clearDirty('calendar', spaceAtStart); } catch { /* pending stays if storage is unavailable */ }
 
   return cloudOk;
+}
+
+/** Family profile changes are also shared live; encrypted fields are revealed before painting. */
+export function subscribeFamilyMembers(cb: (members: FamilyMember[]) => void, onError: (error: unknown) => void): () => void {
+  const space = FAMILY_ID;
+  let ids: string[] | undefined;
+  let records: Map<string, FamilyMember> | undefined;
+  let sequence = 0;
+  let stopped = false;
+  const apply = async () => {
+    const mine = ++sequence;
+    if (space !== FAMILY_ID || !ids || !records || isDirty('members', space) || !ids.every(id => records!.has(id))) return;
+    const idSnapshot = [...ids];
+    const members = await Promise.all(idSnapshot.map(id => revealMemberSensitive(records!.get(id)!)));
+    if (stopped || mine !== sequence || space !== FAMILY_ID || isDirty('members', space)) return;
+    noteSeen(MEMBER_IDS_KEY, idSnapshot);
+    for (const member of members) noteSeen(memberSeenKey(member.id), member);
+    try { localStorage.setItem(membersKey(), JSON.stringify(members)); } catch { /* best effort */ }
+    cb(members);
+  };
+  const changed = () => { void apply().catch(onError); };
+  const stopMembers = onSnapshot(collection(db, 'families', space, 'family_members'), { includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
+    records = new Map(snapshot.docs.map(s => [s.id, s.data() as FamilyMember])); changed();
+  }, onError);
+  const stopIds = onSnapshot(doc(db, 'families', space, 'metadata', 'members'), { includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
+    ids = snapshot.exists() ? snapshot.data().ids || [] : []; changed();
+  }, onError);
+  return () => { stopped = true; stopMembers(); stopIds(); };
+}
+
+/** Calendar updates from other devices. Never replace pending local edits. */
+export function subscribeCalendarEvents(cb: (events: CalendarEvent[]) => void, onError: (error: unknown) => void): () => void {
+  const space = FAMILY_ID;
+  let ids: string[] | undefined;
+  let records: Map<string, CalendarEvent> | undefined;
+  const apply = () => {
+    if (space !== FAMILY_ID || !ids || !records || isDirty('calendar', space) || !ids.every(id => records!.has(id))) return;
+    const events = ids.map(id => records!.get(id)!);
+    noteSeen(EVENT_IDS_KEY, ids);
+    for (const event of events) noteSeen(eventSeenKey(event.id), event);
+    try { localStorage.setItem(calendarKey(), JSON.stringify(events)); } catch { /* best effort */ }
+    cb(events);
+  };
+  const stopEvents = onSnapshot(collection(db, 'families', space, 'calendar_events'), { includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
+    records = new Map(snapshot.docs.map(s => [s.id, s.data() as CalendarEvent])); apply();
+  }, onError);
+  const stopIds = onSnapshot(doc(db, 'families', space, 'metadata', 'events'), { includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
+    ids = snapshot.exists() ? snapshot.data().ids || [] : []; apply();
+  }, onError);
+  return () => { stopEvents(); stopIds(); };
 }
 
 export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
@@ -439,8 +495,8 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
           try {
             const pending = JSON.parse(pendingRaw) as CalendarEvent[];
             if (Array.isArray(pending)) {
-              await saveCalendarEvents(pending);   // clears the dirty flag on success
-              return pending.length > 0 ? pending : null;
+              const backedUp = await saveCalendarEvents(pending);
+              if (!backedUp) return pending.length > 0 ? pending : null;
             }
           } catch { /* corrupt local cache — fall through to a normal load */ }
         }
@@ -453,9 +509,9 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
       if (metaSnap.exists()) {
         const ids = metaSnap.data().ids as string[];
         noteSeen(EVENT_IDS_KEY, ids);    // merge base for the next index write
-        const eventReqs = ids.map(id => getDoc(doc(db, 'families', FAMILY_ID, 'calendar_events', id)));
-        const snaps = await Promise.all(eventReqs);
-        const events = snaps.map(s => s.data() as CalendarEvent).filter(Boolean);
+        const snapshot = await getDocs(collection(db, 'families', FAMILY_ID, 'calendar_events'));
+        const wanted = new Set(ids);
+        const events = snapshot.docs.filter(s => wanted.has(s.id)).map(s => s.data() as CalendarEvent);
 
         // Merge base for the next per-event write (see saveCalendarEvents).
         for (const e of events) noteSeen(eventSeenKey(e.id), e);
@@ -555,10 +611,17 @@ const seenKey = (key: string) => `${FAMILY_ID}::${key}`;
 
 function noteSeen<T>(key: string, value: T): void {
   lastSeen.set(seenKey(key), value);
+  if (auth.currentUser) {
+    try { localStorage.setItem(`family_mergeBase_${auth.currentUser?.uid || 'anon'}_${seenKey(key)}`, JSON.stringify(value)); } catch { /* best effort */ }
+  }
 }
 
 function getSeen<T>(key: string): T | undefined {
-  return lastSeen.get(seenKey(key)) as T | undefined;
+  if (lastSeen.has(seenKey(key))) return lastSeen.get(seenKey(key)) as T;
+  if (auth.currentUser) {
+    try { const raw = localStorage.getItem(`family_mergeBase_${auth.currentUser?.uid || 'anon'}_${seenKey(key)}`); if (raw) return JSON.parse(raw) as T; } catch { /* no persisted baseline */ }
+  }
+  return undefined;
 }
 
 /**
@@ -669,8 +732,8 @@ async function loadReferenceDoc<T>(
         if (pendingRaw) {
           try {
             const pending = JSON.parse(pendingRaw) as T;   // plaintext — local cache always is
-            await saveReferenceDoc(key, pending, localKey, undefined, protect, reveal);   // clears the dirty flag on success
-            return pending;
+            const backedUp = await saveReferenceDoc(key, pending, localKey, undefined, protect, reveal);
+            if (!backedUp) return pending;
           } catch { /* corrupt local cache — fall through to a normal load */ }
         }
         clearDirty(key, FAMILY_ID);
@@ -748,6 +811,29 @@ export const SHARED_DOCS = {
   anniversaries:  { key: 'anniversaries',  localKey: 'family_anniversaries' },
   extendedBirthdays: { key: 'extendedBirthdays', localKey: 'family_extended_birthdays' },
 } as const satisfies Record<string, SharedDocMeta>;
+
+/** Dirty markers survive reloads. Only a confirmed write clears one. */
+export function pendingCloudBackupKeys(): string[] {
+  const keys = ['members', 'calendar', ...Object.values(SHARED_DOCS).map(d => d.key), 'familyTree', 'businessMilestones', 'assets', 'passwords'];
+  return keys.filter(key => isDirty(key, FAMILY_ID));
+}
+
+export async function retryPendingCloudBackups(): Promise<string[]> {
+  if (!auth.currentUser) return pendingCloudBackupKeys();
+  const space = FAMILY_ID;
+  if (isDirty('members', space)) await loadFamilyMembers();
+  if (space !== FAMILY_ID) return pendingCloudBackupKeys();
+  if (isDirty('calendar', space)) await loadCalendarEvents();
+  for (const entry of Object.values(SHARED_DOCS)) {
+    if (space !== FAMILY_ID) break;
+    if (!isDirty(entry.key, space)) continue;
+    // The normal loaders preserve encryption and existing merge semantics.
+    if (entry.key === 'household') await loadHousehold();
+    else if (entry.key === 'finances') await loadFinances();
+    else await loadReferenceDoc(entry.key, entry.localKey);
+  }
+  return pendingCloudBackupKeys();
+}
 
 export type SharedDocName = keyof typeof SHARED_DOCS;
 

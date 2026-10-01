@@ -515,7 +515,7 @@ export function applyInfoEdits(info: FamilyInfo, edits: AiEdit[]): FamilyInfo {
 export const hasMemberEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'member' || e.kind === 'passport' || e.kind === 'new_member' || e.kind === 'transit_pass' || e.kind === 'care_schedule' || e.kind === 'saying' || e.kind === 'favorite_quote' || e.kind === 'cv' || e.kind === 'vaccination' || e.kind === 'visa' || e.kind === 'guardian' || e.kind === 'clear_field');
 export const hasInfoEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'contact' || e.kind === 'number' || e.kind === 'provider' || e.kind === 'vendor');
 
-const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'] as const;
+const VALID_CALENDAR_CATS = ['Milestone', 'Appointment', 'Work', 'School', 'Travel', 'Other'] as const;
 type CalendarCat = typeof VALID_CALENDAR_CATS[number];
 
 // Add calendar events from AI edits, resolving memberNames to memberIds.

@@ -13,7 +13,7 @@ import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useWillsAccess } from '../hooks/useWillsAccess';
 import {
   loadFamilyMembers, saveFamilyMembers,
-  loadCalendarEvents, saveCalendarEvents,
+  getCalendarBackupError, subscribeFamilyMembers, subscribeCalendarEvents, pendingCloudBackupKeys, retryPendingCloudBackups, loadCalendarEvents, saveCalendarEvents,
   loadFamilyInfo, saveFamilyInfo,
   loadHousehold, saveHousehold,
   loadFinances, saveFinances,
@@ -83,9 +83,11 @@ import { auth, loginWithGoogle, logout } from '../lib/firebase';
 // 401 so neither component keeps retrying a token already known to be dead.
 import { getAccessToken, invalidateAccessToken, connectGoogleAccess, isGoogleDisconnected } from '../utils/firebase';
 import {
-  importGoogleEvents, readLastGoogleImport, writeLastGoogleImport, shouldImportOnStartup,
+  calendarRefreshSlot, reconcileGoogleEvents, isScheduledCalendarRefreshDue, importGoogleEvents, readLastGoogleImport, writeLastGoogleImport, shouldImportOnStartup,
   hasGoogleImportedEvents, staleSyncNote, GoogleImportAuthError, isGoogleImportStale,
 } from '../utils/googleCalendarImport';
+import { parseIcs } from '../utils/ics';
+import { mergeFeedEvents } from '../utils/calendarFeeds';
 import { tagEventToMember } from '../utils/untaggedAppointments';
 import { pushEventToGoogleCalendar, isEligibleForAutoSync, GoogleCalendarAuthError } from '../utils/googleCalendarSync';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -740,6 +742,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [healthTimelineMemberId, setHealthTimelineMemberId] = useState<string | null>(null);
 
   // null = no save attempted yet; true/false = last save reached cloud or not
+  const [backupRetrying, setBackupRetrying] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [exportingBackup, setExportingBackup] = useState(false);
@@ -1024,8 +1027,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const saveOrder = async () => {
     if (demo) return;
     const ok = await saveFamilyMembers(membersRef.current);
-    setCloudSynced(ok);
+    setCloudSynced(ok && pendingCloudBackupKeys().length === 0);
     if (!ok) showToast("Saved on this device — couldn't back up to the cloud. Check your connection and re-save.");
+    return ok;
   };
 
   const cardClass = (member: FamilyMember) =>
@@ -1162,8 +1166,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     setMembers(updated);          // the same tick (e.g. scan → passport then document) merges
     if (demo) return;
     const ok = await saveFamilyMembers(updated);
-    setCloudSynced(ok);
+    setCloudSynced(ok && pendingCloudBackupKeys().length === 0);
     if (!ok) showToast("Saved on this device — couldn't back up to the cloud. Check your connection and re-save.");
+    return ok;
   };
 
   // Apply an AI-restyled avatar. The real photo is stashed once in
@@ -1254,10 +1259,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
   const handleSaveEvents = async (updatedEvents: CalendarEvent[]) => {
     setEvents(updatedEvents);
-    if (demo) return;
+    if (demo) return true;
     const ok = await saveCalendarEvents(updatedEvents);
-    setCloudSynced(ok);
+    setCloudSynced(ok && pendingCloudBackupKeys().length === 0);
     if (!ok) showToast("Saved on this device — couldn't back up to the cloud. Check your connection and re-save.");
+    return ok;
   };
 
   // "Whose is this?" answered on a person's Medical / Check-ups screen. Built
@@ -1418,21 +1424,18 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     const spaceAtStart = activeSpaceRef.current;
     const uid = auth.currentUser?.uid;
     try {
-      const res = await importGoogleEvents(token, eventsRef.current, membersRef.current);
-      if (!res) return true; // the Calendar screen is importing right now — that counts
-      // Switched space mid-import: these belong to the space the person left,
-      // and saving them now would write them into the one they switched to.
-      if (activeSpaceRef.current !== spaceAtStart) return false;
-      writeLastGoogleImport(uid, spaceAtStart);
-      // Re-checked against the list as it is NOW, not as it was when the
-      // fetch began: the seconds in between are enough for another write.
-      const have = new Set(eventsRef.current.map((e) => e.id));
-      const fresh = res.fresh.filter((e) => !have.has(e.id));
-      if (fresh.length > 0) {
-        const next = [...eventsRef.current, ...fresh];
-        eventsRef.current = next;
-        await handleSaveEvents(next);
-      }
+      const res = await importGoogleEvents(token, eventsRef.current, membersRef.current, {
+        owner: uid, workTitles: settingsRef.current.calendarWorkTitles ?? ['Karin', 'Barbara'],
+        commit: async snapshot => {
+          if (activeSpaceRef.current !== spaceAtStart) throw new Error('Space changed during refresh.');
+          const next = reconcileGoogleEvents(eventsRef.current, snapshot, new Date(), uid);
+          eventsRef.current = next;
+          const backedUp = await handleSaveEvents(next);
+          if (!backedUp) throw new Error('Calendar refreshed on this device, but cloud backup failed. Retry cloud backup before relying on another device.');
+          writeLastGoogleImport(uid, spaceAtStart);
+        },
+      });
+      if (!res) return false;
       return true;
     } catch (err) {
       console.error('Google Calendar import failed', err);
@@ -1441,10 +1444,17 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     }
   };
 
+  const [calendarClock, setCalendarClock] = useState(0);
   useEffect(() => {
-    if (!initialLoadDone) return;
+    const tick = () => setCalendarClock(n => n + 1);
+    const timer = window.setInterval(tick, 60_000);
+    window.addEventListener("focus", tick);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", tick); };
+  }, []);
+  useEffect(() => {
+    if (!initialLoadDone || !canWrite) return;
     const uid: string | undefined = currentUser?.uid;
-    const key = `${uid || ''}:${activeSpaceId || ''}`;
+    const key = `${uid || ''}:${activeSpaceId || ''}:${calendarRefreshSlot()}`;
     if (startupImportKeyRef.current === key) return;
     startupImportKeyRef.current = key;
     const lastIso = readLastGoogleImport(uid, activeSpaceId);
@@ -1457,7 +1467,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       hasGoogleEvents: hasGoogleImportedEvents(eventsRef.current),
       nowMs: Date.now(),
     });
-    if (!due) { setGoogleSyncNote(null); return; }
+    if (!due && !(hasGoogleImportedEvents(eventsRef.current) && !demo && !isBusinessSpace && !isGoogleDisconnected() && isScheduledCalendarRefreshDue(lastIso))) { setGoogleSyncNote(null); return; }
     void (async () => {
       const token = await getAccessToken(); // silent only — never a popup
       const ok = token ? await runGoogleImport(token) : false;
@@ -1467,7 +1477,78 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     // runGoogleImport reads everything through refs; listing it would re-run
     // this on every render for nothing (the key ref makes it once per load).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialLoadDone, currentUser, activeSpaceId, isBusinessSpace, demo]);
+  }, [initialLoadDone, currentUser, activeSpaceId, isBusinessSpace, demo, calendarClock, canWrite]);
+
+  // Browser-owned subscriptions use the same twice-daily schedule, even away
+  // from the Calendar screen. Each merge reads current refs after its fetch.
+  const feedsRefreshingRef = useRef(false);
+  const feedAttemptsRef = useRef(new Map<string, string>());
+  useEffect(() => {
+    if (!initialLoadDone || demo || !canWrite || feedsRefreshingRef.current) return;
+    const space = activeSpaceId;
+    const slot = calendarRefreshSlot();
+    const due = (settingsRef.current.calendarFeeds || []).filter(f => isScheduledCalendarRefreshDue(f.lastSyncedAt || null) && feedAttemptsRef.current.get(`${space}:${f.id}`) !== slot);
+    if (!due.length) return;
+    feedsRefreshingRef.current = true;
+    void (async () => {
+      try {
+        for (const feed of due) {
+          feedAttemptsRef.current.set(`${space}:${feed.id}`, slot);
+          let outcome: { lastSyncedAt?: string; lastError?: string; eventCount?: number };
+          try {
+            const user = auth.currentUser;
+            if (!user) return;
+            const response = await fetch('/api/calendar-feed', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` }, body: JSON.stringify({ url: feed.url }) });
+            const data = await response.json();
+            if (!response.ok || typeof data.ics !== 'string') throw new Error(data.error || 'Calendar refresh failed.');
+            if (activeSpaceRef.current !== space) return;
+            if (!(settingsRef.current.calendarFeeds || []).some(f => f.id === feed.id)) continue;
+            const parsed = parseIcs(data.ics, membersRef.current);
+            const merged = mergeFeedEvents(eventsRef.current, parsed.events, feed.id);
+            eventsRef.current = merged.events;
+            if (!await handleSaveEvents(merged.events)) throw new Error('Updated on this device; calendar cloud backup failed.');
+            outcome = { lastSyncedAt: new Date().toISOString(), lastError: undefined, eventCount: parsed.events.length };
+          } catch (error) {
+            outcome = { lastError: error instanceof Error ? error.message : 'Calendar refresh failed.' };
+          }
+          if (activeSpaceRef.current !== space) return;
+          const next = { ...settingsRef.current, calendarFeeds: (settingsRef.current.calendarFeeds || []).map(f => f.id === feed.id ? { ...f, ...outcome } : f) };
+          settingsRef.current = next;
+          setSettings(next);
+          await saveSettings(next);
+        }
+      } finally { feedsRefreshingRef.current = false; }
+    })();
+  }, [initialLoadDone, demo, canWrite, activeSpaceId, calendarClock]);
+
+  const backupRetryRef = useRef(false);
+  const retryCloudBackup = async () => {
+    if (demo || !canWrite || backupRetryRef.current) return;
+    backupRetryRef.current = true;
+    const space = activeSpaceRef.current;
+    setBackupRetrying(true);
+    try {
+      const remaining = await retryPendingCloudBackups();
+      if (activeSpaceRef.current !== space) return;
+      setCloudSynced(remaining.length === 0);
+      if (remaining.length) showToast(getCalendarBackupError() || 'Cloud backup still unavailable. Your pending changes remain on this device.');
+      else {
+        const fresh = await loadCalendarEvents();
+        if (activeSpaceRef.current === space && fresh) { eventsRef.current = fresh; setEvents(fresh); }
+        showToast('Pending changes backed up to the family cloud.');
+      }
+    } finally { backupRetryRef.current = false; setBackupRetrying(false); }
+  };
+  useEffect(() => {
+    if (!initialLoadDone || demo || !currentUser) return;
+    if (pendingCloudBackupKeys().length) setCloudSynced(false);
+    const stop = subscribeCalendarEvents(next => { eventsRef.current = next; setEvents(next); }, error => console.error('Calendar live sync unavailable', error));
+    const stopMembers = isBusinessSpace ? () => {} : subscribeFamilyMembers(next => { membersRef.current = next; setMembers(next); }, error => console.error('Family live sync unavailable', error));
+    const reconnect = () => { if (canWrite && pendingCloudBackupKeys().length) void retryCloudBackup(); };
+    window.addEventListener('online', reconnect);
+    window.addEventListener('focus', reconnect);
+    return () => { stop(); stopMembers(); window.removeEventListener('online', reconnect); window.removeEventListener('focus', reconnect); };
+  }, [initialLoadDone, activeSpaceId, demo, currentUser?.uid, canWrite, isBusinessSpace]);
 
   // The Calendar screen's own import (on opening it, or its Import button)
   // also records the time — once it has, the stale line has nothing to say.
@@ -3963,11 +4044,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             <>
               <CloudOff className="w-3.5 h-3.5 text-honey-700" />
               <span>Saved on this device — not backed up to the cloud</span>
+              {getCalendarBackupError() && <span role="status">{getCalendarBackupError()}</span>}
+              <button type="button" className="text-clay-700 underline disabled:opacity-50" disabled={backupRetrying || !canWrite} onClick={retryCloudBackup}>{backupRetrying ? 'Backing up…' : 'Retry cloud backup'}</button>
             </>
           ) : (
             <>
               <Cloud className="w-3.5 h-3.5 text-sage-600" />
-              <span>Private to your Google account{cloudSynced ? ' · synced' : ''}</span>
+              <span>Shared with your family{cloudSynced ? ' · backed up' : ''}</span>
             </>
           )}
         </div>

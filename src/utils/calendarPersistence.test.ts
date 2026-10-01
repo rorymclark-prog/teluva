@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import { calendarWriteBatches, mergeCalendarWrite } from './calendarPersistence';
+import { mergeIdList } from './mergeShared';
+import type { CalendarEvent } from '../types';
+const events: CalendarEvent[] = Array.from({ length: 2000 }, (_, i) => ({ id: `event-${i}`, title: 'Work', date: '2026-10-01', category: 'Work', remindMe: true }));
+const base = new Map(events.map(e => [e.id, e]));
+const local = events.map(e => e.id === 'event-7' ? { ...e, time: '10:00' } : e);
+assert.deepEqual(calendarWriteBatches(local, base).map(b => b.map(e => e.id)), [['event-7']], 'one edit in a huge calendar reads/writes only that event');
+assert.equal(calendarWriteBatches(events, new Map()).length, 20, 'first import/retry is bounded to 100 per transaction');
+assert.ok(calendarWriteBatches(events, new Map()).every(b => b.length <= 100));
+const remote = { ...events[7], description: 'Added from phone' };
+assert.deepEqual(mergeCalendarWrite(local[7], events[7], remote), { ...remote, time: '10:00' }, 'Mac time edit preserves phone description');
+assert.deepEqual(mergeIdList(['deleted', 'kept'], ['kept'], ['deleted', 'kept', 'phone-added']), ['kept', 'phone-added'], 'source removals preserve concurrently added native events');
+assert.deepEqual(calendarWriteBatches([], base), [], 'removing all events needs only an index commit');
+console.log('calendarPersistence: bounded delta writes and cross-device merges OK');
+assert.throws(() => mergeCalendarWrite({ ...events[7], time: '10:00' }, undefined, { ...events[7], time: '11:00' }), /conflict/, 'legacy pending edits must not overwrite a different cloud version without a merge base');
+assert.deepEqual(mergeCalendarWrite(events[7], undefined, { ...events[7], description: 'Only on phone' }), { ...events[7], description: 'Only on phone' }, 'a richer cloud record keeps fields missing locally');

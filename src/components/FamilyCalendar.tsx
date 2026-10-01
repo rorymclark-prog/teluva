@@ -1,3 +1,5 @@
+import CalendarTimeViews from './CalendarTimeViews';
+import { calendarViewDates, navigateCalendarDate, type CalendarView } from '../utils/calendarViews';
 import { calendarCategoryForEdit } from '../utils/medicalCalendarEvent';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnniversaryRecord, CalendarEvent, ExtendedBirthday, FamilyMember, HubSettings, Pet } from '../types';
@@ -52,7 +54,7 @@ import UntaggedAppointmentPrompt from './UntaggedAppointmentPrompt';
 import ImportantChip from './ImportantChip';
 import AppointmentAlarm from './AppointmentAlarm';
 import { isAutoImportant, isImportantEvent, importantOverride, withImportant } from '../utils/importantEvents';
-import { importGoogleEvents, writeLastGoogleImport, GoogleImportAuthError } from '../utils/googleCalendarImport';
+import { importGoogleEvents, writeLastGoogleImport, GoogleImportAuthError, reconcileGoogleEvents, readLastGoogleImport, classifyGoogleEvent } from '../utils/googleCalendarImport';
 import type { VirtualCalendarEvent } from '../utils/virtualEvents';
 import { warmAvatarColor } from '../utils/avatarPalette';
 import { parseIcs, buildIcs } from '../utils/ics';
@@ -120,6 +122,7 @@ function dayDotClass(item: CalendarEvent | VirtualCalendarEvent, isSelected: boo
     : item.category === 'School' ? 'bg-dusk-500'
       : item.category === 'Travel' ? 'bg-honey-500'
         : item.category === 'Appointment' ? 'bg-rosa-500'
+          : item.category === 'Work' ? 'bg-clay-500'
           : item.category === 'Milestone' ? 'bg-sage-500'
             : 'bg-ink-400';
   return `w-1 h-1 rounded-full ${fill}`;
@@ -181,7 +184,7 @@ interface PublishedLink {
 interface FamilyCalendarProps {
   members: FamilyMember[];
   events: CalendarEvent[];
-  onSaveEvents: (events: CalendarEvent[]) => void;
+  onSaveEvents: (events: CalendarEvent[]) => void | boolean | Promise<boolean | void>;
   // Opt-in outbound sync switch (HubSettings.autoSyncEventsToGoogle, owned by
   // Dashboard). Default OFF — see the toggle in the Google Calendar Sync
   // Panel below and the auto-sync effect further down this file for what
@@ -215,7 +218,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // what gets edited and saved, and a hidden birthday is still a real event.
   const { hidden: hiddenPeople, openManager: manageHiddenDates } = useHiddenPeople();
   const dateMembers = useMemo(() => visibleDateMembers(members, hiddenPeople), [members, hiddenPeople]);
-  const shownEvents: CalendarEvent[] = useMemo(() => withoutHiddenDates(events, hiddenPeople), [events, hiddenPeople]);
+  const shownEvents: CalendarEvent[] = useMemo(() => withoutHiddenDates(events, hiddenPeople).map(event => event.id.startsWith('gcal-') && !event.categoryConfirmed && classifyGoogleEvent({ summary: event.title, description: event.description }, settings.calendarWorkTitles ?? ['Karin', 'Barbara']) === 'Work' ? { ...event, category: 'Work' as const } : event), [events, hiddenPeople, settings.calendarWorkTitles]);
   // A birthday panel that is empty only because of a Hide says so, instead of
   // asking the family to add a birthday that is already there.
   const birthdaysHiddenHere = useMemo(
@@ -240,6 +243,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [currentMonth, setCurrentMonth] = useState(today.getMonth()); // 0-indexed
   // Bug fix #6: use todayLocal() instead of toISOString().split('T')[0]
   const [selectedDateStr, setSelectedDateStr] = useState(todayLocal());
+  const [calendarView, setCalendarView] = useState<CalendarView>('month');
+  const viewDates = calendarViewDates(selectedDateStr, calendarView);
+  const selectCalendarDate = (date: string) => { setSelectedDateStr(date); setCurrentYear(Number(date.slice(0, 4))); setCurrentMonth(Number(date.slice(5, 7)) - 1); };
 
   // Google Calendar Connection States
   const [needsAuth, setNeedsAuth] = useState(true);
@@ -259,6 +265,12 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [icsNote, setIcsNote] = useState<string | null>(null);
   // Subscribed calendars — id of the feed currently syncing, or 'adding'.
   const [feedUrlInput, setFeedUrlInput] = useState('');
+  const calendarSpaceRef = useRef(familyId);
+  calendarSpaceRef.current = familyId;
+  const calendarEventsRef = useRef(events);
+  calendarEventsRef.current = events;
+  const calendarFeedsRef = useRef(calendarFeeds);
+  calendarFeedsRef.current = calendarFeeds;
   const [feedBusy, setFeedBusy] = useState<string | null>(null);
 
   // Sync state observer
@@ -362,6 +374,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // comes back, with exactly the same parser the file import uses.
   const syncFeed = async (feed: CalendarFeed, opts: { announce?: boolean } = {}) => {
     setFeedBusy(feed.id);
+    const spaceAtStart = familyId;
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('Please sign in again.');
@@ -379,22 +392,24 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         throw new Error(data.error || 'Could not fetch that calendar.');
       }
 
+      if (calendarSpaceRef.current !== spaceAtStart) return false;
       const parsed = parseIcs(data.ics, members);
-      const merged = mergeFeedEvents(events, parsed.events, feed.id);
-      onSaveEvents(merged.events);
-      onSaveCalendarFeeds(
-        calendarFeeds.map((f) => (f.id === feed.id
-          ? { ...f, lastSyncedAt: new Date().toISOString(), lastError: undefined, eventCount: parsed.events.length }
-          : f)),
-      );
+      const merged = mergeFeedEvents(calendarEventsRef.current, parsed.events, feed.id);
+      calendarEventsRef.current = merged.events;
+      if (await onSaveEvents(merged.events) === false) throw new Error('Updated on this device, but calendar cloud backup failed.');
+      const nextFeeds = calendarFeedsRef.current.map(f => f.id === feed.id
+        ? { ...f, lastSyncedAt: new Date().toISOString(), lastError: undefined, eventCount: parsed.events.length } : f);
+      calendarFeedsRef.current = nextFeeds;
+      onSaveCalendarFeeds(nextFeeds);
       if (opts.announce) {
         setIcsNote([describeSync(merged), ...parsed.warnings].join('\n'));
       }
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not fetch that calendar.';
+      if (calendarSpaceRef.current !== spaceAtStart) return false;
       console.error('[feed] sync failed', err);
-      onSaveCalendarFeeds(calendarFeeds.map((f) => (f.id === feed.id ? { ...f, lastError: message } : f)));
+      onSaveCalendarFeeds(calendarFeedsRef.current.map((f) => (f.id === feed.id ? { ...f, lastError: message } : f)));
       if (opts.announce) setIcsNote(message);
       return false;
     } finally {
@@ -549,18 +564,6 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     setShowDuplicates(false);
     setIcsNote(`Removed ${removed} duplicate ${removed === 1 ? 'entry' : 'entries'}. One copy of each was kept.`);
   };
-
-  // Refresh every subscription once per mount. Quietly — nobody opened the
-  // calendar to read a sync report.
-  const hasSyncedFeeds = useRef(false);
-  useEffect(() => {
-    if (hasSyncedFeeds.current || !calendarFeeds.length || !canWrite) return;
-    hasSyncedFeeds.current = true;
-    (async () => {
-      for (const f of calendarFeeds) await syncFeed(f);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calendarFeeds.length, canWrite]);
 
   // Load any existing published links once, so a family that already has one
   // sees it rather than being invited to create a second.
@@ -790,14 +793,14 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   // `auto` is the once-per-mount run below: when the dashboard's start-up
   // import is already in flight it steps aside without a word, rather than
   // toasting about an import the person never asked for.
-  const handleImportFromGoogle = async (auto = false) => {
-    if (!token) return;
+  const handleImportFromGoogle = async (auto = false, accessToken = token) => {
+    if (!accessToken || !canWrite) return;
     setIsGoogleCalendarSyncing(true);
     setCalendarSyncError(null);
     try {
       // Check token scopes first if possible
       try {
-        const tokenInfoRes = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${token}`);
+        const tokenInfoRes = await fetch(`https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${accessToken}`);
         if (tokenInfoRes.ok) {
           const tokenInfo = await tokenInfoRes.json();
           if (tokenInfo.scope && !tokenInfo.scope.includes('calendar') && !tokenInfo.scope.includes('calendar.events')) {
@@ -816,33 +819,23 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
       // year, and everything from now on, as two queries so history can't
       // crowd out upcoming appointments) — but each is now paged to the end
       // through nextPageToken instead of stopping at Google's first 250.
-      const result = await importGoogleEvents(token, events, members);
+      const spaceAtStart = familyId;
+      const result = await importGoogleEvents(accessToken, calendarEventsRef.current, members, {
+        owner: auth.currentUser?.uid, workTitles: settings.calendarWorkTitles ?? ['Karin', 'Barbara'],
+        commit: async snapshot => {
+          if (calendarSpaceRef.current !== spaceAtStart) throw new Error('Space changed during refresh.');
+          const next = reconcileGoogleEvents(calendarEventsRef.current, snapshot, new Date(), auth.currentUser?.uid);
+          calendarEventsRef.current = next;
+          const backedUp = await onSaveEvents(next);
+          if (backedUp === false) throw new Error('Updated on this device, but cloud backup failed. Retry cloud backup to share these changes.');
+          writeLastGoogleImport(auth.currentUser?.uid, spaceAtStart);
+        },
+      });
       if (!result) {
-        if (!auto) triggerReminderNotification('Already bringing in your Google Calendar — one moment.');
+        if (!auto) triggerReminderNotification('Already refreshing Google Calendar — one moment.');
         return;
       }
-      writeLastGoogleImport(auth.currentUser?.uid, familyId);
-      const { fresh, duplicates, fetched, truncated } = result;
-
-      if (fetched === 0) {
-        triggerReminderNotification('No events found in Google Calendar.');
-        return;
-      }
-
-      if (fresh.length === 0) {
-        triggerReminderNotification(
-          duplicates.length > 0
-            ? `Nothing new — ${duplicates.length} matched something already on your calendar.`
-            : 'All events are already matched.',
-        );
-      } else {
-        onSaveEvents([...events, ...fresh]);
-        triggerReminderNotification(
-          `Imported ${fresh.length} new entr${fresh.length === 1 ? 'y' : 'ies'} from Google Calendar!` +
-          (duplicates.length > 0 ? ` (${duplicates.length} skipped as duplicates.)` : '') +
-          (truncated ? ' Your calendar is very large, so only the first 5,000 entries each way were read.' : ''),
-        );
-      }
+      triggerReminderNotification('Calendar refreshed — changed and removed Google events reconciled.');
     } catch (err: any) {
       console.error(err);
       if (err instanceof GoogleImportAuthError) {
@@ -911,7 +904,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const handleApplyNoticeEvents = () => {
     if (!noticeResult) return;
     const today = new Date().toLocaleDateString('en-CA');
-    const VALID_CATS = ['Milestone', 'Appointment', 'School', 'Travel', 'Other'];
+    const VALID_CATS = ['Milestone', 'Appointment', 'Work', 'School', 'Travel', 'Other'];
     const newEvents: CalendarEvent[] = noticeResult.events.map((e: any) => ({
       id: 'scan-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
       title: e.title || 'Event',
@@ -950,7 +943,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
   const [eventDate, setEventDate] = useState(todayLocal());
   const [eventTime, setEventTime] = useState('12:00');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<'Milestone' | 'Appointment' | 'School' | 'Travel' | 'Other'>('Other');
+  const [category, setCategory] = useState<'Milestone' | 'Appointment' | 'Work' | 'School' | 'Travel' | 'Other'>('Other');
   const [remindMe, setRemindMe] = useState(true);
   // The family's own choice on the Important switch; undefined = untouched,
   // so the switch follows the title (a "Dentist" turns it on by itself).
@@ -1393,11 +1386,11 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           ? buildReferralAppointments(members, events, realTodayStr)
           : [],
       },
-      monthStart,
-      monthEnd,
+      calendarView === 'month' ? monthStart : viewDates[0],
+      calendarView === 'month' ? monthEnd : viewDates[viewDates.length - 1],
     );
   }, [
-    currentYear, currentMonth, daysInMonth,
+    currentYear, currentMonth, daysInMonth, calendarView, selectedDateStr,
     birthdays, extendedBirthdays, nameCelebrations, anniversaries, petBirthdays,
     settings.calendarDivisions, isBusinessSpace, members, events, realTodayStr,
   ]);
@@ -1494,6 +1487,16 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
           when nobody is hidden, and nothing in a business space. */}
       <HiddenDatesLine className="px-1 -mt-3" />
 
+      <div className="card p-4 flex flex-wrap items-center gap-3">
+        <button type="button" className="btn-quiet" disabled={isGoogleCalendarSyncing || !!feedBusy || !canWrite} onClick={async () => {
+          if (token) await handleImportFromGoogle();
+          else { const connected = await connectGoogleAccess(); if (connected) { setToken(connected); setNeedsAuth(false); await handleImportFromGoogle(false, connected); } else setCalendarSyncError('Reconnect Google Calendar to refresh.'); }
+          for (const feed of calendarFeeds) await syncFeed(feed, { announce: true });
+        }}>{isGoogleCalendarSyncing || feedBusy ? 'Refreshing…' : 'Refresh calendar'}</button>
+        <p className="text-sm text-ink-500" role="status">Google last updated: {readLastGoogleImport(auth.currentUser?.uid, familyId) ? new Date(readLastGoogleImport(auth.currentUser?.uid, familyId)!).toLocaleString() : 'Not yet refreshed'}. Automatic refresh: 07:00 and 19:00 Vienna time while open; catches up on reopening.</p>
+        {calendarFeeds.map(feed => <p key={feed.id} role={feed.lastError ? 'alert' : 'status'} className="text-sm text-ink-500">{feed.label}: {feed.lastError || (feed.lastSyncedAt ? `Updated ${new Date(feed.lastSyncedAt).toLocaleString()}` : 'Not yet refreshed')}</p>)}
+        {calendarSyncError && <p role="alert" className="text-sm text-rosa-600">{calendarSyncError}</p>}
+      </div>
       {emberMode && (
         <section className="ember-week-horizon" aria-labelledby="week-horizon-title">
           <header>
@@ -2792,13 +2795,15 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
 
             <div className="flex items-center space-x-1">
               <button
-                onClick={handlePrevMonth}
+                aria-label={`Previous ${calendarView}`}
+                onClick={() => calendarView === 'month' ? handlePrevMonth() : selectCalendarDate(navigateCalendarDate(selectedDateStr, calendarView, -1))}
                 className="p-1 px-1.5 hover:bg-cream-100 rounded-xl border border-cream-300 text-ink-500 transition-colors cursor-pointer"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
-                onClick={handleNextMonth}
+                aria-label={`Next ${calendarView}`}
+                onClick={() => calendarView === 'month' ? handleNextMonth() : selectCalendarDate(navigateCalendarDate(selectedDateStr, calendarView, 1))}
                 className="p-1 px-1.5 hover:bg-cream-100 rounded-xl border border-cream-300 text-ink-500 transition-colors cursor-pointer"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -2806,6 +2811,12 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             </div>
           </div>
 
+          <div className="flex gap-2 flex-wrap" aria-label="Calendar view">
+            {(['day', 'week', 'month'] as CalendarView[]).map(view => <button key={view} type="button" aria-pressed={calendarView === view} onClick={() => setCalendarView(view)} className={calendarView === view ? 'btn-primary' : 'btn-quiet'}>{view[0].toUpperCase() + view.slice(1)}</button>)}
+            <button type="button" className="btn-quiet" onClick={() => selectCalendarDate(todayLocal())}>Today</button>
+          </div>
+          {calendarView !== 'month' && <CalendarTimeViews dates={viewDates} events={shownEvents} occasions={virtualEvents} selected={selectedDateStr} onSelect={selectCalendarDate} />}
+          {calendarView === 'month' && <>
           {/* Weekday Labels */}
           <div className="grid grid-cols-7 gap-1 text-center pb-1">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((wd, i) => {
@@ -2880,6 +2891,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
             })}
           </div>
 
+          </>}
           {/* Color Code Legend */}
           <div className="flex flex-wrap gap-x-4 gap-y-1.5 pt-3.5 border-t border-cream-200 text-[12px] text-ink-500 font-semibold">
             <div className="flex items-center gap-1.5">
@@ -2894,6 +2906,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               <span className="w-2 h-2 rounded-full bg-rosa-500 inline-block"></span>
               <span>Appointment</span>
             </div>
+            <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-clay-500 inline-block" /><span>Work</span></div>
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-sage-500 inline-block"></span>
               <span>Milestone</span>
@@ -3003,6 +3016,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                     ev.category === 'School' ? { bg: 'bg-dusk-500/15', border: 'border-dusk-500/20', text: 'text-dusk-700' } :
                     ev.category === 'Travel' ? { bg: 'bg-honey-500/15', border: 'border-honey-500/20', text: 'text-honey-700' } :
                     ev.category === 'Appointment' ? { bg: 'bg-rosa-500/15', border: 'border-rosa-500/20', text: 'text-rosa-700' } :
+                    ev.category === 'Work' ? { bg: 'bg-clay-500/15', border: 'border-clay-500/20', text: 'text-clay-700' } :
                     ev.category === 'Milestone' ? { bg: 'bg-sage-500/15', border: 'border-sage-500/20', text: 'text-sage-700' } :
                     { bg: 'bg-ink-400/15', border: 'border-ink-400/20', text: 'text-ink-700' };
 
@@ -3317,6 +3331,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   >
                     <option value="School">School / Homework</option>
                     <option value="Appointment">Medical appointment</option>
+                    <option value="Work">Work</option>
                     <option value="Travel">{isBusinessSpace ? 'Business travel / Flights' : 'Family travel / Flights'}</option>
                     <option value="Milestone">{isBusinessSpace ? 'Company milestone' : 'Family milestone'}</option>
                     <option value="Other">Other</option>

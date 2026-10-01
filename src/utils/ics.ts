@@ -1,3 +1,4 @@
+import { classifyGoogleEvent } from './googleCalendarImport';
 // iCalendar (.ics) reading and writing — the answer to "what about people on
 // Apple or Outlook calendars?"
 //
@@ -370,12 +371,32 @@ export function parseIcs(
   const warnings: string[] = [];
   let sourceCount = 0;
 
+  // Detached exceptions can appear before or after their master. Collect
+  // original occurrence dates first so moved/cancelled instances suppress it.
+  const exceptions = new Map<string, Set<string>>();
+  let exceptionUid = '';
+  let exceptionDate = '';
+  for (const line of lines) {
+    const prop = parseIcsLine(line);
+    if (!prop) continue;
+    if (prop.name === 'BEGIN' && prop.value.toUpperCase() === 'VEVENT') { exceptionUid = ''; exceptionDate = ''; }
+    if (prop.name === 'UID') exceptionUid = prop.value.trim();
+    if (prop.name === 'RECURRENCE-ID') {
+      if (prop.params.RANGE) throw new Error('This calendar uses recurrence ranges that cannot be safely mirrored yet. Existing events were kept.');
+      const raw = parseIcsRaw(prop.value, prop.params);
+      if (raw) exceptionDate = rawDateKey(raw);
+    }
+    if (prop.name === 'END' && prop.value.toUpperCase() === 'VEVENT' && exceptionUid && exceptionDate) {
+      const dates = exceptions.get(exceptionUid) || new Set<string>(); dates.add(exceptionDate); exceptions.set(exceptionUid, dates);
+    }
+  }
+
   let inEvent = false;
   let cur: {
     uid?: string; summary?: string; description?: string; location?: string;
     start?: IcsRaw; rrule?: string;
     /** Source-zone dates, so they compare against expanded occurrences. */
-    exdates: Set<string>; status?: string;
+    exdates: Set<string>; status?: string; categories?: string; recurrenceId?: IcsRaw;
   } | null = null;
 
   let unknownZone = 0;
@@ -411,7 +432,7 @@ export function parseIcs(
           // other way round misplaces BYDAY and stops EXDATE matching — see
           // the note on IcsRaw.
           const sourceDates = cur.rrule
-            ? expandRecurrence(rawDateKey(cur.start), rule, today).filter((d) => !cur!.exdates.has(d))
+            ? expandRecurrence(rawDateKey(cur.start), rule, today).filter((d) => !cur!.exdates.has(d) && !exceptions.get(cur!.uid || '')?.has(d))
             : [rawDateKey(cur.start)];
 
           const title = (cur.summary || '').trim() || 'Untitled appointment';
@@ -427,7 +448,7 @@ export function parseIcs(
             events.push({
               // The id is keyed on the SOURCE date, so re-importing the file
               // produces the same ids no matter where it is opened.
-              id: icsEventId(cur!.uid || title, srcDate, i),
+              id: icsEventId(cur!.uid || title, cur!.recurrenceId ? rawDateKey(cur!.recurrenceId) : srcDate, i),
               title,
               date: local.date,
               // All-day events get no time. Google's importer defaults to
@@ -435,7 +456,7 @@ export function parseIcs(
               // and the calendar renders it as such.
               ...(local.allDay ? {} : { time: local.time }),
               description: descBits.join('\n') || 'Imported from a calendar file',
-              category: 'Appointment',
+              category: classifyGoogleEvent({ summary: title, description: cur!.description, extendedProperties: { private: { teluvaCategory: cur!.categories || '' } } }),
               remindMe: true,
               // Same rule as the Google importer: a calendar file has no idea
               // who lives in this house, so read the person out of the title.
@@ -459,6 +480,8 @@ export function parseIcs(
       case 'SUMMARY': cur.summary = unescapeIcsText(prop.value); break;
       case 'DESCRIPTION': cur.description = unescapeIcsText(prop.value); break;
       case 'LOCATION': cur.location = unescapeIcsText(prop.value); break;
+      case 'RECURRENCE-ID': cur.recurrenceId = parseIcsRaw(prop.value, prop.params) || undefined; break;
+      case 'CATEGORIES': cur.categories = prop.value.trim(); break;
       case 'STATUS': cur.status = prop.value.trim(); break;
       case 'RRULE': cur.rrule = prop.value.trim(); break;
       case 'DTSTART':
