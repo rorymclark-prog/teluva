@@ -1,6 +1,6 @@
 {
-  "label": "v371",
+  "label": "v372",
   "changes": [
-    "Calendar cloud reads now preserve newer local refreshes and edits, preventing an older response from restoring stale events or producing a false backup warning."
+    "Calendar recovery now requires a server-confirmed read and protects newer local changes from delayed responses. Offline cached responses no longer count as successful cloud verification."
   ]
 }

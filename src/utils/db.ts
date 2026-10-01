@@ -1,6 +1,6 @@
 import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, KinLink, FamilyTreeDoc, WillsAccessDoc, PendingWillReader, HiddenDatePerson, PersonalPrefsDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, getDocsFromServer, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { calendarWriteBatches, canAdoptCalendarRead, mergeCalendarWrite, reconcileCalendarIndex, withCalendarWriteLock, type CalendarSaveOptions } from './calendarPersistence';
 import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
@@ -527,16 +527,17 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
         { space: spaceAtStart, uid: user.uid, cache: cacheAtReadStart },
         { space: FAMILY_ID, uid: auth.currentUser?.uid, dirty: isDirty('calendar', spaceAtStart), cache: localStorage.getItem(localKey) });
       const metaRef = doc(db, 'families', spaceAtStart, 'metadata', 'events');
-      const metaSnap = await getDoc(metaRef);
+      const metaSnap = await getDocFromServer(metaRef);
 
       if (metaSnap.exists()) {
         const ids = metaSnap.data().ids as string[];
-        const snapshot = await getDocs(collection(db, 'families', spaceAtStart, 'calendar_events'));
+        const snapshot = await getDocsFromServer(collection(db, 'families', spaceAtStart, 'calendar_events'));
         const wanted = new Set(ids);
         const events = snapshot.docs.filter(s => wanted.has(s.id)).map(s => s.data() as CalendarEvent);
 
         // A cloud read begun before a local save must never restore its older cache.
         if (!canAdoptRead()) return readCachedCalendarEvents();
+        calendarBackupError = null;
         noteSeen(EVENT_IDS_KEY, ids);
         // Merge base for the next per-event write (see saveCalendarEvents).
         for (const e of events) noteSeen(eventSeenKey(e.id), e);
@@ -564,6 +565,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
         localStorage.setItem(migratedKey, '1');
       }
     } catch (error) {
+      calendarBackupError = 'Could not verify the latest family calendar with the cloud. Your local copy is preserved; retry when connected.';
       console.error('Error loading events from Firestore:', error);
     }
   }

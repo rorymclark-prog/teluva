@@ -1534,12 +1534,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     try {
       const remaining = await retryPendingCloudBackups();
       if (activeSpaceRef.current !== space) return;
-      setCloudSynced(remaining.length === 0);
-      if (remaining.length) showToast(getCalendarBackupError() || 'Cloud backup still unavailable. Your pending changes remain on this device.');
+      if (remaining.length) { setCloudSynced(false); showToast(getCalendarBackupError() || 'Cloud backup still unavailable. Your pending changes remain on this device.'); }
       else {
         const fresh = await loadCalendarEvents();
         if (activeSpaceRef.current === space && fresh) { eventsRef.current = fresh; setEvents(fresh); }
-        showToast('Pending changes backed up to the family cloud.');
+        const verified = !getCalendarBackupError() && pendingCloudBackupKeys().length === 0;
+        setCloudSynced(verified);
+        showToast(verified ? 'Pending changes backed up to the family cloud.' : getCalendarBackupError() || 'Newer changes are still waiting for cloud backup.');
       }
     } finally { backupRetryRef.current = false; setBackupRetrying(false); }
   };
