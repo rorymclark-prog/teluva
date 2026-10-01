@@ -1,25 +1,20 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Check, ArrowRight } from 'lucide-react';
-import { useT } from '../i18n/LangContext';
-import { CURRENT_BUILD, BUST_PARAM, applyUpdate, fetchDeployedVersion, retiredAddress } from '../utils/appUpdate';
+import { Check, ArrowRight } from 'lucide-react';
+import { CURRENT_BUILD, BUST_PARAM, fetchDeployedVersion, retiredAddress } from '../utils/appUpdate';
 
 /**
- * Surfaces a small non-blocking "New version available · Refresh" toast when the
- * deployed build differs from the one this tab is running. Deliberately never
- * auto-reloads — only a user tap calls location.reload(), so there is no
- * reload-loop risk (nothing here can retrigger itself).
+ * Two cards, both rare, neither ever a "refresh now" prompt:
+ *   - 'retired': this app was installed from an address we no longer deploy to.
+ *   - 'updated': opt-in "here is what changed" after a cold start on a new build.
  *
- * How it knows: vite.config.ts bakes a build stamp into the bundle
- * (__APP_VERSION__) and emits the same stamp to dist/version.json. This polls
- * version.json (uncached) and compares. In local dev there is no deployed
- * version.json, so the check simply never fires.
+ * The "new version available — Refresh" card that used to live here is GONE. It
+ * floated over whatever the person was doing, could not be dismissed, and a tap
+ * reloaded the whole page; it was reported as constant, annoying refreshes and
+ * showed up in the logs of a phone that ended on Safari's crash-loop page. A
+ * pending update is now quiet state (utils/updateStatus.ts) surfaced as a dot
+ * and an "Update ready" row in the section menu, and nothing reloads until the
+ * person taps that row.
  */
-const POLL_MS = 3 * 60 * 1000; // every 3 min while the tab is visible
-// One second, not fifteen. The old delay blinded roughly the first 20 seconds of
-// every session once bundle download and parse are counted, and a phone session
-// is often shorter than that. The check is a ~3KB same-origin GET that touches
-// no app state, so there is nothing to "settle" before running it.
-const FIRST_CHECK_MS = 1000;
 
 /**
  * WHO ACTUALLY WANTS THE "HERE IS WHAT CHANGED" CARD.
@@ -31,12 +26,10 @@ const FIRST_CHECK_MS = 1000;
  * beta user who opens the app each morning gets a changelog card every time.
  * That is a developer's diary presented as news.
  *
- * The two modes are NOT the same decision, so only one of them is behind
- * this. "Your app is stale, tap to refresh" stays unconditional for
- * everybody — it is a correctness fix, and it matters MORE for people who are
- * not watching deploys, because they are the ones who sit on an old build
- * hitting bugs that were fixed days ago. Only the retrospective "you just
- * updated, here is what changed" is opt-in.
+ * The retrospective "you just updated, here is what changed" card is opt-in.
+ * "Your app is stale" is not a card at all any more: it is a dot and an
+ * "Update ready" row in the section menu (utils/updateStatus.ts), which a
+ * person opens when they choose to.
  *
  * localStorage rather than a profile setting on purpose: it is per-device,
  * which is exactly the grain of "show it on MY phone". Nothing to sync, and
@@ -70,12 +63,12 @@ const LAST_SEEN_KEY = 'teluva:lastSeenBuild';
  * broken three times.
  *
  * So the card also answers the opposite question: "you just got a new version,
- * here is what changed". That fires on exactly the sessions the poll cannot
- * catch — a cold start after an update — by remembering the last build this
+ * here is what changed". That fires on exactly the sessions the background
+ * check cannot catch — a cold start after an update — by remembering the last build this
  * device ran and noticing it differs. No polling, no timers, no visibility
  * dependency; it is decided before the first paint.
  */
-type Mode = 'none' | 'available' | 'updated' | 'retired';
+type Mode = 'none' | 'updated' | 'retired';
 
 // The version check compares this bundle against /version.json from the SAME
 // host, so an app opened at an address we no longer deploy to will report
@@ -92,16 +85,13 @@ function writeLastSeen(v: string) {
 }
 
 export default function UpdateBanner() {
-  const { t } = useT();
   const [mode, setMode] = useState<Mode>(MOVED_TO ? 'retired' : 'none');
   const [label, setLabel] = useState('');
   const [changes, setChanges] = useState<string[]>([]);
 
   // "You just updated" — decided on mount from what this device last ran.
   //
-  // Runs before any network call, so it is unaffected by being offline, and it
-  // cannot fight the poll below: an 'available' state always wins, because a
-  // pending update is more urgent than a past one (see the setMode guard there).
+  // Runs before any network call, so it is unaffected by being offline.
   useEffect(() => {
     if (CURRENT_BUILD === 'dev' || MOVED_TO) return;
     const last = readLastSeen();
@@ -114,7 +104,7 @@ export default function UpdateBanner() {
        version this device has been running for a week. */
     if (!showsUpdateNotes()) return;
 
-    setMode((m) => (m === 'available' ? m : 'updated'));
+    setMode('updated');
     void fetchDeployedVersion().then((d) => {
       if (!d) return;
       setLabel(d.label || '');
@@ -131,67 +121,6 @@ export default function UpdateBanner() {
     if (!url.searchParams.has(BUST_PARAM)) return;
     url.searchParams.delete(BUST_PARAM);
     window.history.replaceState({}, '', url.pathname + url.search + url.hash);
-  }, []);
-
-  useEffect(() => {
-    // No deployed version.json to compare against during local dev.
-    //
-    // And on a retired address the poll is worse than useless: this host's
-    // version.json describes this host's frozen build, so the comparison
-    // passes and the app quietly congratulates itself on being current.
-    // Refreshing would not move anyone either — the fix is a different host.
-    if (CURRENT_BUILD === 'dev' || MOVED_TO) return;
-
-    let cancelled = false;
-    let interval: ReturnType<typeof setInterval> | undefined;
-
-    async function check() {
-      if (cancelled || document.visibilityState !== 'visible') return;
-      try {
-        const data = await fetchDeployedVersion();
-        // STRICTLY NEWER, not merely different. During a Cloud Run rollout two
-        // revisions serve the same URL for a while, so a tab already on the new
-        // build can poll a draining old instance and be offered a DOWNGRADE —
-        // which, tapped, reloads onto the older build and then offers the newer
-        // one again, forever. Both stamps are millisecond timestamps, so a
-        // numeric comparison is the whole fix.
-        if (
-          !cancelled &&
-          data?.version &&
-          Number(data.version) > Number(CURRENT_BUILD)
-        ) {
-          // A newer build is out. Keep polling rather than stopping here —
-          // this tab can sit open for hours, and more builds can land in that
-          // time (this happened in practice: the banner fired for v166, then
-          // v167 and v168 shipped while the tab stayed open and focused, so
-          // it never re-checked and kept showing v166's stale changelog).
-          // Refreshing label/changes on every tick keeps the banner honest
-          // about what "latest" actually means right up until the user taps
-          // Refresh.
-          setMode('available');   // outranks 'updated' — a pending update matters more than a past one
-          setLabel(typeof data.label === 'string' ? data.label : '');
-          setChanges(Array.isArray(data.changes) ? data.changes.slice(0, 6) : []);
-        }
-      } catch {
-        // Offline or transient failure — ignore; the next tick retries.
-      }
-    }
-
-    // A new build most often lands while the tab sits in the background, so
-    // check on focus/visibility as well as on the interval.
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void check();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    interval = setInterval(check, POLL_MS);
-    const firstCheck = setTimeout(check, FIRST_CHECK_MS);
-
-    return () => {
-      cancelled = true;
-      document.removeEventListener('visibilitychange', onVisible);
-      if (interval) clearInterval(interval);
-      clearTimeout(firstCheck);
-    };
   }, []);
 
   if (mode === 'none') return null;
@@ -218,9 +147,7 @@ export default function UpdateBanner() {
         <p className="shrink-0 text-[17px] font-semibold leading-snug">
           {mode === 'retired'
             ? 'Teluva has moved to a new address.'
-            : mode === 'updated'
-              ? `Updated${label ? ` to ${label}` : ''} — here's what's new.`
-              : `${t.update_available}${label ? ` (${label})` : ''}.`}
+            : `Updated${label ? ` to ${label}` : ''} — here's what's new.`}
         </p>
         {/* Not dismissible, and no changelog: on a retired address there is
             nothing new to list, and every update from here on lands somewhere
@@ -235,24 +162,18 @@ export default function UpdateBanner() {
           </p>
         )}
         {/* The 'updated' card has nothing to refresh TO — the new build is
-            already running. Its button dismisses; 'available' reloads;
-            'retired' goes somewhere else entirely. */}
+            already running. Its button dismisses; 'retired' goes somewhere
+            else entirely. Nothing on this card reloads the page in place. */}
         <button
           onClick={
             mode === 'retired'
               ? () => { window.location.href = `https://${MOVED_TO}${window.location.pathname}`; }
-              : mode === 'updated'
-                ? () => setMode('none')
-                : applyUpdate
+              : () => setMode('none')
           }
           className="shrink-0 self-start inline-flex items-center gap-2 rounded-xl bg-white text-ink-900 text-[14px] font-semibold px-5 py-2.5 hover:bg-cream-100 transition-colors cursor-pointer"
         >
-          {mode === 'retired'
-            ? <ArrowRight className="w-4 h-4" />
-            : mode === 'updated'
-              ? <Check className="w-4 h-4" />
-              : <RefreshCw className="w-4 h-4" />}
-          {mode === 'retired' ? 'Go to the new Teluva' : mode === 'updated' ? 'Got it' : t.update_refresh}
+          {mode === 'retired' ? <ArrowRight className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+          {mode === 'retired' ? 'Go to the new Teluva' : 'Got it'}
         </button>
         {changes.length > 0 && (
           <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto">

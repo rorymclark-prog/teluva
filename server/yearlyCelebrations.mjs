@@ -107,6 +107,11 @@ const ANNIVERSARY_EMOJI = {
   Wedding: '💞',
   Engagement: '💍',
   Adoption: '🧡',
+  // Deliberately a neutral sparkle, not a symbol any one tradition would read
+  // as its own (no cross/crescent/star) — this kind spans Christian, Muslim,
+  // Jewish, Hindu and Buddhist observances alike (see AnniversariesView's
+  // QUICK_ADDS), so no single faith's icon belongs here.
+  Religious: '✨',
 };
 
 /** Name + month-day, for spotting the same person recorded in two places. */

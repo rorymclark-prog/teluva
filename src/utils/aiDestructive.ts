@@ -21,6 +21,7 @@
 // Real substance lives here on purpose; AIChatbot/aiApply/Dashboard/server only
 // get tiny append-only wiring (this is a heavily shared-file feature).
 
+import { categoryFromWord, coerceCount, normaliseExpiry } from './medicineCabinet';
 import {
   loadFamilyInfo, saveFamilyInfo,
   loadHousehold, saveHousehold,
@@ -110,6 +111,10 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
   // resolves, not a value the model has any way to know.
   home_service: { work: 'work', date: 'date', by: 'by', trade: 'trade', area: 'area', cost: 'cost', warrantyUntil: 'warrantyUntil', notes: 'notes', note: 'notes' },
   utility: { type: 'type', provider: 'provider', accountNumber: 'accountNumber', notes: 'notes' },
+  // The medicine cabinet. `quantity` and `minimum` are the fields that get
+  // corrected in conversation ("we used the last plaster", "keep two of those");
+  // buildPatch turns them into numbers and validates `expiry` and `category`.
+  medicine_item: { name: 'name', category: 'category', quantity: 'quantity', minimum: 'minimum', expiry: 'expiry', location: 'location', notes: 'notes', note: 'notes' },
   bank: { bankName: 'bankName', accountHolder: 'accountHolder', iban: 'iban', bic: 'bic', notes: 'notes' },
   insurance: { provider: 'provider', type: 'type', policyNumber: 'policyNumber', renewalDate: 'renewalDate', notes: 'notes' },
   benefit: { name: 'name', reference: 'reference', notes: 'notes' },
@@ -125,7 +130,7 @@ const UPDATE_FIELDS: Record<string, Record<string, string>> = {
 
 // The numeric fields a record here carries — everything else in UPDATE_FIELDS
 // is a string, so this is a short exception list rather than a type lookup.
-const NUMERIC_FIELDS = new Set(['intervalMonths', 'serviceIntervalMonths']);
+const NUMERIC_FIELDS = new Set(['intervalMonths', 'serviceIntervalMonths', 'quantity', 'minimum']);
 
 // Build the (whitelisted, key-renamed) patch object for an update_record edit.
 export function buildPatch(targetKind: string, fields?: Record<string, string>): Record<string, any> {
@@ -134,7 +139,9 @@ export function buildPatch(targetKind: string, fields?: Record<string, string>):
   for (const [k, v] of Object.entries(fields || {})) {
     const key = allow[k];
     if (!key) continue;
-    patch[key] = NUMERIC_FIELDS.has(key) ? Number(v) : v;
+    // medicine_item validates its own numbers below: Number('two') is NaN, and a
+    // NaN quantity would be stored and then read as neither out nor low.
+    patch[key] = NUMERIC_FIELDS.has(key) && targetKind !== 'medicine_item' ? Number(v) : v;
   }
   // A vehicle's kind is a closed set: "bike" → 'bicycle', "scooter" → 'moped'.
   // An empty value is dropped rather than written — clearing the kind would
@@ -157,6 +164,17 @@ export function buildPatch(targetKind: string, fields?: Record<string, string>):
       if (date) { patch.date = date; patch.datePrecision = datePrecision; } else delete patch.date;
     }
     if ('endDate' in patch && !/^\d{4}-\d{2}-\d{2}$/.test(String(patch.endDate ?? ''))) delete patch.endDate;
+  }
+  // A cabinet item's values all arrive as text. Each is validated on the way in
+  // and DROPPED when it will not validate — "we have a few" must not become
+  // NaN, and an unreadable expiry must not overwrite a good one.
+  if (targetKind === 'medicine_item') {
+    for (const f of ['quantity', 'minimum'] as const) {
+      if (f in patch) { const n = coerceCount(patch[f]); if (n === undefined) delete patch[f]; else patch[f] = n; }
+    }
+    if ('expiry' in patch) { const d = normaliseExpiry(patch.expiry); if (d) patch.expiry = d; else delete patch.expiry; }
+    if ('category' in patch) { const c = categoryFromWord(patch.category); if (c) patch.category = c; else delete patch.category; }
+    if ('name' in patch && !String(patch.name ?? '').trim()) delete patch.name;
   }
   // A yes/no that arrives as a string ("true") or a real boolean. Anything
   // else is dropped: a garbled value must not un-mark an appointment.
@@ -196,6 +214,7 @@ export function recordPhrase(targetKind: string, r: any): string {
     case 'number': return `number “${r.label || ''}”`;
     case 'vehicle': return `vehicle ${r.name || [r.make, r.model].filter(Boolean).join(' ') || r.registration || ''}`.trim();
     case 'pet': return `pet ${r.name || ''}`.trim();
+    case 'medicine_item': return `medicine cabinet item ${r.name || ''}`.trim();
     case 'utility': return `${r.type || 'utility'}${r.provider ? ' (' + r.provider + ')' : ''}`;
     case 'home_service': return `house work “${r.work || ''}”${r.by ? ' by ' + r.by : ''}${r.date ? ' (' + r.date + ')' : ''}`;
     case 'bank': return `bank account ${r.bankName || ''}${r.iban ? ' · ' + r.iban : ''}`.trim();
@@ -257,6 +276,7 @@ export function findInContext(context: any, targetKind: string, id: string): Fou
     vehicle: context?.household?.vehicles,
     pet: context?.household?.pets,
     utility: context?.household?.utilities,
+    medicine_item: context?.household?.medicineCabinet,
     home_service: context?.household?.homeServiceLog,
     bank: context?.finances?.banks,
     insurance: context?.finances?.insurance,
@@ -446,10 +466,10 @@ export async function applyDestructiveEdits(edits: AiEdit[], ctxMembers: FamilyM
 
   // 4) household store (vehicles / pets / utilities / house work log).
   {
-    const relevant = [...dels, ...upds].filter(e => ['vehicle', 'pet', 'utility', 'home_service'].includes(e.targetKind));
+    const relevant = [...dels, ...upds].filter(e => ['vehicle', 'pet', 'utility', 'home_service', 'medicine_item'].includes(e.targetKind));
     if (relevant.length) {
       const h: any = (await loadHousehold()) || {};
-      const arrKey: Record<string, 'vehicles' | 'pets' | 'utilities' | 'homeServiceLog'> = { vehicle: 'vehicles', pet: 'pets', utility: 'utilities', home_service: 'homeServiceLog' };
+      const arrKey: Record<string, 'vehicles' | 'pets' | 'utilities' | 'homeServiceLog' | 'medicineCabinet'> = { vehicle: 'vehicles', pet: 'pets', utility: 'utilities', home_service: 'homeServiceLog', medicine_item: 'medicineCabinet' };
       let dirty = false;
       for (const e of relevant) {
         const key = arrKey[e.targetKind];

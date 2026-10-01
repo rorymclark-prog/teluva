@@ -124,7 +124,7 @@ export type AiEdit =
       /** The APPOINTMENT the letter books ("Termin am 22.09. um 10:30") — YYYY-MM-DD / HH:MM. Not referralDate, which is the date printed on the letter. */
       appointmentDate?: string; appointmentTime?: string }
   | { kind: 'calendar_event'; title: string; date: string; time?: string; category?: string; memberNames?: string[]; endDate?: string; destination?: string; /** Only when the user asks to mark or un-mark it — medical appointments are important on their own. */ important?: boolean }
-  | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
+  | { kind: 'list_add'; list: 'vehicles' | 'pets' | 'utilities' | 'medicineCabinet' | 'banks' | 'insurance' | 'benefits' | 'timeline' | 'shopping'; item: Record<string, string> }
   | { kind: 'asset'; name: string; category?: string; assignedMember?: string; make?: string; model?: string; serialNumber?: string; purchaseDate?: string; purchasePrice?: string; notes?: string; imageIndex?: number; photoUrl?: string }  // imageIndex picks which attached photo is this item's, when multiple were sent in one turn; photoUrl is filled client-side after Apply — never sent by the model
   | { kind: 'recipe'; title: string; ingredients: string[]; steps: string[]; tags?: string[]; imageIndex?: number; photoUrl?: string }  // imageIndex picks which attached photo is this recipe's, when multiple were sent in one turn; photoUrl is filled client-side after Apply — never sent by the model
   | { kind: 'slip'; shop?: string; item: string; purchaseDate?: string; amount?: string; currency?: string; assignedTo?: string; returnByDate?: string; warrantyUntil?: string; notes?: string; imageIndex?: number; photoUrl?: string; photoStoragePath?: string }  // a purchase receipt/till slip — imageIndex picks which attached photo is this slip's, when multiple were sent in one turn; photoUrl/photoStoragePath are filled client-side after Apply — never sent by the model
@@ -3704,6 +3704,9 @@ function describeEdit(e: AiEdit): string {
   if (e.kind === 'document') return `Save the scan “${e.name}” to Documents (${e.category})${e.member ? ` + ${e.member}’s profile` : ''}${e.referralKind ? ` + Referrals & Results (${String(e.referralKind).toLowerCase()}${e.referralDate ? `, ${e.referralDate}` : ''})` : ''}${e.referralKind && e.appointmentDate ? ` — appointment booked for ${e.appointmentDate}${e.appointmentTime ? ` at ${e.appointmentTime}` : ''}` : ''}${(e.documentDate || e.referralDate) ? ` + Timeline (${e.documentDate || e.referralDate})` : ''}`;
   if (e.kind === 'calendar_event') return `Add to calendar: “${e.title}” on ${e.date}${e.time ? ' at ' + e.time : ''}`;
   if (e.kind === 'trip_attach') return `Attach “${e.document}” to the travel pack${e.trip ? ` (${e.trip})` : ''}${e.member ? ` — ${e.member}'s` : ''}`;
+  // "Add to medicineCabinet" is a camel-case key read aloud; say the screen's name,
+  // and show the count only when the user gave one.
+  if (e.kind === 'list_add' && e.list === 'medicineCabinet') return `Add to Medicine Cabinet: ${e.item.name || 'item'}${e.item.quantity ? ` × ${e.item.quantity}` : ''}${e.item.expiry ? ` · expires ${e.item.expiry}` : ''}`;
   if (e.kind === 'list_add') return `Add to ${e.list}: ${Object.values(e.item).filter(Boolean).slice(0, 3).join(' · ')}`;
   if (e.kind === 'household_set') return `Set household ${e.field.replace(/([A-Z])/g, ' $1').toLowerCase()}: "${e.value}"`;
   if (e.kind === 'asset') return `Add asset: ${e.name}${e.category ? ` (${e.category})` : ''}`;

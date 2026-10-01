@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState, type ElementType } from 'react';
 import { createPortal } from 'react-dom';
-import { Menu, Check, Search, Sparkles, X } from 'lucide-react';
+import { Menu, Check, Search, Sparkles, X, RefreshCw } from 'lucide-react';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import WhatsNewLog from './WhatsNewLog';
+import { applyUpdate } from '../utils/appUpdate';
+import { useUpdateStatus } from '../utils/updateStatus';
 
 // Same build-time stamp HubSettingsModal shows; declared in vite-env.d.ts.
 const APP_LABEL =
@@ -50,7 +52,7 @@ const GROUPS: { title: string; ids: string[] }[] = [
   { title: 'Everyday', ids: ['calendar', 'shopping', 'chat', 'recipes'] },
   { title: 'Documents & IDs', ids: ['vault', 'info', 'passwords', 'drive'] },
   { title: 'Money & cover', ids: ['finances', 'insurance', 'slips', 'willsEstate'] },
-  { title: 'Home & things', ids: ['household', 'vehicles', 'assets'] },
+  { title: 'Home & things', ids: ['household', 'vehicles', 'assets', 'medicineCabinet'] },
   // Pets sit with the family, not with the boiler and the car. They were
   // reachable only from inside Household until Rory pointed out that nobody
   // looks for the dog under "property details".
@@ -82,6 +84,10 @@ const Row: React.FC<RowProps> = ({ v, active, onPick }) => {
 export default function SectionMenu({ views, current, onSelect }: Props) {
   const [open, setOpen] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  // A newer build exists. Shown as a dot on the button and a row in the menu —
+  // never as a card over the page, and nothing reloads until the row is tapped.
+  const update = useUpdateStatus();
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   // The phone sheet is PORTALLED to <body>, so it is not a DOM descendant of
@@ -183,6 +189,27 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
           closes the menu first (same contract as picking a section) and opens
           the log as its own overlay. */}
       <div className="shrink-0 border-t border-cream-200 p-1.5">
+        {/* Where a pending update lives now. It used to be a floating card with
+            a Refresh button and no dismiss, which interrupted whatever was being
+            done and reloaded the page on tap. Here it waits until the menu is
+            opened, says what is in it, and only the tap installs it. */}
+        {update.available && (
+          <button
+            type="button"
+            role="menuitem"
+            disabled={updating}
+            onClick={() => { setUpdating(true); void applyUpdate(); }}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-semibold bg-clay-50 text-clay-700 hover:bg-clay-100 transition-colors cursor-pointer disabled:cursor-wait"
+          >
+            <RefreshCw className={`w-4 h-4 shrink-0 ${updating ? 'animate-spin' : ''}`} />
+            <span className="flex-1 text-left">
+              {updating ? 'Updating…' : 'Update ready — tap to install'}
+            </span>
+            {update.label && !updating && (
+              <span className="shrink-0 text-[12px] font-semibold tabular-nums">{update.label}</span>
+            )}
+          </button>
+        )}
         <button
           type="button"
           role="menuitem"
@@ -205,10 +232,16 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
         aria-haspopup="menu"
         aria-expanded={open}
         title={currentView?.label ? `Sections — you're in ${currentView.label}` : 'Sections'}
-        aria-label={currentView?.label ? `Sections. Current: ${currentView.label}` : 'Sections'}
-        className="flex items-center justify-center min-w-[44px] min-h-[44px] bg-white/10 hover:bg-white/20 text-white rounded-2xl transition-colors cursor-pointer"
+        aria-label={`${currentView?.label ? `Sections. Current: ${currentView.label}` : 'Sections'}${update.available ? '. An update is ready' : ''}`}
+        className="relative flex items-center justify-center min-w-[44px] min-h-[44px] bg-white/10 hover:bg-white/20 text-white rounded-2xl transition-colors cursor-pointer"
       >
         <Menu className="w-5 h-5 shrink-0" />
+        {update.available && (
+          <span
+            aria-hidden="true"
+            className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-clay-400 shadow-[0_0_0_2px_rgba(255,255,255,0.9)]"
+          />
+        )}
       </button>
 
       {/* Desktop: an anchored popover, right-aligned so it cannot run off screen.

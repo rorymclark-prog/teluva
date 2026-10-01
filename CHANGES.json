@@ -1,6 +1,7 @@
 {
-  "label": "v363",
+  "label": "v368",
   "changes": [
-    "The timeline All filter now switches every category off when all are selected, and switches every category on when clicked again. From a partial selection, All selects everything."
+    "Alarms can now set themselves. Set it up once and every morning your iPhone checks Teluva and sets a real Clock alarm for each important appointment in the next 24 hours, ringing through silent mode until you tap Stop. Open the Alarm button on any appointment and choose \"Set alarms automatically, every morning\".",
+    "Choose which appointments ring (important ones, or everything with a time) and how early. The screen shows when it last ran and warns you if it has missed a morning. The alarm link carries only clock times, never appointment names, and you can turn it off at any time."
   ]
 }

@@ -14,71 +14,10 @@ import { todayIsoLocal, relativeDayLabel } from '../utils/memberAppointments';
 import { appConfirm } from '../utils/appConfirm';
 import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
 import { anniversaryIsHidden, visibleEvents } from '../utils/hiddenPeople';
+import { KINDS, KIND_LABELS, KIND_ICONS, QUICK_ADDS, quickAddDate, type QuickAddDef } from '../utils/religiousQuickAdds';
 
 function newId() {
   return Date.now().toString() + Math.floor(Math.random() * 1000);
-}
-
-const KINDS: AnniversaryKind[] = ['Wedding', 'Engagement', 'Adoption', 'Anniversary', 'Other'];
-
-// --- Quick-add ("one-click") chips ------------------------------------------
-// Pre-fills the form's title/date/kind for a handful of well-known recurring
-// days — the user still confirms and taps Save, nothing is created on click.
-// Valentine's Day, New Year's Eve and the two Women's Days are genuinely
-// fixed 'MM-DD' dates. Mother's/Father's Day are NOT — they move by year
-// (Nth Sunday of a month) — so rather than build the same movable-date
-// machinery Name Celebrations has (out of scope here), this computes the
-// date fresh for the CURRENT year only, at the moment the chip is clicked.
-// The form shows an honest caveat so the family can adjust it.
-//
-// Rory (2026-08-19): "we need to have mothers day, name days, fathersday
-// womans day etc etc". Father's Day genuinely differs by country — Austria
-// keeps the 2nd Sunday of June, South Africa the 3rd — and this family spans
-// both, so rather than pick one and be wrong for half the household, both
-// are separate chips. Same reasoning for the two Women's Days: International
-// Women's Day (8 March, UN-designated) and South Africa's National Women's
-// Day (9 August, a public holiday commemorating the 1956 women's march) are
-// different days entirely, not two names for the same one. All four dates
-// verified via live search on 2026-08-19, not recalled — see nameDay.ts for
-// why this file never guesses a moving/regional date from memory.
-type QuickAddKey =
-  | 'valentines'
-  | 'mothers'
-  | 'fathers-at'
-  | 'fathers-za'
-  | 'womens-intl'
-  | 'womens-za'
-  | 'nye';
-
-const QUICK_ADDS: { key: QuickAddKey; label: string; title: string }[] = [
-  { key: 'valentines', label: "Valentine's Day", title: "Valentine's Day" },
-  { key: 'mothers', label: "Mother's Day", title: "Mother's Day" },
-  { key: 'fathers-at', label: "Father's Day (Austria)", title: "Father's Day" },
-  { key: 'fathers-za', label: "Father's Day (South Africa)", title: "Father's Day" },
-  { key: 'womens-intl', label: "International Women's Day", title: "International Women's Day" },
-  { key: 'womens-za', label: "National Women's Day (SA)", title: "National Women's Day" },
-  { key: 'nye', label: "New Year's Eve", title: "New Year's Eve" },
-];
-
-/** The Nth Sunday of `month` (1-12) in `year`, as 'MM-DD'. */
-function nthSundayOfMonth(year: number, month: number, n: number): string {
-  const first = new Date(year, month - 1, 1);
-  const firstSunday = 1 + ((7 - first.getDay()) % 7);
-  const day = new Date(year, month - 1, firstSunday + (n - 1) * 7);
-  return `${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
-}
-
-function quickAddDate(key: QuickAddKey): string {
-  const year = new Date().getFullYear();
-  switch (key) {
-    case 'valentines': return '02-14';
-    case 'nye': return '12-31';
-    case 'mothers': return nthSundayOfMonth(year, 5, 2);     // 2nd Sunday of May — same in Austria and South Africa
-    case 'fathers-at': return nthSundayOfMonth(year, 6, 2);  // 2nd Sunday of June — Austria's Vatertag
-    case 'fathers-za': return nthSundayOfMonth(year, 6, 3);  // 3rd Sunday of June — South Africa
-    case 'womens-intl': return '03-08';                      // International Women's Day — fixed
-    case 'womens-za': return '08-09';                        // National Women's Day — fixed SA public holiday
-  }
 }
 
 // --- Display helpers ---------------------------------------------------------
@@ -143,6 +82,10 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
   const [form, setForm] = useState<AnniversaryForm | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set by a `dateless` quick-add chip (a lunar/lunisolar day) so the form can
+  // show why the date was left blank. Cleared whenever the form opens/closes
+  // fresh, or a different, non-dateless chip is tapped.
+  const [dateHint, setDateHint] = useState<string | null>(null);
   // Read-only, purely to spot dates already sitting in the calendar. A
   // failure here must never block the screen — the saved records are the
   // real content and the suggestions are a bonus.
@@ -180,24 +123,28 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
   const openNewForm = () => {
     setForm({ ...BLANK_FORM });
     setError(null);
+    setDateHint(null);
     setIsFormOpen(true);
   };
 
   const openEditForm = (a: AnniversaryRecord) => {
     setForm(toForm(a));
     setError(null);
+    setDateHint(null);
     setIsFormOpen(true);
   };
 
   const closeForm = () => {
     setIsFormOpen(false);
     setForm(null);
+    setDateHint(null);
   };
 
   // ── Quick-add chips ──
 
-  const applyQuickAdd = (qa: typeof QUICK_ADDS[number]) => {
-    setForm(prev => (prev ? { ...prev, title: qa.title, date: quickAddDate(qa.key), kind: 'Other' } : prev));
+  const applyQuickAdd = (qa: QuickAddDef) => {
+    setForm(prev => (prev ? { ...prev, title: qa.title, date: qa.dateless ? '' : quickAddDate(qa.key), kind: qa.kind } : prev));
+    setDateHint(qa.caveat ?? null);
   };
 
   // ── Keeping a date the calendar already has ──
@@ -361,14 +308,16 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
             </p>
           ) : (
             <div className="space-y-1">
-              {sorted.map(a => (
+              {sorted.map(a => {
+                const KindIcon = KIND_ICONS[a.kind];
+                return (
                 <div
                   key={a.id}
                   onClick={() => setViewingId(a.id)}
                   className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors cursor-pointer"
                 >
                   <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-rosa-50 flex items-center justify-center">
-                    <HeartHandshake className="w-4 h-4 text-rosa-400" />
+                    <KindIcon className="w-4 h-4 text-rosa-400" />
                   </div>
 
                   <div className="flex-1 min-w-0">
@@ -392,7 +341,7 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="chip bg-cream-200 text-ink-600">{a.kind}</span>
+                    <span className="chip bg-cream-200 text-ink-600">{KIND_LABELS[a.kind]}</span>
                     {canWrite && (
                       <button
                         onClick={(e) => { e.stopPropagation(); openEditForm(a); }}
@@ -403,7 +352,8 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -460,7 +410,7 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                 <h3 className="font-display text-xl font-semibold text-ink-900">{viewing.title}</h3>
                 <p className="text-[13px] text-ink-500 mt-1">{dateLine(viewing)}</p>
                 <div className="flex flex-wrap gap-1 mt-2">
-                  <span className="chip bg-rosa-100 text-rosa-700">{viewing.kind}</span>
+                  <span className="chip bg-rosa-100 text-rosa-700">{KIND_LABELS[viewing.kind]}</span>
                   {(viewing.memberIds || []).map(id => memberName(id)).filter(Boolean).map(name => (
                     <span key={name} className="chip bg-cream-200 text-ink-600">{name}</span>
                   ))}
@@ -525,7 +475,7 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                   Quick add
                 </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {QUICK_ADDS.map(qa => (
+                  {QUICK_ADDS.filter(qa => qa.kind !== 'Religious').map(qa => (
                     <button
                       key={qa.key}
                       type="button"
@@ -536,9 +486,30 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                     </button>
                   ))}
                 </div>
+
+                {/* Its own light grouping, not a different pattern — same
+                    chip style, still just a prefill the family confirms. */}
+                <p className="text-[11px] font-semibold text-ink-400 uppercase tracking-wide mt-3 mb-1">
+                  Religious &amp; spiritual days
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {QUICK_ADDS.filter(qa => qa.kind === 'Religious').map(qa => (
+                    <button
+                      key={qa.key}
+                      type="button"
+                      onClick={() => applyQuickAdd(qa)}
+                      className="chip bg-cream-200 text-ink-600 hover:bg-cream-300 transition-colors cursor-pointer"
+                    >
+                      {qa.label}
+                    </button>
+                  ))}
+                </div>
+
                 <p className="text-[11px] text-ink-400 mt-1.5">
                   Mother's & Father's Day move each year — the date filled in is for this year, adjust if needed.
                   Father's Day and Women's Day have separate chips per country since the dates genuinely differ.
+                  Christmas and the two Easters are filled in the same way; Ramadan, the Eids, Hanukkah and the
+                  other lunar-calendar days are left blank on purpose — pick one below to see why.
                 </p>
               </div>
 
@@ -562,13 +533,19 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                   <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">
                     Type
                   </label>
-                  <select
-                    value={form.kind}
-                    onChange={e => setForm(prev => (prev ? { ...prev, kind: e.target.value as AnniversaryKind } : prev))}
-                    className="field w-full"
-                  >
-                    {KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-                  </select>
+                  <div className="relative">
+                    {(() => {
+                      const KindIcon = KIND_ICONS[form.kind];
+                      return <KindIcon className="w-3.5 h-3.5 text-ink-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />;
+                    })()}
+                    <select
+                      value={form.kind}
+                      onChange={e => setForm(prev => (prev ? { ...prev, kind: e.target.value as AnniversaryKind } : prev))}
+                      className="field w-full pl-8"
+                    >
+                      {KINDS.map(k => <option key={k} value={k}>{KIND_LABELS[k]}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">
@@ -583,6 +560,15 @@ export default function AnniversariesView({ members }: { members: FamilyMember[]
                   />
                 </div>
               </div>
+
+              {/* Why the date above is blank — only set by a lunar/lunisolar
+                  quick-add chip (see QUICK_ADDS' `caveat`); cleared as soon as
+                  a different chip is picked or the form is reopened. */}
+              {dateHint && (
+                <p className="text-[11px] text-dusk-700 bg-dusk-50 rounded-lg px-3 py-2 -mt-2">
+                  {dateHint}
+                </p>
+              )}
 
               {/* Original year */}
               <div>

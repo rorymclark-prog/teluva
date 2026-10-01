@@ -1,5 +1,46 @@
 [
   {
+    "label": "v368",
+    "date": "2026-09-30",
+    "changes": [
+      "Alarms can now set themselves. Set it up once and every morning your iPhone checks Teluva and sets a real Clock alarm for each important appointment in the next 24 hours, ringing through silent mode until you tap Stop. Open the Alarm button on any appointment and choose \"Set alarms automatically, every morning\".",
+      "Choose which appointments ring (important ones, or everything with a time) and how early. The screen shows when it last ran and warns you if it has missed a morning. The alarm link carries only clock times, never appointment names, and you can turn it off at any time."
+    ]
+  },
+  {
+    "label": "v367",
+    "date": "2026-09-30",
+    "changes": [
+      "New Alarm button on appointments (iPhone and iPad). It sets a real Clock alarm that rings through silent mode and keeps ringing until you tap Stop, so an appointment can't slip past. Pick at the time, 15 minutes to 2 hours before, or 7:00 that morning.",
+      "It needs a small Shortcut, made once: the button walks you through it and sends a test alarm so you can see it work. iPhone alarms only reach 24 hours ahead, so options further out show when they open."
+    ]
+  },
+  {
+    "label": "v366",
+    "date": "2026-09-30",
+    "changes": [
+      "Updates no longer pop up over whatever you are doing. When a new version is ready, a small dot appears on the menu button; open the menu and tap Update ready when it suits you. Nothing refreshes by itself any more.",
+      "This also removes the Refresh card that could reload the page over and over on some phones. Settings still has Check for updates, and the What's new log is unchanged."
+    ]
+  },
+  {
+    "label": "v365",
+    "date": "2026-09-21",
+    "changes": [
+      "New Medicine Cabinet (under House): one shared list of the medicines, first-aid and supplies you always want in the house. Add what you keep, how many, the least you want to have, the soonest expiry (month and year, as printed on the pack) and where it lives.",
+      "It tells you what needs attention: expired, out, running low, or expiring within two months. One tap adds everything that needs restocking to the shopping list, without doubling up on things already there. Expired and low items also show under Needs attention.",
+      "A list of common essentials to add in a tap, for adults and for children. Names only, no doses or advice. Medicines that belong to one person still go on their own Medical tab. The AI assistant can add, change and remove Medicine Cabinet items, and Undo works."
+    ]
+  },
+  {
+    "label": "v364",
+    "changes": [
+      "Anniversaries & Special Days now has a \"Religious or spiritual\" category, for a family's own religious or spiritually important days. Nothing is guessed: the app never infers anyone's religion, it just adds one more type to a list you already control.",
+      "New quick-add chips: Christmas and both Easters fill in this year's date automatically (Easter is calculated properly, not looked up). Ramadan, the two Eids, Rosh Hashanah, Yom Kippur, Hanukkah, Passover, Diwali, Vesak and Lunar New Year prefill the name, but leave the date for you to add, since those genuinely move year to year and sometimes by local sighting."
+    ],
+    "date": "2026-09-16"
+  },
+  {
     "label": "v363",
     "changes": [
       "The timeline All filter now switches every category off when all are selected, and switches every category on when clicked again. From a partial selection, All selects everything."

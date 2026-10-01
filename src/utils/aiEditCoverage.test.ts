@@ -397,6 +397,7 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   'HouseholdInfo.vehicles': covered('list_add', 'list "vehicles"'),
   'HouseholdInfo.pets': covered('list_add', 'list "pets"'),
   'HouseholdInfo.homeServiceLog': covered('home_service'),
+  'HouseholdInfo.medicineCabinet': covered('list_add', 'list "medicineCabinet"'),
 
   // Collections INSIDE a household row, one level below the lists above. Both
   // are append-onto-an-existing-parent, which is why neither could be a

@@ -26,7 +26,7 @@ import type { AiEdit } from '../components/AIChatbot';
 export type UndoDomain =
   | 'member' | 'memberNested' | 'transitPass' | 'vaccination' | 'visa' | 'guardian' | 'serviceRecord'
   | 'contact' | 'number' | 'provider' | 'vendor'
-  | 'calendar' | 'vehicle' | 'pet' | 'utility' | 'homeService' | 'petHealth'
+  | 'calendar' | 'vehicle' | 'pet' | 'utility' | 'homeService' | 'petHealth' | 'medicineItem'
   | 'bank' | 'insurance' | 'benefit'
   | 'timeline' | 'familyWord' | 'shopping' | 'asset' | 'recipe' | 'slip' | 'estate'
   | 'anniversary' | 'extendedBirthday'
@@ -163,6 +163,7 @@ export function diffHouseholdUndo(before: HouseholdInfo, after: HouseholdInfo): 
   out.push(...mapNewIds(before.vehicles, after.vehicles, 'vehicle', (v: any) => v.name || `${v.make || ''} ${v.model || ''}`.trim() || 'vehicle'));
   out.push(...mapNewIds(before.pets, after.pets, 'pet', (p: any) => p.name || 'pet'));
   out.push(...mapNewIds(before.utilities, after.utilities, 'utility', (u: any) => u.name || u.provider || 'utility'));
+  out.push(...mapNewIds(before.medicineCabinet, after.medicineCabinet, 'medicineItem', (m: any) => m.name || 'medicine cabinet item'));
   const beforeVeh = new Map((before.vehicles || []).map((v) => [v.id, v]));
   for (const v of after.vehicles || []) {
     const prev = beforeVeh.get(v.id);
@@ -245,6 +246,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
     case 'calendar_event': return 'Calendar';
     case 'list_add': {
       if (e.list === 'vehicles' || e.list === 'pets' || e.list === 'utilities') return `Household · ${cap(e.list)}`;
+      if (e.list === 'medicineCabinet') return 'Medicine Cabinet';
       if (e.list === 'banks' || e.list === 'insurance' || e.list === 'benefits') return `Finances · ${cap(e.list)}`;
       if (e.list === 'timeline') return 'Timeline';
       if (e.list === 'shopping') return 'Shopping list';
@@ -283,6 +285,7 @@ export function landingLabel(e: AiEdit, resolveName: (n?: string) => string | un
         visa: 'Travel · Visas', referral: 'Medical · Referrals & results', document: 'Document Vault',
         contact: 'Contacts', provider: 'Providers & services', number: 'Important numbers', vendor: 'Household vendors',
         vehicle: 'Household · Vehicles', pet: 'Household · Pets', utility: 'Household · Utilities',
+        medicine_item: 'Medicine Cabinet',
         home_service: 'Household · work done on the house',
         pet_health: 'Household · Pets · medical history',
         bank: 'Finances · Banks', insurance: 'Finances · Insurance', benefit: 'Finances · Benefits',

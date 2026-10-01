@@ -14,7 +14,7 @@ const destinations: { id: EmberDestination; label: string; icon: typeof Sparkles
 const destinationViews: Record<Exclude<EmberDestination, 'pulse'>, string[]> = {
   profiles: ['profiles', 'emergency', 'info', 'timeline', 'familyWords', 'inMemory', 'familyTree', 'chat'],
   calendar: ['calendar', 'travelTimeline', 'recipes', 'shopping', 'gifts', 'anniversaries', 'extendedBirthdays'],
-  household: ['household', 'vehicles', 'pets', 'assets'],
+  household: ['household', 'vehicles', 'pets', 'assets', 'medicineCabinet'],
   vault: ['vault', 'drive', 'finances', 'insurance', 'slips', 'passwords', 'willsEstate'],
 };
 

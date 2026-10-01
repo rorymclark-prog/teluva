@@ -50,6 +50,7 @@ import {
 } from '../utils/untaggedAppointments';
 import UntaggedAppointmentPrompt from './UntaggedAppointmentPrompt';
 import ImportantChip from './ImportantChip';
+import AppointmentAlarm from './AppointmentAlarm';
 import { isAutoImportant, isImportantEvent, importantOverride, withImportant } from '../utils/importantEvents';
 import { importGoogleEvents, writeLastGoogleImport, GoogleImportAuthError } from '../utils/googleCalendarImport';
 import type { VirtualCalendarEvent } from '../utils/virtualEvents';
@@ -3092,6 +3093,10 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                               Alert on
                             </span>
                           )}
+                          {/* iPhone/iPad only, and only for something still ahead. A real
+                              Clock alarm that rings until stopped — see
+                              utils/appointmentAlarm.ts for why it only reaches 24 h. */}
+                          <AppointmentAlarm event={ev} today={realTodayStr} />
                           {/* Hidden (not just disabled) for anything not eligible — a
                               "gcal-" event Teluva imported FROM Google, or an event
                               already pushed out — so there's no button on screen that

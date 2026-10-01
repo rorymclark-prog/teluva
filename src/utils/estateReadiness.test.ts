@@ -84,8 +84,6 @@ w2('and the card disclaims legal soundness rather than implying it',
 /* THE TWO BANNER MODES ARE DIFFERENT DECISIONS. Only the retrospective one
    is opt-in; a stale build is a correctness problem for everybody. */
 w2('the what-changed card is behind an opt-in', /if \(!showsUpdateNotes\(\)\) return;/.test(banner));
-w2('but the stale-build refresh is NOT gated on it',
-  !/showsUpdateNotes\(\)/.test(banner.slice(banner.indexOf('async function check()'))));
 w2('the build stamp is still written before the opt-in check, so enabling it later is not a false alarm',
   banner.indexOf('writeLastSeen(CURRENT_BUILD)') < banner.indexOf('if (!showsUpdateNotes()) return;'));
 w2('it defaults to off', /getItem\(SHOW_CHANGES_KEY\) === '1'/.test(banner));
@@ -93,5 +91,22 @@ w2('a private-mode throw means off, never a crash',
   /catch \{ return false; \}/.test(banner));
 w2('and there is a visible labelled control for it',
   /Show what changed after each update/.test(settings));
+
+/* QUIET UPDATES (2026-09-30). The floating "new version — Refresh" card was
+   removed after a phone that kept tapping it ended on Safari's crash-loop page.
+   A pending update is a dot and a menu row now, and nothing reloads on its own. */
+const store = rf(j(r2, 'src/utils/updateStatus.ts'), 'utf8');
+const menu = rf(j(r2, 'src/components/SectionMenu.tsx'), 'utf8');
+w2('the banner no longer offers an in-place refresh at all',
+  !/applyUpdate/.test(banner) && !/'available'/.test(banner) && !/update_refresh/.test(banner));
+w2('no component or util reloads the page from the update poll',
+  !/location\.(reload|replace|assign|href\s*=)/.test(store));
+w2('the poll only ever raises "available" on a STRICTLY newer build',
+  /Number\(data\.version\) > Number\(CURRENT_BUILD\)/.test(store));
+w2('the poll never runs in a local dev build', /CURRENT_BUILD === 'dev'\) return/.test(store));
+w2('the menu shows the pending update, and only a tap installs it',
+  /update\.available && \(/.test(menu) && /onClick=\{\(\) => \{ setUpdating\(true\); void applyUpdate\(\); \}\}/.test(menu));
+w2('the menu button carries a dot so a pending update is discoverable without opening it',
+  /An update is ready/.test(menu));
 
 console.log(`estateReadiness.test.ts: ${n + m2} assertions passed.`);

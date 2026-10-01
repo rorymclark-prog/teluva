@@ -1,11 +1,12 @@
 import { useState, useEffect, type ElementType } from 'react';
-import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, ChevronDown, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock, PawPrint } from 'lucide-react';
-import { FamilyMember, AssetItem, Vehicle, Pet, ExtendedBirthday, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc, InsurancePolicy } from '../types';
+import { Bell, Cake, Ruler, FileText, HeartPulse, ChevronRight, ChevronDown, Sparkles, Stethoscope, TrainFront, IdCard, Camera, Package, Award, PartyPopper, ScrollText, RotateCcw, ShieldCheck, Shirt, Clock, PawPrint, BriefcaseMedical } from 'lucide-react';
+import { FamilyMember, AssetItem, Vehicle, Pet, MedicineCabinetItem, ExtendedBirthday, FamilyInfoDoc, EstateRecord, SlipItem, HubSettings, BusinessMilestonesDoc, InsurancePolicy } from '../types';
 import type { ReleaseRequestRow } from '../utils/db';
 import { careNextDue } from '../utils/care';
 import { loadAssets, loadHousehold, loadSpaceInfo, loadWillsEstate, loadSlips, loadSettings, loadBusinessMilestones, loadFinances, loadReleaseState } from '../utils/db';
 import { vehicleDeadlines, vehicleLabel, daysUntil, vehicleKindMeta, vehicleKindOf } from '../utils/vehicle';
 import { petDeadlines, petLabel } from '../utils/pet';
+import { summarise } from '../utils/medicineCabinet';
 import { birthdayPhotoNudge } from '../utils/birthday';
 import { nextAnniversary, nextMilestoneAnniversary } from '../utils/businessMilestone';
 import { isReviewStale } from '../utils/willsEstate';
@@ -140,6 +141,31 @@ export function computePetNudges(pets: Pet[]): Nudge[] {
         : `${name}: ${d.label} ${d.days === 0 ? 'today' : `in ${d.days} days`}`;
       out.push({ key: `pet-${p.id}-${d.kind}`, memberId: '', icon: PawPrint, tone, text, tab: 'household', view: 'household', date: d.date, days: d.days, sortDays: d.days });
     }
+  }
+  return out;
+}
+
+// Medicine cabinet nudges — GROUPED, one line per kind of problem, never one per
+// item: a shelf with six things low would otherwise bury the digest, and the
+// action is the same either way ("open the cabinet and restock"). Expired is
+// the only urgent one; running out is a warning; an approaching expiry is a
+// heads-up. The counts come from summarise(), so the digest and the screen can
+// never disagree about what "low" means. No date/days: a group has no single
+// date, and MemberCalendarDates only wants dated nudges.
+export function computeCabinetNudges(items: MedicineCabinetItem[]): Nudge[] {
+  const s = summarise(items);
+  const out: Nudge[] = [];
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const base = { memberId: '', icon: BriefcaseMedical, tab: 'household', view: 'medicineCabinet' };
+  if (s.expired > 0) {
+    out.push({ ...base, key: 'cabinet-expired', tone: 'urgent', text: `Medicine cabinet: ${plural(s.expired, 'item has', 'items have')} expired`, sortDays: -1 });
+  }
+  const short = s.restock - s.expired;
+  if (short > 0) {
+    out.push({ ...base, key: 'cabinet-restock', tone: 'warn', text: `Medicine cabinet: ${plural(short, 'item is', 'items are')} low or out`, sortDays: 0 });
+  }
+  if (s.expiring > 0) {
+    out.push({ ...base, key: 'cabinet-expiring', tone: 'info', text: `Medicine cabinet: ${plural(s.expiring, 'item expires', 'items expire')} within two months` });
   }
   return out;
 }
@@ -651,6 +677,7 @@ export default function NeedsAttention(
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [pets, setPets] = useState<Pet[]>([]);
+  const [cabinet, setCabinet] = useState<MedicineCabinetItem[]>([]);
   const [spaceInfo, setSpaceInfo] = useState<FamilyInfoDoc | null>(null);
   const [estateRecords, setEstateRecords] = useState<EstateRecord[]>([]);
   const [slips, setSlips] = useState<SlipItem[]>([]);
@@ -668,8 +695,9 @@ export default function NeedsAttention(
         if (cancelled) return;
         setVehicles(h?.vehicles || []);
         setPets(h?.pets || []);
+        setCabinet(h?.medicineCabinet || []);
       })
-      .catch(() => { if (!cancelled) { setVehicles([]); setPets([]); } });
+      .catch(() => { if (!cancelled) { setVehicles([]); setPets([]); setCabinet([]); } });
     loadSpaceInfo()
       .then((s) => { if (!cancelled) setSpaceInfo(s); })
       .catch(() => { if (!cancelled) setSpaceInfo(null); });
@@ -733,6 +761,7 @@ export default function NeedsAttention(
     ...computeExtendedBirthdayNudges(visibleExtendedBirthdays(extendedBirthdays || [], hiddenPeople)),
     ...computeVehicleNudges(vehicles),
     ...computePetNudges(pets),
+    ...computeCabinetNudges(cabinet),
     ...computeAssetNudges(assets),
     ...computeBusinessAnniversaryNudge(spaceInfo, settings),
     ...computeWorkAnniversaryNudges(members, spaceInfo, settings),

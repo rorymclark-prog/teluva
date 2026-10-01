@@ -163,7 +163,7 @@ import {
   LogOut, LogIn, Download, Upload, Cloud, CloudOff, MessageCircle, IdCard,
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
-  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt, PawPrint, Network,
+  Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt, PawPrint, BriefcaseMedical, Network,
   Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck, HeartHandshake, Cake, MessageSquare, Link2, Camera, Lock} from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
@@ -193,6 +193,7 @@ const InsuranceView = React.lazy(() => import('./InsuranceView'));
 const FamilyWordsView = React.lazy(() => import('./FamilyWordsView'));
 const VehiclesView = React.lazy(() => import('./VehiclesView'));
 const PetsView = React.lazy(() => import('./PetsView'));
+const MedicineCabinetView = React.lazy(() => import('./MedicineCabinetView'));
 const FamilyTreeView = React.lazy(() => import('./FamilyTreeView'));
 const TimelineView = React.lazy(() => import('./TimelineView'));
 const TravelTimelineView = React.lazy(() => import('./TravelTimelineView'));
@@ -256,7 +257,7 @@ function isJoinLinkVisit(): boolean {
 }
 
 type TabId = 'education' | 'addresses' | 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians' | 'timeline';
-type ViewId = 'pulse' | 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree';
+type ViewId = 'pulse' | 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree' | 'medicineCabinet';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -310,7 +311,7 @@ const HIDDEN_IN_FAMILY: TabId[] = [];
 // a relabel of this one) so it's hidden rather than mislabeled.
 // 'timeline' is NOT in this list: in a business space it becomes the Business
 // timeline — milestones, moments and dated papers, never anyone's health.
-const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate', 'gifts', 'anniversaries', 'extendedBirthdays', 'pets', 'familyTree'];
+const HIDDEN_VIEWS_IN_BUSINESS: ViewId[] = ['familyWords', 'shopping', 'emergency', 'recipes', 'travelTimeline', 'inMemory', 'willsEstate', 'gifts', 'anniversaries', 'extendedBirthdays', 'pets', 'familyTree', 'medicineCabinet'];
 
 // A persisted astrology blurb older than this is treated as stale and quietly
 // regenerated next time that member's Overview is viewed — keeps the card
@@ -327,6 +328,7 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'insurance', icon: ShieldCheck },
   { id: 'vehicles', icon: Car },
   { id: 'pets', icon: PawPrint },
+  { id: 'medicineCabinet', icon: BriefcaseMedical },
   { id: 'timeline', icon: CalendarHeart },
   { id: 'travelTimeline', icon: Globe2 },
   { id: 'vault', icon: FolderArchive },
@@ -361,6 +363,7 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     passwords: t.nav_passwords,
     familyWords: 'Family Words',
     pets: 'Pets',
+    medicineCabinet: 'Medicine Cabinet',
     familyTree: 'Family tree',
     inMemory: 'In Memory',
     willsEstate: 'Wills & Estate',
@@ -1932,14 +1935,16 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     // --- Household: vehicles / pets / utilities + vehicle & house work logs ---
     const vehIds = idsFor('vehicle'), petIds = idsFor('pet'), utilIds = idsFor('utility');
     const homeSvcIds = idsFor('homeService');
+    const medIds = idsFor('medicineItem');
     const serviceRecs = records.filter(r => r.domain === 'serviceRecord');
     const petHealthRecs = records.filter(r => r.domain === 'petHealth');
-    if (vehIds.size || petIds.size || utilIds.size || homeSvcIds.size || serviceRecs.length || petHealthRecs.length) {
+    if (vehIds.size || petIds.size || utilIds.size || homeSvcIds.size || medIds.size || serviceRecs.length || petHealthRecs.length) {
       const h = (await loadHousehold()) || {};
       tally(new Set((h.vehicles || []).map(v => v.id)), vehIds);
       tally(new Set((h.pets || []).map(p => p.id)), petIds);
       tally(new Set((h.utilities || []).map(u => u.id)), utilIds);
       tally(new Set((h.homeServiceLog || []).map(r => r.id)), homeSvcIds);
+      tally(new Set((h.medicineCabinet || []).map(m => m.id)), medIds);
       let vehicles = (h.vehicles || []).filter(v => !vehIds.has(v.id));
       const byVeh = new Map<string, Set<string>>();
       for (const r of serviceRecs) {
@@ -1983,6 +1988,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         pets,
         utilities: (h.utilities || []).filter(u => !utilIds.has(u.id)),
         homeServiceLog: (h.homeServiceLog || []).filter(r => !homeSvcIds.has(r.id)),
+        // Only touched when this undo removes a cabinet item: writing `[]` over
+        // a household that never had a cabinet would be a needless key.
+        ...(medIds.size ? { medicineCabinet: (h.medicineCabinet || []).filter(m => !medIds.has(m.id)) } : {}),
       });
     }
 
@@ -3081,6 +3089,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         {mainView === 'familyWords' && <FamilyWordsView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} />}
         {mainView === 'vehicles' && <VehiclesView members={members} canEdit={demo || canWrite} demo={demo} refreshKey={aiDataVersion} canUseAI={canUseAI} isBusinessSpace={isBusinessSpace} />}
         {mainView === 'pets' && <PetsView refreshKey={aiDataVersion} />}
+        {mainView === 'medicineCabinet' && <MedicineCabinetView refreshKey={aiDataVersion} canEdit={demo || canWrite} />}
         {mainView === 'familyTree' && (
           <FamilyTreeView
             refreshKey={aiDataVersion}

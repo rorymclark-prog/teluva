@@ -933,6 +933,53 @@ export interface HouseholdInfo {
   locations?: BusinessLocation[];
   // What was actually DONE to this property, and by whom. See HomeServiceRecord.
   homeServiceLog?: HomeServiceRecord[];
+  // The shared medicine cabinet — the household's must-have medicines and
+  // first-aid supplies. See MedicineCabinetItem.
+  medicineCabinet?: MedicineCabinetItem[];
+}
+
+// The closed set the cabinet groups by. Shapes follow the headings of the
+// Austrian health portal's Hausapotheke checklist (gesundheit.gv.at) — medicines
+// for mild complaints, wound and burn care, first-aid supplies — because a
+// family reads a checklist by those headings. utils/medicineCabinet.ts owns
+// the labels and the mapping from whatever word the assistant sends.
+export type MedicineCategory =
+  | 'Pain & fever'
+  | 'Cold, cough & allergy'
+  | 'Stomach & gut'
+  | 'Skin, wounds & burns'
+  | 'First-aid supplies'
+  | 'Other';
+
+// One thing the family always wants in the house: a pack of plasters, the
+// fever thermometer, something for a sore throat.
+//
+// Rory, 2026-09-21: "a medical box, home medical supplies, where we can have
+// our must-haves and list them."
+//
+// HOUSEHOLD-LEVEL ON PURPOSE. A person's own prescriptions, allergies and
+// diagnoses already have a home — their Medical tab, which has its own access
+// rules — and a second copy here would be two writers for one fact, the
+// birthday split-brain from v228. So there is deliberately no "for whom" field
+// and no "prescription" category: this is the shared box on the shelf, and an
+// item in it says what it is, not whose illness it is for.
+//
+// Stock is stored, status is DERIVED. `quantity` and `minimum` are what the
+// family typed; "low", "out" and "expiring" are computed from them and today's
+// date in utils/medicineCabinet.ts every time, never saved. A saved
+// `status: 'low'` goes stale the moment someone tops the box up.
+export interface MedicineCabinetItem {
+  id: string;
+  name: string;              // "Plasters (assorted)", "Fever thermometer", "Cough syrup"
+  category?: MedicineCategory;
+  quantity?: number;         // how many are in the box right now. Absent = not counting.
+  minimum?: number;          // the must-have level: below this it needs buying. Absent = no minimum.
+  // YYYY-MM-DD — the SOONEST expiry among what is on hand. A pack printed
+  // "EXP 03/2027" is good to the END of March, so a month-only entry is stored
+  // as that month's last day (normaliseExpiry). Never guessed from a purchase date.
+  expiry?: string;
+  location?: string;         // "Hall cupboard, top shelf" — where somebody else would look
+  notes?: string;            // "Children's strength", "Opened 12 Sep — use within 4 weeks"
 }
 
 // One piece of work done on the property — the plumber, the electrician, the
@@ -1918,7 +1965,15 @@ export interface RecipeBookDoc {
 // shape and convention as RecipeBookDoc/FamilyWordsDoc above: one shared doc,
 // CRUD'd like a list. A later pass wires this into a FamilyCalendar.tsx
 // dashboard division — this doc + its CRUD screen stand alone until then.
-export type AnniversaryKind = 'Wedding' | 'Engagement' | 'Adoption' | 'Anniversary' | 'Other';
+// 'Religious' added 2026-09-16 — Rory: "i think we should have options to add
+// religious or spiritually important days". This is deliberately the opposite
+// of NameCelebration/suppressReligiousSuggestions above: nothing here infers a
+// family's religion from a name, ethnicity or any profile field. It is one
+// more manually-typed kind on a list the family already fully controls —
+// they tap a quick-add chip or type their own title, same as Valentine's Day
+// today, and nothing is created until they hit Save. See AnniversariesView's
+// QUICK_ADDS for the chips this shipped with.
+export type AnniversaryKind = 'Wedding' | 'Engagement' | 'Adoption' | 'Anniversary' | 'Religious' | 'Other';
 
 export interface AnniversaryRecord {
   id: string;

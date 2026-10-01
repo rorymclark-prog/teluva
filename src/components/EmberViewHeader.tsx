@@ -30,7 +30,7 @@ const destinations: Record<Destination, { label: string; icon: ElementType; ids:
   house: {
     label: 'House',
     icon: Home,
-    ids: ['household', 'vehicles', 'pets', 'assets'],
+    ids: ['household', 'vehicles', 'pets', 'assets', 'medicineCabinet'],
   },
   vault: {
     label: 'Vault',
@@ -58,6 +58,7 @@ const copy: Record<string, { kicker: string; title: string; note: string }> = {
   extendedBirthdays: { kicker: 'Plan · Wider family', title: 'Remember the whole circle.', note: 'Birthdays for grandparents, friends and everyone beyond the main household.' },
   household: { kicker: 'House · Home operations', title: 'Everything is settled.', note: 'Places, providers and home knowledge kept where the whole household can use it.' },
   vehicles: { kicker: 'House · Vehicles', title: 'Know what needs attention next.', note: 'Service history, documents and practical details attached to each vehicle.' },
+  medicineCabinet: { kicker: 'House · Medicine Cabinet', title: 'Ready before anyone needs it.', note: 'The medicines and first-aid you always want on the shelf, and when to restock.' },
   pets: { kicker: 'House · Pets', title: 'Care for every member of the family.', note: 'Health, routines and the details someone else would need to step in.' },
   assets: { kicker: 'House · Things', title: 'The important objects have a story.', note: 'Receipts, warranties, manuals and ownership attached to the thing itself.' },
   vault: { kicker: 'Vault · Documents', title: 'Find it in seconds.', note: 'Search, ownership, expiry and evidence—without guessing which folder won.' },

@@ -8,6 +8,7 @@ import { importantOverride, type ImportanceOptions } from './importantEvents';
 import { isValidNameDay } from './nameDay';
 import { suggestTripRole } from './trip';
 import { normalizeVehicleKind } from './vehicle';
+import { itemFromAi } from './medicineCabinet';
 import { lifeCategoryFromWord, parseLifeDate } from './lifeTimeline';
 import type { LifeCategory, TimelineEntry } from '../types';
 
@@ -762,6 +763,14 @@ export function applyHouseholdEdits(h: HouseholdInfo, edits: AiEdit[]): Househol
         next = { ...next, pets: [...(next.pets || []), { id: newId(), ...item } as any] };
       } else if (e.list === 'utilities') {
         next = { ...next, utilities: [...(next.utilities || []), { id: newId(), ...e.item } as any] };
+      } else if (e.list === 'medicineCabinet') {
+        // The model's version of a shelf item is all text. itemFromAi is the one
+        // door it comes through: counts become numbers, the expiry is read as a
+        // real date (a month-only "06/2028" becomes the LAST day of June), the
+        // category is mapped onto the closed set, and anything that will not
+        // validate is dropped rather than stored raw. No usable name = no row.
+        const item = itemFromAi(e.item);
+        if (item) next = { ...next, medicineCabinet: [...(next.medicineCabinet || []), { id: newId(), ...item }] };
       }
     }
   }
@@ -905,7 +914,7 @@ export function applyRecipeEdits(recipes: Recipe[], edits: AiEdit[]): Recipe[] {
 }
 
 // Add anniversaries/special days from AI edits. `anniversaryKind` degrades to
-// 'Other' for anything the model invents that isn't one of the five valid
+// 'Other' for anything the model invents that isn't one of the six valid
 // values — same defensive pattern applyMemberEdits below uses for
 // asset/timeline categories the AI might get wrong. memberNames resolves to
 // memberIds the same way applyCalendarEdits above does. `date` must already
@@ -913,9 +922,15 @@ export function applyRecipeEdits(recipes: Recipe[], edits: AiEdit[]): Recipe[] {
 // filed as a broken recurring record (it would either never fire or fire on
 // the wrong day forever, unlike a one-off calendar_event a user can just
 // re-edit).
+//
+// 'Religious' is set here only when the FAMILY told the assistant this is a
+// religious/spiritual day in their own words (see server.js's prompt guidance
+// for "anniversary") — same as 'Wedding' only being set when they say it's a
+// wedding. The assistant never infers a religion from a name and never adds
+// this kind unprompted.
 export const hasAnniversaryEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'anniversary');
 
-const VALID_ANNIVERSARY_KINDS: AnniversaryKind[] = ['Wedding', 'Engagement', 'Adoption', 'Anniversary', 'Other'];
+const VALID_ANNIVERSARY_KINDS: AnniversaryKind[] = ['Wedding', 'Engagement', 'Adoption', 'Anniversary', 'Religious', 'Other'];
 
 export function applyAnniversaryEdits(anniversaries: AnniversaryRecord[], edits: AiEdit[], members: FamilyMember[]): AnniversaryRecord[] {
   const today = new Date().toISOString().slice(0, 10);
@@ -1043,7 +1058,7 @@ export function applySlipEdits(slips: SlipItem[], edits: AiEdit[]): SlipItem[] {
 }
 export const hasHouseholdEdits = (edits: AiEdit[]) =>
   edits.some(e =>
-    (e.kind === 'list_add' && ['vehicles', 'pets', 'utilities'].includes(e.list)) ||
+    (e.kind === 'list_add' && ['vehicles', 'pets', 'utilities', 'medicineCabinet'].includes(e.list)) ||
     e.kind === 'household_set',
   );
 export const hasFinancesEdits = (edits: AiEdit[]) => edits.some(e => e.kind === 'list_add' && ['banks', 'insurance', 'benefits'].includes(e.list));

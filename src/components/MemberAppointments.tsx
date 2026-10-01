@@ -10,6 +10,7 @@ import { CalendarClock, ChevronRight, ChevronDown, Clock, Sparkles, FileText } f
 import { isImportantEvent } from '../utils/importantEvents';
 import EmptyState from './EmptyState';
 import ImportantChip from './ImportantChip';
+import AppointmentAlarm from './AppointmentAlarm';
 import UntaggedAppointmentPrompt from './UntaggedAppointmentPrompt';
 
 interface Props {
@@ -110,6 +111,7 @@ const Row: React.FC<{ ev: CalendarEvent; today: string; dim?: boolean; byName?: 
     </div>
     <span className="shrink-0 flex flex-wrap items-center justify-end gap-1.5">
       {important && <ImportantChip />}
+      {!dim && <AppointmentAlarm event={ev} today={today} />}
       <span className={`chip shrink-0 ${dim ? 'bg-cream-200 text-ink-500' : 'bg-dusk-100 text-dusk-700'}`}>
         {relativeDayLabel(ev.date, today)}
       </span>

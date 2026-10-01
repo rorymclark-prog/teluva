@@ -62,6 +62,7 @@ const WORDS_FOR: Record<string, string[]> = {
   anniversaries: [],        // a business HAS work anniversaries; the view is what is hidden
   extendedBirthdays: [],
   pets: ['pet'],
+  medicineCabinet: ['medicine cabinet'],   // NOT 'first-aid': the smart-filing step says "first-aid certificate", which is a qualification
   familyTree: ['family tree'],
   care: [],
   sizes: ['sizes', 'shoe size'],
