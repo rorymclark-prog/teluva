@@ -2,13 +2,13 @@ import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, F
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { calendarWriteBatches, mergeCalendarWrite } from './calendarPersistence';
+import { calendarWriteBatches, mergeCalendarWrite, reconcileCalendarIndex, withCalendarWriteLock, type CalendarSaveOptions } from './calendarPersistence';
 import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
 import {
   isLoggableKind, visibilityFor, visibilitiesFor, orderActivity, shouldLog,
   DEDUPE_WINDOW_MS, type ActivityEntry,
 } from './activity';
-import { markDirty, clearDirty, isDirty } from './pendingSync';
+import { readGoogleRemovals, rememberGoogleRemovals, acknowledgeGoogleRemovals, markDirty, clearDirty, isDirty } from './pendingSync';
 import {
   protectIdentity, revealIdentity, protectPassports, revealPassports,
   protectVisas, revealVisas, protectIdentifiers, revealIdentifiers,
@@ -372,32 +372,36 @@ const eventSeenKey = (id: string) => `event:${id}`;
 let calendarBackupError: string | null = null;
 export function getCalendarBackupError(): string | null { return calendarBackupError; }
 
-export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boolean> {
+export async function saveCalendarEvents(events: CalendarEvent[], options: CalendarSaveOptions = {}): Promise<boolean> {
   const user = auth.currentUser;
   const spaceAtStart = FAMILY_ID;
   const localKey = calendarKey();
+  const removedGoogleIds = rememberGoogleRemovals(spaceAtStart, options.removedGoogleIds || []);
   // Preserve intent before any awaited network call, including when the tab closes.
   try { localStorage.setItem(localKey, JSON.stringify(events)); } catch (error) { console.error('Local calendar save failed', error); }
   markDirty('calendar', spaceAtStart);
   calendarBackupError = null;
   let cloudOk = false;
+  const localIds = events.map(e => e.id).filter(Boolean);
+  const targets = events.filter(e => e.id);
+  const bases = new Map(targets.flatMap(e => { const base = getSeen<CalendarEvent>(eventSeenKey(e.id)); return base ? [[e.id, base] as const] : []; }));
+  const indexBase = getSeen<string[]>(EVENT_IDS_KEY);
 
-  if (user) {
+  await withCalendarWriteLock(spaceAtStart, async () => {
+  if (user && auth.currentUser?.uid === user.uid) {
     try {
       const metaRef = doc(db, 'families', spaceAtStart, 'metadata', 'events');
-      const localIds = events.map(e => e.id).filter(Boolean);
-      const targets = events.filter(e => e.id);
+
       // A single edit must not fan out into thousands of reads of unchanged
       // recurring instances. Bound each transaction, then publish its index.
-      const bases = new Map(targets.flatMap(e => { const base = getSeen<CalendarEvent>(eventSeenKey(e.id)); return base ? [[e.id, base] as const] : []; }));
-      const indexBase = getSeen<string[]>(EVENT_IDS_KEY);
+
       let eventsWritten = 0;
       for (const chunk of calendarWriteBatches(targets, bases)) {
         const refs = chunk.map(e => doc(db, 'families', spaceAtStart, 'calendar_events', e.id));
         const merged = await runTransaction(db, async tx => {
           const snaps = [];
           for (let i = 0; i < refs.length; i += 10) snaps.push(...await Promise.all(refs.slice(i, i + 10).map(r => tx.get(r))));
-          const values = chunk.map((local, i) => mergeCalendarWrite(local, bases.get(local.id), snaps[i].exists() ? snaps[i].data() as CalendarEvent : undefined));
+          const values = chunk.map((local, i) => mergeCalendarWrite(local, bases.get(local.id) || (FAMILY_ID === spaceAtStart ? getSeen<CalendarEvent>(eventSeenKey(local.id)) : undefined), snaps[i].exists() ? snaps[i].data() as CalendarEvent : undefined));
           values.forEach((value, i) => { if (!snaps[i].exists() || !deepEqual(value, snaps[i].data())) tx.set(refs[i], value); });
           return values;
         });
@@ -407,7 +411,7 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boole
       const mergedIds = await runTransaction(db, async tx => {
         const snap = await tx.get(metaRef);
         const serverIds = snap.exists() ? (snap.data().ids as string[]) || [] : [];
-        const ids = mergeIdList(indexBase, localIds, serverIds);
+        const ids = reconcileCalendarIndex(indexBase, localIds, serverIds, removedGoogleIds);
         tx.set(metaRef, { ids });
         return ids;
       });
@@ -424,8 +428,16 @@ export async function saveCalendarEvents(events: CalendarEvent[]): Promise<boole
     }
   }
 
-  try { if (cloudOk && localStorage.getItem(localKey) === JSON.stringify(events)) clearDirty('calendar', spaceAtStart); } catch { /* pending stays if storage is unavailable */ }
+  });
 
+  try {
+    if (cloudOk && localStorage.getItem(localKey) === JSON.stringify(events)) {
+      acknowledgeGoogleRemovals(spaceAtStart, removedGoogleIds);
+      if (!readGoogleRemovals(spaceAtStart).length) clearDirty('calendar', spaceAtStart);
+      else return false;
+    }
+    else if (cloudOk) return false; // a newer local edit is still pending
+  } catch { /* pending stays if storage is unavailable */ }
   return cloudOk;
 }
 
@@ -483,6 +495,10 @@ export function subscribeCalendarEvents(cb: (events: CalendarEvent[]) => void, o
   return () => { stopEvents(); stopIds(); };
 }
 
+export function readCachedCalendarEvents(): CalendarEvent[] | null {
+  try { const raw = localStorage.getItem(calendarKey()); const events = raw ? JSON.parse(raw) : null; return Array.isArray(events) ? events : null; } catch { return null; }
+}
+
 export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
   const user = auth.currentUser;
 
@@ -496,7 +512,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
             const pending = JSON.parse(pendingRaw) as CalendarEvent[];
             if (Array.isArray(pending)) {
               const backedUp = await saveCalendarEvents(pending);
-              if (!backedUp) return pending.length > 0 ? pending : null;
+              if (!backedUp) return readCachedCalendarEvents() || pending;
             }
           } catch { /* corrupt local cache — fall through to a normal load */ }
         }

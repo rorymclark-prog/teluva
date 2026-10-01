@@ -2,7 +2,7 @@
 // so run it directly:  npx tsx src/utils/pendingSync.test.ts
 // Exits non-zero on failure.
 import assert from 'node:assert';
-import { markDirty, clearDirty, isDirty } from './pendingSync';
+import { readGoogleRemovals, rememberGoogleRemovals, acknowledgeGoogleRemovals, markDirty, clearDirty, isDirty } from './pendingSync';
 
 // Minimal in-memory shim — same pattern as installPrompt.test.ts.
 (globalThis as any).localStorage = {
@@ -54,3 +54,12 @@ assert.strictEqual(isDirty('never-set', 'fam-a'), false);
 }
 
 console.log('pendingSync.test.ts: all assertions passed');
+
+rememberGoogleRemovals('fam-a', ['gcal-cancelled', 'native']);
+assert.deepEqual(readGoogleRemovals('fam-a'), ['gcal-cancelled'], 'source cancellation intent survives an offline save and a later retry');
+assert.deepEqual(readGoogleRemovals('fam-b'), [], 'source removals never leak into another family');
+rememberGoogleRemovals('fam-a', ['gcal-later']);
+acknowledgeGoogleRemovals('fam-a', ['gcal-cancelled']);
+assert.deepEqual(readGoogleRemovals('fam-a'), ['gcal-later'], 'one successful backup cannot erase a later source removal');
+acknowledgeGoogleRemovals('fam-a', ['gcal-later']);
+assert.deepEqual(readGoogleRemovals('fam-a'), []);

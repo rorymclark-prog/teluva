@@ -1,3 +1,4 @@
+import { removedGoogleMirrorIds, type CalendarSaveOptions } from '../utils/calendarPersistence';
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, ExtendedBirthday, VaultDocument, ReferralRecord, HealthcareProvider, MemberRole, TripDocRole } from '../types';
 import { withContactBirthdays } from '../utils/extendedBirthdaySources';
@@ -13,7 +14,7 @@ import { useFamilyCtx } from '../contexts/FamilyContext';
 import { useWillsAccess } from '../hooks/useWillsAccess';
 import {
   loadFamilyMembers, saveFamilyMembers,
-  getCalendarBackupError, subscribeFamilyMembers, subscribeCalendarEvents, pendingCloudBackupKeys, retryPendingCloudBackups, loadCalendarEvents, saveCalendarEvents,
+  getCalendarBackupError, readCachedCalendarEvents, subscribeFamilyMembers, subscribeCalendarEvents, pendingCloudBackupKeys, retryPendingCloudBackups, loadCalendarEvents, saveCalendarEvents,
   loadFamilyInfo, saveFamilyInfo,
   loadHousehold, saveHousehold,
   loadFinances, saveFinances,
@@ -826,6 +827,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       // genuinely empty family, so an eight-person household was greeted with
       // "Add your first family member".
       if (currentUser) {
+        const cachedEvents = readCachedCalendarEvents();
+        if (cachedEvents) { eventsRef.current = cachedEvents; setEvents(cachedEvents); }
         const cached = readCachedFamilyMembers();
         if (cached && cached.length > 0) {
           setMembers(cached);
@@ -1257,10 +1260,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     }
   };
 
-  const handleSaveEvents = async (updatedEvents: CalendarEvent[]) => {
+  const handleSaveEvents = async (updatedEvents: CalendarEvent[], options?: CalendarSaveOptions) => {
     setEvents(updatedEvents);
     if (demo) return true;
-    const ok = await saveCalendarEvents(updatedEvents);
+    const ok = await saveCalendarEvents(updatedEvents, options);
     setCloudSynced(ok && pendingCloudBackupKeys().length === 0);
     if (!ok) showToast("Saved on this device — couldn't back up to the cloud. Check your connection and re-save.");
     return ok;
@@ -1429,8 +1432,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         commit: async snapshot => {
           if (activeSpaceRef.current !== spaceAtStart) throw new Error('Space changed during refresh.');
           const next = reconcileGoogleEvents(eventsRef.current, snapshot, new Date(), uid);
+          const removedGoogleIds = removedGoogleMirrorIds(eventsRef.current, next);
           eventsRef.current = next;
-          const backedUp = await handleSaveEvents(next);
+          const backedUp = await handleSaveEvents(next, { removedGoogleIds });
           if (!backedUp) throw new Error('Calendar refreshed on this device, but cloud backup failed. Retry cloud backup before relying on another device.');
           writeLastGoogleImport(uid, spaceAtStart);
         },

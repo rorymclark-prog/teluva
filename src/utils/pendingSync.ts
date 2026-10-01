@@ -48,3 +48,17 @@ export function clearDirty(docKey: string, familyId: string): void {
 export function isDirty(docKey: string, familyId: string): boolean {
   try { return localStorage.getItem(dirtyKey(docKey, familyId)) === '1'; } catch { return false; }
 }
+
+const googleRemovalKey = (familyId: string) => `family_calendarRemovedGoogle_v1_${familyId}`;
+export function readGoogleRemovals(familyId: string): string[] {
+  try { const value = JSON.parse(localStorage.getItem(googleRemovalKey(familyId)) || '[]'); return Array.isArray(value) ? value.filter(id => typeof id === 'string' && id.startsWith('gcal-')) : []; } catch { return []; }
+}
+export function rememberGoogleRemovals(familyId: string, ids: readonly string[]): string[] {
+  const pending = [...new Set([...readGoogleRemovals(familyId), ...ids.filter(id => id.startsWith('gcal-'))])];
+  try { localStorage.setItem(googleRemovalKey(familyId), JSON.stringify(pending)); } catch { /* best effort */ }
+  return pending;
+}
+export function acknowledgeGoogleRemovals(familyId: string, applied: readonly string[]): void {
+  const done = new Set(applied);
+  try { localStorage.setItem(googleRemovalKey(familyId), JSON.stringify(readGoogleRemovals(familyId).filter(id => !done.has(id)))); } catch { /* keep intent */ }
+}

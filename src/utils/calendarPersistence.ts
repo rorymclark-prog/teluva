@@ -1,5 +1,5 @@
 import type { CalendarEvent } from '../types';
-import { deepEqual, mergeShared } from './mergeShared';
+import { deepEqual, mergeShared, mergeIdList } from './mergeShared';
 
 /** Capture write intent before asynchronous cloud work; unchanged records require no reads. */
 export function calendarWriteBatches(events: readonly CalendarEvent[], base: ReadonlyMap<string, CalendarEvent>, size = 100): CalendarEvent[][] {
@@ -16,4 +16,28 @@ export function mergeCalendarWrite(local: CalendarEvent, base: CalendarEvent | u
     if (conflicts.length) throw new Error('Some older pending calendar edits conflict with the cloud. Both copies were preserved; reconnect and refresh Google Calendar before retrying imported events.');
   }
   return mergeShared(base, local, server);
+}
+
+export interface CalendarSaveOptions { removedGoogleIds?: readonly string[] }
+/** Only explicit mirrored-source removals can bypass a missing legacy index baseline. */
+export function reconcileCalendarIndex(base: string[] | undefined, local: string[], server: string[], removedGoogleIds: readonly string[] = []): string[] {
+  const removed = new Set(removedGoogleIds.filter(id => id.startsWith('gcal-')));
+  const kept = new Set(local);
+  return mergeIdList(base, local, server).filter(id => kept.has(id) || !removed.has(id));
+}
+export function removedGoogleMirrorIds(before: readonly CalendarEvent[], after: readonly CalendarEvent[]): string[] {
+  const kept = new Set(after.map(e => e.id));
+  return before.filter(e => e.id.startsWith('gcal-') && !kept.has(e.id)).map(e => e.id);
+}
+
+const writesBySpace = new Map<string, Promise<void>>();
+/** Local writes retain their order; different spaces can save independently. */
+export async function withCalendarWriteLock<T>(space: string, write: () => Promise<T>): Promise<T> {
+  const previous = writesBySpace.get(space) || Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>(resolve => { release = resolve; });
+  writesBySpace.set(space, current);
+  await previous;
+  try { return await write(); }
+  finally { release(); if (writesBySpace.get(space) === current) writesBySpace.delete(space); }
 }

@@ -1,3 +1,4 @@
+import { removedGoogleMirrorIds, type CalendarSaveOptions } from '../utils/calendarPersistence';
 import CalendarTimeViews from './CalendarTimeViews';
 import { calendarViewDates, navigateCalendarDate, type CalendarView } from '../utils/calendarViews';
 import { calendarCategoryForEdit } from '../utils/medicalCalendarEvent';
@@ -184,7 +185,7 @@ interface PublishedLink {
 interface FamilyCalendarProps {
   members: FamilyMember[];
   events: CalendarEvent[];
-  onSaveEvents: (events: CalendarEvent[]) => void | boolean | Promise<boolean | void>;
+  onSaveEvents: (events: CalendarEvent[], options?: CalendarSaveOptions) => void | boolean | Promise<boolean | void>;
   // Opt-in outbound sync switch (HubSettings.autoSyncEventsToGoogle, owned by
   // Dashboard). Default OFF — see the toggle in the Google Calendar Sync
   // Panel below and the auto-sync effect further down this file for what
@@ -825,8 +826,9 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
         commit: async snapshot => {
           if (calendarSpaceRef.current !== spaceAtStart) throw new Error('Space changed during refresh.');
           const next = reconcileGoogleEvents(calendarEventsRef.current, snapshot, new Date(), auth.currentUser?.uid);
+          const removedGoogleIds = removedGoogleMirrorIds(calendarEventsRef.current, next);
           calendarEventsRef.current = next;
-          const backedUp = await onSaveEvents(next);
+          const backedUp = await onSaveEvents(next, { removedGoogleIds });
           if (backedUp === false) throw new Error('Updated on this device, but cloud backup failed. Retry cloud backup to share these changes.');
           writeLastGoogleImport(auth.currentUser?.uid, spaceAtStart);
         },

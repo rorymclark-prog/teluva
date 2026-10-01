@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calendarWriteBatches, mergeCalendarWrite } from './calendarPersistence';
+import { calendarWriteBatches, mergeCalendarWrite, reconcileCalendarIndex, removedGoogleMirrorIds, withCalendarWriteLock } from './calendarPersistence';
 import { mergeIdList } from './mergeShared';
 import type { CalendarEvent } from '../types';
 const events: CalendarEvent[] = Array.from({ length: 2000 }, (_, i) => ({ id: `event-${i}`, title: 'Work', date: '2026-10-01', category: 'Work', remindMe: true }));
@@ -15,3 +15,22 @@ assert.deepEqual(calendarWriteBatches([], base), [], 'removing all events needs 
 console.log('calendarPersistence: bounded delta writes and cross-device merges OK');
 assert.throws(() => mergeCalendarWrite({ ...events[7], time: '10:00' }, undefined, { ...events[7], time: '11:00' }), /conflict/, 'legacy pending edits must not overwrite a different cloud version without a merge base');
 assert.deepEqual(mergeCalendarWrite(events[7], undefined, { ...events[7], description: 'Only on phone' }), { ...events[7], description: 'Only on phone' }, 'a richer cloud record keeps fields missing locally');
+
+assert.deepEqual(reconcileCalendarIndex(undefined, ['kept'], ['gcal-cancelled', 'kept', 'phone-native'], ['gcal-cancelled', 'phone-native']), ['kept', 'phone-native'], 'legacy source removals drop only Google mirrors, and preserve unknown phone events');
+assert.deepEqual(reconcileCalendarIndex(undefined, ['gcal-moved'], ['gcal-moved'], ['gcal-moved']), ['gcal-moved'], 'a moved instance that remains locally is kept');
+assert.deepEqual(removedGoogleMirrorIds([{ ...events[0], id: 'gcal-removed' }, events[1]], [events[1]]), ['gcal-removed']);
+
+{
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const order: string[] = [];
+  const first = withCalendarWriteLock('family', async () => { order.push('first'); await gate; order.push('first done'); });
+  const second = withCalendarWriteLock('family', async () => { order.push('second'); });
+  await withCalendarWriteLock('business', async () => { order.push('other space'); });
+  assert.deepEqual(order, ['first', 'other space'], 'a second local save waits; another space remains independent');
+  release(); await Promise.all([first, second]);
+  assert.deepEqual(order, ['first', 'other space', 'first done', 'second']);
+  await assert.rejects(withCalendarWriteLock('family', async () => { throw new Error('offline'); }), /offline/);
+  await withCalendarWriteLock('family', async () => { order.push('retry'); });
+  assert.equal(order.at(-1), 'retry', 'a failed cloud save releases the queue for retry');
+}

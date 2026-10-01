@@ -1,5 +1,15 @@
 [
   {
+    "label": "v370",
+    "changes": [
+      "Calendar refresh now updates changed events and removes deleted or cancelled Google instances. Refresh calendar is visible at the top, with last-updated and error details. Automatic refresh checks run at 07:00 and 19:00 Vienna time while the app is open, and catch up when reopened.",
+      "Choose Day, Week or Month, with separate all-day entries, hourly columns, previous/next navigation and Today. Work is one category, including Karin and Barbara.",
+      "Calendar imports cover the past and next year rather than expanding endless recurring series. Cloud saves send changed records in small transactions; Retry cloud backup keeps local changes safe, and calendar updates appear across devices.",
+      "Upgrades preserve pending local calendar edits and source removals across cloud retries, including when an older version did not store a merge baseline."
+    ],
+    "date": "2026-10-01"
+  },
+  {
     "label": "v369",
     "changes": [
       "Calendar refresh now updates changed events and removes deleted or cancelled Google instances. Refresh calendar is visible at the top, with last-updated and error details. Automatic refresh checks run at 07:00 and 19:00 Vienna time while the app is open, and catch up when reopened.",
