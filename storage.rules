@@ -1,47 +1,9 @@
 rules_version = '2';
-
 service firebase.storage {
   match /b/{bucket}/o {
-    // Membership comes from the familyId CUSTOM CLAIM, set by the server on
-    // create-family / join-family (and lazily backfilled on any AI call /
-    // /api/refresh-claims). This makes vault files per-family for EVERY
-    // family, not just the seeded household.
-    //
-    // Business Hub: a user can belong to multiple spaces at once, but only one
-    // can be the "active" familyId claim at a time — which meant a second tab
-    // (or the moment right after switching spaces, before the ID token
-    // refreshes) could lose Storage access to a space the user is still a
-    // real member of. familyIds is an ARRAY claim listing EVERY space the
-    // user belongs to, so membership in any of them is enough, independent of
-    // which one is currently "active". The single familyId claim is kept as a
-    // fallback for tokens minted before this claim existed.
-    function inFamily(familyId) {
-      return request.auth != null &&
-        request.auth.token.email_verified == true &&
-        (
-          request.auth.token.familyId == familyId ||
-          (('familyIds' in request.auth.token) && familyId in request.auth.token.familyIds)
-        );
-    }
-
-    // The legacy 3-UID isLegacyHouseholdMember fallback was REMOVED 2026-08-24
-    // (design-audit P0). Verified before removal: the two active household
-    // accounts carry familyId/familyIds claims (checked via accounts:lookup),
-    // and the third UID has no users/{uid} profile in teluva-prod — the server
-    // already denies it everywhere, so the fallback was its only remaining
-    // access: a removal-resistant backdoor, not a migration aid. Membership is
-    // now claims-only for every family, including 'household'.
-
-    match /families/{familyId}/{allPaths=**} {
-      allow read: if inFamily(familyId);
-      // Size cap applies to uploads only. On delete, request.resource is null, so
-      // gating delete on request.resource.size denied EVERY delete and orphaned files.
-      allow create, update: if inFamily(familyId)
-        && request.resource.size < 20 * 1024 * 1024;
-      allow delete: if inFamily(familyId);
-    }
-
-    // Everything else: locked.
+    // All app file operations use /api/files with current membership from the
+    // named teluva-prod database. Cached custom claims never authorize bytes.
+    // The Admin SDK gateway bypasses these client rules intentionally.
     match /{allPaths=**} {
       allow read, write: if false;
     }

@@ -1,7 +1,10 @@
 {
-  "label": "v373",
+  "label": "v374",
   "changes": [
-    "Mac calendar backup now recovers from full browser storage. Google-event merge history moves to IndexedDB, leaving room for the current calendar while preserving native-event history and pending edits.",
-    "Recovery requires server-confirmed calendar data and protects newer local edits from delayed cloud reads."
+    "Shared Actions give each next step an owner and a due date, with record links, renewal suggestions, completion history and safe offline recovery.",
+    "Invites now reserve seats, join the space and record estate nominations together, so concurrent attempts cannot reuse a code or overfill the last seat.",
+    "Vault files now check current access whenever they are opened. Child accounts stay read-only, removed members lose access, and old permanent download links are retired.",
+    "Protected credentials and shared facts use separate encryption purposes and explicit space checks. Unreadable records are preserved and show recovery instructions.",
+    "Family-tree branches connect every biological parent, including co-parents without a recorded partner relationship."
   ]
 }

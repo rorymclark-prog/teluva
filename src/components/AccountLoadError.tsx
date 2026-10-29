@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { auth, logout } from '../lib/firebase';
 
@@ -16,6 +16,7 @@ import { auth, logout } from '../lib/firebase';
  */
 export default function AccountLoadError({ message }: { message: string | null }) {
   const email = auth.currentUser?.email ?? '';
+  const [signOutError, setSignOutError] = useState('');
 
   return (
     <div className="min-h-screen bg-cream-50 flex items-center justify-center p-4">
@@ -46,11 +47,12 @@ export default function AccountLoadError({ message }: { message: string | null }
         </button>
 
         <button
-          onClick={logout}
+          onClick={() => void logout().catch(error => setSignOutError(error instanceof Error ? error.message : 'Could not sign out. Try again.'))}
           className="block w-full text-center text-xs text-ink-400 underline underline-offset-2 hover:text-ink-600"
         >
           Sign out
         </button>
+        {signOutError && <p role="alert" className="text-xs text-rosa-700">{signOutError}</p>}
       </div>
     </div>
   );

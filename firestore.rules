@@ -117,6 +117,11 @@ service cloud.firestore {
     // ── Families ─────────────────────────────────────────────────────────────────
 
     match /families/{familyId} {
+      // Server-owned legacy classifications. Clients cannot turn a private
+      // ciphertext into a shared record or remove its permanent deny entry.
+      match /vaultLegacyShared/{fingerprint} { allow read, write: if false; }
+      match /vaultLegacyPrivate/{fingerprint} { allow read, write: if false; }
+
 
       // Family metadata doc — MEMBERS ONLY. It carries the space's name and,
       // for a business space, its address and registration number, so a plain
@@ -200,10 +205,19 @@ service cloud.firestore {
          * email onto it. */
         allow create: if canWriteIn(familyId)
           && (!isBusinessSpace(familyId) || isAdminOf(familyId)
-              || (request.resource != null ? ownsMemberRecord(request.resource.data) : false));
-        allow update, delete: if canWriteIn(familyId)
+              || (request.resource != null ? ownsMemberRecord(request.resource.data) : false))
+          && (isAdminOf(familyId) || request.resource.data.get('digitalAccounts', []) == []);
+        // Preserve private credential sources while other adults edit family
+        // facts. The server's legacy classifier must still see their origin.
+        allow update: if canWriteIn(familyId)
           && (!isBusinessSpace(familyId) || isAdminOf(familyId)
-              || (resource != null ? ownsMemberRecord(resource.data) : false));
+              || (resource != null ? ownsMemberRecord(resource.data) : false))
+          && (isAdminOf(familyId)
+              || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['digitalAccounts']));
+        allow delete: if canWriteIn(familyId)
+          && (!isBusinessSpace(familyId) || isAdminOf(familyId)
+              || (resource != null ? ownsMemberRecord(resource.data) : false))
+          && (isAdminOf(familyId) || resource.data.get('digitalAccounts', []) == []);
       }
 
       /* THE ACTIVITY TRAIL — what changed in this vault, and who changed it.

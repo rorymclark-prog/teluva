@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { emberDestinationFor, emberDestinationLabel } from './EmberNavigation';
-import { emberViewCopy } from './EmberViewHeader';
+import { emberViewCopy, nextEmberHeaderCollapsed } from './EmberViewHeader';
 
 const cases = {
   pulse: 'pulse',
@@ -43,11 +43,25 @@ assert.match(dashboard, /onClick=\{\(e\) => e\.stopPropagation\(\)\}>\n\s*<p cla
   'picking a palette must not close the hub menu — it is now the only way in on a phone');
 
 // The hero collapses on scroll rather than being shortened.
-assert.match(header, /window\.addEventListener\('scroll', onScroll, \{ passive: true \}\)/);
-assert.match(header, /t \? window\.scrollY > 48 : window\.scrollY > 120/, 'asymmetric thresholds stop it flapping');
-assert.match(header, /\$\{tight \? ' is-tight' : ''\}/);
-assert.match(css, /\.ember-view-heading \{\s*position: sticky;/, 'the collapsed hero pins under the top bar');
-assert.match(css, /\.ember-view-heading\.is-tight \{[^}]*min-height: 0;/);
+assert.match(header, /window\.addEventListener\('scroll', update, \{ passive: true \}\)/);
+assert.match(header, /nextEmberHeaderCollapsed\(window\.scrollY, wasCollapsed\)/, 'asymmetric thresholds stop it flapping');
+assert.match(header, /\$\{collapsed \? ' is-collapsed' : ''\}/);
+assert.match(css, /\.ember-view-heading \{[^}]*position: sticky;/, 'the collapsed hero pins under the top bar');
+assert.match(css, /\.ember-view-heading\.is-collapsed \{[^}]*min-height: 0;/);
 assert.match(css, /prefers-reduced-motion: reduce\)\s*\{\s*\.ember-view-heading,/);
+
+assert.equal(nextEmberHeaderCollapsed(119, false), false, 'the full hero remains until the collapse threshold');
+assert.equal(nextEmberHeaderCollapsed(120, false), true, 'the hero collapses at 120px');
+assert.equal(nextEmberHeaderCollapsed(49, true), true, 'the collapsed hero stays stable above the expansion threshold');
+assert.equal(nextEmberHeaderCollapsed(48, true), false, 'the hero expands again at 48px');
+
+const navigationSource = readFileSync('src/components/EmberNavigation.tsx', 'utf8');
+const dashboardSource = readFileSync('src/components/Dashboard.tsx', 'utf8');
+assert.ok(!navigationSource.includes('ember-appearance-mobile'), 'mobile Appearance must not return as a floating control');
+assert.match(
+  dashboardSource,
+  /<div className="px-3 py-2" onClick=\{\(e\) => e\.stopPropagation\(\)\}>[\s\S]*?<AppearanceControls compact \/>/,
+  'Appearance changes in the hub menu must not close the menu',
+);
 
 console.log('EmberNavigation.test.ts: all assertions passed');

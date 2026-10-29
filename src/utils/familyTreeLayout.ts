@@ -1,4 +1,4 @@
-import type { KinRef } from '../types';
+import type { KinLink, KinRef } from '../types';
 import { generations, type KinGraph, type KinPerson } from './kin';
 
 export const TREE_NODE_WIDTH = 176;
@@ -24,6 +24,24 @@ export interface FamilyTreeLayout {
   height: number;
   minGeneration: number;
   maxGeneration: number;
+}
+
+export interface FamilyTreeParentGroup {
+  /** A child generation and its exact recorded set of parents. */
+  key: string;
+  parentGeneration: number;
+  childGeneration: number;
+  parentRefs: KinRef[];
+  childRefs: KinRef[];
+  links: KinLink[];
+  /** False when any edge is adoptive, step or foster and must stay distinct. */
+  allBirth: boolean;
+}
+
+export interface FamilyTreeConnectorSegment {
+  key: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
 }
 
 function personSort(a: KinPerson, b: KinPerson): number {
@@ -92,6 +110,97 @@ export function buildFamilyTreeLayout(graph: KinGraph, focus: KinRef): FamilyTre
     });
   }
   return { nodes, byRef: new Map(nodes.map(node => [node.ref, node])), width, height, minGeneration, maxGeneration };
+}
+
+/**
+ * Family-tree connectors are grouped by the child's exact parent set.
+ *
+ * This distinction matters in blended families. If Rory is the biological
+ * parent of Nitai and Kashi, while Rory and Maria are both Sophie's biological
+ * parents, those are two family units. Drawing every parent edge on the same
+ * horizontal rail visually turns all three children into children of the
+ * couple even though the stored links are correct.
+ */
+export function buildParentConnectorGroups(
+  graph: KinGraph,
+  layout: FamilyTreeLayout,
+): FamilyTreeParentGroup[] {
+  const linksByChild = new Map<KinRef, KinLink[]>();
+  for (const link of graph.links) {
+    if (link.kind !== 'parent' || !layout.byRef.has(link.from) || !layout.byRef.has(link.to)) continue;
+    const parentNode = layout.byRef.get(link.from)!;
+    const childNode = layout.byRef.get(link.to)!;
+    // Only route ordinary adjacent-generation edges into a shared family rail.
+    // A malformed/imported cross-generation edge still renders separately in
+    // the canvas rather than being silently bent into the wrong generation.
+    if (childNode.generation !== parentNode.generation + 1) continue;
+    const bucket = linksByChild.get(link.to);
+    if (bucket) bucket.push(link); else linksByChild.set(link.to, [link]);
+  }
+
+  const groups = new Map<string, FamilyTreeParentGroup>();
+  for (const [childRef, childLinks] of linksByChild) {
+    const parentGeneration = layout.byRef.get(childLinks[0].from)!.generation;
+    const childGeneration = layout.byRef.get(childRef)!.generation;
+    const parentRefs = [...new Set(childLinks.map(link => link.from))].sort();
+    const key = `${parentGeneration}>${childGeneration}|${parentRefs.join('|')}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.childRefs.push(childRef);
+      existing.links.push(...childLinks);
+      existing.allBirth = existing.allBirth && childLinks.every(link => !link.via || link.via === 'birth');
+    } else {
+      groups.set(key, {
+        key,
+        parentGeneration,
+        childGeneration,
+        parentRefs,
+        childRefs: [childRef],
+        links: [...childLinks],
+        allBirth: childLinks.every(link => !link.via || link.via === 'birth'),
+      });
+    }
+  }
+
+  return [...groups.values()]
+    .map(group => ({
+      ...group,
+      childRefs: group.childRefs.sort((a, b) => layout.byRef.get(a)!.x - layout.byRef.get(b)!.x),
+    }))
+    .sort((a, b) => a.parentGeneration - b.parentGeneration
+      || averageX(a.childRefs, layout) - averageX(b.childRefs, layout)
+      || a.key.localeCompare(b.key));
+}
+
+function averageX(refs: KinRef[], layout: FamilyTreeLayout): number {
+  return refs.reduce((sum, ref) => sum + layout.byRef.get(ref)!.x, 0) / Math.max(1, refs.length);
+}
+
+/**
+ * Connect every recorded birth parent to the children's rail. Only a recorded
+ * partner edge lets us start a shared trunk between two cards; co-parenthood
+ * alone must neither imply a partnership nor leave the parent cards floating.
+ */
+export function buildParentConnectorSegments(
+  graph: KinGraph,
+  layout: FamilyTreeLayout,
+  group: FamilyTreeParentGroup,
+  trackY: number,
+): FamilyTreeConnectorSegment[] {
+  if (!group.allBirth) return [];
+  const parents = group.parentRefs.map(ref => layout.byRef.get(ref)).filter((node): node is FamilyTreeLayoutNode => !!node);
+  const children = group.childRefs.map(ref => layout.byRef.get(ref)).filter((node): node is FamilyTreeLayoutNode => !!node);
+  if (!parents.length || !children.length) return [];
+  const partneredPair = parents.length === 2 && graph.partners.get(parents[0].ref)?.includes(parents[1].ref);
+  const starts = partneredPair
+    ? [{ key: 'trunk', x: (parents[0].x + parents[1].x) / 2 + TREE_NODE_WIDTH / 2, y: parents[0].y + TREE_NODE_HEIGHT / 2 }]
+    : parents.map(node => ({ key: `parent:${node.ref}`, x: node.x + TREE_NODE_WIDTH / 2, y: node.y + TREE_NODE_HEIGHT }));
+  const childXs = children.map(node => node.x + TREE_NODE_WIDTH / 2);
+  return [
+    ...starts.map(start => ({ key: start.key, from: { x: start.x, y: start.y }, to: { x: start.x, y: trackY } })),
+    { key: 'rail', from: { x: Math.min(...starts.map(start => start.x), ...childXs), y: trackY }, to: { x: Math.max(...starts.map(start => start.x), ...childXs), y: trackY } },
+    ...children.map(node => ({ key: `child:${node.ref}`, from: { x: node.x + TREE_NODE_WIDTH / 2, y: trackY }, to: { x: node.x + TREE_NODE_WIDTH / 2, y: node.y } })),
+  ];
 }
 
 export function generationLabel(level: number): string {

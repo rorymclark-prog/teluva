@@ -1,3 +1,4 @@
+import { normalizeFileReference } from './fileReferences';
 // One shared "is this already saved?" check, used everywhere a document can
 // be created (AI chat, per-member upload, hub Document Vault upload) — so
 // duplicate detection behaves the same way no matter which path someone uses.
@@ -19,7 +20,8 @@ export async function computeFileHash(blob: Blob): Promise<string> {
 // Convenience wrapper for the base64 data: URLs already used throughout this
 // app (AI-chat attachments, the per-member upload form) instead of a raw Blob.
 export async function hashDataUrl(dataUrl: string): Promise<string> {
-  const res = await fetch(dataUrl);
+  const res = await fetch(normalizeFileReference(dataUrl), { credentials: 'same-origin' });
+  if (!res.ok) throw new Error('The attached file could not be opened for duplicate checking.');
   return computeFileHash(await res.blob());
 }
 

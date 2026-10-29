@@ -1527,56 +1527,41 @@ html[data-interface="ember"] body {
   .ember-onboarding-card { border-radius: 1.5rem; }
   .ember-vault-search { min-height: 24rem; padding: 1.35rem; grid-template-columns: 1fr; }
   .ember-vault-actions { flex-wrap: wrap; }
-  .ember-view-heading { min-height: 22rem; padding: 1.35rem; grid-template-columns: 1fr; align-items: end; }
+  .ember-view-heading {
+    min-height: 22rem;
+    padding: 1.35rem;
+    position: sticky;
+    z-index: 35;
+    top: 4.5rem;
+    grid-template-columns: 1fr;
+    align-items: end;
+    transition: min-height 260ms ease, padding 260ms ease, border-radius 260ms ease, box-shadow 260ms ease;
+  }
   .ember-view-heading h1 { max-width: 19rem; font-size: clamp(2.35rem, 12vw, 3.55rem); }
+  .ember-view-heading-copy h1,
+  .ember-view-heading-copy p,
+  .ember-view-mark { transition: opacity 180ms ease, max-height 260ms ease, margin 260ms ease; }
+  .ember-view-heading.is-collapsed {
+    min-height: 0;
+    padding: .65rem .85rem;
+    align-content: center;
+    gap: .5rem;
+    border-radius: 0 0 1.15rem 1.15rem;
+    box-shadow: 0 18px 45px -24px rgba(15, 10, 12, .92);
+  }
+  .ember-view-heading.is-collapsed::before { opacity: .35; }
+  .ember-view-heading.is-collapsed .ember-view-heading-copy h1,
+  .ember-view-heading.is-collapsed .ember-view-heading-copy p {
+    max-height: 0;
+    margin: 0;
+    overflow: hidden;
+    opacity: 0;
+  }
+  .ember-view-heading.is-collapsed .ember-view-mark { display: none; }
+  .ember-view-heading.is-collapsed .ember-subnav { grid-column: 1; }
   .ember-view-mark { width: 4.8rem; height: 4.8rem; position: absolute; right: 1.2rem; top: 1.2rem; }
   .ember-view-mark svg { width: 1.5rem; height: 1.5rem; }
 
-  /* COLLAPSE ON SCROLL. The hero is worth its 22rem on arrival and nothing
-     like it for the rest of the page, so it sticks under the top bar and
-     shrinks to a slim strip carrying the kicker and the section pills. Two
-     things come out of that: the screenful the hero used to cost is given
-     back, and the subnav — which used to be reachable only by scrolling all
-     the way home — is now always one tap away.
-     `top` tucks a few pixels under the sticky header (z-40) so no seam of
-     page shows through; the hero stays well below it at z-5. Height itself is
-     not animated (auto does not interpolate) — the copy collapses via
-     max-height/opacity and the padding follows, which reads as one motion. */
-  .ember-view-heading {
-    position: sticky;
-    top: 4.25rem;
-    z-index: 5;
-    transition: min-height 260ms ease, padding 260ms ease, gap 260ms ease, border-radius 260ms ease;
-  }
-  .ember-view-heading h1,
-  .ember-view-heading p,
-  .ember-view-heading .ember-view-mark {
-    transition: opacity 200ms ease, max-height 260ms ease, margin-top 260ms ease;
-  }
-  .ember-view-heading.is-tight {
-    min-height: 0;
-    padding: .7rem .9rem;
-    gap: .55rem;
-    border-radius: 1.15rem;
-  }
-  .ember-view-heading.is-tight h1,
-  .ember-view-heading.is-tight p {
-    max-height: 0;
-    margin-top: 0;
-    opacity: 0;
-    overflow: hidden;
-  }
-  /* The mark is absolutely positioned here, so it costs no height either way —
-     it just has no place in a one-line bar. */
-  .ember-view-heading.is-tight .ember-view-mark { opacity: 0; pointer-events: none; }
-  .ember-view-heading.is-tight .ember-view-destination { padding-right: 0; }
-
-  @media (prefers-reduced-motion: reduce) {
-    .ember-view-heading,
-    .ember-view-heading h1,
-    .ember-view-heading p,
-    .ember-view-heading .ember-view-mark { transition: none; }
-  }
   /* The mark is absolute on phones, so a long kicker ("People · Important
      information") ran straight underneath it and read as truncated. Reserve
      the mark's footprint on the kicker line only — the title already has its
@@ -1666,4 +1651,11 @@ html[data-interface="ember"] body {
 }
 @media (min-width: 640px) {
   .trip-hero { padding: 1.4rem 1.5rem 1.5rem; }
+}
+
+@media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+  .ember-view-heading,
+  .ember-view-heading-copy h1,
+  .ember-view-heading-copy p,
+  .ember-view-mark { transition: none; }
 }

@@ -1,5 +1,5 @@
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
+import { auth, db, logout as logoutFromVault } from '../lib/firebase';
 import { silentAccessToken, interactiveAccessToken, chooseAccountAccessToken, tokenIsFresh } from './googleToken';
 import { GOOGLE_SCOPES } from './googleScopes';
 
@@ -233,7 +233,7 @@ export const invalidateAccessToken = () => {
 };
 
 export const logout = async () => {
-  await auth.signOut();
+  await logoutFromVault();
   setToken(null, null);
 };
 

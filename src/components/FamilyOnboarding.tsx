@@ -161,11 +161,12 @@ export default function FamilyOnboarding() {
             </button>
 
             <button
-              onClick={logout}
+              onClick={() => void logout().catch(error => setError(error instanceof Error ? error.message : 'Could not sign out. Try again.'))}
               className="block w-full text-center text-xs text-ink-400 underline underline-offset-2 hover:text-ink-600 pt-1"
             >
               Sign out
             </button>
+            {error && <p role="alert" className="text-sm text-rosa-700">{error}</p>}
           </div>
         )}
 

@@ -1,3 +1,4 @@
+import { normalizeFileReference } from './fileReferences';
 // Client-side "growing-up" timelapse generator.
 //
 // Draws a sequence of yearly birthday photos onto an offscreen canvas, captures
@@ -109,7 +110,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     if (/^https?:/i.test(src)) img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error('image-load-failed'));
-    img.src = src;
+    img.src = normalizeFileReference(src);
   });
 }
 

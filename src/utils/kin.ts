@@ -460,7 +460,7 @@ export function findKinCycles(g: KinGraph): KinRef[] {
 // --- Describing an edge in the UI ------------------------------------------
 
 const VIA_WORDS: Record<string, string> = {
-  birth: '',
+  birth: 'biological',
   adoptive: 'adoptive',
   step: 'step',
   foster: 'foster',
@@ -473,7 +473,7 @@ const STATUS_WORDS: Record<string, string> = {
   widowed: 'Widowed',
 };
 
-/** e.g. "Parent of Maya", "Adoptive parent of Maya", "Married to Rory". */
+/** e.g. "Biological parent of Maya", "Adoptive parent of Maya", "Married to Rory". */
 export function describeKinLink(l: ResolvedKinLink, index: Map<KinRef, KinPerson>): string {
   if (l.kind === 'partner') {
     const word = STATUS_WORDS[l.status || ''] || 'Partner of';

@@ -3,6 +3,7 @@ import { FamilyMember, VaultCategory, VaultDocument, FamilyDocument, Vehicle, Sl
 import { readDocument, EXPECTED_READER_VERSION } from '../utils/docReader';
 import { searchVault, coverageLine, type VaultSearchOutcome } from '../utils/vaultSearch';
 import { auth } from '../lib/firebase';
+import { isDurableFileReference, normalizeFileReference, normalizeFileReferences } from '../utils/fileReferences';
 import {
   loadFamilyInfo, loadHousehold, loadFinances, loadTimeline,
   loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, loadCalendarEvents,
@@ -919,8 +920,8 @@ function dataUrlToBlob(dataUrl: string): Blob {
 // into the vault with no error, and every scan hashed identically so duplicate
 // detection misfired. Fetch remote URLs instead of pretending to decode them.
 async function attachmentToBlob(src: Attachment): Promise<Blob> {
-  if (/^https?:\/\//i.test(src.dataUrl)) {
-    const res = await fetch(src.dataUrl);
+  if (isDurableFileReference(src.dataUrl)) {
+    const res = await fetch(normalizeFileReference(src.dataUrl), { credentials: 'same-origin' });
     if (!res.ok) throw new Error("Couldn't read the attached photo back from storage.");
     return res.blob();
   }
@@ -1386,7 +1387,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       if (current.length > 0) return current;
       try {
         const raw = localStorage.getItem(chatKey(familyId, uid));
-        const cached = raw ? JSON.parse(raw) : [];
+        const cached = raw ? normalizeFileReferences(JSON.parse(raw)) : [];
         return Array.isArray(cached) ? revivePendingReads(cached) : current;
       } catch { return current; }
     });
@@ -1410,7 +1411,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
   // code, so those always drop). If an upload is still in flight or failed,
   // its dataUrl is still `data:` and gets stripped here rather than bloating
   // storage — that attachment just won't survive a reload, same as before.
-  const isRemoteUrl = (src: string) => /^https?:\/\//i.test(src);
+  const isRemoteUrl = isDurableFileReference;
   // A message still carrying a document scan that (a) hasn't been Applied yet and
   // (b) never got a durable Storage URL on its edit (its send-time upload failed).
   // For such a message the inline base64 is the ONLY surviving copy of the scan —
@@ -2364,6 +2365,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       }
 
       const id = newId();
+      const owner = inferDocOwner(e, docEdits);
       // Three ways to get the file into the vault, in order of preference:
       //  1. the edit is stamped AND we still hold the original bytes from this
       //     session — upload a full copy under documents/, exactly as before;
@@ -2378,7 +2380,7 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       let fileName: string, fileType: string, fileSize: number, hash: string;
       let storagePath: string, downloadUrl: string;
       const cachedBlob = e.fileStoragePath ? sessionAttachmentBlobs.get(e.fileStoragePath) : undefined;
-      if (e.fileUrl && e.fileStoragePath && !cachedBlob) {
+      if (e.fileUrl && e.fileStoragePath && !cachedBlob && owner) {
         fileName = e.fileName || src?.name || e.name;
         fileType = e.fileMimeType || src?.mimeType || 'application/octet-stream';
         fileSize = e.fileSize ?? 0;
@@ -2403,18 +2405,19 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
         // `src` would throw, and because saveDocuments() only runs after the
         // whole loop, that would lose EVERY document in the turn including the
         // stamped ones that were fine. Skip just this one instead.
-        if (!src && !cachedBlob) {
+        const availableSource = src || (e.fileUrl ? { dataUrl: e.fileUrl, mimeType: e.fileMimeType || 'application/octet-stream', name: e.fileName || e.name } : undefined);
+        if (!availableSource && !cachedBlob) {
           console.error('No source available for unstamped document edit; skipping:', e.name);
           skipped.push(e.name);
           continue;
         }
-        const blob = cachedBlob ?? await attachmentToBlob(src);
+        const blob = cachedBlob ?? await attachmentToBlob(availableSource!);
         fileName = e.fileName || src?.name || e.name;
         fileType = e.fileMimeType || src?.mimeType || blob.type || 'application/octet-stream';
         fileSize = blob.size;
         hash = e.contentHash || await computeFileHash(blob);
         const file = new File([blob], fileName, { type: fileType });
-        ({ storagePath, downloadUrl } = await uploadVaultFile(file, id));
+        ({ storagePath, downloadUrl } = await uploadVaultFile(file, id, { shared: !owner }));
       }
 
       // Resolve the owner ONCE, and infer it (from the document's own name, and
@@ -2424,7 +2427,6 @@ export default function AIChatbot({ members, onApplyEdits, onAddMemberDoc, onAdd
       // bare resolveMemberByName returned nothing, and the profile copy was
       // skipped — even though the name "Rory Michael Clark Austrian e-card" names
       // him unambiguously.
-      const owner = inferDocOwner(e, docEdits);
       const category = clampVaultCategory(e.category);
 
       added.push({

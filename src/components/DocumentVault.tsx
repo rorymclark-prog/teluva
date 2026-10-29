@@ -160,7 +160,7 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, is
     setError(null);
     try {
       const docId = newId();
-      const { storagePath, downloadUrl } = await uploadVaultFile(file, docId);
+      const { storagePath, downloadUrl } = await uploadVaultFile(file, docId, { shared: true });
       const newDoc: VaultDocument = {
         id: docId,
         name: docName,
@@ -442,7 +442,7 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusin
         ]);
         setStatus(i, 'uploading');
         const docId = `${Date.now().toString()}${Math.floor(Math.random() * 1000)}_${i}`;
-        const { storagePath, downloadUrl } = await uploadVaultPhoto(compressed, docId);
+        const { storagePath, downloadUrl } = await uploadVaultPhoto(compressed, docId, { shared: true });
         uploaded.push({
           id: docId,
           name: file.name.replace(/\.[^.]+$/, '') || 'Photo',

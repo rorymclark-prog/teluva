@@ -1,3 +1,4 @@
+import { normalizeFileReference } from './fileReferences';
 // First-page PDF thumbnail — renders page 1 to a small JPEG data: URL so a PDF
 // in a document list can show a real preview instead of a generic file icon,
 // the same way an image attachment already does. pdfjs-dist is dynamically
@@ -35,7 +36,7 @@ export function loadPdfjs() {
 // download URL (Firebase Storage, DocumentVault) — pdfjs accepts either as `url`.
 export async function pdfFirstPageThumbnail(src: string, maxWidthPx = 160): Promise<string> {
   const pdfjs = await loadPdfjs();
-  const doc = await pdfjs.getDocument({ url: src }).promise;
+  const doc = await pdfjs.getDocument({ url: normalizeFileReference(src) }).promise;
   try {
     const page = await doc.getPage(1);
     const baseViewport = page.getViewport({ scale: 1 });

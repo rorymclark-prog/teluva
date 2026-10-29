@@ -345,7 +345,7 @@ const LINKS: KinLink[] = [
   assert.equal(kinName('member:gone', g.index), 'Someone no longer on file',
     'a dangling ref must read as a plain fact, never as "undefined"');
 
-  assert.match(describeKinLink(link('l', 'parent', 'member:m1', 'member:m3'), g.index), /Rory Clark — parent of Maya Clark/);
+  assert.match(describeKinLink(link('l', 'parent', 'member:m1', 'member:m3'), g.index), /Rory Clark — biological parent of Maya Clark/);
   assert.match(describeKinLink(link('l', 'parent', 'member:m1', 'member:m3', { via: 'adoptive' }), g.index), /adoptive parent of/);
   assert.match(describeKinLink(link('l', 'partner', 'member:m1', 'member:m2', { status: 'married' }), g.index), /^Married —/);
 

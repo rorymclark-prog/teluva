@@ -1,8 +1,9 @@
-import { ArrowRight, CalendarDays, CheckCircle2, FileWarning, Plane, Ruler, Sparkles } from 'lucide-react';
-import { CalendarEvent, FamilyMember, HubStatus } from '../types';
+import { ArrowRight, CalendarDays, CheckCircle2, ClipboardList, FileWarning, Plane, Ruler, Sparkles } from 'lucide-react';
+import { CalendarEvent, FamilyAction, FamilyMember, HubStatus } from '../types';
 import type { Trip } from '../utils/trip';
 import type { ImportantItem } from '../utils/importantEvents';
 import ImportantComingUp from './ImportantComingUp';
+import { actionCounts, actionDaysUntil, sortActions } from '../utils/actions';
 
 export interface PulseExpiryWarning {
   memberId: string;
@@ -21,6 +22,9 @@ interface FamilyPulseProps {
   onOpenCalendar: () => void;
   onOpenMemberIds: (memberId: string) => void;
   onOpenPeople: () => void;
+  actions?: FamilyAction[];
+  actionsLoading?: boolean;
+  onOpenActions?: () => void;
   isBusinessSpace?: boolean;
 
   /** Trips happening now or close enough to prepare for. */
@@ -162,7 +166,7 @@ export function pulseSpaceCopy(isBusinessSpace: boolean) {
   };
 }
 
-export default function FamilyPulse({ members, events, status, familyPhotoUrl, expiryWarnings, onOpenCalendar, onOpenMemberIds, onOpenPeople, isBusinessSpace = false, trips = [], me = null, onOpenTrip, onViewPhoto, importantItems = [] }: FamilyPulseProps) {
+export default function FamilyPulse({ members, events, status, familyPhotoUrl, expiryWarnings, onOpenCalendar, onOpenMemberIds, onOpenPeople, actions = [], actionsLoading = false, onOpenActions, isBusinessSpace = false, trips = [], me = null, onOpenTrip, onViewPhoto, importantItems = [] }: FamilyPulseProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const upcoming = events
@@ -171,6 +175,14 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
   const decisions = rankPulseDecisions([
+    ...actions.filter(action => action.status === 'open' && actionDaysUntil(action.dueDate) !== null && actionDaysUntil(action.dueDate)! <= 7).map(action => ({
+      key: `action-${action.id}`,
+      title: action.title,
+      note: `${(actionDaysUntil(action.dueDate) ?? 0) < 0 ? 'Overdue' : actionDaysUntil(action.dueDate) === 0 ? 'Due today' : 'Due this week'} · ${members.find(member => member.id === action.ownerMemberId)?.name || 'Unassigned'}`,
+      icon: ClipboardList,
+      onClick: onOpenActions || onOpenPeople,
+      dueInDays: actionDaysUntil(action.dueDate)!,
+    })),
     ...expiryWarnings.map((warning) => ({
       key: `expiry-${warning.memberId}-${warning.label}`,
       title: `${warning.memberName}'s ${warning.label}`,
@@ -196,6 +208,8 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
   const moment = positiveMoment(members, isBusinessSpace);
   const nextEvent = upcoming[0]?.event;
   const nextDate = nextEvent ? localDate(nextEvent.date) : null;
+  const actionSummary = actionCounts(actions);
+  const nextAction = sortActions(actions).find(action => action.status === 'open');
 
   // Pick ONE trip. A banner that stacks is a list, and a list is the thing this
   // is meant to replace. Preference order: a trip the viewer is on, then the
@@ -306,6 +320,12 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
           <p>{moment?.note || copy.emptyAction} <ArrowRight className="h-4 w-4" /></p>
         </button>
       </div>
+
+      {onOpenActions && <button type="button" className="pulse-actions-link" onClick={onOpenActions}>
+        <ClipboardList className="h-5 w-5" />
+        <span><b>{actionsLoading ? 'Loading shared actions…' : actionSummary.open ? `${actionSummary.open} open ${actionSummary.open === 1 ? 'action' : 'actions'}${actionSummary.overdue ? ` · ${actionSummary.overdue} overdue` : ''}` : 'Give the next step a home'}</b><small>{nextAction ? nextAction.title : 'Assign an owner, choose a date, and follow through together.'}</small></span>
+        <ArrowRight className="h-4 w-4" />
+      </button>}
 
       <section className="pulse-people" aria-label={copy.peopleAria}>
         <div>

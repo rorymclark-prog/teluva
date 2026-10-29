@@ -136,12 +136,10 @@ check('and the named list is a real field, not an invention of this test',
 
 /* The write has to carry the named list or the pure function's decision never
    reaches Firestore — the classic gap between a tested module and a live app. */
-const grantFn = serverJs.slice(
-  serverJs.indexOf('async function grantEstateAccessFromInvite'),
-  serverJs.indexOf('async function eligibleReleaseUids'),
-);
+const grantFn = readFileSync(join(root, 'server/inviteRedemption.mjs'), 'utf8');
 check('the server writes namedUids when an invite is redeemed',
-  /namedUids: result\.namedUids/.test(grantFn));
+  /namedUids: estate\.namedUids/.test(grantFn)
+  && /await redeemFamilyInvite\(/.test(serverJs));
 
 /* ── rung one reaches the person who was named ───────────────────────────── */
 

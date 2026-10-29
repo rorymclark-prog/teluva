@@ -1,4 +1,5 @@
 import { auth } from '../lib/firebase';
+import { normalizeFileReferences } from './fileReferences';
 import { ClothingSizes, FavoriteItem, FamilyRole, SuccessorShareLevel, NameCelebration, Preferences } from '../types';
 
 /**
@@ -121,7 +122,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const data = await res.json().catch(() => ({} as Record<string, unknown>));
   if (!res.ok) throw new Error((data as { error?: string }).error || 'Something went wrong.');
-  return data as T;
+  return normalizeFileReferences(data as T);
 }
 
 export const listFamilyLinks = () =>

@@ -120,13 +120,17 @@ for (const route of ['/api/gmail-bridge/status', '/api/gmail-bridge/token', '/ap
 
 // ── 6. ONE implementation of vault filing ──────────────────────────────────
 // Two pipelines write documents now. A second copy of the storage layout, the
-// download-token metadata and the transaction would drift, and a near-copy
-// that forgets the token produces documents that look filed and will not open.
+// canonical private URL and transaction would drift. Neither writer may mint a
+// permanent bearer URL that bypasses later membership revocation.
 check('a shared helper does the filing', /async function fileAttachmentsIntoVault\(/.test(server));
 const helperCalls = server.match(/await fileAttachmentsIntoVault\(/g) || [];
 check('and BOTH pipelines call it', helperCalls.length === 2);
-check('the inbound-mail route no longer carries its own copy of the loop',
-  (server.match(/firebaseStorageDownloadTokens/g) || []).length === 1);
+check('neither inbound writer mints permanent download-token metadata',
+  !/firebaseStorageDownloadTokens/.test(server));
+const filingStart = server.indexOf('async function fileAttachmentsIntoVault(');
+const filingHelper = server.slice(filingStart, server.indexOf('\n}', filingStart) + 2);
+check('the shared filing helper emits an authenticated canonical file reference',
+  /const downloadUrl = canonicalFileUrl\(storagePath\)/.test(filingHelper));
 
 // ── 7. The client ──────────────────────────────────────────────────────────
 check('db.ts can mint', /export async function createGmailBridgeToken\(\): Promise<string>/.test(db));
@@ -206,9 +210,11 @@ check('the script stops rather than looping on a rejected token',
   check('CONTROL: a tick set outside the clipboard promise WOULD be caught',
     !/writeText\(gmailToken\)[\s\S]{0,200}?\.then\(\(\) => \{[\s\S]{0,120}?setCopiedToken\(true\)/.test(eagerTick));
 
-  const twoCopies = 'firebaseStorageDownloadTokens: a\nfirebaseStorageDownloadTokens: b';
-  check('CONTROL: a second copy of the filing loop WOULD be caught',
-    (twoCopies.match(/firebaseStorageDownloadTokens/g) || []).length !== 1);
+  const unsafeWriter = 'firebaseStorageDownloadTokens: token';
+  check('CONTROL: a writer recreating permanent bearer links WOULD be caught',
+    /firebaseStorageDownloadTokens/.test(unsafeWriter));
+  check('CONTROL: a writer omitting the private canonical reference WOULD be caught',
+    !/const downloadUrl = canonicalFileUrl\(storagePath\)/.test(unsafeWriter));
 }
 
 console.log(`gmailBridgeWiring.test.ts: ${n} assertions passed.`);

@@ -22,6 +22,7 @@ import {
   loadSettings, saveSettings,
   loadDocuments, saveDocuments,
   loadShopping, saveShopping,
+  loadActions, saveActions,
   loadRecipes, saveRecipes,
   saveAsset, loadAssets, deleteAsset,
   loadFamilyWords, saveFamilyWords,
@@ -158,6 +159,9 @@ import FeedbackModal from './FeedbackModal';
 import EmberNavigation, { EmberDestination } from './EmberNavigation';
 import FamilyPulse, { PulseExpiryWarning } from './FamilyPulse';
 import CaptureMenu from './CaptureMenu';
+import FamilyActions from './FamilyActions';
+import { useFamilyActions } from '../hooks/useFamilyActions';
+import { isFamilyActionsDoc } from '../utils/actions';
 import EmberViewHeader from './EmberViewHeader';
 import { useAppearance } from '../contexts/AppearanceContext';
 import {
@@ -565,6 +569,15 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   // Linked households (cousins, nieces, nephews). Everyone can OPEN it — that
   // is the point of it; only an admin sees the connect/share controls inside.
   const [connectedOpen, setConnectedOpen] = useState(false);
+  const [actionCreateSignal, setActionCreateSignal] = useState(0);
+  const [actionEditing, setActionEditing] = useState(false);
+  const actionScope = demo ? 'demo' : `${accountUid || ''}:${activeSpaceId || ''}`;
+  const actionStore = useFamilyActions({
+    scope: actionScope,
+    enabled: !ctxLoading && !!accountUid && !!activeSpaceId,
+    demo,
+    editing: actionEditing,
+  });
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addMemberInitialRole, setAddMemberInitialRole] = useState<MemberRole | undefined>();
   const [addingChildFromTree, setAddingChildFromTree] = useState(false);
@@ -2267,7 +2280,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const handleExportAllData = async () => {
     setExportingBackup(true);
     try {
-      const [info, household, finances, timeline, docs, willsEstate, inMemory, slips, assets, recipes, shopping] = await Promise.all([
+      const [info, household, finances, timeline, docs, willsEstate, inMemory, slips, assets, recipes, shopping, actions] = await Promise.all([
         loadFamilyInfo(),
         loadHousehold(),
         loadFinances(),
@@ -2279,6 +2292,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         loadAssets(),
         loadRecipes(),
         loadShopping(),
+        loadActions(),
       ]);
 
       // Document metadata still travels in the JSON (search/reference use) —
@@ -2319,6 +2333,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         assets: assets || [],
         recipes: recipes || [],
         shopping: shopping || [],
+        actions: actions || { items: [] },
         settings,
         passwordVault: {
           included: false,
@@ -2415,6 +2430,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     (async () => {
       try {
         const backupData = await readBackupFile(file);
+        if (backupData.actions !== undefined && !isFamilyActionsDoc(backupData.actions)) {
+          throw new Error('invalid-actions-backup');
+        }
 
         if (backupData.members && Array.isArray(backupData.members)) {
           await persistChanges(backupData.members);
@@ -2438,6 +2456,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         if (backupData.timeline && typeof backupData.timeline === 'object') {
           await saveTimeline(backupData.timeline);
         }
+        if (backupData.actions !== undefined) {
+          const saved = await saveActions(backupData.actions);
+          if (!saved) throw new Error('actions-restore-pending');
+        }
         if (backupData.documents && Array.isArray(backupData.documents)) {
           await saveDocuments(backupData.documents);
         }
@@ -2456,7 +2478,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         showToast(
           error instanceof Error && error.message === 'no-data-entry'
             ? "That zip doesn't contain family_vault_data.json — is it a Family Vault backup?"
-            : "Couldn't read that backup file — is it a Teluva export?"
+            : error instanceof Error && error.message === 'invalid-actions-backup'
+              ? 'This backup contains invalid actions. Nothing was restored.'
+              : error instanceof Error && error.message === 'actions-restore-pending'
+                ? 'Actions were saved on this device, but cloud sync is pending. Reload when online to retry.'
+                : "Couldn't read that backup file — is it a Teluva export?"
         );
       }
     })();
@@ -2928,7 +2954,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         <span className="flex-1 text-left">{isBusinessSpace ? 'Leave this business' : 'Leave this family'}</span>
       </button>
 
-      <button type="button" onClick={logout} className={menuRow}>
+      <button type="button" onClick={() => void logout().catch(error => showToast(error instanceof Error ? error.message : 'Could not sign out. Check your connection and try again.'))} className={menuRow}>
         <LogOut className="w-4 h-4 shrink-0" />
         <span className="flex-1 text-left">Sign out</span>
       </button>
@@ -3279,6 +3305,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             onOpenCalendar={() => setMainView('calendar')}
             onOpenMemberIds={(memberId) => goToMemberTab(memberId, 'ids')}
             onOpenPeople={() => setMainView('profiles')}
+            actions={actionStore.actions}
+            actionsLoading={actionStore.loading}
+            onOpenActions={() => { setPeoplePane('todo'); setMainView('profiles'); }}
             isBusinessSpace={isBusinessSpace}
             trips={pulseTrips}
             me={me}
@@ -3317,6 +3346,26 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
             {(!emberInterface || peoplePane === 'todo') && (
               <>
+
+            <div key={actionScope}><FamilyActions
+              members={members}
+              actions={actionStore.actions}
+              loading={actionStore.loading}
+              saving={actionStore.saving}
+              pendingRemote={actionStore.pendingRemote}
+              notice={actionStore.notice}
+              canEdit={demo || canWrite}
+              demo={demo}
+              isBusinessSpace={isBusinessSpace}
+              createSignal={actionCreateSignal}
+              onCreateHandled={() => setActionCreateSignal(0)}
+              onSave={actionStore.persist}
+              onEditingChange={setActionEditing}
+              onOpenSource={source => {
+                if (source.memberId) { setPeoplePane('profiles'); goToMemberTab(source.memberId, source.tab || 'overview'); }
+                else if (source.view) setMainView(source.view as ViewId);
+              }}
+            /></div>
 
             {pendingEditCount > 0 && (
               <button
@@ -4099,6 +4148,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           onOpenVault={() => { setMainView('vault'); setCaptureVaultSignal(signal => signal + 1); }}
           onOpenStory={() => { setMainView('timeline'); setCaptureStorySignal(signal => signal + 1); }}
           onOpenHouse={() => { setMainView('household'); setCaptureHouseSignal(signal => signal + 1); }}
+          onCreateAction={demo || canWrite ? () => { setPeoplePane('todo'); setMainView('profiles'); setActionCreateSignal(signal => signal + 1); } : undefined}
           isBusinessSpace={isBusinessSpace}
         />
       )}

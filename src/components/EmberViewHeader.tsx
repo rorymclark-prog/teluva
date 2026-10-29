@@ -96,25 +96,34 @@ function destinationFor(viewId: string): Destination | null {
   return (Object.entries(destinations).find(([, destination]) => destination.ids.includes(viewId))?.[0] as Destination | undefined) || null;
 }
 
+export function nextEmberHeaderCollapsed(scrollY: number, collapsed: boolean): boolean {
+  if (collapsed) return scrollY > 48;
+  return scrollY >= 120;
+}
+
 export default function EmberViewHeader({ current, views, onSelect, isBusinessSpace = false }: EmberViewHeaderProps) {
-  // The hero is 22rem on a phone — over a third of the screen spent on a
-  // title, on EVERY section, before a single fact appears. It collapses on
-  // scroll instead of being cut down: full height when you arrive (the
-  // arrival is the point of it), then a slim pinned bar carrying the kicker
-  // and the section pills, so the subnav stops being something you have to
-  // scroll back up to reach. Phone only — the CSS lives behind a media query;
-  // this class is inert above 768px, where the hero costs a much smaller
-  // share of the screen.
-  //
-  // Asymmetric thresholds on purpose: collapse at 120px, expand again only
-  // below 48. One threshold makes the hero flap open and shut when a finger
-  // rests near it.
-  const [tight, setTight] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
   useEffect(() => {
-    const onScroll = () => setTight((t) => (t ? window.scrollY > 48 : window.scrollY > 120));
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    const mobile = window.matchMedia('(max-width: 767px)');
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        setCollapsed((wasCollapsed) => mobile.matches
+          ? nextEmberHeaderCollapsed(window.scrollY, wasCollapsed)
+          : false);
+      });
+    };
+
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    mobile.addEventListener('change', update);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', update);
+      mobile.removeEventListener('change', update);
+    };
   }, []);
 
   const destinationId = destinationFor(current);
@@ -131,7 +140,10 @@ export default function EmberViewHeader({ current, views, onSelect, isBusinessSp
   const DestinationIcon = destination.icon;
 
   return (
-    <section className={`ember-view-heading ember-view-heading-${destinationId}${tight ? ' is-tight' : ''}`}>
+    <section
+      className={`ember-view-heading ember-view-heading-${destinationId}${collapsed ? ' is-collapsed' : ''}`}
+      data-collapsed={collapsed || undefined}
+    >
       <div className="ember-view-heading-copy">
         <span className="ember-view-destination"><DestinationIcon className="h-3.5 w-3.5" />{meta.kicker}</span>
         <h1>{meta.title}</h1>

@@ -2484,3 +2484,26 @@ export interface AiUsage {
   limit: number;
   resetsOn: string; // human label, e.g. "1 August"
 }
+
+// Shared work, kept separately from the source record. Finishing an action
+// never changes a passport expiry, referral status or other underlying fact.
+export interface FamilyAction {
+  id: string;
+  title: string;
+  notes?: string;
+  ownerMemberId?: string;
+  dueDate?: string; // YYYY-MM-DD, interpreted in the viewer's local calendar
+  status: 'open' | 'done';
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  source?: {
+    key: string; // includes the source deadline so a future renewal can recur
+    label: string;
+    memberId?: string;
+    tab?: string;
+    view?: string;
+  };
+}
+
+export interface FamilyActionsDoc { items: FamilyAction[]; }

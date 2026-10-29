@@ -5,11 +5,12 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
-  onAuthStateChanged,
+  onIdTokenChanged,
   signOut,
 } from 'firebase/auth';
 import { initializeFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import { createFileSession, createStorageClient, type FileUser } from '../utils/storageClient';
+import { normalizeFileReference } from '../utils/fileReferences';
 import { clearRevealCaches } from '../utils/vaultFields';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -57,7 +58,49 @@ export const db = initializeFirestore(
 
 // Firebase Storage — the Document Vault stores real files here (not base64 in
 // Firestore), so passports/certificates/scans of any size work.
-export const storage = getStorage(app);
+export const storage = createStorageClient({ getUser: () => auth.currentUser });
+const fileSession = createFileSession({ getUser: () => auth.currentUser });
+export const ensureFileSession = (user: FileUser) => fileSession.ensure(user);
+export const clearFileSession = () => fileSession.clear();
+
+// Cookie responses are serialized across identity changes. Private content is
+// not rendered until FamilyProvider awaits the matching account's session.
+let observedFileUid: string | null | undefined;
+if (typeof window !== 'undefined' && typeof document !== 'undefined') onIdTokenChanged(auth, user => {
+  const uid = user?.uid || null;
+  const changed = observedFileUid !== undefined && observedFileUid !== uid;
+  observedFileUid = uid;
+  const update = changed ? fileSession.changeIdentity(user) : user ? fileSession.ensure(user, true) : fileSession.clear();
+  void update.catch(error => {
+    console.error('Protected file session unavailable:', error instanceof Error ? error.message : 'session failed');
+  });
+});
+
+// Firebase timers can pause while an installed app sleeps. Renew an aging
+// one-hour cookie on return without unmounting the screen or losing a draft.
+// Requests during a failed/expired handshake remain denied by the server.
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  const retryFailedMedia = () => {
+    for (const image of document.querySelectorAll<HTMLImageElement>('img')) {
+      const source = image.getAttribute('src') || '';
+      if (source.startsWith('/api/files/') && image.complete && !image.naturalWidth) image.src = normalizeFileReference(source);
+    }
+    for (const frame of document.querySelectorAll<HTMLIFrameElement>('iframe')) {
+      const source = frame.getAttribute('src') || '';
+      if (source.startsWith('/api/files/') && frame.contentDocument?.contentType === 'application/json') frame.src = source;
+    }
+  };
+  const renewOnReturn = () => {
+    const user = auth.currentUser;
+    if (document.visibilityState === 'hidden' || !user || fileSession.isReadyFor(user.uid)) return;
+    void fileSession.ensure(user).then(() => {
+      retryFailedMedia();
+      window.setTimeout(retryFailedMedia, 500);
+    }).catch(error => console.error('Protected file session renewal failed:', error instanceof Error ? error.message : 'session failed'));
+  };
+  window.addEventListener('focus', renewOnReturn);
+  document.addEventListener('visibilitychange', renewOnReturn);
+}
 
 export const provider = new GoogleAuthProvider();
 
@@ -151,6 +194,7 @@ export const loginWithGoogle = async (
 };
 
 export const logout = async () => {
+  await clearFileSession();
   await signOut(auth);
   // Clear this device's cached family data so a different account signing in on
   // the same browser never sees the previous family's cache. Keeps 'fv_lang'

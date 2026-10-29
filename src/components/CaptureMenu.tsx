@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { CalendarPlus, FileUp, Home, ImagePlus, UserPlus, X } from 'lucide-react';
+import { CalendarPlus, ClipboardList, FileUp, Home, ImagePlus, UserPlus, X } from 'lucide-react';
 
 interface CaptureMenuProps {
   open: boolean;
@@ -9,6 +9,7 @@ interface CaptureMenuProps {
   onOpenVault: () => void;
   onOpenStory: () => void;
   onOpenHouse: () => void;
+  onCreateAction?: () => void;
   isBusinessSpace?: boolean;
 }
 
@@ -16,11 +17,12 @@ const choices = [
   { id: 'document', title: 'Photo, scan or file', note: 'Send evidence into the family vault', icon: FileUp },
   { id: 'moment', title: 'Keep a moment', note: 'Add a photograph, saying or family story', icon: ImagePlus },
   { id: 'plan', title: 'Plan something', note: 'Add the next family date or appointment', icon: CalendarPlus },
+  { id: 'action', title: 'Create an action', note: 'Give a next step an owner and a due date', icon: ClipboardList },
   { id: 'person', title: 'Add a person', note: 'Start or extend the family circle', icon: UserPlus },
   { id: 'home', title: 'Home knowledge', note: 'Keep a provider, object or household detail', icon: Home },
 ] as const;
 
-export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpenVault, onOpenStory, onOpenHouse, isBusinessSpace = false }: CaptureMenuProps) {
+export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpenVault, onOpenStory, onOpenHouse, onCreateAction, isBusinessSpace = false }: CaptureMenuProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -41,10 +43,11 @@ export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpen
 
   if (!open) return null;
 
-  const actions = { person: onAddPerson, plan: onPlan, document: onOpenVault, moment: onOpenStory, home: onOpenHouse };
+  const actions = { person: onAddPerson, plan: onPlan, document: onOpenVault, moment: onOpenStory, home: onOpenHouse, action: onCreateAction };
   const visibleChoices = isBusinessSpace ? [
     { id: 'document', title: 'Photo, scan or file', note: 'Send evidence into the business vault', icon: FileUp },
     { id: 'plan', title: 'Plan something', note: 'Add a team date, deadline or appointment', icon: CalendarPlus },
+    { id: 'action', title: 'Create an action', note: 'Assign a next step and track it to completion', icon: ClipboardList },
     { id: 'person', title: 'Add a team member', note: 'Create an employee or contractor record', icon: UserPlus },
     { id: 'home', title: 'Operational detail', note: 'Keep a location, provider, asset or workplace detail', icon: Home },
   ] as const : choices;
@@ -82,12 +85,12 @@ export default function CaptureMenu({ open, onClose, onAddPerson, onPlan, onOpen
           <button type="button" onClick={onClose} aria-label="Close Capture"><X className="h-5 w-5" /></button>
         </header>
         <div className="capture-choices">
-          {visibleChoices.map(({ id, title, note, icon: Icon }) => (
+          {visibleChoices.filter(choice => choice.id !== 'action' || onCreateAction).map(({ id, title, note, icon: Icon }) => (
             <button
               key={id}
               data-capture-choice
               type="button"
-              onClick={() => { onClose(); actions[id](); }}
+              onClick={() => { onClose(); actions[id]?.(); }}
               className="capture-choice"
             >
               <span><Icon className="h-5 w-5" /></span>

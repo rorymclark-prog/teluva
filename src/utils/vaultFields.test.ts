@@ -7,9 +7,10 @@ import {
   protectIdentity, revealIdentity, protectHousehold, revealHousehold,
   protectFinances, revealFinances, protectPassports, revealPassports,
   protectVisas, revealVisas, protectIdentifiers, revealIdentifiers,
-  protectFinancialAccounts, revealFinancialAccounts, revealCached, VaultTransform,
+  protectFinancialAccounts, revealFinancialAccounts, revealCached, VaultTransform, setSharedRevealEnabled,
 } from './vaultFields';
 import { mergeShared } from './mergeShared';
+import { setVaultAccessScope, getVaultAccessIssue, getVaultCacheScope } from './vaultAccess';
 
 // A reversible fake crypto round-trip, standing in for the real server call
 // (AES-256-GCM with a random IV) — this file has no network access. What
@@ -202,6 +203,7 @@ const fakeReveal: VaultTransform = async (values) => values.map(v =>
     setItem: (k: string, v: string) => { store[k] = v; },
     removeItem: (k: string) => { delete store[k]; },
   };
+  setVaultAccessScope('space-a', 'test-owner');
 
   let calls = 0;
   const countingReveal: VaultTransform = async (values) => { calls++; return fakeReveal(values); };
@@ -215,6 +217,12 @@ const fakeReveal: VaultTransform = async (values) => values.map(v =>
   assert.deepStrictEqual(second, ['1234 010190']);
   assert.strictEqual(calls, 1, 'second reveal of the SAME ciphertext must come from cache, not another call');
 
+  setSharedRevealEnabled(false);
+  assert.deepEqual(await revealCached([ct], countingReveal), [''], 'a child cannot use an adult cache entry');
+  assert.equal(calls, 1, 'intentional child masking does not attempt a forbidden reveal');
+  assert.equal(getVaultAccessIssue(), null, 'intentional child masking does not block the child app');
+  setSharedRevealEnabled(true);
+
   // Offline: revealFn throws. A previously-cached value must still resolve —
   // this is the exact mechanism that keeps Emergency essentials readable
   // without signal.
@@ -225,13 +233,46 @@ const fakeReveal: VaultTransform = async (values) => values.map(v =>
   // A ciphertext never seen before, offline, has nothing to fall back to.
   const neverSeen = (await fakeProtect(['9999 999999']))[0];
   const offlineMiss = await revealCached([neverSeen], throwingReveal);
-  assert.deepStrictEqual(offlineMiss, [''], 'an unresolvable value returns empty, never raw ciphertext');
+  assert.deepStrictEqual(offlineMiss, [neverSeen], 'unreadable values stay encrypted so a later save cannot erase the saved record');
+  assert.equal(getVaultAccessIssue()?.reason, 'unavailable', 'the app blocks record display with a recovery notice');
+
+  const cacheKey = `family_vault_reveal_v2_${getVaultCacheScope()}`;
+  assert.ok(!JSON.parse(store[cacheKey] || '{}')[neverSeen], 'a failed reveal must not be cached as plaintext');
+  const passThrough: VaultTransform = async values => values;
+  assert.deepStrictEqual(await revealCached([neverSeen], passThrough), [neverSeen]);
+  assert.ok(!JSON.parse(store[cacheKey] || '{}')[neverSeen], 'an unchanged ciphertext response must not poison the cache');
+  const emptyReveal: VaultTransform = async values => values.map(() => '');
+  assert.deepStrictEqual(await revealCached([neverSeen], emptyReveal), [neverSeen]);
+  assert.ok(!JSON.parse(store[cacheKey] || '{}')[neverSeen], 'an empty decrypt result must not erase or cache a blank secret');
+
+  const recovered = await revealCached([neverSeen], fakeReveal);
+  assert.deepStrictEqual(recovered, ['9999 999999'], 'a later successful reveal can recover the exact original value');
+
+  setVaultAccessScope('space-b', 'test-owner');
+  assert.deepStrictEqual(await revealCached([ct], throwingReveal), [ct], 'a different space cannot read another space’s reveal cache');
+  setVaultAccessScope('space-a', 'another-owner');
+  assert.deepStrictEqual(await revealCached([ct], throwingReveal), [ct], 'a different account cannot read the previous account’s reveal cache');
+  setVaultAccessScope('space-a', 'test-owner');
 
   // Plaintext (never encrypted / legacy data) passes straight through with no call.
   const plainCalls0 = calls;
   const plain = await revealCached(['already plaintext', undefined, ''], countingReveal);
   assert.deepStrictEqual(plain, ['already plaintext', '', '']);
   assert.strictEqual(calls, plainCalls0, 'plaintext values never touch the network');
+}
+
+// A load failure followed by an unrelated edit must keep the protected value.
+{
+  setVaultAccessScope('offline-merge-space', 'test-owner');
+  const original = { address: 'Old address', wifiPassword: 'still-needed' };
+  const encrypted = await protectHousehold(original, fakeProtect);
+  const inaccessible = await revealHousehold(encrypted, async values => values);
+  assert.equal(inaccessible?.wifiPassword, encrypted?.wifiPassword);
+  const edited = { ...inaccessible, address: 'New address' };
+  const merged = mergeShared(inaccessible, edited, inaccessible);
+  const saved = await protectHousehold(merged, async values => values.map(value => value.startsWith('enc:') ? value : `enc:fake:${Buffer.from(value).toString('base64')}`));
+  assert.equal(saved?.wifiPassword, encrypted?.wifiPassword, 'an unrelated save retains the exact unresolved ciphertext');
+  assert.equal((await revealHousehold(saved, fakeReveal))?.wifiPassword, original.wifiPassword);
 }
 
 // ── the correctness-critical one: merge must operate on PLAINTEXT ─────────

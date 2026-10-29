@@ -1,3 +1,4 @@
+import { normalizeFileReference } from './fileReferences';
 // ---------------------------------------------------------------------------
 // Per-page text extraction for the recall-only document reader.
 //
@@ -115,7 +116,7 @@ export async function extractDocText(
 
 async function extractPdf(src: string): Promise<{ pages: DocPage[]; coverage: DocCoverage }> {
   const pdfjs = await loadPdfjs();
-  const doc = await pdfjs.getDocument({ url: src }).promise;
+  const doc = await pdfjs.getDocument({ url: normalizeFileReference(src) }).promise;
   try {
     const pagesTotal = doc.numPages;
     const pages: DocPage[] = [];
@@ -165,7 +166,7 @@ async function extractPdf(src: string): Promise<{ pages: DocPage[]; coverage: Do
 }
 
 async function extractPlainText(src: string): Promise<{ pages: DocPage[]; coverage: DocCoverage }> {
-  const res = await fetch(src);
+  const res = await fetch(normalizeFileReference(src), { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`Could not fetch document text (${res.status})`);
   const raw = await res.text();
   // Plain text has no pages; treating the whole file as page 1 keeps the
@@ -334,7 +335,7 @@ export async function renderDocPages(
 ): Promise<RenderedPage[]> {
   if (!pageNumbers.length) return [];
   const pdfjs = await loadPdfjs();
-  const doc = await pdfjs.getDocument({ url: src }).promise;
+  const doc = await pdfjs.getDocument({ url: normalizeFileReference(src) }).promise;
   const out: RenderedPage[] = [];
   try {
     for (const n of pageNumbers) {

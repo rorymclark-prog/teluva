@@ -42,6 +42,14 @@ that must not live inside the locked document.
 **In Memory.** Archived profiles for people who have died, with their documents
 and dates kept rather than deleted.
 
+**Actions.** Shared next steps with an owner, optional due date, notes and
+completion history. Open Actions from Pulse or People → To-do & readiness;
+Capture can start an action from anywhere. Expiring records and open follow-ups
+offer suggestions to review, with links back to their source. Completing a task
+does not change the underlying passport, qualification or appointment record.
+Adults can edit; child accounts can read. Actions are included in full backups.
+Device-only saves show a pending-sync message and retry when the list reloads.
+
 Offline-capable PWA. Field-level encryption at rest for the sensitive columns.
 Push notifications for birthdays and expiries.
 
@@ -72,6 +80,11 @@ secret comes from Secret Manager and none of them are here.
 ```bash
 npm test
 ```
+
+The focused Actions checks are `npm run test:actions`. They cover local dates,
+source suggestions, backup validation, concurrent edits and offline retry races.
+Vault protection and the legacy shared-record refresh are described in
+[docs/vault-protection.md](docs/vault-protection.md).
 
 No test runner. Each file is a standalone `node:assert` script listed in the
 `test` script, and a large share of them are *source-as-text* tests: they read

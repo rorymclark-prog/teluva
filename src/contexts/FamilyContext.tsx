@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { auth, db, ensureFileSession } from '../lib/firebase';
 import { FamilyRole, UserProfile, FamilyMemberRole, AiConsent, SpaceMembership } from '../types';
 import { setFamilyId, setAccountRole, ensureFamilyClaim } from '../utils/db';
 import { AI_CONSENT_VERSION, hasValidAiConsent } from '../utils/aiConsent';
@@ -128,12 +128,15 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
   }, [value.role]);
 
   useEffect(() => {
+    let authGeneration = 0;
     const unsub = onAuthStateChanged(auth, async (user: User | null) => {
+      const mine = ++authGeneration;
       // Scope the on-device reveal cache (decrypted sensitive values) to THIS
       // user before anything can read or write it — a different account on the
       // same browser must never see the previous user's revealed values.
       setRevealCacheScope(user?.uid ?? null);
       if (!user) {
+        setAccountRole(null);
         setValue({
           familyId: null,
           role: null,
@@ -164,11 +167,15 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
          in person sat looking at the sign-in screen until the read came back.
          `loading` stays true, so the app shows its spinner rather than a
          half-populated dashboard. */
-      setValue(v => ({ ...v, uid, email }));
+      setValue(v => ({ ...v, uid, email, loading: true, loadError: null }));
+      const current = () => mine === authGeneration && auth.currentUser?.uid === uid;
 
       try {
+        await ensureFileSession(user);
+        if (!current()) return;
         const userRef = doc(db, 'users', uid);
         const userSnap = await getDoc(userRef);
+        if (!current()) return;
 
         if (userSnap.exists()) {
           // User doc already exists — use stored familyId and role
@@ -182,6 +189,8 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             await setDoc(rolesRef, { role: 'admin' }, { merge: true });
           }
 
+          if (!current()) return;
+          setAccountRole(profile.role);
           setFamilyId(profile.familyId);
           // Storage rules need the familyId custom claim — backfill it for
           // accounts created before claims existed (fire-and-forget).
@@ -232,6 +241,8 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           const infoRef = doc(db, 'families', familyId, 'info', 'info');
           await setDoc(infoRef, { name: 'Our Family', createdAt: new Date().toISOString() }, { merge: true });
 
+          if (!current()) return;
+          setAccountRole(bootstrapRole);
           setFamilyId(familyId);
           setValue({
             familyId,
@@ -267,6 +278,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
           loadError: null,
         });
       } catch (err) {
+        if (!current()) return;
         // The lookup ITSELF failed — network blip, cold-start hiccup, a
         // Firestore quota error, etc. We have no idea whether this account
         // has a family or not. Do NOT let this collapse into the same state
@@ -295,7 +307,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
       }
     });
 
-    return unsub;
+    return () => { authGeneration += 1; unsub(); };
   }, [setAiConsent]);
 
   return (

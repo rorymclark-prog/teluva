@@ -36,8 +36,15 @@ check('there is a business branch on the member rule at all',
   /isBusinessSpace\(familyId\)/.test(memberRule));
 check('read is gated', /allow read: if isMemberOf\(familyId\)\s*\n\s*&& \(!isBusinessSpace/.test(memberRule));
 check('create is gated', /allow create: if canWriteIn\(familyId\)\s*\n\s*&& \(!isBusinessSpace/.test(memberRule));
-check('update and delete are gated too — reading and overwriting are the same secret',
-  /allow update, delete: if canWriteIn\(familyId\)\s*\n\s*&& \(!isBusinessSpace/.test(memberRule));
+check('update remains gated — reading and overwriting are the same secret',
+  /allow update: if canWriteIn\(familyId\)\s*\n\s*&& \(!isBusinessSpace/.test(memberRule));
+check('delete remains gated',
+  /allow delete: if canWriteIn\(familyId\)\s*\n\s*&& \(!isBusinessSpace/.test(memberRule));
+check('nonadmins cannot create private credential sources',
+  /request\.resource\.data\.get\('digitalAccounts', \[\]\) == \[\]/.test(memberRule));
+check('nonadmins cannot change or remove private credential sources',
+  /affectedKeys\(\)\.hasAny\(\['digitalAccounts'\]\)/.test(memberRule)
+  && /resource\.data\.get\('digitalAccounts', \[\]\) == \[\]/.test(memberRule));
 
 /* Create must test the INCOMING document (there is no old one) and update must
    test the EXISTING one (or an employee writes their own email onto a
@@ -82,26 +89,21 @@ check('an employee is told why they see only themselves',
 
 /* ── THE LANDMINE. Read this before gating any reveal by role. ───────────── */
 
-/* revealCached returns '' for a ciphertext it cannot decrypt, and
-   saveFamilyMembers writes the merged result straight back. So any role that is
-   refused a decrypt AND can write a member document will silently overwrite
-   real ID numbers with empty strings on the next save.
-   
-   Today exactly one role is short-circuited out of reveals — 'child' — and
-   canWriteIn excludes children, which is the only reason this has never fired.
-   That is a coincidence of two unrelated rules, not a design. The obvious
-   "fix" for business spaces (gate /api/vault/reveal-shared to admins) would
-   have armed it immediately: employees would have been refused a decrypt and
-   can write their own record. It was not done, and the boundary was put in the
-   rules instead, where an employee never obtains a colleague's ciphertext at
-   all and their OWN reveals keep working. */
+/* A failed decrypt used to become an empty field and could be saved back over
+   the original secret. Preserve ciphertext for adult recovery/merging instead.
+   Children retain their intentional read-only mask and cannot write it back.
+   Profile ownership remains enforced independently by the rules above. */
 check('only the child role short-circuits reveals',
-  /accountRole === 'child'/.test(db)
-  && (db.match(/accountRole === '/g) || []).length === 1);
+  /setSharedRevealEnabled\(role !== 'child'\)/.test(db)
+  && (db.match(/setSharedRevealEnabled\(/g) || []).length === 1);
+const vaultFields = readFileSync(join(root, 'src/utils/vaultFields.ts'), 'utf8');
+check('the child mask runs before any plaintext reveal cache can be used',
+  vaultFields.indexOf('if (!sharedRevealEnabled)') >= 0
+  && vaultFields.indexOf('if (!sharedRevealEnabled)') < vaultFields.indexOf('const cache = readRevealCache(cacheKey)'));
 check('and children cannot write, which is what makes that safe',
   /roleIn\(familyId\) != 'child'/.test(rules));
-check('the empty-string fallback is still the behaviour this guard is about',
-  /cache\[v\] \?\? ''/.test(readFileSync(join(root, 'src/utils/vaultFields.ts'), 'utf8')));
+check('failed adult decryption preserves the original ciphertext instead of erasing it',
+  /cache\[v\] \?\? v/.test(vaultFields));
 
 /* ── the presets are labels, and must never be mistaken for permissions ──── */
 

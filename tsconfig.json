@@ -25,6 +25,8 @@
   },
   "exclude": [
     "node_modules",
-    "design-source"
+    "design-source",
+    "dist",
+    "output"
   ]
 }

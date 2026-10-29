@@ -5,11 +5,12 @@ import {
   saveExtendedBirthdays, saveFamilyTree, saveInMemory,
 } from '../utils/db';
 import {
-  KinPerson, buildKinGraph, childrenOf, describeKinLink, findKinCycles,
-  generations, kinLifespan, kinLinkProblem, kinName, parentsOf, partnersOf, siblingsOf,
+  KinPerson, buildKinGraph, describeKinLink, findKinCycles,
+  generations, kinLifespan, kinLinkProblem, kinName, partnersOf, siblingsOf,
 } from '../utils/kin';
 import {
-  buildFamilyTreeLayout, generationLabel, TREE_NODE_HEIGHT, TREE_NODE_WIDTH, TREE_ROW_GAP,
+  buildFamilyTreeLayout, buildParentConnectorGroups, buildParentConnectorSegments, generationLabel,
+  TREE_NODE_HEIGHT, TREE_NODE_WIDTH, TREE_ROW_GAP,
 } from '../utils/familyTreeLayout';
 import { gedcomFilename, gedcomSummary, toGedcom } from '../utils/gedcom';
 import { GedcomImportResult, importSummary, planGedcomImport } from '../utils/gedcomImport';
@@ -108,6 +109,16 @@ function FamilyTreeCanvas({ graph, focus, onPick }: {
 }) {
   const layout = useMemo(() => buildFamilyTreeLayout(graph, focus), [graph, focus]);
   const connectedLinks = graph.links.filter(link => layout.byRef.has(link.from) && layout.byRef.has(link.to));
+  const partnerLinks = connectedLinks.filter(link => link.kind === 'partner');
+  const parentGroups = buildParentConnectorGroups(graph, layout);
+  const groupedParentLinkIds = new Set(parentGroups.flatMap(group => group.links.map(link => link.id)));
+  const ungroupedParentLinks = connectedLinks.filter(link => link.kind === 'parent' && !groupedParentLinkIds.has(link.id));
+  const groupsPerBand = new Map<string, typeof parentGroups>();
+  for (const group of parentGroups) {
+    const key = `${group.parentGeneration}>${group.childGeneration}`;
+    const band = groupsPerBand.get(key);
+    if (band) band.push(group); else groupsPerBand.set(key, [group]);
+  }
   return (
     <section className="card overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cream-200 px-5 py-4">
@@ -120,15 +131,46 @@ function FamilyTreeCanvas({ graph, focus, onPick }: {
       <div className="overflow-x-auto overscroll-x-contain bg-gradient-to-b from-cream-50 to-white" tabIndex={0} aria-label="Scrollable family tree diagram">
         <div className="relative" style={{ width: layout.width, height: layout.height }}>
           <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${layout.width} ${layout.height}`} aria-hidden="true">
-            {connectedLinks.map(link => {
+            {partnerLinks.map(link => {
               const from = layout.byRef.get(link.from)!;
               const to = layout.byRef.get(link.to)!;
-              if (link.kind === 'partner') {
-                const left = from.x < to.x ? from : to;
-                const right = left === from ? to : from;
-                const y = left.y + TREE_NODE_HEIGHT / 2;
-                return <path key={link.id} d={`M ${left.x + TREE_NODE_WIDTH} ${y} H ${right.x}`} fill="none" stroke="var(--ember-action)" strokeWidth="3" strokeLinecap="round" strokeDasharray={link.status === 'divorced' ? '7 6' : undefined} />;
+              const left = from.x < to.x ? from : to;
+              const right = left === from ? to : from;
+              const y = left.y + TREE_NODE_HEIGHT / 2;
+              return <path key={link.id} d={`M ${left.x + TREE_NODE_WIDTH} ${y} H ${right.x}`} fill="none" stroke="var(--ember-action)" strokeWidth="3" strokeLinecap="round" strokeDasharray={link.status === 'divorced' ? '7 6' : undefined} />;
+            })}
+            {parentGroups.flatMap(group => {
+              // Step/adoptive/foster edges stay individual so their dashed
+              // meaning is never lost inside a shared biological-family rail.
+              if (!group.allBirth) {
+                return group.links.map(link => {
+                  const from = layout.byRef.get(link.from)!;
+                  const to = layout.byRef.get(link.to)!;
+                  const parentX = from.x + TREE_NODE_WIDTH / 2;
+                  const parentY = from.y + TREE_NODE_HEIGHT;
+                  const childX = to.x + TREE_NODE_WIDTH / 2;
+                  const childY = to.y;
+                  const middleY = parentY + (childY - parentY) / 2;
+                  return <path key={link.id} d={`M ${parentX} ${parentY} V ${middleY} H ${childX} V ${childY}`} fill="none" stroke="var(--ember-muted)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={link.via && link.via !== 'birth' ? '6 5' : undefined} />;
+                });
               }
+
+              const parents = group.parentRefs.map(ref => layout.byRef.get(ref)!).filter(Boolean);
+              const children = group.childRefs.map(ref => layout.byRef.get(ref)!).filter(Boolean);
+              if (!parents.length || !children.length) return [];
+              const childY = Math.min(...children.map(node => node.y));
+              const band = groupsPerBand.get(`${group.parentGeneration}>${group.childGeneration}`) || [group];
+              const bandIndex = band.findIndex(candidate => candidate.key === group.key);
+              const usable = Math.max(24, childY - Math.max(...parents.map(node => node.y + TREE_NODE_HEIGHT)) - 20);
+              const trackY = Math.max(...parents.map(node => node.y + TREE_NODE_HEIGHT))
+                + Math.min(usable, 20 + bandIndex * 20);
+              return buildParentConnectorSegments(graph, layout, group, trackY).map(segment => (
+                <path key={`${group.key}-${segment.key}`} d={`M ${segment.from.x} ${segment.from.y} L ${segment.to.x} ${segment.to.y}`} fill="none" stroke="var(--ember-muted)" strokeWidth="2.5" strokeLinecap="round" />
+              ));
+            })}
+            {ungroupedParentLinks.map(link => {
+              const from = layout.byRef.get(link.from)!;
+              const to = layout.byRef.get(link.to)!;
               const parentX = from.x + TREE_NODE_WIDTH / 2;
               const parentY = from.y + TREE_NODE_HEIGHT;
               const childX = to.x + TREE_NODE_WIDTH / 2;
@@ -341,6 +383,12 @@ export default function FamilyTreeView({ refreshKey, canAddChild = false, onAddC
   const focusLinks = focus
     ? graph.links.filter(l => l.from === focus || l.to === focus)
     : [];
+  const parentsByVia = (via: KinLink['via']) => focus
+    ? graph.links.filter(l => l.kind === 'parent' && l.to === focus && (l.via || 'birth') === via).map(l => l.from)
+    : [];
+  const childrenByVia = (via: KinLink['via']) => focus
+    ? graph.links.filter(l => l.kind === 'parent' && l.from === focus && (l.via || 'birth') === via).map(l => l.to)
+    : [];
 
   return (
     <div className="space-y-6 font-sans">
@@ -453,10 +501,16 @@ export default function FamilyTreeView({ refreshKey, canAddChild = false, onAddC
               )}
 
               <Row title="Grandparents" refs={[...gen.keys()].filter(r => gen.get(r) === -2)} index={graph.index} focus={focus} onPick={setFocus} />
-              <Row title="Parents" refs={parentsOf(graph, focus)} index={graph.index} focus={focus} onPick={setFocus} />
+              <Row title="Biological parents" refs={parentsByVia('birth')} index={graph.index} focus={focus} onPick={setFocus} />
+              <Row title="Adoptive parents" refs={parentsByVia('adoptive')} index={graph.index} focus={focus} onPick={setFocus} />
+              <Row title="Step-parents" refs={parentsByVia('step')} index={graph.index} focus={focus} onPick={setFocus} />
+              <Row title="Foster parents" refs={parentsByVia('foster')} index={graph.index} focus={focus} onPick={setFocus} />
               <Row title="Partner" refs={partnersOf(graph, focus)} index={graph.index} focus={focus} onPick={setFocus} />
               <Row title="Brothers & sisters" refs={siblingsOf(graph, focus)} index={graph.index} focus={focus} onPick={setFocus} />
-              <Row title="Children" refs={childrenOf(graph, focus)} index={graph.index} focus={focus} onPick={setFocus} />
+              <Row title="Biological children" refs={childrenByVia('birth')} index={graph.index} focus={focus} onPick={setFocus} />
+              <Row title="Adoptive children" refs={childrenByVia('adoptive')} index={graph.index} focus={focus} onPick={setFocus} />
+              <Row title="Stepchildren" refs={childrenByVia('step')} index={graph.index} focus={focus} onPick={setFocus} />
+              <Row title="Foster children" refs={childrenByVia('foster')} index={graph.index} focus={focus} onPick={setFocus} />
               <Row title="Grandchildren" refs={[...gen.keys()].filter(r => gen.get(r) === 2)} index={graph.index} focus={focus} onPick={setFocus} />
 
               {focusLinks.length === 0 && !adding && (
@@ -674,7 +728,7 @@ function AddLinkForm({ people, defaultFrom, defaultTo = '', error, onCancel, onS
           <div>
             <label className="field-label">How</label>
             <select className="field" value={via} onChange={e => setVia(e.target.value as KinLink['via'])}>
-              <option value="birth">Birth parent</option>
+              <option value="birth">Biological parent</option>
               <option value="adoptive">Adoptive parent</option>
               <option value="step">Step-parent</option>
               <option value="foster">Foster parent</option>

@@ -136,7 +136,9 @@ check('recording is fire-and-forget, never awaited into a save path',
 check('and every failure is swallowed',
   /\/\* Swallowed on purpose/.test(db));
 check('a save that changed nothing is not news',
-  /if \(changed\) recordActivity\(key, existed \? 'updated' : 'added'\);/.test(db));
+  /if \(changed && current\(\)\) recordActivity\(key, existed \? 'updated' : 'added'\);/.test(db));
+check('a completed save cannot log activity in a different account or space',
+  /const current = \(\) => FAMILY_ID === spaceAtStart && auth.currentUser\?\.uid === user\?\.uid;/.test(db));
 check('and the entry is written outside the transaction, so a retry cannot double-log',
   db.indexOf('let written: { name: string; isNew: boolean }[] = [];') > 0
   && /for \(const w of written\) \{/.test(db));

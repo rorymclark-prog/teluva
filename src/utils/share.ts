@@ -1,3 +1,4 @@
+import { normalizeFileReference, filePathFromReference } from './fileReferences';
 // Native OS share sheet (Web Share API) — how you AirDrop/WhatsApp/email/text a
 // file from a phone. `canShare` gates the button off entirely on desktop
 // browsers that don't implement navigator.share (most don't) — the existing
@@ -33,13 +34,14 @@ export function fileExtensionFor(name: string, mime: string, src = ''): string {
   if (known) return known;
   // A signed Storage URL keeps the original name in its path; a data: URL
   // does not, and neither carries a query string worth reading.
-  const fromUrl = /\.([A-Za-z0-9]{2,5})(?:[?#]|$)/.exec(src.split('?')[0]);
+  const fromUrl = /\.([A-Za-z0-9]{2,5})(?:[?#]|$)/.exec((filePathFromReference(src) || src.split('?')[0]));
   if (fromUrl) return fromUrl[1].toLowerCase().replace('jpeg', 'jpg');
   return 'jpg';
 }
 
 export async function srcToFile(src: string, name: string): Promise<File> {
-  const res = await fetch(src);
+  const res = await fetch(normalizeFileReference(src), { credentials: 'same-origin' });
+  if (!res.ok) throw new Error('The file is unavailable or you no longer have permission to open it.');
   const blob = await res.blob();
   const ext = fileExtensionFor(name, blob.type, src);
   const safe = (name || 'document').replace(/[^\w\s.-]/g, '').trim() || 'document';
@@ -95,7 +97,7 @@ export async function downloadZip(
   const used = new Set<string>();
   for (const it of items) {
     try {
-      const res = await fetch(it.src);
+      const res = await fetch(normalizeFileReference(it.src), { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
       const blob = await res.blob();
       const ext = (blob.type.split('/')[1] || '').replace('jpeg', 'jpg');

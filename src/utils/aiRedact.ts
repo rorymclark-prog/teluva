@@ -1,3 +1,8 @@
+import {
+  HOUSEHOLD_SECRET_KEYS, BANK_SECRET_KEYS, NATIONAL_ID_SECRET_KEYS,
+  FINANCIAL_ACCOUNT_SECRET_KEYS, IDENTITY_SECRET_KEYS,
+} from '../../server/vaultSharedFields.mjs';
+
 // ---------------------------------------------------------------------------
 // Redaction of the AI assistant's FAMILY DATA context.
 //
@@ -100,25 +105,19 @@
 // ---------------------------------------------------------------------------
 
 /** Household credential keys that must never leave the browser in AI context. */
-export const REDACTED_HOUSEHOLD_KEYS = [
-  'doorCode', 'garageCode', 'wifiPassword',
-  // The locksmith fields that are actually credentials. lockBrand, safeBrand,
-  // alarmProvider and spareKeyWith stay visible — knowing the lock is an EVVA
-  // helps the assistant answer, and none of them opens anything on its own.
-  'keyCardNumber', 'safeSerial', 'alarmCode',
-] as const;
+export const REDACTED_HOUSEHOLD_KEYS = HOUSEHOLD_SECRET_KEYS;
 
 /** Bank-record keys that must never leave the browser in AI context. */
-export const REDACTED_BANK_KEYS = ['iban', 'bic'] as const;
+export const REDACTED_BANK_KEYS = BANK_SECRET_KEYS;
 
 /** Member-profile keys that must never leave the browser in AI context. */
 export const REDACTED_MEMBER_KEYS = ['identifiers', 'financialAccounts'] as const;
 
 /** NationalIdentifiers keys — see the header note above. `notes` stays plain. */
-export const REDACTED_NATIONAL_ID_KEYS = ['ssn', 'nationalId', 'driversLicenseNo', 'taxId', 'insuranceNo'] as const;
+export const REDACTED_NATIONAL_ID_KEYS = NATIONAL_ID_SECRET_KEYS;
 
 /** FinancialAccount keys — see the header note above. bankName/accountType/notes stay plain. */
-export const REDACTED_FINANCIAL_ACCOUNT_KEYS = ['accountNumber', 'routingNumber'] as const;
+export const REDACTED_FINANCIAL_ACCOUNT_KEYS = FINANCIAL_ACCOUNT_SECRET_KEYS;
 
 /**
  * Government/insurance ID NUMBERS inside members[].identity.
@@ -136,20 +135,7 @@ export const REDACTED_FINANCIAL_ACCOUNT_KEYS = ['accountNumber', 'routingNumber'
  *   suggestion), they drive the expiry nudges, and a scheme name like
  *   "Discovery Health" is not a credential.
  */
-export const REDACTED_IDENTITY_KEYS = [
-  'eCardNumber',
-  'svNumber',              // Austrian Sozialversicherungsnummer
-  'taxNumber',
-  'studentNumber',
-  'schoolRegNumber',
-  'residencePermitNumber', // …Expiry is KEPT — it is what gets asked about
-  'nationalIdNumber',      // SA 13-digit ID, and the SSN-equivalent elsewhere
-  'birthCertNumber',
-  'medicalAidNumber',      // …Scheme/PlanOption/DependantCode are KEPT
-  'insuranceGroupNumber',
-  'citizenshipCertNumber',
-  'driversLicenseNumber',  // …Expiry is KEPT
-] as const;
+export const REDACTED_IDENTITY_KEYS = IDENTITY_SECRET_KEYS;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

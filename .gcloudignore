@@ -8,3 +8,8 @@ output
 .env.*
 !.env.example
 *.log
+.claude
+.interrogation
+coverage
+build
+.DS_Store

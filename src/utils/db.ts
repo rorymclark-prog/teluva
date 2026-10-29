@@ -1,10 +1,12 @@
 import { readCalendarBaselines, storeCalendarBaseline } from './calendarBaselines';
-import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, KinLink, FamilyTreeDoc, WillsAccessDoc, PendingWillReader, HiddenDatePerson, PersonalPrefsDoc } from '../types';
+import { FamilyMember, CalendarEvent, FamilyInfo, HouseholdInfo, FinancesInfo, FamilyTimeline, VaultDocument, HubSettings, ShoppingItem, FamilyRole, FamilyMemberRole, UserProfile, FamilyInfoDoc, AssetItem, PasswordEntry, FamilyWordsDoc, Recipe, RecipeBookDoc, TravelTimelineDoc, InMemoryDoc, WillsEstateDoc, SlipItem, SlipsDoc, FamilyDocument, BusinessMilestonesDoc, AiUsage, AnniversaryRecord, AnniversariesDoc, ExtendedBirthday, ExtendedBirthdaysDoc, KinLink, FamilyTreeDoc, WillsAccessDoc, PendingWillReader, HiddenDatePerson, PersonalPrefsDoc, FamilyActionsDoc } from '../types';
 import { db, auth, storage } from '../lib/firebase';
 import { doc, getDoc, getDocFromServer, getDocsFromServer, setDoc, updateDoc, deleteDoc, collection, getDocs, query, where, writeBatch, runTransaction, onSnapshot, arrayRemove } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, deleteObject, fetchFileBlob } from './storageClient';
 import { calendarWriteBatches, canAdoptCalendarRead, evictGoogleMergeBases, mergeCalendarWrite, reconcileCalendarIndex, withCalendarWriteLock, type CalendarSaveOptions } from './calendarPersistence';
 import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
+import { filePathFromReference, newProfileFileBindings, normalizeFileReferences } from './fileReferences';
+import { setVaultAccessScope, reportVaultAccessIssue } from './vaultAccess';
 import {
   isLoggableKind, visibilityFor, visibilitiesFor, orderActivity, shouldLog,
   DEDUPE_WINDOW_MS, type ActivityEntry,
@@ -14,7 +16,7 @@ import {
   protectIdentity, revealIdentity, protectPassports, revealPassports,
   protectVisas, revealVisas, protectIdentifiers, revealIdentifiers,
   protectFinancialAccounts, revealFinancialAccounts,
-  protectHousehold, revealHousehold, protectFinances, revealFinances,
+  protectHousehold, revealHousehold, protectFinances, revealFinances, setSharedRevealEnabled,
 } from './vaultFields';
 
 // Merge-base keys for the two id-index documents (metadata/members,
@@ -38,6 +40,7 @@ export let FAMILY_ID = 'household';
 export function setFamilyId(id: string): void {
   if (id !== FAMILY_ID) resetSharedDocBaselines();
   FAMILY_ID = id;
+  setVaultAccessScope(id, auth.currentUser?.uid || null);
 }
 
 // SPACE-SCOPED localStorage keys. THESE MUST BE FUNCTIONS, not constants — a
@@ -127,42 +130,68 @@ export const markHintSeen = (hint: string): void => {
 // nothing here ever called protectSecrets on them before this fix. One pair
 // of helpers so the three call sites below (reveal-for-merge, protect-for-
 // write, reveal-on-load) can't drift out of sync with each other.
-async function revealMemberSensitive(raw: FamilyMember): Promise<FamilyMember> {
+async function revealMemberSensitive(raw: FamilyMember, spaceId = FAMILY_ID): Promise<FamilyMember> {
+  const reveal = (values: string[]) => revealSharedSecrets(values, spaceId);
+  raw = normalizeFileReferences(raw);
   return {
     ...raw,
-    identity: await revealIdentity(raw.identity, revealSharedSecrets),
-    passports: await revealPassports(raw.passports, revealSharedSecrets),
+    identity: await revealIdentity(raw.identity, reveal),
+    passports: await revealPassports(raw.passports, reveal),
     travel: raw.travel
-      ? { ...raw.travel, visas: await revealVisas(raw.travel.visas, revealSharedSecrets) }
+      ? { ...raw.travel, visas: await revealVisas(raw.travel.visas, reveal) }
       : raw.travel,
-    identifiers: await revealIdentifiers(raw.identifiers, revealSharedSecrets),
-    financialAccounts: await revealFinancialAccounts(raw.financialAccounts, revealSharedSecrets),
+    identifiers: await revealIdentifiers(raw.identifiers, reveal),
+    financialAccounts: await revealFinancialAccounts(raw.financialAccounts, reveal),
   };
 }
 
-async function protectMemberSensitive(merged: FamilyMember): Promise<FamilyMember> {
+async function protectMemberSensitive(merged: FamilyMember, spaceId = FAMILY_ID): Promise<FamilyMember> {
+  const protect = (values: string[]) => protectSharedSecrets(values, spaceId);
+  merged = normalizeFileReferences(merged);
   return {
     ...merged,
-    identity: await protectIdentity(merged.identity, protectSecrets),
-    passports: await protectPassports(merged.passports, protectSecrets),
+    identity: await protectIdentity(merged.identity, protect),
+    passports: await protectPassports(merged.passports, protect),
     travel: merged.travel
-      ? { ...merged.travel, visas: await protectVisas(merged.travel.visas, protectSecrets) }
+      ? { ...merged.travel, visas: await protectVisas(merged.travel.visas, protect) }
       : merged.travel,
-    identifiers: await protectIdentifiers(merged.identifiers, protectSecrets),
-    financialAccounts: await protectFinancialAccounts(merged.financialAccounts, protectSecrets),
+    identifiers: await protectIdentifiers(merged.identifiers, protect),
+    financialAccounts: await protectFinancialAccounts(merged.financialAccounts, protect),
   };
 }
 
 export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolean> {
+  members = normalizeFileReferences(members);
   const user = auth.currentUser;
+  const spaceAtStart = FAMILY_ID;
+  const localKey = membersKey();
+  const current = () => FAMILY_ID === spaceAtStart && auth.currentUser?.uid === user?.uid;
+  const localIds = members.map(m => m.id).filter(Boolean);
+  const targets = members.filter(m => m.id);
+  const memberBases = new Map(targets.map(m => [m.id, getSeen<FamilyMember>(memberSeenKey(m.id))]));
+  const indexBase = getSeen<string[]>(MEMBER_IDS_KEY);
   let cloudOk = false;
 
   if (user) {
     try {
-      const metaRef = doc(db, 'families', FAMILY_ID, 'metadata', 'members');
-      const localIds = members.map(m => m.id).filter(Boolean);
-      const targets = members.filter(m => m.id);
-      const memberRefs = targets.map(m => doc(db, 'families', FAMILY_ID, 'family_members', m.id));
+      if (accountRole === 'admin') {
+        const bindings = newProfileFileBindings(members, id => memberBases.get(id), spaceAtStart);
+        if (bindings.length) {
+          const token = await user.getIdToken();
+          for (let index = 0; index < bindings.length; index += 400) {
+            if (FAMILY_ID !== spaceAtStart || auth.currentUser?.uid !== user.uid) throw new Error('Your space changed. Please save the profile again.');
+            const response = await fetch('/api/files/bind-profile', {
+              method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ spaceId: spaceAtStart, bindings: bindings.slice(index, index + 400) }),
+            });
+            if (!response.ok) throw new Error('Could not protect the new profile files. Please try saving again.');
+          }
+          if (FAMILY_ID !== spaceAtStart || auth.currentUser?.uid !== user.uid) throw new Error('Your space changed. Please save the profile again.');
+        }
+      }
+      if (!current()) throw new Error('Your account or space changed. Please save again.');
+      const metaRef = doc(db, 'families', spaceAtStart, 'metadata', 'members');
+      const memberRefs = targets.map(m => doc(db, 'families', spaceAtStart, 'family_members', m.id));
 
       let written: { name: string; isNew: boolean }[] = [];
       const { mergedIds, mergedMembers } = await runTransaction(db, async (tx) => {
@@ -172,18 +201,19 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
         const memberSnaps = await Promise.all(memberRefs.map(r => tx.get(r)));
 
         const serverIds = (metaSnap.exists() ? (metaSnap.data().ids as string[]) : undefined) || [];
-        const ids = mergeIdList(getSeen<string[]>(MEMBER_IDS_KEY), localIds, serverIds);
+        const ids = mergeIdList(indexBase, localIds, serverIds);
 
         // Decrypt every server copy up front (concurrently, not one member
         // after another — same concurrency style the old encrypt-before-write
         // here used to have).
         const servers = await Promise.all(memberSnaps.map(async (snap) => {
           if (!snap.exists()) return undefined;
-          return revealMemberSensitive(snap.data() as FamilyMember);
+          return revealMemberSensitive(snap.data() as FamilyMember, spaceAtStart);
         }));
 
+        if (!current()) throw new Error('Your account or space changed. Please save again.');
         const mergedMembers = targets.map((local, i) =>
-          mergeShared<FamilyMember>(getSeen<FamilyMember>(memberSeenKey(local.id)), local, servers[i]));
+          mergeShared<FamilyMember>(memberBases.get(local.id), local, servers[i]));
 
         // Only re-encrypt + write docs that actually changed vs. the server's
         // (decrypted) copy — a member nobody touched costs nothing here.
@@ -198,14 +228,16 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
         }));
         const protectedWrites = await Promise.all(toWrite.map(async ({ merged, ref }) => ({
           ref,
-          value: await protectMemberSensitive(merged),
+          value: await protectMemberSensitive(merged, spaceAtStart),
         })));
+        if (!current()) throw new Error('Your account or space changed. Please save again.');
         for (const { ref, value } of protectedWrites) tx.set(ref, value as any);
 
         tx.set(metaRef, { ids });
         return { mergedIds: ids, mergedMembers };
       });
 
+      if (current()) {
       noteSeen(MEMBER_IDS_KEY, mergedIds);
       for (const m of mergedMembers) noteSeen(memberSeenKey(m.id), m);
       /* `written` comes from the same filter tx.set() used, so a save that
@@ -216,15 +248,17 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
       for (const w of written) {
         recordActivity('members', w.isNew ? 'added' : 'updated', w.name.split(/\s+/)[0] || w.name);
       }
+      }
       cloudOk = true;
     } catch (error) {
       console.error('Error saving to Firestore:', error);
     }
   }
 
-  // Always keep local storage updated for fast loading
+  if (auth.currentUser?.uid !== user?.uid) return cloudOk;
+  // Always keep the original space cache updated for fast loading
   try {
-    localStorage.setItem(membersKey(), JSON.stringify(members));
+    localStorage.setItem(localKey, JSON.stringify(members));
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
@@ -232,7 +266,7 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
   // See pendingSync.ts: a write that didn't reach Firestore must not be
   // silently discarded the next time this device successfully LOADS members
   // (loadFamilyMembers checks this before it would overwrite localStorage).
-  if (cloudOk) clearDirty('members', FAMILY_ID); else markDirty('members', FAMILY_ID);
+  if (cloudOk) clearDirty('members', spaceAtStart); else markDirty('members', spaceAtStart);
 
   return cloudOk;
 }
@@ -250,7 +284,7 @@ export function readCachedFamilyMembers(): FamilyMember[] | null {
   try {
     const raw = localStorage.getItem(membersKey());
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
+    const parsed = normalizeFileReferences(JSON.parse(raw));
     return Array.isArray(parsed) ? (parsed as FamilyMember[]) : null;
   } catch {
     return null;
@@ -273,7 +307,7 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
         const pendingRaw = localStorage.getItem(membersKey());
         if (pendingRaw) {
           try {
-            const pending = JSON.parse(pendingRaw) as FamilyMember[];
+            const pending = normalizeFileReferences(JSON.parse(pendingRaw)) as FamilyMember[];
             if (Array.isArray(pending)) {
               const backedUp = await saveFamilyMembers(pending);
               if (!backedUp) return pending.length > 0 ? pending : null;
@@ -317,7 +351,7 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
         // internally, so a value seen once stays readable offline (see
         // vaultFields.ts) — this is what keeps a screen like Emergency
         // essentials usable without signal after first sync.
-        const members = await Promise.all(rawMembers.map(revealMemberSensitive));
+        const members = await Promise.all(rawMembers.map(member => revealMemberSensitive(member)));
 
         // Merge base for the next per-member write (see saveFamilyMembers) —
         // this load IS what this device's screen is about to be built from.
@@ -337,7 +371,7 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
       if (!localStorage.getItem(migratedKey)) {
         const local = localStorage.getItem(membersKey());
         if (local) {
-          const localMembers = JSON.parse(local) as FamilyMember[];
+          const localMembers = normalizeFileReferences(JSON.parse(local)) as FamilyMember[];
           if (Array.isArray(localMembers) && localMembers.length > 0) {
             await saveFamilyMembers(localMembers);
             localStorage.setItem(migratedKey, '1');
@@ -355,7 +389,7 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
   const local = localStorage.getItem(membersKey());
   if (local) {
     try {
-      return JSON.parse(local);
+      return normalizeFileReferences(JSON.parse(local));
     } catch (e) {
       return null;
     }
@@ -377,7 +411,7 @@ function cacheCalendarEvents(key: string, events: CalendarEvent[]): void {
   for (const storedKey of Object.keys(localStorage)) {
     if (!storedKey.startsWith(prefix)) continue;
     try {
-      const value = JSON.parse(localStorage.getItem(storedKey)!);
+      const value = normalizeFileReferences(JSON.parse(localStorage.getItem(storedKey)!));
       const key = storedKey.slice(`family_mergeBase_${auth.currentUser?.uid || 'anon'}_`.length);
       if (!lastSeen.has(key)) lastSeen.set(key, value);
       void storeCalendarBaseline(storedKey, value);
@@ -391,6 +425,7 @@ let calendarBackupError: string | null = null;
 export function getCalendarBackupError(): string | null { return calendarBackupError; }
 
 export async function saveCalendarEvents(events: CalendarEvent[], options: CalendarSaveOptions = {}): Promise<boolean> {
+  events = normalizeFileReferences(events);
   const user = auth.currentUser;
   const spaceAtStart = FAMILY_ID;
   const localKey = calendarKey();
@@ -419,7 +454,7 @@ export async function saveCalendarEvents(events: CalendarEvent[], options: Calen
         const merged = await runTransaction(db, async tx => {
           const snaps = [];
           for (let i = 0; i < refs.length; i += 10) snaps.push(...await Promise.all(refs.slice(i, i + 10).map(r => tx.get(r))));
-          const values = chunk.map((local, i) => mergeCalendarWrite(local, bases.get(local.id) || (FAMILY_ID === spaceAtStart ? getSeen<CalendarEvent>(eventSeenKey(local.id)) : undefined), snaps[i].exists() ? snaps[i].data() as CalendarEvent : undefined));
+          const values = chunk.map((local, i) => mergeCalendarWrite(local, bases.get(local.id) || (FAMILY_ID === spaceAtStart ? getSeen<CalendarEvent>(eventSeenKey(local.id)) : undefined), snaps[i].exists() ? normalizeFileReferences(snaps[i].data() as CalendarEvent) : undefined));
           values.forEach((value, i) => { if (!snaps[i].exists() || !deepEqual(value, snaps[i].data())) tx.set(refs[i], value); });
           return values;
         });
@@ -480,7 +515,7 @@ export function subscribeFamilyMembers(cb: (members: FamilyMember[]) => void, on
   const changed = () => { void apply().catch(onError); };
   const stopMembers = onSnapshot(collection(db, 'families', space, 'family_members'), { includeMetadataChanges: true }, snapshot => {
     if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
-    records = new Map(snapshot.docs.map(s => [s.id, s.data() as FamilyMember])); changed();
+    records = new Map(snapshot.docs.map(s => [s.id, normalizeFileReferences(s.data() as FamilyMember)])); changed();
   }, onError);
   const stopIds = onSnapshot(doc(db, 'families', space, 'metadata', 'members'), { includeMetadataChanges: true }, snapshot => {
     if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
@@ -504,7 +539,7 @@ export function subscribeCalendarEvents(cb: (events: CalendarEvent[]) => void, o
   };
   const stopEvents = onSnapshot(collection(db, 'families', space, 'calendar_events'), { includeMetadataChanges: true }, snapshot => {
     if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
-    records = new Map(snapshot.docs.map(s => [s.id, s.data() as CalendarEvent])); apply();
+    records = new Map(snapshot.docs.map(s => [s.id, normalizeFileReferences(s.data() as CalendarEvent)])); apply();
   }, onError);
   const stopIds = onSnapshot(doc(db, 'families', space, 'metadata', 'events'), { includeMetadataChanges: true }, snapshot => {
     if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
@@ -514,7 +549,7 @@ export function subscribeCalendarEvents(cb: (events: CalendarEvent[]) => void, o
 }
 
 export function readCachedCalendarEvents(): CalendarEvent[] | null {
-  try { const raw = localStorage.getItem(calendarKey()); const events = raw ? JSON.parse(raw) : null; return Array.isArray(events) ? events : null; } catch { return null; }
+  try { const raw = localStorage.getItem(calendarKey()); const events = raw ? normalizeFileReferences(JSON.parse(raw)) : null; return Array.isArray(events) ? events : null; } catch { return null; }
 }
 
 export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
@@ -535,7 +570,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
         const pendingRaw = localStorage.getItem(calendarKey());
         if (pendingRaw) {
           try {
-            const pending = JSON.parse(pendingRaw) as CalendarEvent[];
+            const pending = normalizeFileReferences(JSON.parse(pendingRaw)) as CalendarEvent[];
             if (Array.isArray(pending)) {
               const backedUp = await saveCalendarEvents(pending);
               if (!backedUp) return readCachedCalendarEvents() || pending;
@@ -557,7 +592,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
         const ids = metaSnap.data().ids as string[];
         const snapshot = await getDocsFromServer(collection(db, 'families', spaceAtStart, 'calendar_events'));
         const wanted = new Set(ids);
-        const events = snapshot.docs.filter(s => wanted.has(s.id)).map(s => s.data() as CalendarEvent);
+        const events = snapshot.docs.filter(s => wanted.has(s.id)).map(s => normalizeFileReferences(s.data() as CalendarEvent));
 
         // A cloud read begun before a local save must never restore its older cache.
         if (!canAdoptRead()) return readCachedCalendarEvents();
@@ -579,7 +614,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
       if (!localStorage.getItem(migratedKey)) {
         const local = localStorage.getItem(calendarKey());
         if (local) {
-          const localEvents = JSON.parse(local) as CalendarEvent[];
+          const localEvents = normalizeFileReferences(JSON.parse(local)) as CalendarEvent[];
           if (Array.isArray(localEvents) && localEvents.length > 0) {
             await saveCalendarEvents(localEvents);
             localStorage.setItem(migratedKey, '1');
@@ -597,7 +632,7 @@ export async function loadCalendarEvents(): Promise<CalendarEvent[] | null> {
   const local = localStorage.getItem(calendarKey());
   if (local) {
     try {
-      return JSON.parse(local);
+      return normalizeFileReferences(JSON.parse(local));
     } catch (e) {
       return null;
     }
@@ -662,7 +697,7 @@ const lastSeen = new Map<string, unknown>();
 const seenKey = (key: string) => `${FAMILY_ID}::${key}`;
 
 function noteSeen<T>(key: string, value: T): void {
-  lastSeen.set(seenKey(key), value);
+  lastSeen.set(seenKey(key), normalizeFileReferences(value));
   if (auth.currentUser && key.startsWith('event:gcal-')) {
     void storeCalendarBaseline(`family_mergeBase_${auth.currentUser.uid}_${seenKey(key)}`, value);
   }
@@ -674,7 +709,7 @@ function noteSeen<T>(key: string, value: T): void {
 function getSeen<T>(key: string): T | undefined {
   if (lastSeen.has(seenKey(key))) return lastSeen.get(seenKey(key)) as T;
   if (auth.currentUser) {
-    try { const raw = localStorage.getItem(`family_mergeBase_${auth.currentUser?.uid || 'anon'}_${seenKey(key)}`); if (raw) return JSON.parse(raw) as T; } catch { /* no persisted baseline */ }
+    try { const raw = localStorage.getItem(`family_mergeBase_${auth.currentUser?.uid || 'anon'}_${seenKey(key)}`); if (raw) return normalizeFileReferences(JSON.parse(raw)) as T; } catch { /* no persisted baseline */ }
   }
   return undefined;
 }
@@ -718,16 +753,20 @@ async function saveReferenceDoc<T>(
   protect: (v: T) => Promise<T> = passthrough, reveal: (v: T) => Promise<T> = passthrough,
 ): Promise<boolean> {
   const user = auth.currentUser;
+  const spaceAtStart = FAMILY_ID;
+  const current = () => FAMILY_ID === spaceAtStart && auth.currentUser?.uid === user?.uid;
   let cloudOk = false;
   // What actually ends up stored — the merge may legitimately differ from
   // `value` (it can carry another device's items), and the local cache must
   // hold the merged truth, not this device's half of it.
+  value = normalizeFileReferences(value);
+  if (base !== undefined) base = normalizeFileReferences(base);
   let persisted: T = value;
 
   if (user) {
     const mergeBase = base !== undefined ? base : getSeen<T>(key);
     try {
-      const docRef = doc(db, 'families', FAMILY_ID, 'reference', key);
+      const docRef = doc(db, 'families', spaceAtStart, 'reference', key);
       /* Set inside the transaction, read after it. A transaction can RETRY —
        * writing the trail entry in there would log the same change twice on a
        * contended save, which is the one thing a "what changed" list must not
@@ -737,35 +776,40 @@ async function saveReferenceDoc<T>(
       let changed = true;
       persisted = await runTransaction(db, async (tx) => {
         const snap = await tx.get(docRef);
-        const serverRaw = snap.exists() ? (snap.data() as T) : undefined;
+        if (!current()) throw new Error('Your account or space changed. Please save again.');
+        const serverRaw = snap.exists() ? normalizeFileReferences(snap.data() as T) : undefined;
         const server = serverRaw !== undefined ? await reveal(serverRaw) : undefined;
+        if (!current()) throw new Error('Your account or space changed. Please save again.');
         const merged = mergeShared<T>(mergeBase, value, server);
         existed = server !== undefined;
         changed = server === undefined || !deepEqual(merged as unknown, server as unknown);
-        tx.set(docRef, (await protect(merged)) as any);
+        const secured = await protect(merged);
+        if (!current()) throw new Error('Your account or space changed. Please save again.');
+        tx.set(docRef, secured as any);
         return merged;
       });
       cloudOk = true;
-      noteSeen(key, persisted);
+      if (current()) noteSeen(key, persisted);
       /* A save that merged to exactly what was already there is not news. This
        * matters more than it looks: several screens save on mount to migrate a
        * shape, and a trail that recorded those would report a household
        * editing itself every morning. */
-      if (changed) recordActivity(key, existed ? 'updated' : 'added');
+      if (changed && current()) recordActivity(key, existed ? 'updated' : 'added');
     } catch (error) {
       console.error(`Error saving ${key}:`, error);
       persisted = value;
     }
   }
 
+  if (auth.currentUser?.uid !== user?.uid) return cloudOk;
   try {
-    localStorage.setItem(`${localKey}_${FAMILY_ID}`, JSON.stringify(persisted));
+    localStorage.setItem(`${localKey}_${spaceAtStart}`, JSON.stringify(persisted));
   } catch (e) {
     console.error('LocalStorage fallback failed', e);
   }
 
   // See pendingSync.ts / saveFamilyMembers above for why this exists.
-  if (cloudOk) clearDirty(key, FAMILY_ID); else markDirty(key, FAMILY_ID);
+  if (cloudOk) clearDirty(key, spaceAtStart); else markDirty(key, spaceAtStart);
 
   return cloudOk;
 }
@@ -786,7 +830,7 @@ async function loadReferenceDoc<T>(
         const pendingRaw = localStorage.getItem(scopedKey);
         if (pendingRaw) {
           try {
-            const pending = JSON.parse(pendingRaw) as T;   // plaintext — local cache always is
+            const pending = normalizeFileReferences(JSON.parse(pendingRaw)) as T;   // plaintext — local cache always is
             const backedUp = await saveReferenceDoc(key, pending, localKey, undefined, protect, reveal);
             if (!backedUp) return pending;
           } catch { /* corrupt local cache — fall through to a normal load */ }
@@ -796,7 +840,7 @@ async function loadReferenceDoc<T>(
 
       const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', key));
       if (snap.exists()) {
-        const data = await reveal(snap.data() as T);
+        const data = normalizeFileReferences(await reveal(snap.data() as T));
         localStorage.setItem(scopedKey, JSON.stringify(data));
         noteSeen(key, data);
         return data;
@@ -826,7 +870,7 @@ async function loadReferenceDoc<T>(
   const local = localStorage.getItem(scopedKey);
   if (local) {
     try {
-      const parsed = JSON.parse(local) as T;   // plaintext — local cache always is
+      const parsed = normalizeFileReferences(JSON.parse(local)) as T;   // plaintext — local cache always is
       noteSeen(key, parsed);
       return parsed;
     } catch (e) { return null; }
@@ -861,6 +905,7 @@ export const SHARED_DOCS = {
   inMemory:       { key: 'inMemory',       localKey: 'family_in_memory' },
   documents:      { key: 'documents',      localKey: 'family_documents' },
   shopping:       { key: 'shopping',       localKey: 'family_shopping' },
+  actions:        { key: 'actions',        localKey: 'family_actions' },
   recipes:        { key: 'recipes',        localKey: 'family_recipes' },
   slips:          { key: 'slips',          localKey: 'family_slips' },
   anniversaries:  { key: 'anniversaries',  localKey: 'family_anniversaries' },
@@ -942,7 +987,7 @@ export function subscribeReferenceDoc<T>(
     docRef,
     (snap) => {
       const mine = ++seq;
-      const raw = snap.exists() ? (snap.data() as T) : null;
+      const raw = snap.exists() ? normalizeFileReferences(snap.data() as T) : null;
       void decrypt(raw).then((value) => {
         // A slower earlier snapshot must never overwrite a newer one, and
         // nothing is applied after the caller unsubscribed.
@@ -975,31 +1020,58 @@ export function subscribeReferenceDoc<T>(
 // load-mutate-save). No call site had to change.
 export const saveHousehold = (h: HouseholdInfo, base?: HouseholdInfo) =>
   saveReferenceDoc('household', h, 'family_household', base,
-    (v) => protectHousehold(v, protectSecrets).then(r => r ?? v),
+    (v) => protectHousehold(v, protectSharedSecrets).then(r => r ?? v),
     (v) => revealHousehold(v, revealSharedSecrets).then(r => r ?? v));
 export const loadHousehold = () =>
   loadReferenceDoc<HouseholdInfo>('household', 'family_household',
     (v) => revealHousehold(v, revealSharedSecrets).then(r => r ?? v),
-    (v) => protectHousehold(v, protectSecrets).then(r => r ?? v));
+    (v) => protectHousehold(v, protectSharedSecrets).then(r => r ?? v));
 
 export const saveFinances = (f: FinancesInfo, base?: FinancesInfo) =>
   saveReferenceDoc('finances', f, 'family_finances', base,
-    (v) => protectFinances(v, protectSecrets).then(r => r ?? v),
+    (v) => protectFinances(v, protectSharedSecrets).then(r => r ?? v),
     (v) => revealFinances(v, revealSharedSecrets).then(r => r ?? v));
 export const loadFinances = () =>
   loadReferenceDoc<FinancesInfo>('finances', 'family_finances',
     (v) => revealFinances(v, revealSharedSecrets).then(r => r ?? v),
-    (v) => protectFinances(v, protectSecrets).then(r => r ?? v));
+    (v) => protectFinances(v, protectSharedSecrets).then(r => r ?? v));
 
 export const saveTimeline = (t: FamilyTimeline, base?: FamilyTimeline) => saveReferenceDoc('timeline', t, 'family_timeline', base);
 export const loadTimeline = () => loadReferenceDoc<FamilyTimeline>('timeline', 'family_timeline');
+
+export const saveActions = (actions: FamilyActionsDoc, base?: FamilyActionsDoc) =>
+  saveReferenceDoc('actions', actions, 'family_actions', base);
+export const loadActions = () => loadReferenceDoc<FamilyActionsDoc>('actions', 'family_actions');
 
 // Family Dictionary (invented/mangled words the family adopted) — family-level.
 export const saveFamilyWords = (w: FamilyWordsDoc, base?: FamilyWordsDoc) => saveReferenceDoc('familyWords', w, 'family_words', base);
 export const loadFamilyWords = () => loadReferenceDoc<FamilyWordsDoc>('familyWords', 'family_words');
 
 // Wills & estate — family-wide, store-and-recall only (see WillsEstateView).
-export const saveWillsEstate = (w: WillsEstateDoc, base?: WillsEstateDoc) => saveReferenceDoc('willsEstate', w, 'family_wills_estate', base);
+export async function saveWillsEstate(w: WillsEstateDoc, base?: WillsEstateDoc): Promise<boolean> {
+  const spaceAtStart = FAMILY_ID;
+  const user = auth.currentUser;
+  const linkedIds = new Set((w.records || []).flatMap(record => record.linkedDocIds || []));
+  if (linkedIds.size) {
+    if (!user) throw new Error('Sign in before saving protected estate documents.');
+    const docs = await loadDocuments();
+    const paths = [...new Set(docs.filter(document => linkedIds.has(document.id)).flatMap(document => {
+      const path = document.storagePath || filePathFromReference(document.downloadUrl);
+      return path ? [path] : [];
+    }))];
+    if (paths.length) {
+      const token = await user.getIdToken();
+      if (FAMILY_ID !== spaceAtStart || auth.currentUser?.uid !== user.uid) throw new Error('Your space changed. Please save the estate record again.');
+      const response = await fetch('/api/files/protect-estate', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths }),
+      });
+      if (!response.ok) throw new Error('Could not protect the linked estate files. Please try again before saving.');
+    }
+  }
+  if (FAMILY_ID !== spaceAtStart || (user && auth.currentUser?.uid !== user.uid)) throw new Error('Your space changed. Please save the estate record again.');
+  return saveReferenceDoc('willsEstate', w, 'family_wills_estate', base);
+}
 export const loadWillsEstate = () => loadReferenceDoc<WillsEstateDoc>('willsEstate', 'family_wills_estate');
 
 /* Who else may open it. DELIBERATELY NOT a saveReferenceDoc/loadReferenceDoc
@@ -1255,8 +1327,11 @@ export const loadBusinessMilestones = () => loadReferenceDoc<BusinessMilestonesD
 // limit. Takes a (compressed) data URL, returns the download URL to store in
 // AssetItem.photos[]. The primary photo stays inline for fast thumbnails. ---
 export async function uploadAssetPhoto(dataUrl: string): Promise<string> {
-  const blob = await (await fetch(dataUrl)).blob();
-  const storagePath = `families/${FAMILY_ID}/asset-photos/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
+  const blob = await fetchFileBlob(dataUrl);
+  const storagePath = `families/${spaceAtStart}/asset-photos/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
   return getDownloadURL(r);
@@ -1269,8 +1344,11 @@ export async function uploadAssetPhoto(dataUrl: string): Promise<string> {
 // attached scan was silently gone the moment the app reloaded, breaking any
 // "save it anyway" follow-up on an older message. ---
 export async function uploadChatAttachment(dataUrl: string, mimeType: string, uid: string): Promise<string> {
-  const blob = await (await fetch(dataUrl)).blob();
-  const storagePath = `families/${FAMILY_ID}/chat-attachments/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
+  const blob = await fetchFileBlob(dataUrl);
+  const storagePath = `families/${spaceAtStart}/chat-attachments/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: mimeType || blob.type || 'application/octet-stream' });
   return getDownloadURL(r);
@@ -1280,7 +1358,7 @@ export async function uploadChatAttachment(dataUrl: string, mimeType: string, ui
 // ref(storage, url) resolves an https download URL to its object. Legacy inline
 // base64 photos aren't in Storage, so they're skipped.
 export async function deleteAssetPhoto(url: string): Promise<void> {
-  if (!url || !/^https?:/i.test(url)) return;
+  if (!url || !filePathFromReference(url)) return;
   try {
     await deleteObject(ref(storage, url));
   } catch (e) {
@@ -1289,11 +1367,14 @@ export async function deleteAssetPhoto(url: string): Promise<void> {
 }
 
 // --- Document Vault: files in Firebase Storage, metadata in Firestore ---
-export async function uploadVaultFile(file: File, docId: string): Promise<{ storagePath: string; downloadUrl: string }> {
+export async function uploadVaultFile(file: File, docId: string, options: { shared?: boolean } = {}): Promise<{ storagePath: string; downloadUrl: string }> {
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
   const safeName = (file.name || 'file').replace(/[^\w.\-]+/g, '_');
-  const storagePath = `families/${FAMILY_ID}/documents/${docId}/${safeName}`;
+  const storagePath = `families/${spaceAtStart}/documents/${docId}/${safeName}`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
-  await uploadBytes(r, file, { contentType: file.type || 'application/octet-stream' });
+  await uploadBytes(r, file, { contentType: file.type || 'application/octet-stream', shared: options.shared });
   const downloadUrl = await getDownloadURL(r);
   return { storagePath, downloadUrl };
 }
@@ -1317,12 +1398,14 @@ export async function deleteVaultFile(storagePath: string): Promise<void> {
 // the SAME families/{FAMILY_ID}/documents/{docId}/... prefix uploadVaultFile
 // already writes to, so no storage.rules change is needed. Modeled on
 // uploadVaultFile exactly, just skipping the File object in favour of a data URL.
-export async function uploadVaultPhoto(dataUrl: string, docId: string): Promise<{ storagePath: string; downloadUrl: string }> {
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const storagePath = `families/${FAMILY_ID}/documents/${docId}/photo.jpg`;
+export async function uploadVaultPhoto(dataUrl: string, docId: string, options: { shared?: boolean } = {}): Promise<{ storagePath: string; downloadUrl: string }> {
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
+  const blob = await fetchFileBlob(dataUrl);
+  const storagePath = `families/${spaceAtStart}/documents/${docId}/photo.jpg`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
-  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
+  await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg', shared: options.shared });
   const downloadUrl = await getDownloadURL(r);
   return { storagePath, downloadUrl };
 }
@@ -1333,9 +1416,11 @@ export async function uploadVaultPhoto(dataUrl: string, docId: string): Promise<
 // handful of photos). Takes a compressed data URL (post-EXIF-parse, see
 // utils/travelGeo.ts) and uploads it, mirroring uploadVaultFile exactly.
 export async function uploadTravelPhoto(dataUrl: string, entryId: string): Promise<{ storagePath: string; downloadUrl: string }> {
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const storagePath = `families/${FAMILY_ID}/travel-photos/${entryId}.jpg`;
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
+  const blob = await fetchFileBlob(dataUrl);
+  const storagePath = `families/${spaceAtStart}/travel-photos/${entryId}.jpg`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
   const downloadUrl = await getDownloadURL(r);
@@ -1354,9 +1439,11 @@ export async function deleteTravelPhoto(storagePath: string): Promise<void> {
 // ONE shared Firestore doc, so a photo is a Storage file and only its URL is
 // stored. `photoId` is unique per photo (a moment can have several).
 export async function uploadTimelinePhoto(dataUrl: string, photoId: string): Promise<{ storagePath: string; downloadUrl: string }> {
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const storagePath = `families/${FAMILY_ID}/timeline-photos/${photoId}.jpg`;
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
+  const blob = await fetchFileBlob(dataUrl);
+  const storagePath = `families/${spaceAtStart}/timeline-photos/${photoId}.jpg`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
   const downloadUrl = await getDownloadURL(r);
@@ -1377,9 +1464,11 @@ export async function deleteTimelinePhoto(storagePath: string): Promise<void> {
 // people share ONE Firestore doc, so no inline base64). Documents for a
 // departed relative reuse uploadVaultFile/deleteVaultFile unmodified.
 export async function uploadInMemoryPhoto(dataUrl: string, personId: string): Promise<{ storagePath: string; downloadUrl: string }> {
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const storagePath = `families/${FAMILY_ID}/in-memory-photos/${personId}.jpg`;
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
+  const blob = await fetchFileBlob(dataUrl);
+  const storagePath = `families/${spaceAtStart}/in-memory-photos/${personId}.jpg`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
   const downloadUrl = await getDownloadURL(r);
@@ -1402,11 +1491,13 @@ export async function uploadBirthdayPhoto(
   memberId: string,
   year: number,
 ): Promise<{ url: string; storagePath: string }> {
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
   // Turn the compressed base64 data URL into a Blob for a compact binary upload.
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
+  const blob = await fetchFileBlob(dataUrl);
   const rand = Math.random().toString(36).slice(2, 8);
-  const storagePath = `families/${FAMILY_ID}/birthday-photos/${memberId}/${year}-${rand}.jpg`;
+  const storagePath = `families/${spaceAtStart}/birthday-photos/${memberId}/${year}-${rand}.jpg`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
   const url = await getDownloadURL(r);
@@ -1433,8 +1524,11 @@ export async function uploadReferralFile(
   memberId: string,
   recordId: string,
 ): Promise<{ storagePath: string; downloadUrl: string }> {
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
   const safeName = (file.name || 'file').replace(/[^\w.\-]+/g, '_');
-  const storagePath = `families/${FAMILY_ID}/referrals/${memberId}/${recordId}-${safeName}`;
+  const storagePath = `families/${spaceAtStart}/referrals/${memberId}/${recordId}-${safeName}`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, file, { contentType: file.type || 'application/octet-stream' });
   const downloadUrl = await getDownloadURL(r);
@@ -1449,10 +1543,12 @@ export async function uploadReferralPhoto(
   recordId: string,
   contentType: string,
 ): Promise<{ storagePath: string; downloadUrl: string }> {
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
+  const blob = await fetchFileBlob(dataUrl);
   const ext = contentType === 'application/pdf' ? 'pdf' : 'jpg';
-  const storagePath = `families/${FAMILY_ID}/referrals/${memberId}/${recordId}.${ext}`;
+  const storagePath = `families/${spaceAtStart}/referrals/${memberId}/${recordId}.${ext}`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: contentType || blob.type || 'application/octet-stream' });
   const downloadUrl = await getDownloadURL(r);
@@ -1508,9 +1604,12 @@ export async function loadRecipes(): Promise<Recipe[]> {
 // atob(dataUrl.split(',')[1]) decoded an https URL to an EMPTY string and
 // silently uploaded a zero-byte recipe photo.
 export async function uploadRecipePhoto(dataUrl: string): Promise<string> {
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
   const id = Date.now().toString() + Math.floor(Math.random() * 1000);
-  const blob = await (await fetch(dataUrl)).blob();
-  const storagePath = `families/${FAMILY_ID}/recipe-photos/${id}.jpg`;
+  const blob = await fetchFileBlob(dataUrl);
+  const storagePath = `families/${spaceAtStart}/recipe-photos/${id}.jpg`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
   return await getDownloadURL(r);
@@ -1564,10 +1663,12 @@ export async function loadSlips(): Promise<SlipItem[]> {
 // photo before a SlipItem id even exists) but also returns the storage path
 // so a replaced/deleted slip can clean up its old file, like uploadTravelPhoto.
 export async function uploadSlipPhoto(dataUrl: string): Promise<{ url: string; storagePath: string }> {
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
   const id = Date.now().toString() + Math.floor(Math.random() * 1000);
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const storagePath = `families/${FAMILY_ID}/slip-photos/${id}.jpg`;
+  const blob = await fetchFileBlob(dataUrl);
+  const storagePath = `families/${spaceAtStart}/slip-photos/${id}.jpg`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
   const url = await getDownloadURL(r);
@@ -1822,7 +1923,7 @@ export async function loadSpaceInfo(): Promise<FamilyInfoDoc | null> {
   if (!user) return null;
   try {
     const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'info', 'info'));
-    const info = snap.exists() ? (snap.data() as FamilyInfoDoc) : null;
+    const info = snap.exists() ? normalizeFileReferences(snap.data() as FamilyInfoDoc) : null;
     /* Remembered so recordActivity can classify a profile edit without an
      * extra read on every save. It only ever decides WHO SEES a trail entry
      * about a member record — family news in a household, an HR matter in a
@@ -2059,7 +2160,7 @@ export async function loadChatHistory(uid: string): Promise<StoredChatMessage[]>
   try {
     const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'chat', uid));
     if (snap.exists()) {
-      return (snap.data().messages as StoredChatMessage[]) || [];
+      return normalizeFileReferences((snap.data().messages as StoredChatMessage[]) || []);
     }
     return [];
   } catch (error) {
@@ -2072,7 +2173,7 @@ export async function saveChatHistory(
   uid: string,
   messages: StoredChatMessage[],
 ): Promise<void> {
-  const slim = messages.slice(-50).map(({ role, text, edits, applied, images, sourceImages, undo }) => {
+  const slim = normalizeFileReferences(messages).slice(-50).map(({ role, text, edits, applied, images, sourceImages, undo }) => {
     const m: StoredChatMessage = { role, text };
     if (edits) m.edits = edits;
     if (applied) m.applied = applied;
@@ -2127,13 +2228,13 @@ export async function updatePersonalHiddenDates(
 // ── Assets ──
 export async function loadAssets(): Promise<AssetItem[]> {
   const snap = await getDocs(collection(db, 'families', FAMILY_ID, 'assets'));
-  const items = snap.docs.map(d => d.data() as AssetItem);
+  const items = snap.docs.map(d => normalizeFileReferences(d.data() as AssetItem));
   return items.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function saveAsset(asset: AssetItem): Promise<boolean> {
   try {
-    await setDoc(doc(db, 'families', FAMILY_ID, 'assets', asset.id), asset);
+    await setDoc(doc(db, 'families', FAMILY_ID, 'assets', asset.id), normalizeFileReferences(asset));
     recordActivity('assets', 'updated', asset.name);
     return true;
   } catch (error) {
@@ -2150,87 +2251,67 @@ export async function deleteAsset(id: string): Promise<void> {
 }
 
 // ── Secrets-vault encryption ──
-// Round-trip secret values through the server, which holds the encryption key
-// (Secret Manager). protectSecrets FAILS CLOSED (throws) so we never silently
-// store plaintext; revealSecrets fails safe (returns input) so a blip never
-// blocks reading. Legacy plaintext passes through untouched, then encrypts on
-// its next save.
+// Capture the space before any await. Another tab changing the account's active
+// pointer must never cause this tab to encrypt one space's data for another.
+async function vaultValues(route: string, values: string[], protecting: boolean, spaceId = FAMILY_ID): Promise<string[]> {
+  let reason: 'admin-refresh' | 'unavailable' = 'unavailable';
+  try {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Please sign in again.');
+    const token = await user.getIdToken();
+    const res = await fetch(route, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ values, spaceId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !Array.isArray(data.values) || data.values.length !== values.length
+      || data.values.some((value: unknown) => typeof value !== 'string')) {
+      if (data.code === 'VAULT_ADMIN_REFRESH_REQUIRED') reason = 'admin-refresh';
+      throw new Error(data.error || 'Could not open the protected records. Try again.');
+    }
+    return data.values;
+  } catch (error) {
+    if (!protecting) reportVaultAccessIssue(reason, spaceId);
+    throw error;
+  }
+}
+
+// Personal credentials have an admin-only endpoint and cryptographic purpose.
 export async function protectSecrets(values: string[]): Promise<string[]> {
-  const clean = values.map(v => v ?? '');
-  if (clean.every(v => v === '')) return clean;
-  const user = auth.currentUser;
-  if (!user) throw new Error('Please sign in again.');
-  const token = await user.getIdToken();
-  const res = await fetch('/api/vault/protect', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ values: clean }),
-  });
-  if (!res.ok) throw new Error("Couldn't secure the password — check your connection and try again.");
-  const data = await res.json();
-  if (!Array.isArray(data.values) || data.values.length !== clean.length) throw new Error("Couldn't secure the password.");
-  return data.values;
+  const clean = values.map(value => value ?? '');
+  if (clean.every(value => value === '')) return clean;
+  return vaultValues('/api/vault/protect', clean, true);
+}
+
+// Every shared ID/household/bank field uses the shared-purpose endpoint.
+export async function protectSharedSecrets(values: string[], spaceId = FAMILY_ID): Promise<string[]> {
+  const clean = values.map(value => value ?? '');
+  if (clean.every(value => value === '')) return clean;
+  return vaultValues('/api/vault/protect-shared', clean, true, spaceId);
 }
 
 export async function revealSecrets(values: string[]): Promise<string[]> {
   if (!values.length) return values;
-  const user = auth.currentUser;
-  if (!user) return values;
-  try {
-    const token = await user.getIdToken();
-    const res = await fetch('/api/vault/reveal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ values }),
-    });
-    if (!res.ok) return values;
-    const data = await res.json();
-    return Array.isArray(data.values) && data.values.length === values.length ? data.values : values;
-  } catch {
+  try { return await vaultValues('/api/vault/reveal', values, false); }
+  catch {
+    return values; // retain ciphertext, never overwrite a saved secret with a blank
+  }
+}
+
+export async function revealSharedSecrets(values: string[], spaceId = FAMILY_ID): Promise<string[]> {
+  if (!values.length) return values;
+  try { return await vaultValues('/api/vault/reveal-shared', values, false, spaceId); }
+  catch {
     return values;
   }
 }
 
-// The caller's role in the active space, pushed in by FamilyContext the same
-// way setRevealCacheScope is — so this module can decide about reveals
-// without a React context. UX ONLY: the server refuses child reveals itself
-// (/api/vault/reveal-shared); knowing the role here just lets a child
-// account skip a doomed network call and see clean empty fields instead of
-// raw 'enc:...' ciphertext strings.
+// Keep the production child masking policy. The server independently denies child reveals.
 let accountRole: string | null = null;
 export function setAccountRole(role: string | null): void {
   accountRole = role;
-}
-
-// Same round-trip as revealSecrets, but for SHARED family records (identity
-// numbers, household codes, bank details) rather than personal credentials —
-// adult-gated rather than admin-gated; see /api/vault/reveal-shared's comment
-// for the reasoning. Kept as a separate function (not a parameter) so call
-// sites are unambiguous about which class of data they're touching.
-//
-// Child accounts (role/capability matrix, 2026-08-24): the server would 403,
-// so don't ask — map every encrypted value to '' locally. Legacy PLAINTEXT
-// values (saved before at-rest encryption, never re-saved) pass through: they
-// are indistinguishable from ordinary non-secret strings here, and re-saving
-// by any adult encrypts them.
-export async function revealSharedSecrets(values: string[]): Promise<string[]> {
-  if (!values.length) return values;
-  if (accountRole === 'child') return values.map(v => (typeof v === 'string' && v.startsWith('enc:') ? '' : v));
-  const user = auth.currentUser;
-  if (!user) return values;
-  try {
-    const token = await user.getIdToken();
-    const res = await fetch('/api/vault/reveal-shared', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ values }),
-    });
-    if (!res.ok) return values;
-    const data = await res.json();
-    return Array.isArray(data.values) && data.values.length === values.length ? data.values : values;
-  } catch {
-    return values;
-  }
+  setSharedRevealEnabled(role !== 'child');
 }
 
 // ── Passwords ── (admin-only; rules deny reads to members/children)
@@ -2417,8 +2498,11 @@ export async function deleteDocumentEverywhere(opts: {
 export async function uploadChatAttachmentWithPath(
   dataUrl: string, mimeType: string, uid: string,
 ): Promise<{ url: string; storagePath: string }> {
-  const blob = await (await fetch(dataUrl)).blob();
-  const storagePath = `families/${FAMILY_ID}/chat-attachments/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
+  const blob = await fetchFileBlob(dataUrl);
+  const storagePath = `families/${spaceAtStart}/chat-attachments/${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: mimeType || blob.type || 'application/octet-stream' });
   const url = await getDownloadURL(r);

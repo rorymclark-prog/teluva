@@ -1,3 +1,5 @@
+import { createVaultHandlers, collectLegacySharedValues, collectLegacyCredentialValues, vaultSpaceId, resolveVaultMembership, VaultError } from './server/vault.mjs';
+import { createFileRouter, createFileHandlers, isEstateFile, fileTarget, canonicalFileUrl, FileAccessError, projectedFilePaths, projectConnectedFileUrls, connectedPhotoPaths, fileAccessPolicy } from './server/files.mjs';
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import admin from 'firebase-admin';
@@ -68,7 +70,8 @@ import {
 } from './server/docOcr.mjs';
 import { keyFactsSystem, sanitizeKeyFacts } from './server/keyFacts.mjs';
 import { TIMELINE_PARSE_MAX_CHARS, timelineParseSystem, sanitizeTimelineRows } from './server/timelineParse.mjs';
-import { addPendingReader, redeemPendingReader, namedList } from './server/willsInvite.mjs';
+import { addPendingReader, namedList } from './server/willsInvite.mjs';
+import { redeemFamilyInvite, InviteRedemptionError } from './server/inviteRedemption.mjs';
 import { buildDirectory } from './server/directory.mjs';
 import {
   requestRelease, approveRelease, declineRelease, settleReleases, releaseRequests,
@@ -299,6 +302,57 @@ const DB_ID = process.env.FIRESTORE_DB_ID || 'teluva-prod';
 admin.initializeApp({ projectId: PROJECT_ID });
 const adminDb = getFirestore(admin.app(), DB_ID);
 
+// File bytes use current authoritative roles in the named database. Session
+// cookies are transport for native image/PDF requests, never a membership grant.
+async function currentFilePolicy(familyId, storagePath, metadata, caller) {
+  if (caller?.role === 'admin') return { estate: false, ownerAllowed: true };
+  const family = adminDb.collection('families').doc(familyId);
+  const [info, estate, access, documents] = await Promise.all([
+    family.collection('info').doc('info').get(), family.collection('reference').doc('willsEstate').get(),
+    family.collection('reference').doc('willsAccess').get(), family.collection('reference').doc('documents').get(),
+  ]);
+  const spaceInfo = info.exists ? info.data() : {};
+  const members = spaceInfo.type === 'business' ? (await family.collection('family_members').get()).docs.map(snap => ({ id: snap.id, ...snap.data() })) : [];
+  return fileAccessPolicy({ storagePath, metadata, caller, spaceInfo, members,
+    estate: estate.exists ? estate.data() : null, access: access.exists ? access.data() : null,
+    documents: documents.exists ? documents.data() : null, bucketName: STORAGE_BUCKET });
+}
+
+const fileGatewayDependencies = {
+  verifyIdToken: (token, checkRevoked) => admin.auth().verifyIdToken(token, checkRevoked),
+  verifySessionCookie: (cookie, checkRevoked) => admin.auth().verifySessionCookie(cookie, checkRevoked),
+  createSessionCookie: (token, options) => admin.auth().createSessionCookie(token, options),
+  getRole: async (familyId, uid) => {
+    const snap = await adminDb.doc(`families/${familyId}/roles/${uid}`).get();
+    return snap.exists ? snap.data().role : null;
+  },
+  getPolicy: currentFilePolicy,
+  authorizeConnected: async (req, caller) => {
+    const receiver = String(req.query?.spaceId || '');
+    const linkId = String(req.query?.linkId || '');
+    const memberId = String(req.query?.memberId || '');
+    const target = fileTarget(req.query?.path);
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(receiver) || !/^[A-Za-z0-9_-]{1,200}$/.test(linkId) || !/^[A-Za-z0-9_-]{1,200}$/.test(memberId)) throw new FileAccessError(400, 'FILE_PATH_INVALID', 'Choose a valid shared photo.');
+    const roleSnap = await adminDb.doc(`families/${receiver}/roles/${caller.uid}`).get();
+    if (!roleSnap.exists || !['admin', 'member', 'child'].includes(roleSnap.data().role)) throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That shared photo is unavailable.');
+    const linkSnap = await adminDb.doc(`familyLinks/${linkId}`).get();
+    const link = linkSnap.exists ? { id: linkSnap.id, ...linkSnap.data() } : null;
+    if (!isLinkParty(link, receiver) || link.status !== 'active') throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That family connection is no longer active.');
+    const other = linkOtherSide(link, receiver);
+    if (target.familyId !== other.id) throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That shared photo is unavailable.');
+    const index = shareModeFor(link, other.id) === 'everyone' ? await memberIndexIds(other.id) : null;
+    if (!resolveSharedIds(link, other.id, index).includes(memberId)) throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That person is no longer shared.');
+    const memberSnap = await adminDb.doc(`families/${other.id}/family_members/${memberId}`).get();
+    const projected = memberSnap.exists ? projectSharedMember({ id: memberSnap.id, ...memberSnap.data() }, categoriesFor(link, other.id, memberId)) : null;
+    if (!connectedPhotoPaths(projected, STORAGE_BUCKET).has(target.path)) throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That photo is not shared with this family.');
+    return { ...caller, ...target, role: 'connected' };
+  },
+  bucket: admin.storage().bucket(STORAGE_BUCKET),
+  secureCookies: process.env.NODE_ENV === 'production',
+};
+const fileGateway = createFileHandlers(fileGatewayDependencies);
+
+
 // ---------------------------------------------------------------------------
 // Web Push (raw W3C VAPID — NOT Firebase Cloud Messaging). Configured only when
 // both VAPID keys are present in the environment; otherwise push stays disabled
@@ -325,7 +379,7 @@ if (PUSH_READY) {
  * the family's own address (/api/inbound-mail) and the Gmail bridge script
  * (/api/gmail-bridge/deliver) — and a second copy of this would drift the way
  * every other duplicated writer in this codebase has: the storage layout, the
- * download-token trick, and the transaction are each load-bearing, and a
+ * authenticated canonical URL, and the transaction are each load-bearing, and a
  * near-copy that forgets one produces documents that look filed and are not
  * openable.
  *
@@ -342,16 +396,11 @@ async function fileAttachmentsIntoVault({ familyId, attachments, uploadedBy, sub
     // needs no storage.rules change and shows up next to files a member
     // uploaded by hand.
     const storagePath = `families/${familyId}/documents/${docId}/${safeName}`;
-    const downloadToken = crypto.randomUUID();
     await bucket.file(storagePath).save(att.data, {
-      contentType: att.contentType || 'application/octet-stream',
-      // Mirrors what the client SDK's uploadBytes + getDownloadURL produces: a
-      // token in the object's own metadata is what makes the URL below a
-      // working (Storage-rules-independent) download link. See
-      // project_imbewufield_storage_tokens.md — this URL IS the capability.
-      metadata: { metadata: { firebaseStorageDownloadTokens: downloadToken } },
+      resumable: false,
+      metadata: { contentType: att.contentType || 'application/octet-stream', cacheControl: 'private, no-store, max-age=0', metadata: { teluvaScope: 'shared' } },
     });
-    const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_BUCKET}/o/${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
+    const downloadUrl = canonicalFileUrl(storagePath);
     const { name, notes } = describeInbound({ subject, from, filename: att.filename });
     newDocs.push({
       id: docId,
@@ -691,36 +740,6 @@ async function recordAiUsage(familyId) {
   ]);
 }
 
-// Seat-cap check — call BEFORE grantMembership for a NEW join (never for
-// create-family/create-space, where the caller is the space's first/founding
-// member). Deliberately does nothing to already-existing members: it counts
-// the roles collection and refuses the join if that count is already at or
-// over the plan's limit — a space that somehow already has MORE members than
-// its plan allows (e.g. downgraded from paid) simply keeps refusing new
-// joins forever, without this ever touching anyone already in.
-// Fails open on a Firestore read error, same principle as checkAiUsage.
-async function seatCapCheck(familyId) {
-  try {
-    const [infoSnap, rolesSnap] = await Promise.all([
-      adminDb.doc(`families/${familyId}/info/info`).get(),
-      adminDb.collection(`families/${familyId}/roles`).get(),
-    ]);
-    const plan = planOf(infoSnap.exists ? infoSnap.data() : null);
-    const limit = PLAN_LIMITS[plan].seats;
-    const existing = rolesSnap.size;
-    if (existing >= limit) {
-      return {
-        status: 403,
-        body: { error: `This space already has ${existing} members — the maximum allowed on the ${plan} plan is ${limit}. Ask an admin to upgrade before inviting more.` },
-      };
-    }
-    return null;
-  } catch (e) {
-    console.error('[seat-cap] read failed — failing open', e);
-    return null;
-  }
-}
-
 // --- Same-origin Firebase Auth helper proxy (keeps iOS Safari sign-in working) ---
 // Mounted at root with a pathFilter so the FULL /__/auth/... path is forwarded
 // (mounting on the path would strip the prefix and 404 on Firebase Hosting).
@@ -831,6 +850,8 @@ app.use((req, res, next) => {
   next();
 });
 
+// Raw file uploads must precede the general JSON parser (JSON files are bytes).
+app.use('/api/files', createFileRouter(fileGatewayDependencies));
 app.use(express.json({ limit: '25mb' }));
 
 // Where the report-only CSP above sends what it WOULD have blocked. Registered
@@ -2096,8 +2117,15 @@ const OCR_MAX_INLINE_BYTES = 18 * 1024 * 1024;
 
 app.post('/api/doc-ocr', async (req, res) => {
   try {
-    const caller = await requireMember(req);
-    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const intendedPath = (req.body || {}).storagePath;
+    const fileAccess = await fileGateway.authorizeRead({ headers: req.headers, query: { path: intendedPath } });
+    if (fileAccess.status !== 200) return res.status(fileAccess.status).json(fileAccess.body);
+    const signedIn = await requireSignedIn(req);
+    if (signedIn.error) return res.status(signedIn.status).json({ error: signedIn.error });
+    const profileSnap = await adminDb.doc(`users/${signedIn.uid}`).get();
+    const profile = profileSnap.exists ? profileSnap.data() : {};
+    const caller = { ...signedIn, familyId: fileAccess.caller.familyId, role: fileAccess.caller.role,
+      aiConsent: profile.aiConsent?.granted === true && (profile.aiConsent?.version ?? 0) >= AI_CONSENT_VERSION };
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
     if (gateErr) return res.status(403).json({ error: gateErr });
@@ -4257,118 +4285,79 @@ const VAULT_KEY = (() => {
   return buf.length === 32 ? buf : crypto.createHash('sha256').update(raw).digest();
 })();
 
-function encryptSecret(plain, familyId) {
-  if (!VAULT_KEY || typeof plain !== 'string' || plain === '' || plain.startsWith('enc:')) return plain;
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', VAULT_KEY, iv);
-  cipher.setAAD(Buffer.from(familyId, 'utf8'));
-  const ct = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `enc:2:${iv.toString('base64')}:${tag.toString('base64')}:${ct.toString('base64')}`;
+async function requireVaultMember(req) {
+  const caller = await requireSignedIn(req);
+  if (caller.error) return caller;
+  try {
+    // A second tab may change users/{uid}.familyId. Authorize the requested
+    // space against its roles doc, never that account-wide active pointer.
+    const spaceId = vaultSpaceId(req.body?.spaceId);
+    const roleSnap = await adminDb.doc(`families/${spaceId}/roles/${caller.uid}`).get();
+    return { ...caller, ...resolveVaultMembership(spaceId, roleSnap.exists ? roleSnap.data() : null) };
+  } catch (error) {
+    if (error instanceof VaultError) return { status: error.status, error: error.message };
+    throw error;
+  }
 }
 
-function decryptSecret(v, familyId) {
-  if (typeof v !== 'string' || !VAULT_KEY) return v; // no key configured
-  if (v.startsWith('enc:2:')) {
-    try {
-      const [, , ivB, tagB, ctB] = v.split(':');
-      const decipher = crypto.createDecipheriv('aes-256-gcm', VAULT_KEY, Buffer.from(ivB, 'base64'));
-      decipher.setAAD(Buffer.from(familyId, 'utf8'));
-      decipher.setAuthTag(Buffer.from(tagB, 'base64'));
-      return Buffer.concat([decipher.update(Buffer.from(ctB, 'base64')), decipher.final()]).toString('utf8');
-    } catch {
-      return ''; // corrupt / wrong tenant / undecryptable — return empty rather than leak ciphertext
+const vaultHandlers = createVaultHandlers({
+  key: VAULT_KEY,
+  authorize: requireVaultMember,
+  loadLegacyShared: async (familyId) => {
+    const family = adminDb.collection('families').doc(familyId);
+    const [members, household, finances, passwords] = await Promise.all([
+      family.collection('family_members').get(),
+      family.collection('reference').doc('household').get(),
+      family.collection('reference').doc('finances').get(),
+      family.collection('passwords').get(),
+    ]);
+    const snapshot = {
+      members: members.docs.map(snap => snap.data()),
+      household: household.exists ? household.data() : undefined,
+      finances: finances.exists ? finances.data() : undefined,
+      passwords: passwords.docs.map(snap => snap.data()),
+    };
+    return { shared: collectLegacySharedValues(snapshot), credentials: collectLegacyCredentialValues(snapshot) };
+  },
+  loadApprovedLegacy: async (familyId, fingerprints) => {
+    const refs = fingerprints.map(id => adminDb.doc(`families/${familyId}/vaultLegacyShared/${id}`));
+    const snapshots = await adminDb.getAll(...refs);
+    return new Set(snapshots.filter(snap => snap.exists).map(snap => snap.id));
+  },
+  approveLegacy: async (familyId, fingerprints, uid) => {
+    const batch = adminDb.batch();
+    for (const id of fingerprints) batch.set(adminDb.doc(`families/${familyId}/vaultLegacyShared/${id}`), {
+      approvedBy: uid, approvedAt: new Date().toISOString(),
+    });
+    await batch.commit();
+  },
+  loadDeniedLegacy: async (familyId, fingerprints) => {
+    const snapshots = await adminDb.getAll(...fingerprints.map(id => adminDb.doc(`families/${familyId}/vaultLegacyPrivate/${id}`)));
+    return new Set(snapshots.filter(snap => snap.exists).map(snap => snap.id));
+  },
+  rememberPrivateLegacy: async (familyId, fingerprints) => {
+    for (let i = 0; i < fingerprints.length; i += 400) {
+      const batch = adminDb.batch();
+      for (const id of fingerprints.slice(i, i + 400)) batch.set(adminDb.doc(`families/${familyId}/vaultLegacyPrivate/${id}`), {
+        discoveredAt: new Date().toISOString(),
+      });
+      await batch.commit();
     }
-  }
-  if (v.startsWith('enc:1:')) {
-    // Legacy pre-AAD ciphertext — no tenant binding was ever applied to it,
-    // so decrypt it the same way it was encrypted (no AAD). Gets upgraded to
-    // enc:2: automatically the next time this value is saved.
-    try {
-      const [, , ivB, tagB, ctB] = v.split(':');
-      const decipher = crypto.createDecipheriv('aes-256-gcm', VAULT_KEY, Buffer.from(ivB, 'base64'));
-      decipher.setAuthTag(Buffer.from(tagB, 'base64'));
-      return Buffer.concat([decipher.update(Buffer.from(ctB, 'base64')), decipher.final()]).toString('utf8');
-    } catch {
-      return '';
-    }
-  }
-  return v; // legacy plaintext / empty
+  },
+});
+
+// Fixed endpoints select the purpose; a client-supplied flag cannot elevate it.
+for (const [route, handler] of [
+  ['/api/vault/protect', vaultHandlers.protect],
+  ['/api/vault/reveal', vaultHandlers.reveal],
+  ['/api/vault/protect-shared', vaultHandlers.protectShared],
+  ['/api/vault/reveal-shared', vaultHandlers.revealShared],
+]) {
+  app.post(route, async (req, res) => {
+    const result = await handler(req);
+    res.status(result.status).json(result.body);
+  });
 }
-
-app.post('/api/vault/protect', async (req, res) => {
-  try {
-    const caller = await requireMember(req);
-    if (caller.error) return res.status(caller.status).json({ error: caller.error });
-    if (!VAULT_KEY) return res.status(500).json({ error: 'Secret encryption is not configured on the server.' });
-    const values = Array.isArray(req.body?.values) ? req.body.values : [];
-    res.json({ values: values.map((v) => encryptSecret(v, caller.familyId)) });
-  } catch (e) {
-    console.error('[vault/protect]', e);
-    res.status(500).json({ error: 'Could not secure those values.' });
-  }
-});
-
-// Decrypting a stored secret is an ADMIN action, checked HERE and not only in
-// the UI — the ciphertext itself sits on the member profile, which firestore.rules
-// lets every member (including a 'child') read, so anyone who can read Firestore
-// can post that ciphertext straight at this endpoint. Hiding the Secrets tab
-// alone would close nothing.
-//
-// Why admin-only rather than adult-only: these are per-member credentials
-// (digitalAccounts[].passwordPlain — someone's own email/bank/school logins),
-// not shared household facts. A non-admin adult in a family vault is a sibling,
-// a grandparent, a flatmate, an employee in a business space — there is no
-// reason they should be able to decrypt ANOTHER member's saved passwords, and
-// the app's own precedent already says so: families/{id}/passwords is
-// isAdminOf-only in firestore.rules, and FamilyPasswords.tsx is isAdmin-gated.
-// This makes per-member secrets match the shared password vault instead of
-// being the one credential store with a weaker gate. It is deliberately
-// STRICTER than "block children": blocking only children would still leave
-// every adult able to read every other adult's credentials.
-app.post('/api/vault/reveal', async (req, res) => {
-  try {
-    const caller = await requireMember(req);
-    if (caller.error) return res.status(caller.status).json({ error: caller.error });
-    if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can reveal saved secrets.' });
-    const values = Array.isArray(req.body?.values) ? req.body.values : [];
-    res.json({ values: values.map((v) => decryptSecret(v, caller.familyId)) });
-  } catch (e) {
-    console.error('[vault/reveal]', e);
-    res.status(500).json({ error: 'Could not read those values.' });
-  }
-});
-
-// Decrypting SHARED family records (ID numbers, household/door/alarm codes,
-// bank details) — as opposed to /api/vault/reveal above, which is personal
-// credentials and deliberately admin-only. Any ADULT of the space (admin or
-// member) may decrypt: these are shared household facts the adults maintain
-// together, and firestore.rules lets any adult write the documents that hold
-// them.
-//
-// CHILDREN may not (role/capability matrix, signed off 2026-08-24). A child
-// account can still READ the family_members/household docs — that keeps
-// names, birthdays, wifi NAME, pets etc. working — but every field this
-// endpoint guards (identity numbers, passport numbers, IBANs, door/safe/
-// alarm codes, wifi password) stays ciphertext for them. The check lives
-// HERE and not only in the UI for the same reason /api/vault/reveal's does:
-// the ciphertext sits on documents a child can read, so anyone who can read
-// Firestore can post it straight at this endpoint — hiding the field
-// client-side alone would close nothing. (The client also skips the call and
-// masks for child accounts — src/utils/db.ts revealSharedSecrets — but that
-// is UX, not the gate.)
-app.post('/api/vault/reveal-shared', async (req, res) => {
-  try {
-    const caller = await requireMember(req);
-    if (caller.error) return res.status(caller.status).json({ error: caller.error });
-    if (caller.role === 'child') return res.status(403).json({ error: 'Saved ID numbers and codes are not available on child accounts.' });
-    const values = Array.isArray(req.body?.values) ? req.body.values : [];
-    res.json({ values: values.map((v) => decryptSecret(v, caller.familyId)) });
-  } catch (e) {
-    console.error('[vault/reveal-shared]', e);
-    res.status(500).json({ error: 'Could not read those values.' });
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Inbound email → vault filing. No requireMember here — the caller is a mail
@@ -4866,56 +4855,6 @@ app.post('/api/create-invite', async (req, res) => {
   }
 });
 
-/**
- * NAME the person who just redeemed an estate invite.
- *
- * v329: this used to move them onto readerUids, which opened the whole will on
- * the spot. It now writes namedUids — see the header of server/willsInvite.mjs
- * for why naming and opening had to come apart. readerUids is written back
- * unchanged so the two arrays are replaced atomically together; nothing here
- * may widen it.
- *
- * Runs inside a transaction because an admin may be toggling readers on the
- * same document at the same moment, and both writes replace the whole array.
- * Returns true only if the naming actually landed; never throws — see the call
- * site in /api/join-family for why.
- */
-async function grantEstateAccessFromInvite(inv, uid) {
-  if (!inv?.willReaderId) return false;
-  try {
-    const accessRef = adminDb.doc(`families/${inv.familyId}/reference/willsAccess`);
-    let result;
-    await adminDb.runTransaction(async (tx) => {
-      const snap = await tx.get(accessRef);
-      result = redeemPendingReader(snap.exists ? snap.data() : null, {
-        willReaderId: inv.willReaderId,
-        uid,
-        role: inv.role || 'member',
-      });
-      if (result.reason === 'not-an-estate-invite' || result.reason === 'cancelled') return;
-      tx.set(accessRef, {
-        namedUids: result.namedUids,
-        readerUids: result.readerUids,
-        pendingReaders: result.pendingReaders,
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
-    });
-    if (result && !result.granted) {
-      console.warn(`[join-family] estate invite not honoured (${result.reason}) uid=${uid} family=${inv.familyId}`);
-    }
-    if (result?.granted) {
-      console.warn(`[join-family] NAMED uid=${uid} family=${inv.familyId} (${result.reason}) — named, not opened`);
-    }
-    return !!result?.granted;
-  } catch (err) {
-    // They ARE a member now; they just aren't named. Loud in the logs because
-    // the admin who sent it may not be around to notice.
-    console.error(`[join-family] FAILED to attach estate access for uid=${uid} family=${inv.familyId}:`, err);
-    return false;
-  }
-}
-
-
 /* ── RELEASING THE WILL: the doorbell ────────────────────────────────────────
  *
  * Everything here is the wiring around server/willsRelease.mjs, which holds the
@@ -5272,42 +5211,19 @@ app.post('/api/join-family', async (req, res) => {
     }
 
     const raw = String((req.body || {}).code ?? (req.body || {}).familyId ?? '').trim();
-    if (!raw) return res.status(400).json({ error: 'Missing invite code.' });
-
-    // Preferred path: an admin-issued invite code
-    const inviteRef = adminDb.doc(`invites/${raw.toUpperCase()}`);
-    const inviteSnap = await inviteRef.get();
-    if (inviteSnap.exists) {
-      const inv = inviteSnap.data();
-      if (inv.usedBy) return res.status(410).json({ error: 'This invite was already used — ask your admin for a new one.' });
-      if (inv.expiresAt && new Date(inv.expiresAt) < new Date()) {
-        return res.status(410).json({ error: 'This invite has expired — ask your admin for a new one.' });
-      }
-      const targetInfo = await adminDb.doc(`families/${inv.familyId}/info/info`).get();
-      const targetData = targetInfo.exists ? targetInfo.data() : {};
-      // Seat cap — checked here, at the actual grant, not when the invite was
-      // created (an invite can sit unused for up to 14 days; the space's
-      // headcount at redemption time is what matters). Never touches anyone
-      // already a member — see seatCapCheck's comment.
-      const seatBlock = await seatCapCheck(inv.familyId);
-      if (seatBlock) return res.status(seatBlock.status).json(seatBlock.body);
-      await grantMembership(caller.uid, caller.email, caller.displayName, inv.familyId, inv.role || 'member', targetData.type || 'family', targetData.name);
-      await inviteRef.set({ usedBy: caller.uid, usedAt: new Date().toISOString() }, { merge: true });
-      // An ESTATE invite carries a grant: the person was invited to handle the
-      // estate, so joining also puts them on the Wills & Estate reader list.
-      // Deliberately after the membership write and deliberately swallowed —
-      // failing to attach the reader grant must never stop somebody joining
-      // the vault, and the admin can see it didn't land (the invite stays in
-      // "waiting to join" on the Who-can-open-this card).
-      const willReaderGranted = await grantEstateAccessFromInvite(inv, caller.uid);
-      return res.json({ ok: true, familyId: inv.familyId, willReaderGranted });
-    }
-
-    // No raw-UUID fallback: see the SECURITY note above this handler. Anything
-    // that is not a live, unused, unexpired invite code falls through to the
-    // same generic 404, so a prober learns nothing about which ids exist.
-    return res.status(404).json({ error: 'Invite code not found — ask your family admin to share a fresh one.' });
+    const result = await redeemFamilyInvite({
+      db: adminDb, code: raw, caller, planOf,
+      seatLimitFor: plan => PLAN_LIMITS[plan].seats,
+    });
+    // Membership, estate NAMING and invite consumption have all committed.
+    // Naming does not open the will; its separate release workflow is unchanged.
+    // Claims remain compatibility metadata after the authoritative role write.
+    await admin.auth().setCustomUserClaims(caller.uid, {
+      familyId: result.familyId, familyIds: result.spaces.map(space => space.id),
+    }).catch(() => {});
+    return res.json({ ok: true, familyId: result.familyId, willReaderGranted: result.willReaderGranted });
   } catch (err) {
+    if (err instanceof InviteRedemptionError) return res.status(err.status).json({ error: err.message });
     console.error('/api/join-family error:', err);
     res.status(500).json({ error: 'Could not join family. Please try again.' });
   }
@@ -6214,7 +6130,8 @@ app.get('/api/family-link/profiles', async (req, res) => {
 
     const members = snaps
       .map((s) => (s.exists
-        ? projectSharedMember({ id: s.id, ...s.data() }, categoriesFor(link, other.id, s.id), surnameMeanings)
+        ? projectConnectedFileUrls(projectSharedMember({ id: s.id, ...s.data() }, categoriesFor(link, other.id, s.id), surnameMeanings),
+            { spaceId: caller.familyId, linkId, memberId: s.id }, STORAGE_BUCKET)
         : null))
       .filter(Boolean);
 

@@ -17,6 +17,8 @@ import GlobalCopyScan from './components/GlobalCopyScan';
 import { AppearanceProvider } from './contexts/AppearanceContext';
 import EmergencyOfflinePack from './components/EmergencyOfflinePack';
 import { activateEmergencyPackScope } from './utils/emergencyPack';
+import VaultAccessNotice from './components/VaultAccessNotice';
+import { subscribeVaultAccess, getVaultAccessIssue } from './utils/vaultAccess';
 
 // ---------------------------------------------------------------------------
 // AppInner — reads FamilyContext and gates which screen to show
@@ -24,6 +26,7 @@ import { activateEmergencyPackScope } from './utils/emergencyPack';
 
 function AppInner() {
   const { loading, uid, familyId, isAdmin, loadError, spaces } = useFamilyCtx();
+  const vaultIssue = React.useSyncExternalStore(subscribeVaultAccess, getVaultAccessIssue, () => null);
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   // FamilySettings is a SIBLING of Dashboard, and it writes the shared
   // HubSettings doc directly rather than through Dashboard's own save path.
@@ -86,6 +89,8 @@ function AppInner() {
   if (familyId === null) {
     return <FamilyOnboarding />;
   }
+
+  if (vaultIssue?.spaceId === familyId) return <VaultAccessNotice issue={vaultIssue} />;
 
   // 5. Fully loaded — render main app
   // A row in the header's account menu (see Dashboard's accountMenuItems), not

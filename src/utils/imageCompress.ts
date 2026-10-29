@@ -1,3 +1,4 @@
+import { normalizeFileReference } from './fileReferences';
 // Downscale an image (data URL) to a good-quality but bounded size so it fits
 // inside a Firestore member record (which caps at ~1MB). A full phone photo as
 // base64 is several MB and silently fails to save; 1024px @ 0.85 keeps it crisp
@@ -22,7 +23,7 @@ export async function compressImageToAvatar(src: string, maxDim = 1024, quality 
         catch { resolve(src); }
       };
       img.onerror = () => resolve(src);
-      img.src = src;
+      img.src = normalizeFileReference(src);
     } catch {
       resolve(src);
     }

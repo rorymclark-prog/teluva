@@ -31,6 +31,7 @@
 
 import { IdentityRecord, HouseholdInfo, FinancesInfo, BankAccount, PassportRecord, VisaRecord, NationalIdentifiers, FinancialAccount } from '../types';
 import { REDACTED_IDENTITY_KEYS, REDACTED_HOUSEHOLD_KEYS, REDACTED_BANK_KEYS, REDACTED_NATIONAL_ID_KEYS, REDACTED_FINANCIAL_ACCOUNT_KEYS } from './aiRedact';
+import { getVaultCacheScope, reportVaultAccessIssue, setVaultAccessScope } from './vaultAccess';
 
 /** A round-trip call to the server's encrypt or decrypt endpoint, batched. */
 export type VaultTransform = (values: string[]) => Promise<string[]>;
@@ -46,51 +47,61 @@ const looksEncrypted = (v: unknown): v is string => typeof v === 'string' && v.s
 // hits and misses. This is what lets a screen like Emergency essentials keep
 // showing a real SV number offline, once it has been viewed at least once
 // while online, exactly like every other offline-cached field in this app.
+const revealCacheKey = () => {
+  const scope = getVaultCacheScope();
+  return scope ? `family_vault_reveal_v2_${scope}` : null;
+};
 const REVEAL_CACHE_MAX = 400;
+let sharedRevealEnabled = true;
 
-// Design-audit P0 (2026-08-24): the cache used to live under ONE global key,
-// so it survived sign-out and a different account on the same browser could
-// read the previous family's decrypted values straight out of localStorage.
-// Now the key is scoped per signed-in user (the module stays Firebase-free —
-// the app injects the uid via setRevealCacheScope on auth changes), and
-// clearRevealCaches() wipes every scope at sign-out.
-let revealScope = 'anon';
-const cacheKey = () => `vault_reveal_cache_v2:${revealScope}`;
+/** Child accounts intentionally see masked shared fields, including values
+ * cached during an earlier adult role. This is a read-only UI projection;
+ * authoritative write/reveal permissions remain on the server. */
+export function setSharedRevealEnabled(enabled: boolean): void { sharedRevealEnabled = enabled; }
 
-/** Called on every auth change (App). Also retires the old global v1 key. */
+/** Preserve the existing auth lifecycle API while retiring all older caches. */
 export function setRevealCacheScope(uid: string | null | undefined): void {
-  revealScope = uid || 'anon';
-  try { localStorage.removeItem('vault_reveal_cache_v1'); } catch { /* non-fatal */ }
+  setVaultAccessScope('', uid || null);
+  try {
+    Object.keys(localStorage).filter(key => key.startsWith('vault_reveal_cache')).forEach(key => localStorage.removeItem(key));
+  } catch { /* storage unavailable */ }
 }
 
-/** Sign-out: no decrypted value outlives the session on this device. */
 export function clearRevealCaches(): void {
   try {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('vault_reveal_cache'))
-      .forEach((k) => localStorage.removeItem(k));
-  } catch { /* non-fatal */ }
+    Object.keys(localStorage).filter(key => key.startsWith('vault_reveal_cache') || key.startsWith('family_vault_reveal'))
+      .forEach(key => localStorage.removeItem(key));
+  } catch { /* storage unavailable */ }
 }
 
-function readRevealCache(): Record<string, string> {
+function readRevealCache(key: string | null): Record<string, string> {
   try {
-    const raw = localStorage.getItem(cacheKey());
+    localStorage.removeItem('vault_reveal_cache_v1');
+    if (!key) return {};
+    const raw = localStorage.getItem(key);
     const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    // Do not trust the old cache behavior that stored failed/empty reveals.
+    const cache: Record<string, string> = {};
+    for (const [ciphertext, value] of Object.entries(parsed)) {
+      if (typeof value === 'string' && value !== '' && !looksEncrypted(value)) cache[ciphertext] = value;
+    }
+    return cache;
   } catch {
     return {};
   }
 }
 
-function writeRevealCache(cache: Record<string, string>): void {
+function writeRevealCache(cache: Record<string, string>, key: string | null): void {
   try {
+    if (!key) return;
     const keys = Object.keys(cache);
     if (keys.length > REVEAL_CACHE_MAX) {
       // Simple oldest-first eviction (insertion order) — plenty for a single
       // family's data volume, no need for real LRU bookkeeping.
       for (const k of keys.slice(0, keys.length - REVEAL_CACHE_MAX)) delete cache[k];
     }
-    localStorage.setItem(cacheKey(), JSON.stringify(cache));
+    localStorage.setItem(key, JSON.stringify(cache));
   } catch {
     // Private-mode / quota — the cache just won't persist this round. Not
     // fatal: values still decrypt fine whenever there's a connection.
@@ -102,12 +113,14 @@ function writeRevealCache(cache: Record<string, string>): void {
  * (legacy data, or encryption not configured) pass straight through. Values
  * this device has decrypted before come back instantly from the local cache,
  * with no network call — so this works offline for anything previously seen.
- * A genuinely new ciphertext with no connection resolves to '' rather than
- * leaking the raw ciphertext string into the UI.
+ * An unresolved value stays encrypted in the record so a later save cannot
+ * erase it. The app's access notice pauses record display until it is readable.
  */
 export async function revealCached(values: (string | undefined)[], revealFn: VaultTransform): Promise<string[]> {
   const clean = values.map(v => v ?? '');
-  const cache = readRevealCache();
+  if (!sharedRevealEnabled) return clean.map(value => looksEncrypted(value) ? '' : value);
+  const cacheKey = revealCacheKey();
+  const cache = readRevealCache(cacheKey);
   const misses: string[] = [];
   clean.forEach((v) => {
     if (looksEncrypted(v) && !(v in cache) && !misses.includes(v)) misses.push(v);
@@ -117,15 +130,19 @@ export async function revealCached(values: (string | undefined)[], revealFn: Vau
     try {
       const revealed = await revealFn(misses);
       if (revealed.length === misses.length) {
-        misses.forEach((ct, i) => { cache[ct] = revealed[i]; });
-        writeRevealCache(cache);
+        misses.forEach((ct, i) => {
+          const plain = revealed[i];
+          if (typeof plain === 'string' && plain !== '' && !looksEncrypted(plain)) cache[ct] = plain;
+        });
+        writeRevealCache(cache, cacheKey);
       }
     } catch {
       // Offline / server error — fall through with whatever the cache already has.
     }
   }
 
-  return clean.map(v => (looksEncrypted(v) ? (cache[v] ?? '') : v));
+  if (cacheKey === revealCacheKey() && clean.some(value => looksEncrypted(value) && !(value in cache))) reportVaultAccessIssue('unavailable');
+  return clean.map(v => (looksEncrypted(v) ? (cache[v] ?? v) : v));
 }
 
 // --- generic key-walkers, shared by identity/household/finances ---------
