@@ -1,10 +1,10 @@
 [
   {
-    "label": "v377",
+    "label": "v378",
     "changes": [
       "Family and business assets now keep separate manufacturer, retailer and extended warranties, ownership and purchase details, policy links and dated replacement-value references.",
       "Attach original invoices and warranty files, link existing purchase slips, and receive reminders from recorded warranty and return dates. Earlier asset records remain intact.",
-      "Export an evidence ZIP with original files, receipts and repair paperwork, alongside PDF-ready, CSV and JSON summaries. Damaged items are supported and values stay separated by currency."
+      "Export an evidence ZIP with original files, receipts and repair paperwork, alongside complete multi-page PDF, CSV and JSON summaries. Damaged items are supported and values stay separated by currency."
     ],
     "date": "2026-10-31"
   },

@@ -135,7 +135,17 @@ export default function AssetClaimExport({ items, onClose, isBusinessSpace }: {
 
   return createPortal(<div className="asset-claim-export-layer fixed inset-0 z-[120] overflow-y-auto bg-ink-900/60 backdrop-blur-sm flex justify-center px-3 py-6 sm:p-8"
     onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <style>{`@media print { body > *:not(.asset-claim-export-layer) { display:none !important; } .asset-claim-export-layer { position:static!important;display:block!important;padding:0!important;background:white!important;overflow:visible!important;backdrop-filter:none!important; } .asset-claim-export-dialog { border:0!important;box-shadow:none!important;border-radius:0!important;max-width:none!important;margin:0!important; } .asset-claim-controls { display:none!important; } .asset-claim-export-dialog {font-size:11px!important;} }`}</style>
+    <style>{`@media print {
+      @page { margin:12mm; }
+      html, body { position:static!important;inset:auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;background:white!important; }
+      body > *:not(.asset-claim-export-layer) { display:none!important; }
+      .asset-claim-export-layer { position:static!important;inset:auto!important;display:block!important;height:auto!important;min-height:0!important;max-height:none!important;padding:0!important;background:white!important;overflow:visible!important;backdrop-filter:none!important; }
+      .asset-claim-export-dialog { display:block!important;height:auto!important;max-height:none!important;overflow:visible!important;border:0!important;box-shadow:none!important;border-radius:0!important;max-width:none!important;margin:0!important;font-size:11px!important; }
+      .asset-claim-export-dialog section { break-inside:auto; }
+      .asset-claim-export-dialog h3, .asset-claim-export-dialog h4 { break-after:avoid; }
+      .asset-claim-export-dialog dl.border-t { break-inside:avoid; }
+      .asset-claim-controls { display:none!important; }
+    }`}</style>
     <div ref={dialogRef} onKeyDown={keys} role="dialog" aria-modal="true" aria-labelledby="asset-claim-title"
       className="asset-claim-export-dialog w-full max-w-5xl h-fit my-auto bg-white rounded-[28px] border border-cream-300/60 shadow-2xl overflow-hidden">
       <div className="flex items-start justify-between gap-4 p-5 sm:p-7 border-b border-cream-200">
@@ -173,7 +183,7 @@ export default function AssetClaimExport({ items, onClose, isBusinessSpace }: {
         {!scoped.length ? <EmptyState title={scope === 'incident' ? 'No stolen, lost or damaged items on file.' : 'No assets on file yet.'} description="Add or update an asset, then generate the selected record here." /> : <>
           <div className="rounded-xl border border-cream-200 p-3 space-y-1">
             <p className="font-semibold text-[13px]">Recorded estimates by currency</p>
-            {summary.totals.map(total => <p key={total.currency} className="text-[13px] text-ink-700"><strong className="tabular-nums">{formatClaimMoney(total.recordedValue, total.currency)}</strong> · {total.items} items{total.unpriced ? ` · ${total.unpriced} unpriced` : ''}</p>)}
+            {summary.totals.map(total => <p key={total.currency} className="text-[13px] text-ink-700"><strong className="tabular-nums">{formatClaimMoney(total.recordedValue, total.currency)}</strong> · {total.items} item{total.items === 1 ? '' : 's'}{total.unpriced ? ` · ${total.unpriced} unpriced` : ''}</p>)}
             <p className="text-[11px] text-ink-500">{summary.valueNote}</p>
           </div>
           <p className="text-[12px] text-ink-500">Evidence below is verified when you generate the ZIP. Printed and CSV-only exports contain the recorded details.</p>
