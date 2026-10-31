@@ -99,6 +99,30 @@ export function tomorrowsEvents(events, today) {
     .map((e) => ({ label: `Tomorrow: ${String(e.title || 'an event').trim()}`, days: 1, personal: false }));
 }
 
+/** Recorded asset dates only. No expiry is inferred from a purchase or statute. */
+export function assetDeadlines(assets, today) {
+  const out = [];
+  for (const asset of assets || []) {
+    if (asset.status && !['owned', 'damaged'].includes(asset.status)) continue;
+    const add = (value, label, thresholds) => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+      const ms = Date.parse(`${value}T00:00:00Z`);
+      if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== value) return;
+      const days = Math.round((ms - today) / 86400000);
+      if (thresholds.includes(days)) out.push({ label: `${String(asset.name || 'Asset').trim()}: ${label} ${dueWord(days)}`, days, personal: false });
+    };
+    const covers = Array.isArray(asset.warranties) ? asset.warranties.filter(c => c && typeof c === 'object') : [];
+    for (const cover of covers) {
+      const thresholds = Array.isArray(cover.reminderDays) ? cover.reminderDays.filter(n => Number.isInteger(n) && n >= 0 && n <= 365) : [30, 7];
+      const label = cover.kind === 'manufacturer' ? 'manufacturer warranty ends' : cover.kind === 'retailer' ? 'retailer warranty ends' : 'extended cover ends';
+      add(cover.endDate, label, thresholds);
+    }
+    if (!covers.some(c => c.endDate === asset.warrantyUntil)) add(asset.warrantyUntil, 'recorded warranty ends', [30, 7]);
+    add(asset.returnByDate, 'recorded return window ends', [7, 0]);
+  }
+  return out;
+}
+
 /* Two lines at most: a notification nobody can read at a glance is ignored,
  * and the app is one tap away for the rest. Most urgent first, so the
  * truncated body still leads with what matters. */

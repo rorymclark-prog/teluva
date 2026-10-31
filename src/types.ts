@@ -1836,7 +1836,22 @@ export interface FamilyMemberRole {
   displayName: string;
 }
 
-export type AssetStatus = 'owned' | 'stolen' | 'lost' | 'sold' | 'disposed';
+export type AssetStatus = 'owned' | 'stolen' | 'lost' | 'damaged' | 'sold' | 'disposed';
+
+/** Recorded commercial cover. Dates come from the holder or evidence, never inferred law. */
+export interface AssetWarranty {
+  id: string;
+  kind: 'manufacturer' | 'retailer' | 'extended';
+  provider?: string;
+  startDate?: string;
+  endDate?: string;
+  reference?: string;
+  contact?: string;
+  terms?: string;
+  documentIds?: string[];
+  /** Explicit reminder lead days; [] disables notifications for this cover. */
+  reminderDays?: number[];
+}
 
 // Theft/loss details captured for an insurance claim (drives the claim export).
 export interface AssetIncident {
@@ -1851,6 +1866,8 @@ export interface AssetItem {
   name: string;
   category: 'Electronics' | 'Appliance' | 'Bike' | 'Sporting' | 'Vehicle' | 'Jewellery' | 'Furniture' | 'Other';
   assignedMember?: string;
+  ownerName?: string;         // legal owner; assignedMember is the custodian/user
+  location?: string;          // room, site or office
   make?: string;
   model?: string;
   serialNumber?: string;
@@ -1860,6 +1877,19 @@ export interface AssetItem {
   currency?: string;          // ISO 4217, default EUR
   replacementValue?: string;  // today's cost to replace new (Neuwert)
   purchaseLocation?: string;
+  purchaseReference?: string;
+  deliveryDate?: string;
+  purchaseCountry?: string;
+  purchaseContext?: 'consumer' | 'business' | 'unknown';
+  retailerContact?: string;
+  returnByDate?: string;
+  warranties?: AssetWarranty[];
+  documentIds?: string[];     // originals in the current space's protected vault
+  slipIds?: string[];         // canonical receipt links; no duplicate receipt record
+  insurancePolicyIds?: string[];
+  insuranceNotes?: string;    // recorded limits/conditions, not a coverage determination
+  replacementValueCheckedAt?: string;
+  replacementValueSource?: string;
   warrantyUntil?: string;     // YYYY-MM-DD
   condition?: string;         // New | Excellent | Good | Fair | Poor
   storageSecurity?: string;   // e.g. In the home | Locked away | In a safe

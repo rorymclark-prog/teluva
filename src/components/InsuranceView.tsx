@@ -413,7 +413,7 @@ export default function InsuranceView({ members, canUseAI = false, isBusinessSpa
             <div className="space-y-1">
               {sortedPolicies.map(policy => {
                 const memberCount = (policy.coveredMemberIds || []).length;
-                const assetCount = (policy.coveredAssetIds || []).length;
+                const assetCount = new Set([...(policy.coveredAssetIds || []), ...assets.filter(a => a.insurancePolicyIds?.includes(policy.id)).map(a => a.id)]).size;
                 const days = policy.renewalDate ? daysUntil(policy.renewalDate) : null;
                 return (
                   <button
@@ -709,27 +709,33 @@ export default function InsuranceView({ members, canUseAI = false, isBusinessSpa
               {/* Covered items */}
               <div>
                 <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                  <Package className="w-3.5 h-3.5" /> Covered items
+                  <Package className="w-3.5 h-3.5" /> Linked items
                 </label>
                 {assets.length === 0 ? (
                   <EmptyState size="sm" title="No assets yet — add them in Assets." />
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {assets.map(a => {
-                      const active = (editing.coveredAssetIds || []).includes(a.id);
+                      const fromAsset = !!editing.id && !!a.insurancePolicyIds?.includes(editing.id);
+                      const fromPolicy = (editing.coveredAssetIds || []).includes(a.id);
+                      const active = fromAsset || fromPolicy;
                       return (
                         <button
                           key={a.id}
                           type="button"
-                          onClick={() => toggleAsset(a.id)}
+                          onClick={() => { if (!fromAsset || fromPolicy) toggleAsset(a.id); }}
+                          disabled={fromAsset && !fromPolicy}
+                          title={fromAsset ? (fromPolicy ? 'Remove the policy-side association. The separate link in Assets will remain.' : 'Linked from this asset. Edit its insurance links in Assets.') : undefined}
                           className={`chip cursor-pointer transition-colors ${active ? 'bg-clay-500 text-white' : 'bg-cream-100 text-ink-500 hover:bg-cream-200'}`}
                         >
                           {a.name}
+                          {fromAsset && <span className="ml-1 opacity-80">· Linked in Assets</span>}
                         </button>
                       );
                     })}
                   </div>
                 )}
+                <p className="mt-2 text-[11px] text-ink-400">Links help organise your records. Check the policy for actual cover, limits and conditions. Links added in Assets are managed there.</p>
               </div>
 
               {/* Coverage breakdown */}

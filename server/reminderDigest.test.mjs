@@ -9,6 +9,7 @@ import {
   digestText,
   splitDigests,
   daysUntil,
+  assetDeadlines,
 } from './reminderDigest.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +28,22 @@ const EMPLOYEE = {
   careSchedule: [{ kind: 'Dental check-up', nextDue: inDays(0) }],
   cv: { qualifications: [{ name: 'First aid certificate', issuer: 'Rotes Kreuz', expiryDate: inDays(90) }] },
 };
+
+test('asset cover and return reminders use recorded dates, respect opt-out and skip disposed assets', () => {
+  const out = assetDeadlines([
+    { name: 'TV', warrantyUntil: inDays(7), warranties: [{ id: 'm', kind: 'manufacturer', endDate: inDays(7) }, { id: 'e', kind: 'extended', endDate: inDays(30), reminderDays: [] }] },
+    { name: 'Laptop', returnByDate: inDays(0) },
+    { name: 'Sold TV', status: 'sold', warrantyUntil: inDays(7) },
+    { name: 'No guesses', purchaseDate: inDays(-365) },
+    { name: 'Invalid', warrantyUntil: '2026-02-31' },
+    { name: 'Between', warranties: [{ id: 'e', kind: 'extended', endDate: inDays(10) }] },
+  ], TODAY);
+  assert.equal(out.length, 2);
+  assert.match(out[0].label, /TV: manufacturer warranty ends in 7 days/);
+  assert.match(out[1].label, /return window ends today/);
+  assert.ok(out.every(d => d.personal === false));
+  assert.equal(splitDigests(out, { isBusiness: true })[0].audience, 'everyone', 'asset dates are shared records in either space');
+});
 
 // --- 1. every member-derived deadline is marked personal --------------------
 test('memberDeadlines marks everything it returns as personal', () => {

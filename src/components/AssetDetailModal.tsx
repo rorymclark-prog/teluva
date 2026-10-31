@@ -1,11 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Package, Pencil, Trash2, Camera, Loader2, X, Receipt, ChevronLeft, ChevronRight, Plus, ShieldAlert,
 } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import CopyableValue from './CopyableValue';
 import type { AssetItem } from '../types';
-import { saveAsset, deleteAsset, uploadAssetPhoto, deleteAssetPhoto } from '../utils/db';
+import { FAMILY_ID, saveAsset, deleteAsset, uploadAssetPhoto } from '../utils/db';
+import { auth } from '../lib/firebase';
+import { createFileOperationScope, type FileOperationScope } from '../utils/fileOperationScope';
 import { compressImageToAvatar } from '../utils/imageCompress';
 import {
   CATEGORIES, IDENTIFIER_TYPES, CONDITIONS, STORAGE_OPTIONS, CURRENCIES, STATUSES,
@@ -13,6 +15,10 @@ import {
 } from '../utils/assetConstants';
 import SheetGrabber from './SheetGrabber';
 import AssetServiceHistory from './AssetServiceHistory';
+import AssetRegisterDetails from './AssetRegisterDetails';
+import AssetEvidenceFields from './AssetEvidenceFields';
+import AssetRecordReadiness from './AssetRecordReadiness';
+import { isIncidentAsset, validateAssetRegister } from '../utils/assetRegister';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 const EXTRA_PHOTO_CAP = 12;
@@ -45,11 +51,39 @@ export default function AssetDetailModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
   const [gallery, setGallery] = useState<{ src: string; label: string }[] | null>(null);
   const [galleryIdx, setGalleryIdx] = useState(0);
 
   const photoFileRef = useRef<HTMLInputElement>(null);
   const photoKindRef = useRef<'primary' | 'extra' | 'receipt'>('primary');
+  const photoEpoch = useRef(0);
+  const photoMounted = useRef(true);
+  const photoBusy = useRef(false);
+  const photoEditing = useRef(editing);
+  const photoWritable = useRef(canEdit);
+  const photoMode = useRef(mode);
+  const pendingPhoto = useRef<FileOperationScope | null>(null);
+  photoEditing.current = editing;
+  photoWritable.current = canEdit;
+  photoMode.current = mode;
+  useEffect(() => {
+    photoMounted.current = true;
+    return () => { photoMounted.current = false; photoEpoch.current++; };
+  }, []);
+  const invalidatePhotos = () => {
+    photoEpoch.current++;
+    pendingPhoto.current = null;
+    photoBusy.current = false;
+    setUploadingPhotos(false);
+  };
+  useEffect(() => {
+    invalidatePhotos();
+    photoEditing.current = item;
+    photoMode.current = 'view';
+    setEditing(item);
+    setMode('view');
+  }, [item.id]);
 
   useBodyScrollLock(true);
   useBodyScrollLock(!!gallery && gallery.length > 0);
@@ -62,45 +96,70 @@ export default function AssetDetailModal({
   const patchIncident = (p: Partial<NonNullable<AssetItem['incident']>>) =>
     setEditing((prev) => ({ ...prev, incident: { ...prev.incident, ...p } }));
 
-  const startEdit = () => { setEditing(item); setError(null); setMode('edit'); };
-  const cancelEdit = () => { setEditing(item); setError(null); setMode('view'); };
+  const startEdit = () => {
+    if (!photoWritable.current) return;
+    invalidatePhotos(); photoEditing.current = item; photoMode.current = 'edit';
+    setEditing(item); setError(null); setMode('edit');
+  };
+  const cancelEdit = () => {
+    invalidatePhotos(); photoEditing.current = item; photoMode.current = 'view';
+    setEditing(item); setError(null); setMode('view');
+  };
+  const closeModal = () => { invalidatePhotos(); photoMode.current = 'view'; onClose(); };
 
   const triggerPhoto = (kind: 'primary' | 'extra' | 'receipt') => {
+    if (!photoMounted.current || !photoWritable.current || photoMode.current !== 'edit' || photoBusy.current) return;
+    photoEpoch.current++;
     photoKindRef.current = kind;
+    pendingPhoto.current = createFileOperationScope(() => [auth.currentUser?.uid, FAMILY_ID, photoEditing.current.id, photoEpoch.current, photoMounted.current, photoWritable.current, photoMode.current, photoKindRef.current]);
     photoFileRef.current?.click();
   };
   const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = '';
-    if (!files.length) return;
+    const operation = pendingPhoto.current;
+    pendingPhoto.current = null;
+    if (!files.length || !operation?.isCurrent() || photoBusy.current || !photoWritable.current || photoMode.current !== 'edit') return;
+    const epoch = photoEpoch.current;
     const kind = photoKindRef.current;
-    if (kind === 'primary') { patch({ photoDataUrl: await compressImageToAvatar(await readFile(files[0]), 1500, 0.82) }); return; }
-    if (kind === 'receipt') { patch({ receiptDataUrl: await compressImageToAvatar(await readFile(files[0]), 1500, 0.78) }); return; }
+    photoBusy.current = true;
     setError(null); setUploadingPhotos(true);
     try {
-      const start = (editing.photos || []).length;
+      if (kind !== 'extra') {
+        const data = await operation.step(() => readFile(files[0]));
+        const compressed = await operation.step(() => compressImageToAvatar(data, 1500, kind === 'receipt' ? 0.78 : 0.82));
+        operation.check();
+        setEditing(prev => operation.isCurrent() ? { ...prev, [kind === 'receipt' ? 'receiptDataUrl' : 'photoDataUrl']: compressed } : prev);
+        return;
+      }
+      const start = (photoEditing.current.photos || []).length;
       const room = Math.max(0, EXTRA_PHOTO_CAP - start);
       if (files.length > room) setError(`Only ${room} more photo${room === 1 ? '' : 's'} can be added (max ${EXTRA_PHOTO_CAP}).`);
       for (const file of files.slice(0, room)) {
-        const compressed = await compressImageToAvatar(await readFile(file), 1600, 0.82);
-        const url = await uploadAssetPhoto(compressed);
-        setEditing((prev) => ({ ...prev, photos: [...(prev.photos || []), url].slice(0, EXTRA_PHOTO_CAP) }));
+        const data = await operation.step(() => readFile(file));
+        const compressed = await operation.step(() => compressImageToAvatar(data, 1600, 0.82));
+        const url = await operation.step(() => uploadAssetPhoto(compressed));
+        operation.check();
+        setEditing(prev => operation.isCurrent() ? { ...prev, photos: [...(prev.photos || []), url].slice(0, EXTRA_PHOTO_CAP) } : prev);
       }
     } catch {
-      setError('Some photos could not be uploaded — please try again.');
+      if (operation.isCurrent()) setError(kind === 'extra' ? 'Some photos could not be uploaded — please try again.' : 'This image could not be prepared. Please try another image.');
     } finally {
-      setUploadingPhotos(false);
+      if (photoMounted.current && photoEpoch.current === epoch) { photoBusy.current = false; setUploadingPhotos(false); }
     }
   };
   const removeExtraPhoto = (idx: number) =>
     setEditing((prev) => {
-      const url = (prev.photos || [])[idx];
-      if (url) void deleteAssetPhoto(url);
+      if (!photoWritable.current || photoMode.current !== 'edit') return prev;
+      // Unlink the draft only; Cancel must not destroy saved evidence bytes.
       return { ...prev, photos: (prev.photos || []).filter((_, i) => i !== idx) };
     });
 
   const handleSave = async () => {
+    if (photoBusy.current) return;
     if (!editing.name.trim()) { setError('Name is required'); return; }
+    const invalid = validateAssetRegister(editing);
+    if (invalid) { setError(invalid); return; }
     setError(null); setSaving(true);
     const inc = editing.incident;
     const incident = inc && (inc.date || inc.policeReference || inc.notes || inc.type) ? inc : undefined;
@@ -117,11 +176,11 @@ export default function AssetDetailModal({
   const handleDelete = async () => {
     await deleteAsset(item.id);
     onDeleted?.(item.id);
-    onClose();
+    closeModal();
   };
 
   const imgs = itemImages(mode === 'edit' ? editing : item);
-  const flagged = item.status === 'stolen' || item.status === 'lost';
+  const flagged = isIncidentAsset(item);
 
   const Row = ({ label, value }: { label: string; value?: string | null }) =>
     value ? (
@@ -137,7 +196,7 @@ export default function AssetDetailModal({
     <div className="fixed inset-0 z-50 bg-ink-900/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto anim-fade">
       <input ref={photoFileRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoFileChange} />
       <div className="w-full max-w-lg mt-12 mb-8 rounded-2xl bg-white shadow-xl anim-pop">
-        <SheetGrabber onClose={onClose} />
+        <SheetGrabber onClose={closeModal} />
         <div className="flex items-center justify-between p-6 border-b border-cream-200">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-1.5 rounded-lg bg-sage-100 text-sage-700 shrink-0"><Package className="w-4 h-4" /></div>
@@ -147,7 +206,7 @@ export default function AssetDetailModal({
             {mode === 'view' && canEdit && (
               <button onClick={startEdit} className="btn-quiet p-2" title="Edit"><Pencil className="w-4 h-4" /></button>
             )}
-            <button onClick={onClose} className="btn-quiet p-2"><X className="w-4 h-4" /></button>
+            <button onClick={closeModal} className="btn-quiet p-2"><X className="w-4 h-4" /></button>
           </div>
         </div>
 
@@ -156,7 +215,7 @@ export default function AssetDetailModal({
             {flagged && (
               <div className="flex items-center gap-2 bg-rosa-50 rounded-xl px-3 py-2.5">
                 <ShieldAlert className="w-4 h-4 text-rosa-600 shrink-0" />
-                <p className="text-[12.5px] font-semibold text-rosa-700">Reported {item.status === 'lost' ? 'lost' : 'stolen'}</p>
+                <p className="text-[12.5px] font-semibold text-rosa-700">Reported {item.status === 'damaged' ? 'damaged' : item.status === 'lost' ? 'lost' : 'stolen'}</p>
               </div>
             )}
 
@@ -181,11 +240,16 @@ export default function AssetDetailModal({
               <Row label="Paid" value={item.purchasePrice ? `${item.currency || 'EUR'} ${item.purchasePrice}` : undefined} />
               <Row label="Replace today" value={item.replacementValue ? `${item.currency || 'EUR'} ${item.replacementValue}` : undefined} />
               <Row label="Bought at" value={item.purchaseLocation} />
-              <Row label="Warranty until" value={item.warrantyUntil} />
+              <Row label="Earlier warranty expiry" value={item.warrantyUntil} />
               <Row label="Where it's kept" value={item.storageSecurity} />
-              {flagged && <Row label="Date of loss" value={item.incident?.date} />}
+              {flagged && <Row label="Incident date" value={item.incident?.date} />}
               {flagged && <Row label="Police ref." value={item.incident?.policeReference} />}
+              {flagged && <Row label="Incident notes" value={item.incident?.notes} />}
             </div>
+
+            <AssetRecordReadiness item={item} />
+            <AssetRegisterDetails item={item} />
+            <AssetEvidenceFields item={item} />
 
             {item.notes && (
               <div>
@@ -243,15 +307,16 @@ export default function AssetDetailModal({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Receipt / proof of purchase</label>
+              <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Receipt photo</label>
               {editing.receiptDataUrl ? (
                 <div className="relative w-16 h-16">
                   <button type="button" onClick={() => openGallery([{ src: editing.receiptDataUrl!, label: 'Receipt' }])} className="w-16 h-16 rounded-lg overflow-hidden bg-cream-100 ring-1 ring-sage-200 cursor-zoom-in"><img src={editing.receiptDataUrl} alt="Receipt" className="w-full h-full object-cover" /></button>
                   <button onClick={() => patch({ receiptDataUrl: '' })} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink-800 text-white flex items-center justify-center hover:bg-rosa-500"><X className="w-2.5 h-2.5" /></button>
                 </div>
               ) : (
-                <button onClick={() => triggerPhoto('receipt')} className="btn-quiet text-xs px-3 py-2"><Receipt className="w-3.5 h-3.5" /> Add receipt</button>
+                <button onClick={() => triggerPhoto('receipt')} className="btn-quiet text-xs px-3 py-2"><Receipt className="w-3.5 h-3.5" /> Add receipt photo</button>
               )}
+              <p className="mt-1 text-[11px] text-ink-400">For original PDFs and invoices, use Receipts &amp; original files below.</p>
             </div>
 
             <div>
@@ -330,15 +395,16 @@ export default function AssetDetailModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className={item.warrantyUntil ? 'grid grid-cols-1 gap-4 sm:grid-cols-2' : 'grid grid-cols-1 gap-4'}>
               <div>
                 <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Bought at</label>
                 <input type="text" value={editing.purchaseLocation || ''} onChange={(e) => patch({ purchaseLocation: e.target.value })} className="field w-full" />
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Warranty until</label>
+              {item.warrantyUntil && <div>
+                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Earlier warranty expiry</label>
                 <input type="date" value={editing.warrantyUntil || ''} onChange={(e) => patch({ warrantyUntil: e.target.value })} className="field w-full" />
-              </div>
+                <p className="mt-1 text-[11px] text-ink-400">Type unspecified. Add separate cover details below.</p>
+              </div>}
             </div>
 
             <div>
@@ -354,24 +420,29 @@ export default function AssetDetailModal({
                 <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Status</label>
                 <select value={editing.status || 'owned'} onChange={(e) => {
                   const status = e.target.value as AssetItem['status'];
-                  patch(status === 'stolen' || status === 'lost' ? { status } : { status, incident: undefined });
+                  patch(isIncidentAsset({ ...editing, status }) ? { status, incident: { ...editing.incident, type: status as 'stolen' | 'lost' | 'damaged' } } : { status, incident: undefined });
                 }} className="field w-full">
                   {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
               </div>
-              {(editing.status === 'stolen' || editing.status === 'lost') && (
+              {isIncidentAsset(editing) && (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Date of loss</label>
-                    <input type="date" value={editing.incident?.date || ''} onChange={(e) => patchIncident({ date: e.target.value, type: editing.status === 'lost' ? 'lost' : 'stolen' })} className="field w-full" />
+                    <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Incident date</label>
+                    <input type="date" value={editing.incident?.date || ''} onChange={(e) => patchIncident({ date: e.target.value })} className="field w-full" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Police ref.</label>
-                    <input type="text" value={editing.incident?.policeReference || ''} onChange={(e) => patchIncident({ policeReference: e.target.value, type: editing.status === 'lost' ? 'lost' : 'stolen' })} className="field w-full font-mono" />
+                    <input type="text" placeholder="if applicable" value={editing.incident?.policeReference || ''} onChange={(e) => patchIncident({ policeReference: e.target.value })} className="field w-full font-mono" />
                   </div>
+                  <label className="block col-span-2 text-xs font-semibold text-ink-500">What happened<textarea rows={3} value={editing.incident?.notes || ''} onChange={e => patchIncident({ notes: e.target.value })} className="field w-full mt-1" /></label>
                 </div>
               )}
             </div>
+
+            <AssetRecordReadiness item={editing} />
+            <AssetRegisterDetails item={editing} onChange={patch} />
+            <AssetEvidenceFields item={editing} onChange={patch} onBusyChange={setEvidenceBusy} />
 
             <div>
               <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Notes</label>
@@ -389,7 +460,7 @@ export default function AssetDetailModal({
               </ConfirmDeleteButton>
               <div className="flex items-center gap-3">
                 <button onClick={cancelEdit} className="btn-quiet text-xs px-4 py-2">Cancel</button>
-                <button onClick={handleSave} disabled={saving} className="btn-primary text-xs px-5 py-2 disabled:opacity-60">
+                <button onClick={handleSave} disabled={saving || uploadingPhotos || evidenceBusy} className="btn-primary text-xs px-5 py-2 disabled:opacity-60">
                   {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Save
                 </button>
               </div>

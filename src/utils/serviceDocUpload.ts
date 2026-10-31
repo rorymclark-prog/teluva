@@ -19,6 +19,7 @@ import { auth } from '../lib/firebase';
 import { loadDocuments, saveDocuments, uploadVaultFile } from './db';
 import { computeFileHash } from './documentDedup';
 import type { VaultDocument } from '../types';
+import type { FileOperationScope } from './fileOperationScope';
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // same cap as the vault's own form
 
@@ -45,22 +46,24 @@ export async function dataUrlToFile(dataUrl: string, name: string, type: string)
 
 export async function uploadServiceDocFile(
   file: File,
-  opts: { name: string; memberId?: string; notes?: string },
+  opts: { name: string; memberId?: string; notes?: string; scope?: FileOperationScope; shared?: boolean; dedupe?: boolean },
 ): Promise<ServiceUploadOutcome> {
   if (file.size > MAX_UPLOAD_BYTES) {
     return { kind: 'error', message: 'That file is larger than 20 MB — please compress it first.' };
   }
+  const step = <T,>(operation: () => T | Promise<T>): Promise<T> => opts.scope
+    ? opts.scope.step(operation) : Promise.resolve(operation());
   try {
-    const hash = await computeFileHash(file);
-    const current = await loadDocuments();
-    const existing = current.find((d) => d.contentHash && d.contentHash === hash);
+    const hash = await step(() => computeFileHash(file));
+    const current = await step(() => loadDocuments());
+    const existing = opts.dedupe === false ? undefined : current.find((d) => d.contentHash && d.contentHash === hash);
     if (existing) return { kind: 'ok', doc: existing, allDocs: current, deduped: true };
 
     const docId = newId();
     // Storage keeps the auto-name as the file name too, so a download from the
     // vault arrives as "Trek FX — service 10 Sep 2026.pdf", not "scan-1.pdf".
     const named = new File([file], `${opts.name}.${extOf(file)}`, { type: file.type });
-    const { storagePath, downloadUrl } = await uploadVaultFile(named, docId);
+    const { storagePath, downloadUrl } = await step(() => uploadVaultFile(named, docId, { shared: opts.shared }));
     const doc: VaultDocument = {
       id: docId,
       name: opts.name,
@@ -77,10 +80,11 @@ export async function uploadServiceDocFile(
       contentHash: hash,
     };
     const next = [doc, ...current];
-    const ok = await saveDocuments(next, current);
+    const ok = await step(() => saveDocuments(next, current));
     if (ok === false) return { kind: 'error', message: 'Could not save the document — please try again.' };
     return { kind: 'ok', doc, allDocs: next, deduped: false };
   } catch (err) {
+    if (opts.scope && !opts.scope.isCurrent()) return { kind: 'error', message: 'Your account, space or asset changed. Reopen it and try again.' };
     console.error('Service receipt upload failed:', err);
     return { kind: 'error', message: 'Upload failed. Check your connection and try again.' };
   }

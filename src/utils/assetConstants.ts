@@ -20,6 +20,7 @@ export const STATUSES: { value: NonNullable<AssetItem['status']>; label: string 
   { value: 'owned', label: 'Owned' },
   { value: 'stolen', label: 'Stolen' },
   { value: 'lost', label: 'Lost' },
+  { value: 'damaged', label: 'Damaged' },
   { value: 'sold', label: 'Sold' },
   { value: 'disposed', label: 'Disposed' },
 ];

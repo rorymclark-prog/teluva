@@ -51,6 +51,7 @@ import {
 import { trimContext } from './server/chatContext.mjs';
 import {
   memberDeadlines,
+  assetDeadlines,
   tomorrowsEvents,
   digestText,
   splitDigests,
@@ -7027,6 +7028,8 @@ async function runDailyCelebrations() {
     for (const mDoc of membersSnap.docs) due.push(...memberDeadlines(mDoc.data() || {}, todayUtc));
     const eventsSnap = await familyRef.collection('calendar_events').get();
     due.push(...tomorrowsEvents(eventsSnap.docs.map((d) => d.data() || {}), todayUtc));
+    const assetsSnap = await familyRef.collection('assets').get();
+    due.push(...assetDeadlines(assetsSnap.docs.map(d => d.data() || {}), todayUtc));
 
     if (due.length === 0) continue;
     remindersFound += due.length;

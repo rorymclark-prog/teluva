@@ -142,7 +142,7 @@ export default function MemberBelongings(
       <div className="divide-y divide-cream-200">
         {items.map((item) => {
           const value = item.replacementValue || item.purchasePrice;
-          const statusChip = item.status === 'stolen' ? 'Stolen' : item.status === 'lost' ? 'Lost' : null;
+          const statusChip = item.status === 'stolen' ? 'Stolen' : item.status === 'lost' ? 'Lost' : item.status === 'damaged' ? 'Damaged' : null;
           const imgs = itemImages(item);
           const busy = busyId === item.id;
 

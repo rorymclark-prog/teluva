@@ -3311,7 +3311,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         )}
 
         {mainView === 'assets' && (
-          demo ? <DemoUnavailable label={isBusinessSpace ? 'Business assets' : 'Family assets'} isBusinessSpace={isBusinessSpace} /> : <Assets key={aiDataVersion} />
+          demo ? <DemoUnavailable label={isBusinessSpace ? 'Business assets' : 'Family assets'} isBusinessSpace={isBusinessSpace} /> : <Assets key={`${accountUid}:${activeSpaceId}:${aiDataVersion}`} />
         )}
 
         {mainView === 'recipes' && (
@@ -3456,7 +3456,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
               <ImportantComingUp variant="classic" items={importantItems} members={members} onOpenCalendar={() => setMainView('calendar')} />
             )}
 
-            <NeedsAttention members={members} extendedBirthdays={homeExtendedBirthdays} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} />
+            <div key={`${accountUid}:${activeSpaceId}:${aiDataVersion}`}><NeedsAttention members={members} extendedBirthdays={homeExtendedBirthdays} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} /></div>
 
             {/* BELOW Needs attention, never above it. One card is what you must
                 do and the other is what already happened; a trail that pushed

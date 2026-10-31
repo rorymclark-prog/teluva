@@ -19,6 +19,7 @@ import { nameDayOccurrenceInYear } from '../utils/nameDay';
 import { useHiddenPeople } from '../contexts/HiddenPeopleContext';
 import { hiddenKey, NO_HIDDEN_PEOPLE, visibleExtendedBirthdays, type HiddenPeople } from '../utils/hiddenPeople';
 import { isFuneralPolicy, inWaitingPeriod, daysUntilWaitingPeriodEnd } from '../utils/funeralCover';
+import { assetReminders, replacementReviewDue } from '../utils/assetRegister';
 
 const DAY = 1000 * 60 * 60 * 24;
 const MONTH = DAY * 30.4375;
@@ -68,6 +69,12 @@ function byUrgency(a: Nudge, b: Nudge): number {
 // so they always sit below real expiries/overdue items.
 function computeAssetNudges(assets: AssetItem[]): Nudge[] {
   const out: Nudge[] = [];
+  assets = assets.filter(a => !a.status || a.status === 'owned' || a.status === 'damaged');
+  for (const reminder of assetReminders(assets)) {
+    out.push({ key: `asset-deadline-${reminder.id}`, memberId: '', icon: Clock, tone: reminder.days === 0 ? 'urgent' : 'warn', text: `${reminder.label} ${reminder.days === 0 ? 'today' : `in ${reminder.days} days`}`, tab: 'assets', view: 'assets', date: reminder.date, days: reminder.days, sortDays: reminder.days });
+  }
+  const review = assets.filter(a => replacementReviewDue(a));
+  if (review.length) out.push({ key: 'assets-review-value', memberId: '', icon: Package, tone: 'info', text: `Review replacement values for ${review.length} asset${review.length === 1 ? '' : 's'}`, tab: 'assets', view: 'assets' });
   const noPhoto = assets.filter((a) => !a.photoDataUrl && !(a.photos && a.photos.length));
   if (noPhoto.length > 0) {
     const n = noPhoto.length;

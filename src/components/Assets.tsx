@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Package, Plus, Pencil, Trash2, Camera, Loader2, X, FileDown, ShieldAlert, Receipt, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { AssetItem } from '../types';
-import { loadAssets, saveAsset, deleteAsset, uploadAssetPhoto, deleteAssetPhoto } from '../utils/db';
+import { FAMILY_ID, loadAssets, saveAsset, deleteAsset, uploadAssetPhoto } from '../utils/db';
+import { createFileOperationScope, type FileOperationScope } from '../utils/fileOperationScope';
 import { useFamilyCtx } from '../contexts/FamilyContext';
 import { auth } from '../lib/firebase';
 import { compressImageToAvatar } from '../utils/imageCompress';
@@ -10,6 +11,11 @@ import { parseAmount } from '../utils/money';
 import AssetClaimExport from './AssetClaimExport';
 import SheetGrabber from './SheetGrabber';
 import AssetServiceHistory from './AssetServiceHistory';
+import AssetDetailModal from './AssetDetailModal';
+import AssetRegisterDetails from './AssetRegisterDetails';
+import AssetEvidenceFields from './AssetEvidenceFields';
+import AssetRecordReadiness from './AssetRecordReadiness';
+import { assetReminders, isIncidentAsset, validateAssetRegister } from '../utils/assetRegister';
 import EmptyState from './EmptyState';
 import { SkeletonHeader, SkeletonRows } from './Skeleton';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
@@ -60,8 +66,38 @@ export default function Assets() {
   const openGallery = (imgs: { src: string; label: string }[], idx = 0) => { if (imgs.length) { setGallery(imgs); setGalleryIdx(idx); } };
   const [showExport, setShowExport] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
+  const [viewingItem, setViewingItem] = useState<AssetItem | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const photoKindRef = useRef<'primary' | 'extra' | 'receipt'>('primary');
+  const photoEpoch = useRef(0);
+  const photoMounted = useRef(true);
+  const photoBusy = useRef(false);
+  const photoEditing = useRef(editingItem);
+  const photoWritable = useRef(isAdmin);
+  const photoFormOpen = useRef(isFormOpen);
+  const pendingPhoto = useRef<FileOperationScope | null>(null);
+  const pendingScan = useRef<FileOperationScope | null>(null);
+  const scanBusy = useRef(false);
+  const scanAllowed = useRef(aiOn);
+  photoEditing.current = editingItem;
+  photoWritable.current = isAdmin;
+  photoFormOpen.current = isFormOpen;
+  scanAllowed.current = aiOn;
+  useEffect(() => {
+    photoMounted.current = true;
+    return () => { photoMounted.current = false; photoEpoch.current++; };
+  }, []);
+  const invalidatePhotos = () => {
+    photoEpoch.current++;
+    pendingPhoto.current = null;
+    pendingScan.current = null;
+    photoBusy.current = false;
+    scanBusy.current = false;
+    setUploadingPhotos(false);
+    setScanLoading(false);
+    setPhotoError(null);
+  };
 
   const scanFileRef = useRef<HTMLInputElement>(null);
   const photoFileRef = useRef<HTMLInputElement>(null);
@@ -80,34 +116,48 @@ export default function Assets() {
   const reload = async () => setItems(await loadAssets());
 
   const openNewForm = () => {
-    setEditingItem({ ...BLANK });
+    invalidatePhotos();
+    photoEditing.current = { ...BLANK };
+    photoFormOpen.current = true;
+    setEditingItem(photoEditing.current);
     setScanError(null); setFormError(null); setIsFormOpen(true);
   };
   const openEditForm = (item: AssetItem) => {
-    setEditingItem({ ...BLANK, ...item });
+    invalidatePhotos();
+    photoEditing.current = { ...BLANK, ...item };
+    photoFormOpen.current = true;
+    setEditingItem(photoEditing.current);
     setScanError(null); setFormError(null); setIsFormOpen(true);
   };
-  const closeForm = () => { setIsFormOpen(false); setEditingItem(null); };
+  const closeForm = () => {
+    invalidatePhotos();
+    photoFormOpen.current = false;
+    photoEditing.current = null;
+    setIsFormOpen(false); setEditingItem(null);
+  };
 
   const patch = (p: Partial<AssetItem>) => setEditingItem(prev => (prev ? { ...prev, ...p } : prev));
   const patchIncident = (p: Partial<NonNullable<AssetItem['incident']>>) =>
     setEditingItem(prev => (prev ? { ...prev, incident: { ...prev.incident, ...p } } : prev));
 
   // ── Scan asset via /api/scan-asset ──
-  const processImageForScan = async (file: File) => {
+  const processImageForScan = async (file: File, operation: FileOperationScope) => {
+    if (!operation.isCurrent() || !photoWritable.current || scanBusy.current || photoBusy.current) return;
     if (!aiOn) { setScanError('Turn on the AI assistant in Settings first.'); return; }
+    const epoch = photoEpoch.current;
+    scanBusy.current = true;
     setScanLoading(true); setScanError(null);
     try {
-      const dataUrl = await readFile(file);
-      const compressed = await compressImageToAvatar(dataUrl, 1600, 0.85);
+      const dataUrl = await operation.step(() => readFile(file));
+      const compressed = await operation.step(() => compressImageToAvatar(dataUrl, 1600, 0.85));
       const base64Data = compressed.split(',')[1];
       const mimeType = file.type || 'image/jpeg';
-      const token = await auth.currentUser?.getIdToken();
-      const resp = await fetch('/api/scan-asset', {
+      const token = await operation.step(() => auth.currentUser?.getIdToken());
+      const resp = await operation.step(() => fetch('/api/scan-asset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ image: { mimeType, data: base64Data } }),
-      });
+      }));
       if (!resp.ok) {
         // Parse as JSON first — the server always responds with { error }
         // (e.g. the AI-usage-limit message, "You've used all 30 AI actions
@@ -115,11 +165,13 @@ export default function Assets() {
         // a limit/error response's raw JSON body was shown to the user
         // verbatim instead of that human message.
         let msg = `Scan failed (${resp.status})`;
-        try { const j = await resp.json(); if (j?.error) msg = j.error; } catch { /* keep default */ }
+        try { const j = await operation.step(() => resp.json()); if (j?.error) msg = j.error; } catch { operation.check(); /* keep default */ }
         throw new Error(msg);
       }
-      const scanned = await resp.json();
+      const scanned = await operation.step(() => resp.json());
+      operation.check();
       setEditingItem(prev => {
+        if (!operation.isCurrent()) return prev;
         const base = prev ?? { ...BLANK };
         // Validate against our enum — the model may return e.g. "Jewelry"/"Sports"
         // which would save fine but never render (grouping is enum-keyed).
@@ -144,60 +196,83 @@ export default function Assets() {
           photoDataUrl: compressed,
         };
       });
-      setIsFormOpen(true);
+      if (operation.isCurrent()) setIsFormOpen(true);
     } catch (err: unknown) {
-      setScanError(err instanceof Error ? err.message : 'Scan failed');
-    } finally { setScanLoading(false); }
+      if (operation.isCurrent()) setScanError(err instanceof Error ? err.message : 'Scan failed');
+    } finally {
+      if (photoMounted.current && photoEpoch.current === epoch) { scanBusy.current = false; setScanLoading(false); }
+    }
   };
 
-  const handleScanAsset = () => scanFileRef.current?.click();
+  const handleScanAsset = () => {
+    if (!photoMounted.current || !photoWritable.current || photoBusy.current || scanBusy.current) return;
+    photoEpoch.current++;
+    pendingScan.current = createFileOperationScope(() => [auth.currentUser?.uid, FAMILY_ID, photoEditing.current?.id, photoEpoch.current, photoMounted.current, photoWritable.current, photoFormOpen.current, scanAllowed.current]);
+    scanFileRef.current?.click();
+  };
   const handleScanFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; e.target.value = '';
-    await processImageForScan(file);
+    const file = e.target.files?.[0]; e.target.value = '';
+    const operation = pendingScan.current;
+    pendingScan.current = null;
+    if (!file || !operation?.isCurrent()) return;
+    await processImageForScan(file, operation);
   };
 
   // ── Photos (primary / extra / receipt) ──
   const triggerPhoto = (kind: 'primary' | 'extra' | 'receipt') => {
+    if (!photoMounted.current || !photoWritable.current || !photoFormOpen.current || !photoEditing.current || photoBusy.current || scanBusy.current) return;
+    photoEpoch.current++;
     photoKindRef.current = kind;
+    pendingPhoto.current = createFileOperationScope(() => [auth.currentUser?.uid, FAMILY_ID, photoEditing.current?.id, photoEpoch.current, photoMounted.current, photoWritable.current, photoFormOpen.current, photoKindRef.current]);
     photoFileRef.current?.click();
   };
   const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = e.target.files ? Array.from(e.target.files) : []; e.target.value = '';
-    if (!files.length) return;
+    const operation = pendingPhoto.current;
+    pendingPhoto.current = null;
+    if (!files.length || !operation?.isCurrent() || photoBusy.current || !photoWritable.current || !photoFormOpen.current || !photoEditing.current) return;
+    const epoch = photoEpoch.current;
     const kind = photoKindRef.current;
-    // Primary + receipt stay inline base64 (single, fast thumbnail).
-    if (kind === 'primary') { patch({ photoDataUrl: await compressImageToAvatar(await readFile(files[0]), 1500, 0.82) }); return; }
-    if (kind === 'receipt') { patch({ receiptDataUrl: await compressImageToAvatar(await readFile(files[0]), 1500, 0.78) }); return; }
-    // Extra photos: upload EACH selected file to Storage (no ~1 MiB doc limit),
-    // store the download URL. Respects the cap against whatever is already there.
+    photoBusy.current = true;
     setPhotoError(null); setUploadingPhotos(true);
     try {
-      const start = (editingItem?.photos || []).length;
+      if (kind !== 'extra') {
+        const data = await operation.step(() => readFile(files[0]));
+        const compressed = await operation.step(() => compressImageToAvatar(data, 1500, kind === 'receipt' ? 0.78 : 0.82));
+        operation.check();
+        setEditingItem(prev => operation.isCurrent() && prev ? { ...prev, [kind === 'receipt' ? 'receiptDataUrl' : 'photoDataUrl']: compressed } : prev);
+        return;
+      }
+      const start = (photoEditing.current.photos || []).length;
       const room = Math.max(0, EXTRA_PHOTO_CAP - start);
       if (files.length > room) setPhotoError(`Only ${room} more photo${room === 1 ? '' : 's'} can be added (max ${EXTRA_PHOTO_CAP}).`);
       for (const file of files.slice(0, room)) {
-        const compressed = await compressImageToAvatar(await readFile(file), 1600, 0.82);
-        const url = await uploadAssetPhoto(compressed);
-        setEditingItem(prev => (prev ? { ...prev, photos: [...(prev.photos || []), url].slice(0, EXTRA_PHOTO_CAP) } : prev));
+        const data = await operation.step(() => readFile(file));
+        const compressed = await operation.step(() => compressImageToAvatar(data, 1600, 0.82));
+        const url = await operation.step(() => uploadAssetPhoto(compressed));
+        operation.check();
+        setEditingItem(prev => operation.isCurrent() && prev ? { ...prev, photos: [...(prev.photos || []), url].slice(0, EXTRA_PHOTO_CAP) } : prev);
       }
     } catch {
-      setPhotoError('Some photos could not be uploaded — please try again.');
+      if (operation.isCurrent()) setPhotoError(kind === 'extra' ? 'Some photos could not be uploaded — please try again.' : 'This image could not be prepared. Please try another image.');
     } finally {
-      setUploadingPhotos(false);
+      if (photoMounted.current && photoEpoch.current === epoch) { photoBusy.current = false; setUploadingPhotos(false); }
     }
   };
   const removeExtraPhoto = (idx: number) =>
     setEditingItem(prev => {
-      if (!prev) return prev;
-      const url = (prev.photos || [])[idx];
-      if (url) void deleteAssetPhoto(url); // best-effort Storage cleanup (no-op for legacy inline)
+      if (!prev || !photoWritable.current || !photoFormOpen.current) return prev;
+      // Editing unlinks only. Cancelling must leave the saved evidence intact.
       return { ...prev, photos: (prev.photos || []).filter((_, i) => i !== idx) };
     });
 
   // ── Save ──
   const handleSave = async () => {
+    if (photoBusy.current || scanBusy.current) return;
     if (!editingItem) return;
     if (!editingItem.name.trim()) { setFormError('Name is required'); return; }
+    const invalid = validateAssetRegister(editingItem);
+    if (invalid) { setFormError(invalid); return; }
     setFormError(null); setSaving(true);
     const isNew = !editingItem.id;
     const id = isNew ? Date.now().toString() + Math.random().toString(36).slice(2, 8) : editingItem.id;
@@ -233,7 +308,8 @@ export default function Assets() {
   // summing across currencies would be meaningless.
   const valueCurrencies: string[] = Array.from(new Set(items.filter(i => i.replacementValue || i.purchasePrice).map(i => i.currency || 'EUR')));
   const totalCurrency: string | null = valueCurrencies.length === 1 ? valueCurrencies[0] : null;
-  const flaggedCount = items.filter(i => i.status === 'stolen' || i.status === 'lost').length;
+  const flaggedCount = items.filter(isIncidentAsset).length;
+  const reminders = assetReminders(items);
   // Render every category present, unknown ones (e.g. from old data) last, so no item is orphaned.
   const orderedCats = [
     ...CATEGORIES.filter(c => grouped.has(c)),
@@ -277,8 +353,8 @@ export default function Assets() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {items.length > 0 && (
-              <button onClick={() => setShowExport(true)} className="btn-quiet text-xs px-3 py-2" title="Export a claim list for police & insurer">
-                <FileDown className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Claim list</span>
+              <button onClick={() => setShowExport(true)} className="btn-quiet text-xs px-3 py-2" title="Export asset records and evidence">
+                <FileDown className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Export</span>
               </button>
             )}
             {isAdmin && (
@@ -295,9 +371,14 @@ export default function Assets() {
         {flaggedCount > 0 && (
           <button onClick={() => setShowExport(true)} className="w-full px-5 py-2.5 bg-rosa-50 border-b border-rosa-100 flex items-center gap-2 text-left hover:bg-rosa-100/60 transition-colors">
             <ShieldAlert className="w-4 h-4 text-rosa-600 shrink-0" />
-            <p className="text-[12.5px] font-semibold text-rosa-700">{flaggedCount} item{flaggedCount !== 1 ? 's' : ''} reported stolen/lost — export the claim list</p>
+            <p className="text-[12.5px] font-semibold text-rosa-700">{flaggedCount} item{flaggedCount !== 1 ? 's' : ''} reported damaged, stolen or lost — prepare a claim pack</p>
           </button>
         )}
+
+        {reminders.length > 0 && <details className="px-5 py-3 bg-clay-50 border-b border-cream-200">
+          <summary className="cursor-pointer text-xs font-semibold text-clay-700">{reminders.length} warranty or return deadline{reminders.length === 1 ? '' : 's'} approaching</summary>
+          <div className="mt-2 space-y-2">{reminders.map(r => <button key={r.id} onClick={() => setViewingItem(items.find(i => i.id === r.assetId) || null)} className="block text-left text-xs text-ink-600 hover:underline">{r.label} {r.days === 0 ? 'today' : `in ${r.days} days`} · {r.date}</button>)}</div>
+        </details>}
 
         {scanError && !isFormOpen && (
           <div className="px-5 py-3 bg-rosa-500/10 border-b border-rosa-500/20 flex items-center justify-between gap-2">
@@ -324,7 +405,7 @@ export default function Assets() {
                   </div>
                   <div className="space-y-1">
                     {grouped.get(cat)!.map(item => {
-                      const flagged = item.status === 'stolen' || item.status === 'lost';
+                      const flagged = isIncidentAsset(item);
                       return (
                         <div key={item.id} className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-cream-50 group transition-colors">
                           {item.photoDataUrl ? (
@@ -342,8 +423,8 @@ export default function Assets() {
                           )}
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-ink-800 text-[14px] leading-tight truncate flex items-center gap-1.5">
-                              {item.name}
-                              {flagged && <span className="chip bg-rosa-100 text-rosa-700 text-[10px] px-1.5 py-0">{item.status === 'lost' ? 'Lost' : 'Stolen'}</span>}
+                              <button type="button" onClick={() => setViewingItem(item)} className="truncate text-left hover:underline" title={`View ${item.name}`}>{item.name}</button>
+                              {flagged && <span className="chip bg-rosa-100 text-rosa-700 text-[10px] px-1.5 py-0">{item.status === 'damaged' ? 'Damaged' : item.status === 'lost' ? 'Lost' : 'Stolen'}</span>}
                             </p>
                             {(item.make || item.model) && <p className="text-[12px] text-ink-400 truncate">{[item.make, item.model].filter(Boolean).join(' ')}</p>}
                             {item.serialNumber && <p className="text-[11px] text-ink-500 font-mono truncate">{item.identifierType && item.identifierType !== 'Serial' ? `${item.identifierType} ` : ''}{item.serialNumber}</p>}
@@ -427,7 +508,7 @@ export default function Assets() {
 
               {/* Receipt / proof of purchase */}
               <div>
-                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Receipt / proof of purchase <span className="normal-case text-ink-300 font-normal">· strongest claim proof</span></label>
+                <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Receipt photo</label>
                 <div className="flex items-center gap-3">
                   {editing.receiptDataUrl ? (
                     <div className="relative shrink-0">
@@ -435,9 +516,10 @@ export default function Assets() {
                       <button onClick={() => patch({ receiptDataUrl: '' })} className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink-800 text-white flex items-center justify-center hover:bg-rosa-500"><X className="w-2.5 h-2.5" /></button>
                     </div>
                   ) : (
-                    <button onClick={() => triggerPhoto('receipt')} className="btn-quiet text-xs px-3 py-2"><Receipt className="w-3.5 h-3.5" /> Add receipt</button>
+                    <button onClick={() => triggerPhoto('receipt')} className="btn-quiet text-xs px-3 py-2"><Receipt className="w-3.5 h-3.5" /> Add receipt photo</button>
                   )}
                 </div>
+                <p className="mt-1 text-[11px] text-ink-400">For original PDFs and invoices, use Receipts &amp; original files below.</p>
               </div>
 
               {/* Name */}
@@ -524,15 +606,16 @@ export default function Assets() {
               </div>
 
               {/* Purchase location + warranty */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className={items.find(i => i.id === editing.id)?.warrantyUntil ? 'grid grid-cols-1 gap-4 sm:grid-cols-2' : 'grid grid-cols-1 gap-4'}>
                 <div>
                   <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Bought at</label>
                   <input type="text" placeholder="retailer" value={editing.purchaseLocation || ''} onChange={e => patch({ purchaseLocation: e.target.value })} className="field w-full" />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Warranty until</label>
+                {items.find(i => i.id === editing.id)?.warrantyUntil && <div>
+                  <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Earlier warranty expiry</label>
                   <input type="date" value={editing.warrantyUntil || ''} onChange={e => patch({ warrantyUntil: e.target.value })} className="field w-full" />
-                </div>
+                  <p className="mt-1 text-[11px] text-ink-400">Type unspecified. Add separate cover details below.</p>
+                </div>}
               </div>
 
               {/* Storage security */}
@@ -551,27 +634,31 @@ export default function Assets() {
                   <select value={editing.status || 'owned'} onChange={e => {
                     const status = e.target.value as AssetItem['status'];
                     // Recovered/resolved → clear the incident so it leaves the claim list.
-                    patch(status === 'stolen' || status === 'lost' ? { status } : { status, incident: undefined });
+                    patch(isIncidentAsset({ ...editing, status }) ? { status, incident: { ...editing.incident, type: status as 'stolen' | 'lost' | 'damaged' } } : { status, incident: undefined });
                   }} className="field w-full">
                     {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </div>
-                {(editing.status === 'stolen' || editing.status === 'lost') && (
+                {isIncidentAsset(editing) && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Date of loss</label>
-                        <input type="date" value={editing.incident?.date || ''} onChange={e => patchIncident({ date: e.target.value, type: editing.status === 'lost' ? 'lost' : 'stolen' })} className="field w-full" />
+                        <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Incident date</label>
+                        <input type="date" value={editing.incident?.date || ''} onChange={e => patchIncident({ date: e.target.value })} className="field w-full" />
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-ink-500 uppercase tracking-wider mb-1.5">Police ref.</label>
-                        <input type="text" placeholder="crime ref / Aktenzeichen" value={editing.incident?.policeReference || ''} onChange={e => patchIncident({ policeReference: e.target.value, type: editing.status === 'lost' ? 'lost' : 'stolen' })} className="field w-full font-mono" />
+                        <input type="text" placeholder="if applicable" value={editing.incident?.policeReference || ''} onChange={e => patchIncident({ policeReference: e.target.value })} className="field w-full font-mono" />
                       </div>
                     </div>
-                    <p className="text-[11px] text-ink-400">Report theft to the police and keep the crime reference — most theft claims require it.</p>
+                    <label className="block text-xs font-semibold text-ink-500">What happened<textarea rows={3} value={editing.incident?.notes || ''} onChange={e => patchIncident({ notes: e.target.value })} className="field w-full mt-1" /></label>
                   </div>
                 )}
               </div>
+
+              <AssetRecordReadiness item={editing} />
+              <AssetRegisterDetails item={editing} onChange={patch} />
+              <AssetEvidenceFields item={editing} onChange={patch} onBusyChange={setEvidenceBusy} />
 
               {/* Notes */}
               <div>
@@ -601,7 +688,7 @@ export default function Assets() {
               </div>
               <div className="flex items-center gap-3">
                 <button onClick={closeForm} className="btn-quiet text-xs px-4 py-2">Cancel</button>
-                <button onClick={handleSave} disabled={saving} className="btn-primary text-xs px-5 py-2 disabled:opacity-60">
+                <button onClick={handleSave} disabled={saving || uploadingPhotos || scanLoading || evidenceBusy} className="btn-primary text-xs px-5 py-2 disabled:opacity-60">
                   {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Save
                 </button>
               </div>
@@ -609,6 +696,8 @@ export default function Assets() {
           </div>
         </div>
       )}
+
+      {viewingItem && <AssetDetailModal item={viewingItem} canEdit={isAdmin} onClose={() => setViewingItem(null)} onSaved={next => { setViewingItem(null); void reload(); }} onDeleted={() => { setViewingItem(null); void reload(); }} />}
 
       {/* Full-size photo & receipt gallery */}
       {gallery && gallery.length > 0 && (

@@ -1,8 +1,8 @@
 {
-  "label": "v376",
+  "label": "v377",
   "changes": [
-    "Invites and space-management actions stay bound to the space visible in the tab, even when another tab switches the account’s active space.",
-    "Leaving a space uses the same transaction protections as role changes and member removal, preserving an administrator during simultaneous requests.",
-    "Calendar links, email filing and business milestone notes stay tied to the selected business. Delayed account or space changes cannot update another screen."
+    "Family and business assets now keep separate manufacturer, retailer and extended warranties, ownership and purchase details, policy links and dated replacement-value references.",
+    "Attach original invoices and warranty files, link existing purchase slips, and receive reminders from recorded warranty and return dates. Earlier asset records remain intact.",
+    "Export an evidence ZIP with original files, receipts and repair paperwork, alongside PDF-ready, CSV and JSON summaries. Damaged items are supported and values stay separated by currency."
   ]
 }
