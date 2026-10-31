@@ -19,6 +19,7 @@ import {
   loadHousehold, saveHousehold,
   loadFinances, saveFinances,
   loadTimeline, saveTimeline,
+  loadBusinessMilestones, saveBusinessMilestones,
   loadSettings, saveSettings,
   loadDocuments, saveDocuments,
   loadShopping, saveShopping,
@@ -30,12 +31,14 @@ import {
   loadSlips, saveSlips,
   loadAnniversaries, saveAnniversaries,
   loadExtendedBirthdays, saveExtendedBirthdays,
-  loadInMemory,
+  loadInMemory, saveInMemory,
   leaveFamily,
   deleteDocumentEverywhere,
   loadFamilyRoles,
+  loadBusinessDirectory,
 } from '../utils/db';
-import { downloadZip } from '../utils/share';
+import { downloadZip, IncompleteZipError } from '../utils/share';
+import { restoreBackupRecords, profileAndAssetBackupFiles } from '../utils/backupRestore';
 import { appConfirm } from '../utils/appConfirm';
 import {
   applyMemberEdits, applyInfoEdits, hasMemberEdits, hasInfoEdits,
@@ -96,7 +99,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import {
   DEMO_MEMBERS, DEMO_EVENTS, DEMO_CONTACTS, DEMO_EXTENDED_BIRTHDAYS, isDemoMode,
   DEMO_BUSINESS_MEMBERS, DEMO_BUSINESS_EVENTS, DEMO_BUSINESS_CONTACTS,
-  DEMO_BUSINESS_NAME, demoSpaceType, demoIsOwner, DEMO_ACCOUNT_ROLES, DEMO_ACCOUNT_UID,
+  DEMO_BUSINESS_NAME, demoSpaceType, demoIsOwner, demoProfileMembers, DEMO_ACCOUNT_ROLES, DEMO_ACCOUNT_UID,
 } from '../utils/demoData';
 import { warmAvatarColor, AVATAR_COLORS } from '../utils/avatarPalette';
 import { HiddenPeopleProvider, HideDatesButton, memberDates } from '../contexts/HiddenPeopleContext';
@@ -161,7 +164,7 @@ import FamilyPulse, { PulseExpiryWarning } from './FamilyPulse';
 import CaptureMenu from './CaptureMenu';
 import FamilyActions from './FamilyActions';
 import { useFamilyActions } from '../hooks/useFamilyActions';
-import { isFamilyActionsDoc } from '../utils/actions';
+import { actionPeople, type ActionDirectoryStatus, type ActionPerson } from '../utils/actions';
 import EmberViewHeader from './EmberViewHeader';
 import { useAppearance } from '../contexts/AppearanceContext';
 import {
@@ -451,11 +454,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
      false for every signed-in user, so ctxIsAdmin is the only answer that
      ever reaches them. */
   const isAdmin = demo ? demoIsOwner() : ctxIsAdmin;
-  /* An owner writes. Without this the business demo hid Money and Insurance
-     from the person who owns the company — both are filtered on canWrite, not
-     on isAdmin (see availableViewItems). Family demos keep ctxCanWrite, which
-     is false, exactly as they always have. */
-  const canWrite = demo && demoIsOwner() ? true : ctxCanWrite;
+  /* Business previews model an owner or an ordinary contributing employee.
+     Admin-only records still use isAdmin. Family demos retain their prior
+     capability; every writable preview save stays local. */
+  const canWrite = (demo && isBusinessSpace) || ctxCanWrite;
 
   const handleSwitchSpace = async (spaceId: string) => {
     await switchSpace(spaceId);
@@ -576,8 +578,33 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     scope: actionScope,
     enabled: !ctxLoading && !!accountUid && !!activeSpaceId,
     demo,
+    isBusinessSpace,
     editing: actionEditing,
   });
+  const [actionDirectory, setActionDirectory] = useState<{ scope: string; status: ActionDirectoryStatus; people: ActionPerson[] }>({ scope: actionScope, status: 'loading', people: [] });
+  const [actionDirectoryVersion, setActionDirectoryVersion] = useState(0);
+  useEffect(() => {
+    if (!isBusinessSpace || demo) {
+      setActionDirectory({ scope: actionScope, status: 'ready', people: demo && isBusinessSpace ? actionPeople([], DEMO_BUSINESS_MEMBERS) : [] });
+      return;
+    }
+    let cancelled = false;
+    setActionDirectory({ scope: actionScope, status: 'loading', people: [] });
+    if (!ctxLoading && accountUid && activeSpaceId) {
+      // The directory endpoint exposes work-facing names, not colleagues' HR
+      // profiles. Never merge these entries into `members` or source access.
+      void loadBusinessDirectory(activeSpaceId).then(result => {
+        if (!cancelled) setActionDirectory({ scope: actionScope, status: 'ready', people: actionPeople([], result.members || []) });
+      }).catch(() => {
+        if (!cancelled) setActionDirectory({ scope: actionScope, status: 'unavailable', people: [] });
+      });
+    }
+    return () => { cancelled = true; };
+  }, [actionScope, isBusinessSpace, demo, ctxLoading, accountUid, activeSpaceId, actionDirectoryVersion]);
+  const actionDirectoryStatus: ActionDirectoryStatus = !isBusinessSpace || demo ? 'ready'
+    : actionDirectory.scope === actionScope ? actionDirectory.status : 'loading';
+  const actionOwnerPeople = useMemo(() => actionPeople(members,
+    isBusinessSpace && actionDirectory.scope === actionScope ? actionDirectory.people : []), [members, isBusinessSpace, actionDirectory, actionScope]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addMemberInitialRole, setAddMemberInitialRole] = useState<MemberRole | undefined>();
   const [addingChildFromTree, setAddingChildFromTree] = useState(false);
@@ -783,7 +810,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   useEffect(() => {
     if (demo) {
       const biz = demoSpaceType() === 'business';
-      const demoMembers = biz ? DEMO_BUSINESS_MEMBERS : DEMO_MEMBERS;
+      const demoMembers = demoProfileMembers(biz ? 'business' : 'family', demoIsOwner());
       setCurrentUser({ displayName: biz ? 'Demo business' : 'Demo family', isDemo: true });
       setMembers(demoMembers);
       setEvents(biz ? DEMO_BUSINESS_EVENTS : DEMO_EVENTS);
@@ -795,7 +822,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       // it). Switching it on here is the only way anybody sees it before
       // signing up — and the demo family has the birth details to show it
       // properly, including a rising sign.
-      setSettings((s) => ({ ...s, astrology: true }));
+      setSettings((s) => ({ ...s, astrology: !biz }));
       setInitialLoadDone(true);
       return;
     }
@@ -1215,6 +1242,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   // the in-flight loading/error UI, but the source of truth after a successful
   // generation is the persisted member field.
   const shuffleAstrology = async (memberId: string) => {
+    if (demo || isBusinessSpace) return;
     const member = membersRef.current.find((m) => m.id === memberId);
     if (!member) return;
     // One meaningful insight per member per local calendar day — every call
@@ -1561,12 +1589,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     if (!initialLoadDone || demo || !currentUser) return;
     if (pendingCloudBackupKeys().length) setCloudSynced(false);
     const stop = subscribeCalendarEvents(next => { eventsRef.current = next; setEvents(next); }, error => console.error('Calendar live sync unavailable', error));
-    const stopMembers = isBusinessSpace ? () => {} : subscribeFamilyMembers(next => { membersRef.current = next; setMembers(next); }, error => console.error('Family live sync unavailable', error));
+    const stopMembers = subscribeFamilyMembers(next => { membersRef.current = next; setMembers(next); }, error => console.error('Profile live sync unavailable', error), isBusinessSpace && !isAdmin ? membersRef.current.map(member => member.id) : undefined);
     const reconnect = () => { if (canWrite && pendingCloudBackupKeys().length) void retryCloudBackup(); };
     window.addEventListener('online', reconnect);
     window.addEventListener('focus', reconnect);
     return () => { stop(); stopMembers(); window.removeEventListener('online', reconnect); window.removeEventListener('focus', reconnect); };
-  }, [initialLoadDone, activeSpaceId, demo, currentUser?.uid, canWrite, isBusinessSpace]);
+  }, [initialLoadDone, activeSpaceId, demo, currentUser?.uid, canWrite, isBusinessSpace, isAdmin]);
 
   // The Calendar screen's own import (on opening it, or its Import button)
   // also records the time — once it has, the stale line has nothing to say.
@@ -1625,7 +1653,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   // Generic patch for the selected member — used by the medical/ids/travel/preferences tabs
   const handlePatchSelectedMember = async (patch: Partial<FamilyMember>) => {
     if (!selectedMemberId) return;
-    await persistChanges(members.map(m => (m.id === selectedMemberId ? { ...m, ...patch } : m)));
+    return persistChanges(membersRef.current.map(m => (m.id === selectedMemberId ? { ...m, ...patch } : m)));
   };
 
   // Same as handlePatchSelectedMember, but for a member that isn't necessarily
@@ -2201,8 +2229,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     return { undone, missing };
   };
 
+  const handleAddDocumentWithStatus = async (memberId: string, docToAdd: FamilyDocument) => {
+    return persistChanges(membersRef.current.map(m => (m.id === memberId ? { ...m, documents: [...(m.documents || []), docToAdd] } : m)));
+  };
   const handleAddDocument = async (memberId: string, docToAdd: FamilyDocument) => {
-    await persistChanges(membersRef.current.map(m => (m.id === memberId ? { ...m, documents: [...(m.documents || []), docToAdd] } : m)));
+    await handleAddDocumentWithStatus(memberId, docToAdd);
   };
 
   // Same shape as handleAddDocument, for the Referrals & Results copy the
@@ -2217,11 +2248,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   // fresh scan of the same document was refused as a duplicate of something
   // the user had already deleted. deleteDocumentEverywhere() owns that logic
   // for BOTH delete screens so the two stores can't drift apart again.
-  const handleDeleteDocument = async (memberId: string, docId: string) => {
+  const handleDeleteDocument = async (memberId: string, docId: string, preserveDocumentIds?: readonly string[]) => {
     const current = membersRef.current;
     const memberDoc = current.find(m => m.id === memberId)?.documents?.find(d => d.id === docId);
     if (!memberDoc) return;
-    const result = await deleteDocumentEverywhere({ memberDoc, memberId, members: current });
+    const result = await deleteDocumentEverywhere({ memberDoc, memberId, members: current, preserveDocumentIds });
     await persistChanges(result.members);
     if (result.notes.length) console.warn('Document delete:', result.notes.join(' '));
     if (result.vaultSaveFailed) showToast("Deleted here, but the shared vault couldn't be updated. Check your connection.");
@@ -2280,7 +2311,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const handleExportAllData = async () => {
     setExportingBackup(true);
     try {
-      const [info, household, finances, timeline, docs, willsEstate, inMemory, slips, assets, recipes, shopping, actions] = await Promise.all([
+      const [info, household, finances, timeline, docs, willsEstate, inMemory, slips, assets, recipes, shopping, actions, businessMilestones] = await Promise.all([
         loadFamilyInfo(),
         loadHousehold(),
         loadFinances(),
@@ -2293,6 +2324,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         loadRecipes(),
         loadShopping(),
         loadActions(),
+        isBusinessSpace ? loadBusinessMilestones() : Promise.resolve(null),
       ]);
 
       // Document metadata still travels in the JSON (search/reference use) —
@@ -2326,6 +2358,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         household: household || null,
         finances: finances || null,
         timeline: timeline || null,
+        businessMilestones: businessMilestones || null,
         documents: documentsMeta,
         willsEstate: willsEstate || null,
         inMemory: inMemory || null,
@@ -2345,7 +2378,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       // Real files to bundle alongside the JSON: shared vault documents, the
       // In Memory archive's documents + portraits, slip photos, and recipe
       // photos — every place this app stores an actual file, not just a link.
-      const fileItems: { src: string; name: string }[] = [];
+      const fileItems: { src: string; name: string }[] = profileAndAssetBackupFiles({ members, assets });
       (docs || []).forEach((d) => {
         if (d.downloadUrl) fileItems.push({ src: d.downloadUrl, name: `documents/${d.fileName || d.name}` });
       });
@@ -2363,10 +2396,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       });
 
       const exportFileDefaultName = `family_vault_backup_${new Date().toLocaleDateString('en-CA')}.zip`;
-      await downloadZip(fileItems, exportFileDefaultName, [{ name: 'family_vault_data.json', content: dataStr }]);
+      await downloadZip(fileItems, exportFileDefaultName, [{ name: 'family_vault_data.json', content: dataStr }], { requireAllFiles: true });
     } catch (error) {
       console.error('Export failed:', error);
-      showToast('Could not generate the backup file.');
+      showToast(error instanceof IncompleteZipError ? error.message : 'Could not generate the backup file.');
     } finally {
       setExportingBackup(false);
     }
@@ -2413,6 +2446,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const handleImportAllData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!demo && !canWrite) { showToast('This account has read-only access.'); event.target.value = ''; return; }
+    const restoreSpace = activeSpaceRef.current;
+    const restoreUid = auth.currentUser?.uid;
+    const restoreIsCurrent = () => activeSpaceRef.current === restoreSpace && auth.currentUser?.uid === restoreUid;
 
     // Be accurate about what this does. Records in the backup are written over
     // the current ones; anything you have now that ISN'T in the backup survives,
@@ -2430,58 +2467,61 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     (async () => {
       try {
         const backupData = await readBackupFile(file);
-        if (backupData.actions !== undefined && !isFamilyActionsDoc(backupData.actions)) {
-          throw new Error('invalid-actions-backup');
-        }
-
-        if (backupData.members && Array.isArray(backupData.members)) {
-          await persistChanges(backupData.members);
-          if (backupData.members.length > 0) setSelectedMemberId(backupData.members[0].id);
-        }
-
-        if (backupData.calendarEvents && Array.isArray(backupData.calendarEvents)) {
-          await handleSaveEvents(backupData.calendarEvents);
-        }
-
-        // v2 sections — only restore if present in the backup
-        if (backupData.info && typeof backupData.info === 'object') {
-          await saveFamilyInfo(backupData.info);
-        }
-        if (backupData.household && typeof backupData.household === 'object') {
-          await saveHousehold(backupData.household);
-        }
-        if (backupData.finances && typeof backupData.finances === 'object') {
-          await saveFinances(backupData.finances);
-        }
-        if (backupData.timeline && typeof backupData.timeline === 'object') {
-          await saveTimeline(backupData.timeline);
-        }
-        if (backupData.actions !== undefined) {
-          const saved = await saveActions(backupData.actions);
-          if (!saved) throw new Error('actions-restore-pending');
-        }
-        if (backupData.documents && Array.isArray(backupData.documents)) {
-          await saveDocuments(backupData.documents);
-        }
-        if (backupData.settings && typeof backupData.settings === 'object') {
-          await saveSettings(backupData.settings);
-          setSettings(backupData.settings);
-        }
+        const pending = await restoreBackupRecords(backupData, async (section, value) => {
+          // The demo must remain a preview; none of its restore paths write cloud data.
+          if (demo) return true;
+          switch (section) {
+            case 'members': {
+              const saved = await persistChanges(value);
+              if (restoreIsCurrent() && value.length) setSelectedMemberId(value[0].id);
+              return saved;
+            }
+            case 'calendarEvents': return handleSaveEvents(value);
+            case 'info': return saveFamilyInfo(value);
+            case 'household': return saveHousehold(value);
+            case 'finances': return saveFinances(value);
+            case 'timeline': return saveTimeline(value);
+            case 'businessMilestones': return saveBusinessMilestones(value);
+            case 'actions': return saveActions(value);
+            case 'documents': return saveDocuments(value);
+            case 'willsEstate': return saveWillsEstate(value);
+            case 'inMemory': return saveInMemory(value);
+            case 'slips': return saveSlips(value);
+            case 'recipes': return saveRecipes(value);
+            case 'shopping': return saveShopping(value);
+            case 'assets': {
+              let saved = true;
+              for (const asset of value) {
+                if (!restoreIsCurrent()) throw new Error('backup-scope-changed');
+                if (!await saveAsset(asset)) saved = false;
+              }
+              return saved;
+            }
+            case 'settings': {
+              const saved = await saveSettings(value);
+              if (restoreIsCurrent()) setSettings(value);
+              return saved;
+            }
+          }
+        }, restoreIsCurrent);
+        setAiDataVersion(v => v + 1);
 
         // Say what did NOT happen. The zip also contains the document and
         // photo FILES, and those are not re-uploaded — the records come back
         // pointing at storage that may no longer hold them. Better the user
         // knows to keep the zip than discovers a dead thumbnail later.
-        showToast('Backup restored. Document files in the zip are your copy — they are not re-uploaded.');
+        showToast(demo ? 'Demo preview — nothing was restored.' : pending.length
+          ? `Some records could not reach the cloud: ${pending.join(', ')}. Keep the backup and retry when connected. Document files are not re-uploaded.`
+          : 'Backup restored. Document files in the zip are your copy — they are not re-uploaded.');
       } catch (error) {
         console.error('Import failed:', error);
         showToast(
           error instanceof Error && error.message === 'no-data-entry'
             ? "That zip doesn't contain family_vault_data.json — is it a Family Vault backup?"
-            : error instanceof Error && error.message === 'invalid-actions-backup'
-              ? 'This backup contains invalid actions. Nothing was restored.'
-              : error instanceof Error && error.message === 'actions-restore-pending'
-                ? 'Actions were saved on this device, but cloud sync is pending. Reload when online to retry.'
+            : error instanceof Error && error.message.startsWith('invalid-backup')
+              ? 'This backup contains invalid records. Nothing was restored.'
+              : error instanceof Error && error.message === 'backup-scope-changed'
+                ? 'Restore stopped because your account or space changed. Earlier records may have been restored in the original space.'
                 : "Couldn't read that backup file — is it a Teluva export?"
         );
       }
@@ -2504,7 +2544,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   // since the stored blurb was generated (fixes a blurb going stale silently
   // after an edit) or if it's over 30 days old (keeps the card feeling alive).
   useEffect(() => {
-    if (!settings.astrology || !isAdmin || !canUseAI || !selectedMember) return;
+    if (demo || isBusinessSpace || !settings.astrology || !isAdmin || !canUseAI || !selectedMember) return;
     const zodiac = sunSign(selectedMember.birthdate);
     if (!zodiac) return;
     if (astroBlurb[selectedMember.id]?.loading) return;
@@ -2523,7 +2563,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     }
     shuffleAstrology(selectedMember.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMember?.id, selectedMember?.birthdate, selectedMember?.birthTime, selectedMember?.placeOfBirth, selectedMember?.birthTimeZone, selectedMember?.birthLatitude, selectedMember?.birthLongitude, settings.astrology, isAdmin, canUseAI]);
+  }, [selectedMember?.id, selectedMember?.birthdate, selectedMember?.birthTime, selectedMember?.placeOfBirth, selectedMember?.birthTimeZone, selectedMember?.birthLatitude, selectedMember?.birthLongitude, settings.astrology, isAdmin, canUseAI, demo, isBusinessSpace]);
 
   // Open every member on their Overview summary (like iOS Contacts) — resets when
   // you switch members, so you no longer always land on the Medical form. A
@@ -2988,6 +3028,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     && !(!isBusinessSpace && HIDDEN_IN_FAMILY.includes(tab.id))
   ) : [];
   const activeProfileLens = profileLensFor(activeTab);
+  const profileLenses = isBusinessSpace ? PROFILE_LENSES.map(lens => ({
+    ...lens,
+    label: lens.id === 'life' ? 'Work' : lens.label,
+    note: lens.id === 'life' ? 'CV, preferences and travel' : lens.id === 'health' ? 'Medical details' : lens.note,
+  })) : PROFILE_LENSES;
   const emergencyFocus = emberInterface && mainView === 'emergency';
 
   return (
@@ -3038,13 +3083,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           surface colours rather than the cream/ink tokens (which invert
           under dark mode and would fight this bar's own fixed intent). */}
       {!emergencyFocus && <header className={`bg-[#0b0b0d] backdrop-blur border-b border-white/10 sticky top-0 z-40 ${emberInterface ? 'ember-header' : ''}`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-nowrap items-center justify-between gap-3">
           {/* One control, not seven. The hub name IS the menu: spaces, settings,
               backup and sign-out all live behind it, the way a workspace name
               works in Slack or Notion. Everything here used to be laid out
               across the header as a title, a space pill repeating that same
               title, and a permanent row of five unlabelled icon buttons. */}
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex flex-1 items-center gap-3 min-w-0">
             {hubAvatar}
             {demo ? (
               <h1 className="font-display text-lg font-semibold text-white leading-tight truncate">{hubName}</h1>
@@ -3088,14 +3133,14 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
           {/* Only what changes how you read the screen stays out here: a
               reminder that you can't edit, if you can't. */}
-          <div className="flex items-center gap-2">
+          {(role === 'child' || role === 'member') && <div className="flex shrink-0 items-center gap-2">
             {role === 'child' && (
               <span className="text-xs bg-sage-100 text-sage-700 rounded-full px-2 py-0.5 font-semibold">View only</span>
             )}
             {role === 'member' && (
               <span className="text-xs bg-sage-100 text-sage-700 rounded-full px-2 py-0.5 font-semibold">Member</span>
             )}
-          </div>
+          </div>}
         </div>
       </header>}
 
@@ -3136,6 +3181,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         {mainView === 'calendar' && (
           <FamilyCalendar
             members={members}
+            tagPeople={actionOwnerPeople}
+            tagDirectoryAvailable={actionDirectoryStatus === 'ready'}
+            onRetryTagDirectory={() => setActionDirectoryVersion(version => version + 1)}
             events={events}
             emberMode={emberInterface}
             openAddSignal={capturePlanSignal}
@@ -3190,11 +3238,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             (empty) vault on mount and would push [] up, wiping the demo family's
             contacts — and with them Oma's birthday off the home screen the
             moment you looked at the Info tab. */}
-        {mainView === 'info' && <ImportantInfo refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} country={settings.country || 'AT'} onContactsChange={demo ? undefined : setContacts} />}
+        {mainView === 'info' && <ImportantInfo canEdit={canWrite} demo={demo} refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} country={settings.country || 'AT'} onContactsChange={demo ? undefined : setContacts} />}
 
         {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} emberMode={emberInterface} packScope={emergencyPackScope} trips={pulseTrips} onOpenTrip={openTripPack} onExit={emberInterface ? () => setMainView('profiles') : undefined} />}
 
-        {mainView === 'household' && <HouseholdView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} country={settings.country || 'AT'} openAddSignal={captureHouseSignal} emberMode={emberInterface} demo={demo} />}
+        {mainView === 'household' && <HouseholdView canEdit={canWrite} refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} country={settings.country || 'AT'} openAddSignal={captureHouseSignal} emberMode={emberInterface} demo={demo} />}
 
         {mainView === 'finances' && <FinancesView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onOpenPrivacy={() => setLegalTab('privacy')} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} isBusinessSpace={isBusinessSpace} />}
@@ -3236,7 +3284,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           // onMembersChange lets a vault delete also strip the per-member copy
           // of the same document — the vault component has no other way to
           // persist member records (Dashboard owns that write).
-          demo ? <DemoUnavailable label="The document vault" isBusinessSpace={isBusinessSpace} /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} onMembersChange={persistChanges} emberMode={emberInterface} openUploadSignal={captureVaultSignal} incomingFile={sharedFile} onIncomingConsumed={() => setSharedFile(null)} />
+          demo ? <DemoUnavailable label="The document vault" isBusinessSpace={isBusinessSpace} /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} canEdit={canWrite} onMembersChange={persistChanges} emberMode={emberInterface} openUploadSignal={captureVaultSignal} incomingFile={sharedFile} onIncomingConsumed={() => setSharedFile(null)} />
         )}
 
         {mainView === 'shopping' && (
@@ -3307,6 +3355,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             onOpenPeople={() => setMainView('profiles')}
             actions={actionStore.actions}
             actionsLoading={actionStore.loading}
+            actionOwners={actionOwnerPeople}
+            actionDirectoryAvailable={actionDirectoryStatus === 'ready'}
             onOpenActions={() => { setPeoplePane('todo'); setMainView('profiles'); }}
             isBusinessSpace={isBusinessSpace}
             trips={pulseTrips}
@@ -3349,6 +3399,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
 
             <div key={actionScope}><FamilyActions
               members={members}
+              ownerPeople={actionOwnerPeople}
+              ownerDirectoryStatus={actionDirectoryStatus}
+              onRetryOwnerDirectory={() => setActionDirectoryVersion(version => version + 1)}
               actions={actionStore.actions}
               loading={actionStore.loading}
               saving={actionStore.saving}
@@ -3463,7 +3516,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                         do I reach them at work — answered by the server from
                         an allowlist (server/directory.mjs), because rules gate
                         documents and this needs a field boundary. */}
-                    {isBusinessSpace && !isAdmin && <TeamDirectory selfMemberId={me?.id} />}
+                    {isBusinessSpace && !isAdmin && <TeamDirectory selfMemberId={me?.id || (demo ? 'demo-biz-manager' : undefined)} demoEntries={demo ? actionOwnerPeople : undefined} />}
 
                     <div className="flex items-center justify-between pb-3.5 border-b border-cream-200">
                       <h4 className="section-label flex-1">{isBusinessSpace ? 'Your team' : 'Your family'}</h4>
@@ -3547,7 +3600,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                         so it travels with the list rather than away from it.
                         Deliberately visible to children, who are the ones who
                         want to see their cousins. */}
-                    <ConnectedInline
+                    {!isBusinessSpace && <ConnectedInline
                       onManage={() => setConnectedOpen(true)}
                       members={members}
                       openPersonId={sharedView?.member.id || null}
@@ -3567,7 +3620,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                         setDeleteConfirmMemberId(null);
                         memberPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                       }}
-                    />
+                    />}
                   </div>
 
                 </section>
@@ -3807,7 +3860,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                         {emberInterface ? (
                           <div className="ember-profile-navigation">
                             <div className="ember-profile-lenses" role="tablist" aria-label="Profile lenses">
-                              {PROFILE_LENSES.map((lens) => {
+                              {profileLenses.map((lens) => {
                                 const lensTabs = visibleProfileTabs.filter((tab) => lens.tabs.includes(tab.id));
                                 if (!lensTabs.length) return null;
                                 return (
@@ -3824,7 +3877,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                 );
                               })}
                             </div>
-                            <div className="ember-profile-subtabs" aria-label={`${PROFILE_LENSES.find((lens) => lens.id === activeProfileLens)?.label || 'Profile'} sections`}>
+                            <div className="ember-profile-subtabs" aria-label={`${profileLenses.find((lens) => lens.id === activeProfileLens)?.label || 'Profile'} sections`}>
                               {visibleProfileTabs.filter((tab) => profileLensFor(tab.id) === activeProfileLens).map((tab) => (
                                 <button
                                   key={tab.id}
@@ -3883,8 +3936,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                   member={selectedMember}
                                   canEdit={!demo && canWrite}
                                   isBusinessSpace={isBusinessSpace}
-                                  showAstrology={!!settings.astrology}
-                                  onShuffleAstrology={isAdmin ? () => (canUseAI ? shuffleAstrology(selectedMember.id) : setConsentOpen(true)) : undefined}
+                                  showAstrology={!isBusinessSpace && !!settings.astrology}
+                                  onShuffleAstrology={!demo && !isBusinessSpace && isAdmin ? () => (canUseAI ? shuffleAstrology(selectedMember.id) : setConsentOpen(true)) : undefined}
                                   astrologyBlurb={astroBlurb[selectedMember.id]}
                                   astrologyCappedToday={astrologyCappedToday}
                                   onSetNameDay={!demo && canWrite ? (date, feast) => {
@@ -3993,7 +4046,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                               {activeTab === 'documents' && (
                                 <MemberDocuments
                                   member={selectedMember}
-                                  onAddDocument={handleAddDocument}
+                                  onAddDocument={handleAddDocumentWithStatus}
                                   onDeleteDocument={handleDeleteDocument}
                                   onViewDocument={handleViewDocument}
                                   isBusinessSpace={isBusinessSpace}
@@ -4044,7 +4097,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                 long administrative checklist. */}
             <FamilyStatus
               status={demo
-                ? { text: 'Everyone at Oma’s until Sunday — Ben’s party is Saturday 3pm.', by: 'Mama', at: new Date(Date.now() - 5 * 3600_000).toISOString() }
+                ? { text: isBusinessSpace ? 'Please review next month’s roster before Tuesday’s team meeting.' : 'Everyone at Oma’s until Sunday — Ben’s party is Saturday 3pm.', by: isBusinessSpace ? 'Katharina' : 'Mama', at: new Date(Date.now() - 5 * 3600_000).toISOString() }
                 : settings.status}
               canWrite={!demo && canWrite}
               authorName={currentUser?.displayName || currentUser?.email || 'Someone'}
@@ -4283,13 +4336,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         screenLabel={viewLabel(mainView, t, isBusinessSpace)}
       />
 
-      <ConnectedFamilies
+      {!isBusinessSpace && <ConnectedFamilies
         open={connectedOpen}
         onClose={() => setConnectedOpen(false)}
         isAdmin={isAdmin}
         members={members}
         hubName={hubName}
-      />
+      />}
 
       {legalTab && <LegalModal tab={legalTab} onClose={() => setLegalTab(null)} />}
 

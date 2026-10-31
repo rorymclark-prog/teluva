@@ -219,6 +219,7 @@ test('a malformed chosen-accounts list is ignored, not thrown on', () => {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const serverJs = readFileSync(join(here, '..', 'server.js'), 'utf8');
+const sharingJs = readFileSync(join(here, 'spaceSharing.mjs'), 'utf8');
 const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 const block = (src, start, end) => {
   const a = src.indexOf(start);
@@ -232,7 +233,9 @@ const feedWired = (src) => {
   const hide = route.indexOf('hideFromFeed(');
   const build = route.indexOf('buildPublishedIcs(');
   return hide > 0 && build > hide
-    && /readFeedHiddenLists\(record\.familyId, record\.createdBy\)/.test(route)
+    && /loadCalendarPublicationSources\(record,/.test(route)
+    && /readHiddenLists: readFeedHiddenLists/.test(route)
+    && /readHiddenLists\(publication\.familyId, publication\.createdBy\)/.test(sharingJs)
     && /feedHiddenPeople\(hiddenLists, allOccasionSources\)/.test(route)
     && /buildPublishedIcs\(selectPublishableEvents\(events\)/.test(route)
     && /buildFeedOccasions\(occasionSources\)/.test(route);

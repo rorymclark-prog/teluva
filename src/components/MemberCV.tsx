@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { FamilyMember, FamilyDocument, CvRole, CvEducationEntry, CvQualification, MemberCv } from '../types';
-import { uploadVaultFile } from '../utils/db';
+import { FAMILY_ID, uploadVaultFile } from '../utils/db';
+import { auth } from '../lib/firebase';
 import { isDemoMode } from '../utils/demoData';
 import { todayISO } from '../utils/age';
 import { appConfirm } from '../utils/appConfirm';
 import { qualificationExpiryStatus } from '../utils/qualificationExpiry';
+import { captureProfileFileScope, fileProfileAttachment, persistProfileFile, readFileDataUrl, PROFILE_FILE_LIMIT_BYTES, PROFILE_FILE_LIMIT_LABEL } from '../utils/profileFiles';
 import {
   Briefcase, Plus, Trash2, Pencil, Check, X, Building2, GraduationCap, Award,
   Languages, Tags, Upload, FileText, Eye, RefreshCcw, AlertCircle, FileImage,
@@ -15,13 +17,9 @@ import EmptyState from './EmptyState';
 
 const newId = () => 'cv-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-// Family files live in Storage. Business CVs stay inside their access-controlled
-// member record: the shared space bucket does not enforce employee ownership.
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-
 interface Props {
   member: FamilyMember;
-  onUpdate: (patch: Partial<FamilyMember>) => void;
+  onUpdate: (patch: Partial<FamilyMember>) => boolean | void | Promise<boolean | void>;
   onViewDocument: (doc: FamilyDocument, memberName: string) => void;
   canEdit?: boolean;
   onBuildTimeline?: () => void;
@@ -242,11 +240,14 @@ function TagEditor({ values, onChange, placeholder, canEdit }: { values: string[
 }
 
 export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = false, onBuildTimeline, isBusinessSpace = false }: Props) {
-  const uploadLimit = isBusinessSpace ? 700*1024 : MAX_UPLOAD_BYTES;
-  const uploadLimitLabel = isBusinessSpace ? '700 KB' : '20 MB';
+  const uploadLimit = PROFILE_FILE_LIMIT_BYTES;
+  const uploadLimitLabel = PROFILE_FILE_LIMIT_LABEL;
   const cv: MemberCv = member.cv || {};
   const latest = useRef(member);
   latest.current = member;
+  const fileEpoch = useRef(0);
+  useEffect(() => () => { fileEpoch.current++; }, [member.id]);
+  const fileScope = () => captureProfileFileScope(() => [auth.currentUser?.uid, FAMILY_ID, latest.current.id, fileEpoch.current]);
   const first = member.name.split(/\s+/)[0] || member.name;
 
   const [summary, setSummary] = useState(cv.summary || '');
@@ -267,6 +268,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
     setAddingEdu(false); setEditEduId(null);
     setAddingQual(false); setEditQualId(null);
     setFileError(null);
+    setUploadingWork(false);
   }, [member.id]);
 
   const patchCv = (next: MemberCv) => onUpdate({ cv: next });
@@ -311,14 +313,18 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
     if (file.size >= uploadLimit) {setFileError(`Choose a file smaller than ${uploadLimitLabel}.`);return;}
     if (!/\.(pdf|docx|txt|jpg|jpeg|png|webp)$/i.test(file.name)) {setFileError('Choose a PDF, Word, text or image document.');return;}
     setUploadingWork(true);setFileError(null);
+    const isCurrent = fileScope();
     try {
       const id = 'work-' + newId();
-      const stored = (isDemoMode() || isBusinessSpace) ? {storagePath:'',downloadUrl:await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);})} : await uploadVaultFile(file,id);
-      const document:FamilyDocument = {id,name:file.name,category:'Other',fileName:file.name,fileType:file.type || 'application/octet-stream',fileSize:file.size,uploadedAt:todayISO(),fileData:stored.downloadUrl,storagePath:stored.storagePath};
-      if (latest.current.id !== member.id) throw new Error('Profile changed during upload. Please reopen the original profile.');
-      await onUpdate({documents:[...(latest.current.documents || []),document],cv:{...latest.current.cv,workDocumentIds:[...(latest.current.cv?.workDocumentIds || []),id]}});
-    } catch(e) {setFileError(e instanceof Error ? e.message : 'Could not save this document.');}
-    finally {setUploadingWork(false);if(workFileInputRef.current) workFileInputRef.current.value='';}
+      await fileProfileAttachment({ isCurrent,
+        store: () => persistProfileFile({ size: file.size, demo: isDemoMode(), readDataUrl: () => readFileDataUrl(file), upload: () => uploadVaultFile(file, id) }),
+        save: async stored => {
+          const document:FamilyDocument = {id,name:file.name,category:'Other',fileName:file.name,fileType:file.type || 'application/octet-stream',fileSize:file.size,uploadedAt:todayISO(),fileData:stored.downloadUrl,storagePath:stored.storagePath};
+          return onUpdate({documents:[...(latest.current.documents || []),document],cv:{...latest.current.cv,workDocumentIds:[...(latest.current.cv?.workDocumentIds || []),id]}});
+        },
+      });
+    } catch(e) {if (isCurrent()) setFileError(e instanceof Error ? e.message : 'Could not save this document.');}
+    finally {if (isCurrent()) {setUploadingWork(false);if(workFileInputRef.current) workFileInputRef.current.value='';}}
   };
 
   /* CV file (single slot, pointed to by cv.fileDocumentId, stored in member.documents) */
@@ -332,14 +338,18 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
     if (file.size >= uploadLimit) {setFileError(`Choose a CV smaller than ${uploadLimitLabel}.`);return;}
     if (!/\.(pdf|docx|txt|jpg|jpeg|png|webp)$/i.test(file.name)) {setFileError('Choose a PDF, Word, text or image CV.');return;}
     setUploadingWork(true);
+    const isCurrent = fileScope();
     try {
       const id = 'doc-' + newId();
-      const stored = (isDemoMode() || isBusinessSpace) ? {storagePath:'',downloadUrl:await new Promise<string>((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.onerror=()=>reject(new Error('Could not read file'));r.readAsDataURL(file);})} : await uploadVaultFile(file,id);
-      const newDoc:FamilyDocument = {id,name:`${member.name}'s CV`,category:'Other',fileName:file.name,fileType:file.type || 'application/octet-stream',fileSize:file.size,uploadedAt:todayISO(),fileData:stored.downloadUrl,storagePath:stored.storagePath};
-      if (latest.current.id !== member.id) throw new Error('Profile changed during upload. Please reopen the original profile.');
-      await onUpdate({documents:[...(latest.current.documents || []),newDoc],cv:{...latest.current.cv,fileDocumentId:id}});
-    } catch(e) {setFileError(e instanceof Error ? e.message : 'Could not save CV.');}
-    finally {setUploadingWork(false);if(fileInputRef.current) fileInputRef.current.value='';}
+      await fileProfileAttachment({ isCurrent,
+        store: () => persistProfileFile({ size: file.size, demo: isDemoMode(), readDataUrl: () => readFileDataUrl(file), upload: () => uploadVaultFile(file, id) }),
+        save: async stored => {
+          const newDoc:FamilyDocument = {id,name:`${member.name}'s CV`,category:'Other',fileName:file.name,fileType:file.type || 'application/octet-stream',fileSize:file.size,uploadedAt:todayISO(),fileData:stored.downloadUrl,storagePath:stored.storagePath};
+          return onUpdate({documents:[...(latest.current.documents || []),newDoc],cv:{...latest.current.cv,fileDocumentId:id}});
+        },
+      });
+    } catch(e) {if (isCurrent()) setFileError(e instanceof Error ? e.message : 'Could not save CV.');}
+    finally {if (isCurrent()) {setUploadingWork(false);if(fileInputRef.current) fileInputRef.current.value='';}}
   };
 
   const removeFile = async () => {
@@ -497,7 +507,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
                 {canEdit && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => { setEditRoleId(r.id); setAddingRole(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
-                    <ConfirmDeleteButton onConfirm={() => deleteRole(r.id)} ariaLabel={`Delete ${r.title || "this role"}`} />
+                    <ConfirmDeleteButton onConfirm={async () => { await deleteRole(r.id); }} ariaLabel={`Delete ${r.title || "this role"}`} />
                   </div>
                 )}
               </div>
@@ -536,7 +546,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
                 {canEdit && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => { setEditEduId(e.id); setAddingEdu(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
-                    <ConfirmDeleteButton onConfirm={() => deleteEdu(e.id)} ariaLabel={`Delete ${e.qualification || e.institution || "this entry"}`} />
+                    <ConfirmDeleteButton onConfirm={async () => { await deleteEdu(e.id); }} ariaLabel={`Delete ${e.qualification || e.institution || "this entry"}`} />
                   </div>
                 )}
               </div>
@@ -579,7 +589,7 @@ export default function MemberCV({ member, onUpdate, onViewDocument, canEdit = f
                 {canEdit && (
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => { setEditQualId(q.id); setAddingQual(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
-                    <ConfirmDeleteButton onConfirm={() => deleteQual(q.id)} ariaLabel={`Delete ${q.name || "this certificate"}`} />
+                    <ConfirmDeleteButton onConfirm={async () => { await deleteQual(q.id); }} ariaLabel={`Delete ${q.name || "this certificate"}`} />
                   </div>
                 )}
               </div>

@@ -17,17 +17,19 @@ import { loadBusinessDirectory, type DirectoryEntry } from '../utils/db';
  * behind them this account may read, and a row that navigates to a permission
  * error is worse than a row that does not navigate.
  */
-export default function TeamDirectory({ selfMemberId }: { selfMemberId?: string }) {
-  const [entries, setEntries] = useState<DirectoryEntry[] | null>(null);
+export default function TeamDirectory({ selfMemberId, demoEntries }: { selfMemberId?: string; demoEntries?: readonly Pick<DirectoryEntry, 'id' | 'name'>[] }) {
+  const [loadedEntries, setEntries] = useState<DirectoryEntry[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const entries: readonly DirectoryEntry[] | null = demoEntries || loadedEntries;
 
   useEffect(() => {
     let cancelled = false;
+    if (demoEntries) return;
     loadBusinessDirectory()
       .then((d) => { if (!cancelled) setEntries(d.members || []); })
       .catch(() => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; };
-  }, []);
+  }, [demoEntries]);
 
   // Still loading, or the call failed. A failure is silent on purpose: the
   // note above this component already explains why the list is short, and a

@@ -4,6 +4,38 @@ const DAY_MS = 86_400_000;
 export const ACTION_SUGGESTION_DAYS = 90;
 export const ACTION_DUE_SOON_DAYS = 7;
 
+/** Display/assignment data only. This is never a profile access grant. */
+export interface ActionPerson { id: string; name: string }
+export type ActionDirectoryStatus = 'loading' | 'ready' | 'unavailable';
+
+export function actionPeople(profiles: readonly ActionPerson[], directory: readonly ActionPerson[] = []): ActionPerson[] {
+  const people = new Map<string, ActionPerson>();
+  for (const person of [...directory, ...profiles]) {
+    if (typeof person?.id === 'string' && person.id && typeof person.name === 'string' && person.name.trim()) {
+      // Pick just the public fields even when a caller hands in a full profile.
+      people.set(person.id, { id: person.id, name: person.name.trim() });
+    }
+  }
+  return [...people.values()].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+export function actionOwnerName(action: FamilyAction, people: readonly ActionPerson[], business = false, directoryAvailable = true): string {
+  if (!action.ownerMemberId) return 'Unassigned';
+  return people.find(person => person.id === action.ownerMemberId)?.name
+    || (business ? directoryAvailable ? 'Previous team member' : 'Assigned teammate' : 'Previous member');
+}
+
+export function actionOwnerFilterPeople(people: readonly ActionPerson[], actions: readonly FamilyAction[], business = false, directoryAvailable = true): ActionPerson[] {
+  const missing = actions.filter(action => action.ownerMemberId && !people.some(person => person.id === action.ownerMemberId))
+    .map(action => ({ id: action.ownerMemberId!, name: actionOwnerName(action, people, business, directoryAvailable) }));
+  return actionPeople(people, missing);
+}
+
+/** Directory presence permits assigning work, not opening somebody's HR file. */
+export function actionSourceAvailable(action: FamilyAction, loadedProfiles: readonly Pick<FamilyMember, 'id'>[]): boolean {
+  return !!action.source && (!action.source.memberId || loadedProfiles.some(person => person.id === action.source!.memberId));
+}
+
 export interface ActionSuggestion {
   key: string;
   title: string;

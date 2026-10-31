@@ -88,6 +88,11 @@ uploader identity. Known shared photo namespaces and intentional general Vault
 uploads retain team sharing, while profile and estate restrictions always win.
 Unknown legacy business objects without an owner/source ledger fail closed for
 nonadmins until an admin explicitly binds or classifies them.
+The original Firestore document ID always establishes a profile's identity;
+an editable stored `id` field cannot impersonate another owner. A trusted
+content review can classify an existing company record as shared or bind a
+personal document to its actual subject. An unlinked subject profile stays
+admin-only until that person has an explicitly linked account.
 An initial business inventory finding the same unclassified object on several
 different profiles marks it ambiguous and admin-only. Explicit admin binding
 resolves it to chosen owners. Family multi-links and existing trusted ledgers
@@ -115,6 +120,21 @@ writes membership atomically. Concurrent redeemers cannot both receive the
 single-use grant. Production rate limits and the existing wills release
 workflow remain intact; estate invites name a person without immediately
 placing them in `readerUids`.
+
+## Business membership and sharing
+
+Role updates authorize an explicit space and change its authoritative role
+and the matching account membership in one transaction. The account's active
+role mirror changes only if that same space is active. Clients cannot change
+role or plan fields directly, including deleting an expiry to make a temporary
+plan permanent. Open sessions observe server-confirmed role changes and clear
+sensitive local state before reloading with the new permissions.
+
+Public business calendar subscriptions read shared calendar events without
+loading private staff birthdays or derived occasions, including subscriptions
+issued before this restriction. Family carer snapshots are rejected for
+business spaces on both management and public-read paths. Existing family
+sharing retains its role and expiry checks.
 
 ## Rollout order
 

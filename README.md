@@ -53,15 +53,37 @@ Device-only saves show a pending-sync message and retry when the list reloads.
 Offline-capable PWA. Field-level encryption at rest for the sensitive columns.
 Push notifications for birthdays and expiries.
 
+## Business spaces
+
+A business has its own team, shared calendar and Actions, company compliance
+records, locations, vehicles, insurance, assets and document vault. Staff
+profiles hold work details, CVs, qualifications and personal documents. The
+team directory supplies work contact details and names for assignments;
+employees can open their own private profile, and admins can manage the team.
+Job titles on profiles are separate from account permissions.
+
+The company document vault is a shared filing area. Filing a document under a
+person is a label; private staff files belong on that person's profile. Every
+file request still checks the current account's role and the object's trusted
+ownership metadata. Business calendar subscriptions include shared calendar
+events without deriving birthdays from private staff records.
+
+Full backups include business milestones, assets and receipts. Profile files
+and asset evidence are bundled alongside the JSON when making a full archive.
+Restoring records reports cloud saves that remain pending and stops if the
+account or space changes.
+
 ## Stack
 
 React 19 + TypeScript + Vite on the front, a single Express `server.js` behind
 it, Firebase for auth/Firestore/Storage, Gemini for the assistant and OCR, all
 on Cloud Run in `europe-west2`.
 
-Membership is server-only: the server mints custom claims (`familyId`,
-`familyIds`) and the security rules read those. A client cannot write its own
-role or family.
+Membership and role changes are server-only. Security rules and file access
+read the authoritative role documents in the named database; custom claims do
+not substitute for current membership. A client cannot write its own role or
+family. Open sessions refresh their capabilities after an authoritative role
+change.
 
 ## Running it
 

@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { DIRECTORY_FIELDS, projectDirectoryEntry, buildDirectory } from './directory.mjs';
+import { DIRECTORY_FIELDS, projectDirectoryEntry, buildDirectory, resolveDirectoryMembership } from './directory.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -134,4 +134,51 @@ test('the fields that need consent in Austria are not on the list', () => {
   for (const f of ['birthdate', 'avatarUrl', 'phone', 'email', 'address']) {
     assert.ok(!DIRECTORY_FIELDS.includes(f), `${f} must not be in DIRECTORY_FIELDS`);
   }
+});
+
+test('an explicit space is authorized independently of another tab’s active pointer', async () => {
+  const reads = [];
+  let activeReads = 0;
+  const caller = await resolveDirectoryMembership({ body: { spaceId: 'visible-business' } }, {
+    signedIn: async () => ({ uid: 'employee', email: 'employee@example.test' }),
+    activeMember: async () => { activeReads += 1; return { uid: 'employee', familyId: 'other-business', role: 'admin' }; },
+    roleFor: async (spaceId, uid) => { reads.push({ spaceId, uid }); return spaceId === 'visible-business' ? 'member' : null; },
+  });
+  assert.equal(caller.familyId, 'visible-business');
+  assert.equal(caller.role, 'member', 'a stale active-space admin role never elevates the requested space');
+  assert.deepEqual(reads, [{ spaceId: 'visible-business', uid: 'employee' }]);
+  assert.equal(activeReads, 0);
+});
+
+test('a provided space requires current authoritative membership and rejects arbitrary paths', async () => {
+  const deps = {
+    signedIn: async () => ({ uid: 'outsider' }),
+    activeMember: async () => ({ uid: 'outsider', familyId: 'owned-business', role: 'admin' }),
+    roleFor: async () => null,
+  };
+  assert.equal((await resolveDirectoryMembership({ body: { spaceId: 'other-business' } }, deps)).status, 403);
+  assert.equal((await resolveDirectoryMembership({ body: { spaceId: '../other-business' } }, deps)).status, 400);
+  assert.equal((await resolveDirectoryMembership({ body: { spaceId: 3 } }, deps)).status, 400);
+  const denied = await resolveDirectoryMembership({ body: { spaceId: 'other-business' } }, { ...deps, signedIn: async () => ({ status: 401, error: 'Sign in' }) });
+  assert.equal(denied.status, 401);
+});
+
+test('older directory clients retain their authoritative active-space membership lookup', async () => {
+  const caller = { uid: 'employee', familyId: 'active-business', role: 'member' };
+  const result = await resolveDirectoryMembership({ body: {} }, {
+    signedIn: async () => { throw new Error('Should use legacy membership helper'); },
+    activeMember: async () => caller,
+    roleFor: async () => { throw new Error('Should use legacy membership helper'); },
+  });
+  assert.equal(result, caller);
+});
+
+test('the live endpoint echoes the authorized space and retains the safe projection', () => {
+  const source = readFileSync(resolve(here, '../server.js'), 'utf8');
+  const start = source.indexOf("app.post('/api/business/directory'");
+  const endpoint = source.slice(start, source.indexOf("app.post('/api/wills-release/state'", start));
+  assert.match(endpoint, /resolveDirectoryMembership\(req/);
+  assert.match(endpoint, /families\/\$\{spaceId\}\/roles\/\$\{uid\}/);
+  assert.match(endpoint, /familyId: caller\.familyId, members/);
+  assert.match(endpoint, /buildDirectory\(snap\.docs\.map\(recordFromSnapshot\)\)/);
 });

@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, setDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db, ensureFileSession } from '../lib/firebase';
 import { FamilyRole, UserProfile, FamilyMemberRole, AiConsent, SpaceMembership } from '../types';
-import { setFamilyId, setAccountRole, ensureFamilyClaim } from '../utils/db';
+import { setFamilyId, setAccountRole, ensureFamilyClaim, clearRoleSensitiveCaches } from '../utils/db';
 import { AI_CONSENT_VERSION, hasValidAiConsent } from '../utils/aiConsent';
 import { setRevealCacheScope } from '../utils/vaultFields';
+import { profileWithAuthoritativeRole, watchAccountRole, applyAccountRoleChange } from '../utils/accountRole';
 
 // AI is only ever offered to adults (admin/member) — child accounts never use it.
 const isAdultRole = (r: FamilyRole | null) => r === 'admin' || r === 'member';
@@ -129,8 +130,12 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
 
   useEffect(() => {
     let authGeneration = 0;
+    let stopRoleListener = () => {};
     const unsub = onAuthStateChanged(auth, async (user: User | null) => {
       const mine = ++authGeneration;
+      stopRoleListener();
+      stopRoleListener = () => {};
+      setAccountRole(null);
       // Scope the on-device reveal cache (decrypted sensitive values) to THIS
       // user before anything can read or write it — a different account on the
       // same browser must never see the previous user's revealed values.
@@ -178,7 +183,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
         if (!current()) return;
 
         if (userSnap.exists()) {
-          // User doc already exists — use stored familyId and role
+          // The user mirror selects a space; its cached role grants nothing.
           let profile = userSnap.data() as UserProfile;
 
           // Migration: upgrade role if email is in FORCE_ADMIN and not already admin
@@ -189,6 +194,22 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             await setDoc(rolesRef, { role: 'admin' }, { merge: true });
           }
 
+          if (!current()) return;
+          if (!profile.familyId) {
+            setValue({ ...defaultValue, uid, email, setAiConsent, loading: false });
+            return;
+          }
+          const rolesRef = doc(db, 'families', profile.familyId, 'roles', uid);
+          try {
+            const roleSnap = await getDocFromServer(rolesRef);
+            if (!current()) return;
+            profile = profileWithAuthoritativeRole(profile, roleSnap.exists() ? roleSnap.data() : null);
+          } catch (error) {
+            if ((error as { code?: string }).code === 'permission-denied') {
+              throw new Error('Your access to this space has changed. Reload to choose an available space.');
+            }
+            throw error;
+          }
           if (!current()) return;
           setAccountRole(profile.role);
           setFamilyId(profile.familyId);
@@ -208,6 +229,35 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
             spaces: withSpacesFallback(profile),
             loading: false,
             loadError: null,
+          });
+          const resetForRole = (nextRole: FamilyRole | null) => {
+            if (!current()) return;
+            applyAccountRoleChange(nextRole, {
+              setRole: role => {
+                setAccountRole(role);
+                if (!role) setFamilyId('');
+                setValue(v => ({
+                  ...v, role, familyId: role ? profile.familyId : null,
+                  isAdmin: role === 'admin', canWrite: isAdultRole(role), aiEligible: isAdultRole(role),
+                  aiConsent: isAdultRole(role) && v.aiConsent, loading: !!role,
+                  loadError: role ? null : 'Your access to this space has changed. Reload to choose an available space.',
+                }));
+              },
+              purge: () => clearRoleSensitiveCaches(profile.familyId, uid),
+              // A capability change must discard React plaintext and old
+              // in-flight loaders as well as persistent caches. Startup reads
+              // the authoritative role first, so a stale mirror cannot loop.
+              reload: () => window.location.reload(),
+            });
+          };
+          stopRoleListener = watchAccountRole({
+            initialRole: profile.role,
+            subscribe: (next, error) => onSnapshot(rolesRef, { includeMetadataChanges: true }, snap => {
+              next({ exists: snap.exists(), role: snap.data()?.role, fromCache: snap.metadata.fromCache });
+            }, error),
+            onChange: resetForRole,
+            onRemoved: () => resetForRole(null),
+            onTransientError: error => console.warn('FamilyProvider: role listener will retry', error.code),
           });
           return;
         }
@@ -307,7 +357,7 @@ export function FamilyProvider({ children }: { children: React.ReactNode }): Rea
       }
     });
 
-    return () => { authGeneration += 1; unsub(); };
+    return () => { authGeneration += 1; stopRoleListener(); unsub(); };
   }, [setAiConsent]);
 
   return (

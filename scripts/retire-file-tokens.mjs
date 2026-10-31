@@ -5,6 +5,7 @@ import admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import { fileTarget } from '../server/files.mjs';
 import { fileRetirementPlan } from '../server/fileMigration.mjs';
+import { recordFromSnapshot } from '../server/firestoreRecords.mjs';
 
 const projectId = process.env.FIREBASE_PROJECT_ID || 'gen-lang-client-0384516171';
 const databaseId = process.env.FIRESTORE_DB_ID || 'teluva-prod';
@@ -22,7 +23,7 @@ const snapshotFor = async familyId => {
       family.collection('family_members').get(), family.collection('info').doc('info').get(),
       family.collection('reference').doc('willsEstate').get(), family.collection('reference').doc('documents').get(),
     ]);
-    return { members: members.docs.map(snap => ({ id: snap.id, ...snap.data() })), spaceInfo: info.exists ? info.data() : {},
+    return { members: members.docs.map(recordFromSnapshot), spaceInfo: info.exists ? info.data() : {},
       estate: estate.exists ? estate.data() : null, documents: documents.exists ? documents.data() : null };
   })());
   return snapshots.get(familyId);

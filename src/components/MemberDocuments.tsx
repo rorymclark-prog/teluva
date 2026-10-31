@@ -17,6 +17,10 @@ import PdfThumbnail from './PdfThumbnail';
 import { ScannedFile } from './DocumentScannerModal';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import EmptyState from './EmptyState';
+import { FAMILY_ID, uploadVaultPhoto } from '../utils/db';
+import { auth } from '../lib/firebase';
+import { isDemoMode } from '../utils/demoData';
+import { captureProfileFileScope, fileProfileAttachment, persistProfileFile, PROFILE_FILE_LIMIT_BYTES, PROFILE_FILE_LIMIT_LABEL } from '../utils/profileFiles';
 
 // Heavy component (camera UI + jsPDF for compiling scanned pages) — lazy-loaded
 // so its weight doesn't ship in the main bundle for users who never open the scanner.
@@ -24,10 +28,10 @@ const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 
 interface MemberDocumentsProps {
   member: FamilyMember;
-  onAddDocument: (id: string, document: FamilyDocument) => void;
+  onAddDocument: (id: string, document: FamilyDocument) => boolean | void | Promise<boolean | void>;
   // Returns a promise now: deleting also clears the shared vault copy and the
   // stored file, so callers that save straight afterwards must be able to wait.
-  onDeleteDocument: (memberId: string, documentId: string) => void | Promise<void>;
+  onDeleteDocument: (memberId: string, documentId: string, preserveDocumentIds?: readonly string[]) => void | Promise<void>;
   onViewDocument: (doc: FamilyDocument, memberName: string) => void;
   isBusinessSpace?: boolean;
 }
@@ -45,10 +49,7 @@ const HIDDEN_IN_BUSINESS: ('ID' | 'Health' | 'Education' | 'Travel' | 'Other')[]
 // Use en-CA locale (YYYY-MM-DD format) so the date reflects local wall-clock time.
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
 
-// BUG FIX #2: 700 KB file-size guard. Files are stored as base64 inside Firestore
-// documents (1 MB hard limit). Reject anything over 700 KB before reading to prevent
-// silent failures or Firestore write errors.
-const MAX_UPLOAD_BYTES = 700 * 1024;
+const MAX_UPLOAD_BYTES = PROFILE_FILE_LIMIT_BYTES;
 
 // Category chip styling
 // Exported so MemberIdOverview.tsx's Section B (every document, at a glance)
@@ -71,6 +72,11 @@ export default function MemberDocuments({
   onViewDocument,
   isBusinessSpace
 }: MemberDocumentsProps) {
+  const latestMemberId = useRef(member.id);
+  latestMemberId.current = member.id;
+  const fileEpoch = useRef(0);
+  useEffect(() => () => { fileEpoch.current++; }, [member.id]);
+  const fileScope = () => captureProfileFileScope(() => [auth.currentUser?.uid, FAMILY_ID, latestMemberId.current, fileEpoch.current]);
   const categories = isBusinessSpace ? CATEGORIES.filter(c => !HIDDEN_IN_BUSINESS.includes(c)) : CATEGORIES;
   const [docName, setDocName] = useState('');
   const [category, setCategory] = useState<'ID' | 'Health' | 'Education' | 'Travel' | 'Other'>('ID');
@@ -95,6 +101,11 @@ export default function MemberDocuments({
   const [exporting, setExporting] = useState<'share' | 'zip' | null>(null);
   const [isPdfCompiling, setIsPdfCompiling] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  useEffect(() => {
+    setCheckingDuplicate(false); setIsPdfCompiling(false); setPendingFileData(null);
+    setSelectedFileName(null); setDuplicateMatch(null); setFileError(null); setScannerOpen(false);
+    setDocName(''); setNotes(''); setCategory('ID');
+  }, [member.id]);
   // Mount the (lazy) scanner once, the first time it's actually opened, and
   // never unmount it again — otherwise an always-rendered-with-an-open-prop
   // lazy component downloads its chunk on first paint regardless, same as if
@@ -122,12 +133,14 @@ export default function MemberDocuments({
     if (!pendingFileData || !pendingFileData.type.startsWith('image/')) return;
     setIsPdfCompiling(true);
     setFileError(null);
+    const isCurrent = fileScope();
     try {
       const compiled = await compileImageToPdf(pendingFileData.data, pendingFileData.name);
+      if (!isCurrent()) return;
 
-      if (compiled.size > MAX_UPLOAD_BYTES) {
+      if (compiled.size >= MAX_UPLOAD_BYTES) {
         setFileError(
-          `Compiled PDF is ${formatBytes(compiled.size)} — still too large for cloud sync (limit 700 KB). ` +
+          `Compiled PDF is ${formatBytes(compiled.size)} — too large for upload (limit ${PROFILE_FILE_LIMIT_LABEL}). ` +
           'Please use a smaller or more compressed image.'
         );
         setIsPdfCompiling(false);
@@ -148,28 +161,28 @@ export default function MemberDocuments({
       }
     } catch (err: any) {
       console.error(err);
-      setFileError('Failed to compile image into a PDF file.');
+      if (isCurrent()) setFileError('Failed to compile image into a PDF file.');
     } finally {
-      setIsPdfCompiling(false);
+      if (isCurrent()) setIsPdfCompiling(false);
     }
   };
 
-  // BUG FIX #2 (continued): 700 KB guard in the main file-upload path.
-  // Previously the guard was 3.5 MB, which is far too large for Firestore's 1 MB doc limit.
   const processFile = (file: File) => {
     setFileError(null);
 
-    if (file.size > MAX_UPLOAD_BYTES) {
+    if (file.size >= MAX_UPLOAD_BYTES) {
       setFileError(
         `"${file.name}" is ${formatBytes(file.size)} — too large for cloud sync. ` +
-        'Files must be under 700 KB to fit inside the family document. ' +
+        `Files must be smaller than ${PROFILE_FILE_LIMIT_LABEL}. ` +
         'Try a compressed JPEG photo or a reduced-resolution scan.'
       );
       return;
     }
 
     const reader = new FileReader();
+    const isCurrent = fileScope();
     reader.onload = (e) => {
+      if (!isCurrent()) return;
       if (e.target?.result && typeof e.target.result === 'string') {
         setPendingFileData({
           data: e.target.result,
@@ -181,7 +194,7 @@ export default function MemberDocuments({
       }
     };
     reader.onerror = () => {
-      setFileError('Failed to read the file. Try a different format.');
+      if (isCurrent()) setFileError('Failed to read the file. Try a different format.');
     };
     reader.readAsDataURL(file);
   };
@@ -224,24 +237,42 @@ export default function MemberDocuments({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const saveNewDoc = (contentHash: string) => {
+  const saveNewDoc = async (contentHash: string, replacingId?: string) => {
     if (!pendingFileData) return;
-    const newDoc: FamilyDocument = {
-      id: 'doc-' + Date.now().toString(),
-      name: docName.trim(),
-      category,
-      fileType: pendingFileData.type,
-      fileName: pendingFileData.name,
-      fileSize: pendingFileData.size,
-      // BUG FIX #1: use todayLocal() so the date reflects local wall-clock time,
-      // not UTC (which can be a day behind after midnight in positive-offset timezones).
-      uploadedAt: todayLocal(),
-      notes: notes.trim() || undefined,
-      fileData: pendingFileData.data,
-      contentHash,
-    };
-    onAddDocument(member.id, newDoc);
-    resetUploadForm();
+    setCheckingDuplicate(true);
+    setFileError(null);
+    const isCurrent = fileScope();
+    try {
+      const id = 'doc-' + crypto.randomUUID();
+      await fileProfileAttachment({ isCurrent,
+        store: () => persistProfileFile({
+          size: pendingFileData.size,
+          demo: isDemoMode(),
+          readDataUrl: async () => pendingFileData.data,
+          upload: () => uploadVaultPhoto(pendingFileData.data, id, { fileName: pendingFileData.name }),
+        }),
+        save: async stored => {
+          const newDoc: FamilyDocument = {
+            id,
+            name: docName.trim(),
+            category,
+            fileType: pendingFileData.type,
+            fileName: pendingFileData.name,
+            fileSize: pendingFileData.size,
+            uploadedAt: todayLocal(),
+            notes: notes.trim() || undefined,
+            fileData: stored.downloadUrl,
+            storagePath: stored.storagePath,
+            contentHash,
+          };
+          return onAddDocument(member.id, newDoc);
+        },
+        retirePrevious: replacingId ? () => Promise.resolve(onDeleteDocument(member.id, replacingId, [id])) : undefined,
+      });
+      resetUploadForm();
+    } catch (error) {
+      if (isCurrent()) setFileError(error instanceof Error ? error.message : 'Could not save this document.');
+    } finally { if (isCurrent()) setCheckingDuplicate(false); }
   };
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
@@ -249,8 +280,10 @@ export default function MemberDocuments({
     if (!docName.trim() || !pendingFileData) return;
 
     setCheckingDuplicate(true);
+    const isCurrent = fileScope();
     try {
       const hash = await hashDataUrl(pendingFileData.data);
+      if (!isCurrent()) return;
       const sameCategory = (member.documents || []).filter((d) => d.category === category);
       const match = findLikelyDuplicate(
         { fileName: pendingFileData.name, fileSize: pendingFileData.size, contentHash: hash },
@@ -261,30 +294,20 @@ export default function MemberDocuments({
         setPendingHash(hash);
         return; // wait for the user to choose Replace or Keep both
       }
-      saveNewDoc(hash);
+      await saveNewDoc(hash);
+    } catch (error) {
+      if (isCurrent()) setFileError(error instanceof Error ? error.message : 'Could not check this document.');
     } finally {
-      setCheckingDuplicate(false);
+      if (isCurrent()) setCheckingDuplicate(false);
     }
   };
 
-  // MUST await the delete before saving the replacement. The delete is now a
-  // multi-store operation (member record + vault + Storage), so firing it and
-  // immediately adding the new document would let the delete's member-record
-  // write land LAST and take the replacement down with it.
   const resolveDuplicateReplace = async () => {
     if (!duplicateMatch) return;
-    setCheckingDuplicate(true);
-    try {
-      await onDeleteDocument(member.id, duplicateMatch.doc.id);
-    } finally {
-      setCheckingDuplicate(false);
-    }
-    saveNewDoc(pendingHash);
+    await saveNewDoc(pendingHash, duplicateMatch.doc.id);
   };
 
-  const resolveDuplicateKeepBoth = () => {
-    saveNewDoc(pendingHash);
-  };
+  const resolveDuplicateKeepBoth = () => saveNewDoc(pendingHash);
 
   const getDocSource = (doc: FamilyDocument) => {
     if (doc.fileData && doc.fileData !== 'PLACEHOLDER') {
@@ -457,7 +480,7 @@ export default function MemberDocuments({
                 {selectedFileName ? 'Document loaded' : 'Drag & drop or click to upload'}
               </p>
               <p className="text-[12px] text-ink-400 mt-1">
-                {selectedFileName ? selectedFileName : 'Image or PDF — max 700 KB'}
+                {selectedFileName ? selectedFileName : `Image or PDF — max ${PROFILE_FILE_LIMIT_LABEL}`}
               </p>
             </div>
           </div>

@@ -251,7 +251,7 @@ check('the union type lists exactly those categories',
 // THE DIAL MUST REACH THE READ. A saved category that the profiles route never
 // consults is a setting that lies.
 check('the read projects per person, not per link',
-  /projectSharedMember\(\{ id: s\.id, \.\.\.s\.data\(\) \}, categoriesFor\(link, other\.id, s\.id\), surnameMeanings\)/.test(routes));
+  /projectSharedMember\(recordFromSnapshot\(s\), categoriesFor\(link, other\.id, s\.id\), surnameMeanings\)/.test(routes));
 /* Still the same rule, but against `effective` — the ids that ACTUALLY cross
  * after the mode is applied — not the raw ticked list. In 'everyone' mode
  * those differ, and validating against the wrong one would leave a category

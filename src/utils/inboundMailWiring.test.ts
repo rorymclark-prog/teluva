@@ -93,8 +93,8 @@ check('it returns a nullable string, so callers must handle absence',
 // from memory, or found anywhere else — if no screen shows it, every server
 // test above passes and the feature does not exist.
 check('the vault fetches the address', /fetchInboundMailAddress\(\)/.test(vault));
-check('and renders it only when there is one',
-  /\{inboundAddress && \(/.test(vault));
+check('and renders it only for a writer when an address exists',
+  /\{canEdit && inboundAddress && \(/.test(vault));
 check('the address itself appears on screen', /\{inboundAddress\}/.test(vault));
 check('with a copy control, because nobody retypes an HMAC',
   /writeText\(inboundAddress\)/.test(vault));

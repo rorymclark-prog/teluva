@@ -3,7 +3,7 @@ import { CalendarEvent, FamilyAction, FamilyMember, HubStatus } from '../types';
 import type { Trip } from '../utils/trip';
 import type { ImportantItem } from '../utils/importantEvents';
 import ImportantComingUp from './ImportantComingUp';
-import { actionCounts, actionDaysUntil, sortActions } from '../utils/actions';
+import { actionCounts, actionDaysUntil, actionOwnerName, sortActions, type ActionPerson } from '../utils/actions';
 
 export interface PulseExpiryWarning {
   memberId: string;
@@ -24,6 +24,8 @@ interface FamilyPulseProps {
   onOpenPeople: () => void;
   actions?: FamilyAction[];
   actionsLoading?: boolean;
+  actionOwners?: readonly ActionPerson[];
+  actionDirectoryAvailable?: boolean;
   onOpenActions?: () => void;
   isBusinessSpace?: boolean;
 
@@ -112,10 +114,11 @@ function dateLabel(event: CalendarEvent): string {
     + (event.time ? ` · ${event.time}` : '');
 }
 
-function positiveMoment(members: FamilyMember[], isBusinessSpace: boolean): { title: string; note: string; growth: boolean } | null {
+export function positiveMoment(members: FamilyMember[], isBusinessSpace: boolean, teamPeople: readonly ActionPerson[] = members, directoryAvailable = true): { title: string; note: string; growth: boolean } | null {
   if (isBusinessSpace) {
-    return members.length > 0
-      ? { title: `${members.length} ${members.length === 1 ? 'person' : 'people'}, one team.`, note: 'Open Team to keep the team record current', growth: false }
+    if (!directoryAvailable) return { title: 'One team, moving forward.', note: 'Open Team to keep the team record current', growth: false };
+    return teamPeople.length > 0
+      ? { title: `${teamPeople.length} ${teamPeople.length === 1 ? 'person' : 'people'}, one team.`, note: 'Open Team to keep the team record current', growth: false }
       : null;
   }
   for (const member of members) {
@@ -166,7 +169,7 @@ export function pulseSpaceCopy(isBusinessSpace: boolean) {
   };
 }
 
-export default function FamilyPulse({ members, events, status, familyPhotoUrl, expiryWarnings, onOpenCalendar, onOpenMemberIds, onOpenPeople, actions = [], actionsLoading = false, onOpenActions, isBusinessSpace = false, trips = [], me = null, onOpenTrip, onViewPhoto, importantItems = [] }: FamilyPulseProps) {
+export default function FamilyPulse({ members, events, status, familyPhotoUrl, expiryWarnings, onOpenCalendar, onOpenMemberIds, onOpenPeople, actions = [], actionsLoading = false, actionOwners = members, actionDirectoryAvailable = true, onOpenActions, isBusinessSpace = false, trips = [], me = null, onOpenTrip, onViewPhoto, importantItems = [] }: FamilyPulseProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const upcoming = events
@@ -178,7 +181,7 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
     ...actions.filter(action => action.status === 'open' && actionDaysUntil(action.dueDate) !== null && actionDaysUntil(action.dueDate)! <= 7).map(action => ({
       key: `action-${action.id}`,
       title: action.title,
-      note: `${(actionDaysUntil(action.dueDate) ?? 0) < 0 ? 'Overdue' : actionDaysUntil(action.dueDate) === 0 ? 'Due today' : 'Due this week'} · ${members.find(member => member.id === action.ownerMemberId)?.name || 'Unassigned'}`,
+      note: `${(actionDaysUntil(action.dueDate) ?? 0) < 0 ? 'Overdue' : actionDaysUntil(action.dueDate) === 0 ? 'Due today' : 'Due this week'} · ${actionOwnerName(action, actionOwners, isBusinessSpace, actionDirectoryAvailable)}`,
       icon: ClipboardList,
       onClick: onOpenActions || onOpenPeople,
       dueInDays: actionDaysUntil(action.dueDate)!,
@@ -205,7 +208,13 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
 
   const countWords = ['Nothing urgent', 'One thing matters', 'Two things matter', 'Three things matter'];
   const copy = pulseSpaceCopy(isBusinessSpace);
-  const moment = positiveMoment(members, isBusinessSpace);
+  // Names are directory data. Photos come only from profiles this account
+  // may already read; a directory entry never grants access to a staff photo.
+  const scenePeople = isBusinessSpace && actionDirectoryAvailable ? actionOwners.map(person => {
+    const readable = members.find(member => member.id === person.id);
+    return { id: person.id, name: person.name, avatarUrl: readable?.avatarUrl, avatarColor: readable?.avatarColor };
+  }) : members;
+  const moment = positiveMoment(members, isBusinessSpace, actionOwners, actionDirectoryAvailable);
   const nextEvent = upcoming[0]?.event;
   const nextDate = nextEvent ? localDate(nextEvent.date) : null;
   const actionSummary = actionCounts(actions);
@@ -238,7 +247,7 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
                 type="button"
                 onClick={() => onViewPhoto(familyPhotoUrl)}
                 className="pulse-scene-photo"
-                aria-label="See the family photo full size"
+                aria-label={isBusinessSpace ? 'See the business photo full size' : 'See the family photo full size'}
               >
                 <img src={familyPhotoUrl} alt={copy.sceneAlt} />
               </button>
@@ -249,7 +258,7 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
             <>
               <span className="pulse-scene-label">{copy.sceneLabel}</span>
               <div className="pulse-scene-portraits">
-                {members.slice(0, 4).map((member) => member.avatarUrl ? (
+                {scenePeople.slice(0, 4).map((member) => member.avatarUrl ? (
                   <img key={member.id} src={member.avatarUrl} alt={member.name} title={member.name} />
                 ) : (
                   <span key={member.id} title={member.name} style={{ background: member.avatarColor ? undefined : 'var(--ember-oxblood)' }}>
@@ -257,7 +266,7 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
                   </span>
                 ))}
               </div>
-              <p>{members.length ? members.slice(0, 4).map((member) => member.name.split(' ')[0]).join(' · ') : copy.sceneEmpty}</p>
+              <p>{scenePeople.length ? scenePeople.slice(0, 4).map((member) => member.name.split(' ')[0]).join(' · ') : copy.sceneEmpty}</p>
             </>
           )}
           {nextDate && (
@@ -329,7 +338,7 @@ export default function FamilyPulse({ members, events, status, familyPhotoUrl, e
 
       <section className="pulse-people" aria-label={copy.peopleAria}>
         <div>
-          {members.slice(0, 6).map((member) => member.avatarUrl
+          {scenePeople.slice(0, 6).map((member) => member.avatarUrl
             ? <img key={member.id} src={member.avatarUrl} alt={member.name} />
             : <span key={member.id} aria-label={member.name}>{member.name.charAt(0).toUpperCase()}</span>)}
         </div>

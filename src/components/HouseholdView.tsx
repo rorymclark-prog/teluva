@@ -9,6 +9,7 @@ import { AttachServiceDoc, ServiceDocChips, useVaultDocs } from './ServiceDocs';
 import { serviceDocName, serviceVerb, homeEntrySubject, withDocId } from '../utils/serviceDocs';
 import { appConfirm } from '../utils/appConfirm';
 import { useSharedDoc } from '../hooks/useSharedDoc';
+import { persistReferenceEdit } from '../utils/referenceEditing';
 import EmptyState from './EmptyState';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import {
@@ -50,6 +51,7 @@ const TRADES: VendorTrade[] = [
 const newId = () => Date.now().toString() + Math.floor(Math.random() * 1000);
 
 interface HouseholdViewProps {
+  canEdit?: boolean;
   isBusinessSpace?: boolean;
   /** Drives the utility vocabulary — a Zählpunkt in Vienna is an MPAN in Leeds. */
   country?: IdCountry;
@@ -60,7 +62,9 @@ interface HouseholdViewProps {
   demo?: boolean;
 }
 
-export default function HouseholdView({ isBusinessSpace, country = 'AT', refreshKey, openAddSignal = 0, emberMode = false, demo = false }: HouseholdViewProps) {
+export default function HouseholdView({ canEdit = false, isBusinessSpace, country = 'AT', refreshKey, openAddSignal = 0, emberMode = false, demo = false }: HouseholdViewProps) {
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
   const [info, setInfo] = useState<HouseholdInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -84,6 +88,7 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
   }, [demo, refreshKey]);
 
   useEffect(() => {
+    if (demo) { setInfo(EMPTY); setLoaded(true); return; }
     let active = true;
     (async () => {
       const data = await loadHousehold();
@@ -95,18 +100,17 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
       if (active && fam?.vendors) setVendors(fam.vendors);
     })();
     return () => { active = false; };
-  }, [refreshKey]);
+  }, [refreshKey, demo]);
 
   // Live updates from other family members. Applied silently: the add/edit
   // forms for utilities, vehicles, pets and locations are child components with
   // their own draft state, so refreshing the lists never disturbs a typed form.
-  useSharedDoc<HouseholdInfo>('household', (h) => setInfo({ ...EMPTY, ...h }));
+  useSharedDoc<HouseholdInfo>('household', (h) => setInfo({ ...EMPTY, ...h }), { disabled: demo });
 
-  const persist = async (next: HouseholdInfo) => {
-    setInfo(next);
-    const ok = await saveHousehold(next);
-    setCloudSynced(ok);
-  };
+  const persist = (next: HouseholdInfo) => persistReferenceEdit(next, {
+    canEdit: () => canEditRef.current, demo, apply: setInfo,
+    save: saveHousehold, onCloudResult: setCloudSynced,
+  });
 
   if (!loaded) {
     return (
@@ -118,6 +122,7 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
 
   return (
     <div className="space-y-6 font-sans">
+      {!canEdit && <p className="text-[13px] text-ink-500" role="status">You have view-only access. You can read locations, utilities and service records.</p>}
       {/* Header */}
       <div className="card p-5 sm:p-6">
         <div className="flex items-center gap-3">
@@ -162,8 +167,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
               className="field resize-none"
               rows={2}
               placeholder="Street, city, postcode…"
+              readOnly={!canEdit}
               value={info.address ?? ''}
-              onChange={(e) => setInfo({ ...info, address: e.target.value })}
+              onChange={(e) => { if (canEditRef.current) setInfo({ ...info, address: e.target.value }); }}
               onBlur={() => persist(info)}
             />
           </div>
@@ -174,8 +180,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                 className="field font-mono"
                 type="text"
                 placeholder="e.g. #1234"
+                readOnly={!canEdit}
                 value={info.doorCode ?? ''}
-                onChange={(e) => setInfo({ ...info, doorCode: e.target.value })}
+                onChange={(e) => { if (canEditRef.current) setInfo({ ...info, doorCode: e.target.value }); }}
                 onBlur={() => persist(info)}
               />
             </div>
@@ -185,8 +192,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                 className="field font-mono"
                 type="text"
                 placeholder="e.g. #5678"
+                readOnly={!canEdit}
                 value={info.garageCode ?? ''}
-                onChange={(e) => setInfo({ ...info, garageCode: e.target.value })}
+                onChange={(e) => { if (canEditRef.current) setInfo({ ...info, garageCode: e.target.value }); }}
                 onBlur={() => persist(info)}
               />
             </div>
@@ -198,8 +206,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                 className="field"
                 type="text"
                 placeholder="Network SSID"
+                readOnly={!canEdit}
                 value={info.wifiName ?? ''}
-                onChange={(e) => setInfo({ ...info, wifiName: e.target.value })}
+                onChange={(e) => { if (canEditRef.current) setInfo({ ...info, wifiName: e.target.value }); }}
                 onBlur={() => persist(info)}
               />
             </div>
@@ -209,8 +218,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                 className="field font-mono"
                 type="text"
                 placeholder="Password"
+                readOnly={!canEdit}
                 value={info.wifiPassword ?? ''}
-                onChange={(e) => setInfo({ ...info, wifiPassword: e.target.value })}
+                onChange={(e) => { if (canEditRef.current) setInfo({ ...info, wifiPassword: e.target.value }); }}
                 onBlur={() => persist(info)}
               />
             </div>
@@ -253,8 +263,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                   className="field"
                   type="text"
                   placeholder="e.g. EVVA, ABUS, Kaba"
+                  readOnly={!canEdit}
                   value={info.lockBrand ?? ''}
-                  onChange={(e) => setInfo({ ...info, lockBrand: e.target.value })}
+                  onChange={(e) => { if (canEditRef.current) setInfo({ ...info, lockBrand: e.target.value }); }}
                   onBlur={() => persist(info)}
                 />
               </div>
@@ -264,8 +275,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                   className="field font-mono"
                   type="text"
                   placeholder="From the Sicherheitskarte"
+                  readOnly={!canEdit}
                   value={info.keyCardNumber ?? ''}
-                  onChange={(e) => setInfo({ ...info, keyCardNumber: e.target.value })}
+                  onChange={(e) => { if (canEditRef.current) setInfo({ ...info, keyCardNumber: e.target.value }); }}
                   onBlur={() => persist(info)}
                 />
               </div>
@@ -276,8 +288,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                 className="field"
                 type="text"
                 placeholder="e.g. Oma, and the neighbour at no. 4"
+                readOnly={!canEdit}
                 value={info.spareKeyWith ?? ''}
-                onChange={(e) => setInfo({ ...info, spareKeyWith: e.target.value })}
+                onChange={(e) => { if (canEditRef.current) setInfo({ ...info, spareKeyWith: e.target.value }); }}
                 onBlur={() => persist(info)}
               />
             </div>
@@ -288,8 +301,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                   className="field"
                   type="text"
                   placeholder="e.g. Burg-Wächter"
+                  readOnly={!canEdit}
                   value={info.safeBrand ?? ''}
-                  onChange={(e) => setInfo({ ...info, safeBrand: e.target.value })}
+                  onChange={(e) => { if (canEditRef.current) setInfo({ ...info, safeBrand: e.target.value }); }}
                   onBlur={() => persist(info)}
                 />
               </div>
@@ -299,8 +313,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                   className="field font-mono"
                   type="text"
                   placeholder="Off the plate or the door edge"
+                  readOnly={!canEdit}
                   value={info.safeSerial ?? ''}
-                  onChange={(e) => setInfo({ ...info, safeSerial: e.target.value })}
+                  onChange={(e) => { if (canEditRef.current) setInfo({ ...info, safeSerial: e.target.value }); }}
                   onBlur={() => persist(info)}
                 />
               </div>
@@ -312,8 +327,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                   className="field"
                   type="text"
                   placeholder="Who monitors it"
+                  readOnly={!canEdit}
                   value={info.alarmProvider ?? ''}
-                  onChange={(e) => setInfo({ ...info, alarmProvider: e.target.value })}
+                  onChange={(e) => { if (canEditRef.current) setInfo({ ...info, alarmProvider: e.target.value }); }}
                   onBlur={() => persist(info)}
                 />
               </div>
@@ -323,8 +339,9 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
                   className="field font-mono"
                   type="text"
                   placeholder="To disarm it"
+                  readOnly={!canEdit}
                   value={info.alarmCode ?? ''}
-                  onChange={(e) => setInfo({ ...info, alarmCode: e.target.value })}
+                  onChange={(e) => { if (canEditRef.current) setInfo({ ...info, alarmCode: e.target.value }); }}
                   onBlur={() => persist(info)}
                 />
               </div>
@@ -337,6 +354,7 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
           more than one address; a family only ever needs the one above) */}
       {isBusinessSpace && (
         <LocationsSection
+          canEdit={canEdit}
           entries={info.locations ?? []}
           onAdd={(l) => persist({ ...info, locations: [...(info.locations ?? []), l] })}
           onUpdate={(l) => persist({ ...info, locations: (info.locations ?? []).map(x => x.id === l.id ? l : x) })}
@@ -346,6 +364,7 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
 
       {/* Utilities */}
       <UtilitiesSection
+        canEdit={canEdit}
         country={country}
         entries={info.utilities ?? []}
         openAddSignal={openAddSignal}
@@ -358,11 +377,12 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
           has a plumber too, and the same question ("who fixed this last time?")
           is asked of premises exactly as it is of a home. */}
       <HomeServiceSection
+        canEdit={canEdit}
         entries={info.homeServiceLog ?? []}
         vendors={vendors}
         assets={assets}
         docs={vault.docs}
-        onAdoptDoc={vault.adopt}
+        onAdoptDoc={(doc, all) => { if (canEditRef.current) vault.adopt(doc, all); }}
         demo={demo}
         isBusinessSpace={isBusinessSpace}
         onAdd={(r) => persist({ ...info, homeServiceLog: [...(info.homeServiceLog ?? []), r] })}
@@ -381,7 +401,7 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
       {/* Footer sync status */}
       <div className="text-center">
         <div className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white rounded-full border border-cream-300/70 shadow-soft text-[12px] font-semibold text-ink-500">
-          {cloudSynced === false ? (
+          {demo ? <span>Demo records stay in this preview</span> : cloudSynced === false ? (
             <><CloudOff className="w-3.5 h-3.5 text-honey-700" /><span>Saved on this device — not backed up to the cloud</span></>
           ) : (
             <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your {isBusinessSpace ? 'team' : 'family'}{cloudSynced ? ' · synced' : ''}</span></>
@@ -394,7 +414,8 @@ export default function HouseholdView({ isBusinessSpace, country = 'AT', refresh
 
 /* ─── Locations (business) ──────────────────────────────────────────────── */
 
-function LocationsSection({ entries, onAdd, onUpdate, onDelete }: {
+function LocationsSection({ canEdit, entries, onAdd, onUpdate, onDelete }: {
+  canEdit: boolean;
   entries: BusinessLocation[];
   onAdd: (l: BusinessLocation) => void;
   onUpdate: (l: BusinessLocation) => void;
@@ -407,12 +428,12 @@ function LocationsSection({ entries, onAdd, onUpdate, onDelete }: {
     <section className="card p-5 space-y-4">
       <div className="flex items-center justify-between pb-3 border-b border-cream-200">
         <h3 className="section-label flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5" /> Additional locations</h3>
-        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
+        {canEdit && <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
           <Plus className="w-3.5 h-3.5" /> Add
-        </button>
+        </button>}
       </div>
 
-      {adding && (
+      {canEdit && adding && (
         <LocationForm
           onSave={(l) => { onAdd(l); setAdding(false); }}
           onCancel={() => setAdding(false)}
@@ -423,7 +444,7 @@ function LocationsSection({ entries, onAdd, onUpdate, onDelete }: {
         <EmptyState icon={MapPin} title="No other locations yet — branches, sites, warehouses…" />
       ) : (
         <div className="space-y-2.5">
-          {entries.map(l => editId === l.id ? (
+          {entries.map(l => canEdit && editId === l.id ? (
             <div key={l.id}>
               <LocationForm
                 initial={l}
@@ -441,14 +462,14 @@ function LocationsSection({ entries, onAdd, onUpdate, onDelete }: {
                 <p className="text-[13px] text-ink-600 whitespace-pre-line mt-0.5">{l.address || '—'}</p>
                 {l.notes && <p className="text-[12px] text-ink-500 mt-0.5">{l.notes}</p>}
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              {canEdit && <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => { setEditId(l.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
                 <button onClick={() => onDelete(l.id)} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
-              </div>
+              </div>}
             </div>
           ))}
         </div>
@@ -544,7 +565,8 @@ const KIND_OF = (u: UtilityProvider): UtilityKind => {
 const kindLabel = (k: UtilityKind) => UTILITY_KINDS.find(x => x.id === k)?.label || 'Utility';
 const telHref = (n: string) => `tel:${n.replace(/[^\d+]/g, '')}`;
 
-function UtilitiesSection({ entries, country = 'AT', openAddSignal = 0, onAdd, onUpdate, onDelete }: {
+function UtilitiesSection({ canEdit, entries, country = 'AT', openAddSignal = 0, onAdd, onUpdate, onDelete }: {
+  canEdit: boolean;
   entries: UtilityProvider[];
   country?: IdCountry;
   openAddSignal?: number;
@@ -558,11 +580,11 @@ function UtilitiesSection({ entries, country = 'AT', openAddSignal = 0, onAdd, o
   const sectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    if (!openAddSignal) return;
+    if (!canEdit || !openAddSignal) return;
     setAdding(true);
     setEditId(null);
     requestAnimationFrame(() => sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-  }, [openAddSignal]);
+  }, [openAddSignal, canEdit]);
 
   /* Contracts that need notice soon, hoisted to the top of the section. The
      whole point of storing an end date is that somebody is told before it
@@ -575,9 +597,9 @@ function UtilitiesSection({ entries, country = 'AT', openAddSignal = 0, onAdd, o
     <section ref={sectionRef} className="card p-5 space-y-4">
       <div className="flex items-center justify-between pb-3 border-b border-cream-200">
         <h3 className="section-label flex items-center gap-1.5"><Plug className="w-3.5 h-3.5" /> Utilities</h3>
-        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
+        {canEdit && <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
           <Plus className="w-3.5 h-3.5" /> Add
-        </button>
+        </button>}
       </div>
 
       {dueSoon.map(({ u, w }) => (
@@ -594,7 +616,7 @@ function UtilitiesSection({ entries, country = 'AT', openAddSignal = 0, onAdd, o
         </div>
       ))}
 
-      {adding && (
+      {canEdit && adding && (
         <UtilityForm
           country={country}
           onSave={(u) => { onAdd(u); setAdding(false); }}
@@ -606,7 +628,7 @@ function UtilitiesSection({ entries, country = 'AT', openAddSignal = 0, onAdd, o
         <EmptyState icon={Plug} title="No utilities yet — electricity, gas, internet, water…" />
       ) : (
         <div className="space-y-2.5">
-          {entries.map(u => editId === u.id ? (
+          {entries.map(u => canEdit && editId === u.id ? (
             <div key={u.id}>
               <UtilityForm
                 initial={u}
@@ -617,6 +639,7 @@ function UtilitiesSection({ entries, country = 'AT', openAddSignal = 0, onAdd, o
             </div>
           ) : (
             <UtilityCard
+              canEdit={canEdit}
               key={u.id}
               utility={u}
               country={country}
@@ -635,6 +658,7 @@ function UtilitiesSection({ entries, country = 'AT', openAddSignal = 0, onAdd, o
 
 /** One stored row. Collapsed it answers "who do I ring"; open it has the rest. */
 const UtilityCard: React.FC<{
+  canEdit: boolean;
   utility: UtilityProvider;
   country: IdCountry;
   open: boolean;
@@ -642,7 +666,7 @@ const UtilityCard: React.FC<{
   onEdit: () => void;
   onDelete: () => void;
   onAddReading: (r: MeterReading) => void;
-}> = ({ utility: u, country, open, onToggle, onEdit, onDelete, onAddReading }) => {
+}> = ({ canEdit, utility: u, country, open, onToggle, onEdit, onDelete, onAddReading }) => {
   const kind = KIND_OF(u);
   const v = utilityVocabulary(kind, country);
   const watch = contractWatch(u.contractEnd, u.noticeDays ?? DEFAULT_NOTICE_DAYS);
@@ -671,14 +695,14 @@ const UtilityCard: React.FC<{
           )}
           {u.accountNumber && <p className="font-mono text-[12px] text-ink-500 mt-0.5">Account: {u.accountNumber}</p>}
         </button>
-        <div className="flex items-center gap-1 shrink-0">
+        {canEdit && <div className="flex items-center gap-1 shrink-0">
           <button onClick={onEdit} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
             <Pencil className="w-3.5 h-3.5" />
           </button>
           <button onClick={onDelete} className="p-1.5 text-ink-400 hover:text-rosa-500 hover:bg-cream-100 rounded-lg" title="Delete">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
-        </div>
+        </div>}
       </div>
 
       {/* Always visible, collapsed or not. The moment you need this you are
@@ -753,11 +777,11 @@ const UtilityCard: React.FC<{
               <p className="text-[11px] font-bold uppercase tracking-wider text-ink-400 flex items-center gap-1.5">
                 <Gauge className="w-3.5 h-3.5" /> Readings
               </p>
-              <button onClick={() => setAddingReading(true)} className="btn-quiet text-[11px] px-2.5 py-1">
+              {canEdit && <button onClick={() => setAddingReading(true)} className="btn-quiet text-[11px] px-2.5 py-1">
                 <Plus className="w-3 h-3" /> Add
-              </button>
+              </button>}
             </div>
-            {addingReading && (
+            {canEdit && addingReading && (
               <ReadingForm
                 onSave={(r) => { onAddReading(r); setAddingReading(false); }}
                 onCancel={() => setAddingReading(false)}
@@ -843,7 +867,8 @@ function ReadingForm({ onSave, onCancel }: { onSave: (r: MeterReading) => void; 
  * this, and a wall of 1998 boiler services buries the one entry from last
  * month that someone actually opened the screen to check.
  */
-function HomeServiceSection({ entries, vendors, assets, docs, onAdoptDoc, demo, isBusinessSpace, onAdd, onUpdate, onDelete }: {
+function HomeServiceSection({ canEdit, entries, vendors, assets, docs, onAdoptDoc, demo, isBusinessSpace, onAdd, onUpdate, onDelete }: {
+  canEdit: boolean;
   entries: HomeServiceRecord[];
   vendors: HouseholdVendor[];
   assets: AssetItem[];
@@ -870,12 +895,12 @@ function HomeServiceSection({ entries, vendors, assets, docs, onAdoptDoc, demo, 
     <section className="card p-5 space-y-4">
       <div className="flex items-center justify-between pb-3 border-b border-cream-200">
         <h3 className="section-label flex items-center gap-1.5"><Wrench className="w-3.5 h-3.5" /> Work done on {place}</h3>
-        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
+        {canEdit && <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
           <Plus className="w-3.5 h-3.5" /> Log work
-        </button>
+        </button>}
       </div>
 
-      {adding && (
+      {canEdit && adding && (
         <HomeServiceForm
           {...formProps}
           onSave={(r) => { onAdd(r); setAdding(false); }}
@@ -890,7 +915,7 @@ function HomeServiceSection({ entries, vendors, assets, docs, onAdoptDoc, demo, 
         />
       ) : (
         <div className="space-y-2.5">
-          {visible.map(r => editId === r.id ? (
+          {visible.map(r => canEdit && editId === r.id ? (
             <div key={r.id}>
               <HomeServiceForm
                 initial={r}
@@ -930,7 +955,7 @@ function HomeServiceSection({ entries, vendors, assets, docs, onAdoptDoc, demo, 
                 })()}
                 <ServiceDocChips ids={r.docIds} docs={docs} ownerLabel={owner} className="mt-1.5" />
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              {canEdit && <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => { setEditId(r.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -939,7 +964,7 @@ function HomeServiceSection({ entries, vendors, assets, docs, onAdoptDoc, demo, 
                   ariaLabel={`Delete log entry: ${r.work}`}
                   hint={`Removes this entry from the history. The tradesperson stays in your vendor list${r.docIds?.length ? ', and attached receipts stay in the Document Vault' : ''}.`}
                 />
-              </div>
+              </div>}
             </div>
           ))}
           {sorted.length > visible.length && (

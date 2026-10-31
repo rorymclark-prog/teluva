@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { CalendarEvent, FamilyMember } from '../types';
-import { resolveEventMembers, eventBelongsToMember } from './eventMemberMatch';
+import { calendarTagPeople, resolveCalendarPeople, resolveEventMembers, eventBelongsToMember } from './eventMemberMatch';
 
 const M = (id: string, name: string) => ({ id, name }) as Pick<FamilyMember, 'id' | 'name'>;
 const FAMILY = [M('rory', 'Rory Clark'), M('ganga', 'Ganga Clark'), M('vita', 'Vita Clark'), M('nom', 'Nomvula Clark')];
@@ -110,3 +110,41 @@ const ev = (title: string, memberIds?: string[]) =>
 }
 
 console.log('eventMemberMatch.test.ts: all assertions passed');
+
+// An employee has one confidential profile and a safe directory of colleagues.
+// Both explicit and imported-by-name events can show the colleague's name
+// without needing their birth date, CV, medical file or any other HR fields.
+{
+  const people = [M('self', 'Sam Singh'), M('colleague', 'Ada Lovelace')];
+  const colleague = resolveCalendarPeople(ev('Planning meeting', ['colleague']), people, true);
+  assert.equal(colleague.wholeGroup, false);
+  assert.deepEqual(colleague.people, [M('colleague', 'Ada Lovelace')]);
+  assert.equal(colleague.explicit, true);
+  const imported = resolveCalendarPeople(ev('Ada — site visit', []), people, true);
+  assert.deepEqual(imported.memberIds, ['colleague']);
+  assert.equal(imported.explicit, false);
+  const tags = calendarTagPeople(people, ['colleague'], true);
+  assert.ok(tags.some(person => person.id === 'colleague'), 'a colleague is available for event tagging');
+  assert.deepEqual(resolveCalendarPeople(ev('Team meeting', []), people, true).people, []);
+  assert.equal(resolveCalendarPeople(ev('Team meeting', []), people, true).wholeGroup, true);
+}
+
+// A failed directory load or a removed person does not broaden an explicit
+// event to 'Whole team'. Editing it keeps its IDs until the user removes them.
+{
+  const loadedSelf = [M('self', 'Sam Singh')];
+  const ids = ['departed', 'self', 'departed'];
+  const departed = resolveCalendarPeople(ev('Planning meeting', ids), loadedSelf, true);
+  assert.equal(departed.wholeGroup, false);
+  assert.deepEqual(departed.memberIds, ['departed', 'self']);
+  assert.equal(departed.people[0].name, 'Previous team member');
+  const offline = resolveCalendarPeople(ev('Planning meeting', ['colleague']), loadedSelf, true, false);
+  assert.equal(offline.people[0].name, 'Assigned teammate');
+  assert.equal(offline.wholeGroup, false);
+  const options = calendarTagPeople(loadedSelf, ['colleague'], true, false);
+  assert.deepEqual(options.map(person => person.id), ['self', 'colleague']);
+  assert.deepEqual(calendarTagPeople(loadedSelf, [], true).map(person => person.id), ['self'], 'unknown people are not new assignment choices');
+  assert.equal(resolveCalendarPeople(ev('Family event', ['departed']), loadedSelf).people[0].name, 'Previous member');
+  assert.deepEqual(ids, ['departed', 'self', 'departed'], 'display resolution does not mutate stored tags');
+}
+console.log('eventMemberMatch.test.ts: safe business roster, colleague tags and offline/departed assignment preservation passed');

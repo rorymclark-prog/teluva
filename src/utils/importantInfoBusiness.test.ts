@@ -29,6 +29,8 @@ import assert from 'node:assert';
 const root = join(import.meta.dirname ?? __dirname, '..', '..');
 const info = readFileSync(join(root, 'src', 'components', 'ImportantInfo.tsx'), 'utf8');
 const dashboard = readFileSync(join(root, 'src', 'components', 'Dashboard.tsx'), 'utf8');
+const numbersSection = info.match(/<NumbersSection\b[\s\S]*?\n\s*\/>/)?.[0] || '';
+const vendorsSection = info.match(/<VendorsSection\b[\s\S]*?\n\s*\/>/)?.[0] || '';
 
 let n = 0;
 const check = (label: string, cond: boolean) => {
@@ -62,7 +64,7 @@ const check = (label: string, cond: boolean) => {
   // the one invocation of <NumbersSection> simply never passed it.
   check(
     'ImportantInfo stopped passing country into <NumbersSection> — the component still declares the prop but nothing supplies it, so every business silently falls back to the generic default',
-    /<NumbersSection\s+entries=\{numbers\}[\s\S]{0,400}country=\{country\}/.test(info),
+    /entries=\{numbers\}/.test(numbersSection) && /country=\{country\}/.test(numbersSection),
   );
 }
 
@@ -86,11 +88,11 @@ const check = (label: string, cond: boolean) => {
 {
   check(
     'VendorsSection no longer declares an isBusinessSpace prop',
-    /function VendorsSection\(\{ entries, onAdd, onUpdate, onDelete, isBusinessSpace \}/.test(info),
+    /function VendorsSection\(\{[^}]*\bisBusinessSpace\b[^}]*\}/.test(info),
   );
   check(
     'ImportantInfo stopped passing isBusinessSpace into VendorsSection — the section is reachable in business but never told so',
-    /<VendorsSection\s+entries=\{vendors\}\s+isBusinessSpace=\{isBusinessSpace\}/.test(info),
+    /entries=\{vendors\}/.test(vendorsSection) && /isBusinessSpace=\{isBusinessSpace\}/.test(vendorsSection),
   );
   check(
     'the vendors heading no longer branches — a business space would still read "Household vendors"',

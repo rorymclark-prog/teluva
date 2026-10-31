@@ -94,7 +94,7 @@ check('an employee is told why they see only themselves',
    Children retain their intentional read-only mask and cannot write it back.
    Profile ownership remains enforced independently by the rules above. */
 check('only the child role short-circuits reveals',
-  /setSharedRevealEnabled\(role !== 'child'\)/.test(db)
+  /setSharedRevealEnabled\(role === 'admin' \|\| role === 'member'\)/.test(db)
   && (db.match(/setSharedRevealEnabled\(/g) || []).length === 1);
 const vaultFields = readFileSync(join(root, 'src/utils/vaultFields.ts'), 'utf8');
 check('the child mask runs before any plaintext reveal cache can be used',

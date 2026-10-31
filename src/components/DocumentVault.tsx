@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { VaultDocument, VaultCategory, FamilyMember, FamilyDocument, HouseholdInfo, AssetItem } from '../types';
-import { loadHousehold, loadAssets, loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, uploadVaultPhoto, deleteDocumentEverywhere, fetchInboundMailAddress, fetchGmailBridgeStatus, createGmailBridgeToken, revokeGmailBridgeToken } from '../utils/db';
+import { FAMILY_ID, loadHousehold, loadAssets, loadDocuments, saveDocuments, uploadVaultFile, deleteVaultFile, uploadVaultPhoto, deleteDocumentEverywhere, fetchInboundMailAddress, fetchGmailBridgeStatus, createGmailBridgeToken, revokeGmailBridgeToken } from '../utils/db';
 import type { GmailBridgeStatus } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
 import { auth } from '../lib/firebase';
@@ -23,6 +23,8 @@ import { compressImageToAvatar } from '../utils/imageCompress';
 import PdfThumbnail from './PdfThumbnail';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { SkeletonHeader, SkeletonRows } from './Skeleton';
+import { persistReferenceEdit } from '../utils/referenceEditing';
+import { createFileOperationScope, FileOperationCancelled, type FileOperationScope } from '../utils/fileOperationScope';
 
 const CATEGORIES: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
 
@@ -107,7 +109,7 @@ interface UploadPanelProps {
   members: FamilyMember[];
   existingDocs: VaultDocument[];
   categories: VaultCategory[];
-  onUpload: (doc: VaultDocument, replaceId?: string) => void;
+  onUpload: (doc: VaultDocument, replaceId?: string, isCurrent?: () => boolean) => void | Promise<void>;
   onCancel: () => void;
   /* A file that arrived without anyone opening the file picker — shared in
    * from another app's share sheet, dropped onto the window, or pasted. The
@@ -120,6 +122,10 @@ interface UploadPanelProps {
 
 function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, isBusinessSpace = false, initialFile = null }: UploadPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const operationEpoch = useRef(0);
+  const pendingOperation = useRef<FileOperationScope | null>(null);
+  useEffect(() => () => { operationEpoch.current++; }, []);
+  const beginOperation = () => createFileOperationScope(() => [auth.currentUser?.uid, FAMILY_ID, operationEpoch.current]);
   const [file, setFile] = useState<File | null>(initialFile);
   const [name, setName] = useState(initialFile ? initialFile.name.replace(/\.[^.]+$/, '') : '');
   const [category, setCategory] = useState<VaultCategory>('Other');
@@ -132,6 +138,9 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, is
   const [pendingHash, setPendingHash] = useState('');
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    operationEpoch.current++;
+    pendingOperation.current = null;
+    setUploading(false);
     const f = e.target.files?.[0] ?? null;
     setFile(f);
     if (f && !name) setName(f.name.replace(/\.[^.]+$/, ''));
@@ -147,20 +156,23 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, is
    * it has been typed over. */
   useEffect(() => {
     if (!initialFile) return;
+    operationEpoch.current++;
+    pendingOperation.current = null;
     setFile(initialFile);
     setName((prev) => (prev.trim() ? prev : initialFile.name.replace(/\.[^.]+$/, '')));
     setError(null);
     setDuplicateMatch(null);
   }, [initialFile]);
 
-  const doUpload = async (contentHash: string, replaceId?: string) => {
-    if (!file) return;
+  const doUpload = async (contentHash: string, replaceId?: string, operation = pendingOperation.current || beginOperation()) => {
+    if (!file || !operation.isCurrent()) return;
     const docName = name.trim() || file.name;
     setUploading(true);
     setError(null);
     try {
+      operation.check();
       const docId = newId();
-      const { storagePath, downloadUrl } = await uploadVaultFile(file, docId, { shared: true });
+      const { storagePath, downloadUrl } = await operation.step(() => uploadVaultFile(file, docId, { shared: true }));
       const newDoc: VaultDocument = {
         id: docId,
         name: docName,
@@ -177,12 +189,13 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, is
         docDate: docDate || undefined,
         contentHash,
       };
-      onUpload(newDoc, replaceId);
+      await operation.step(() => onUpload(newDoc, replaceId, operation.isCurrent));
     } catch (err: unknown) {
+      if (err instanceof FileOperationCancelled || !operation.isCurrent()) return;
       console.error('Upload failed:', err);
       setError('Upload failed. Check your connection and try again.');
     } finally {
-      setUploading(false);
+      if (operation.isCurrent()) setUploading(false);
     }
   };
 
@@ -194,8 +207,10 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, is
     }
     setUploading(true);
     setError(null);
+    const operation = beginOperation();
+    pendingOperation.current = operation;
     try {
-      const hash = await computeFileHash(file);
+      const hash = await operation.step(() => computeFileHash(file));
       const sameSlot = existingDocs.filter((d) => d.category === category && (d.memberId || '') === (memberId || ''));
       const match = findLikelyDuplicate({ fileName: file.name, fileSize: file.size, contentHash: hash }, existingDocs)
         || findLikelyDuplicateByType(name.trim() || file.name, sameSlot);
@@ -205,8 +220,9 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, is
         setUploading(false);
         return; // wait for the user to choose Replace or Keep both
       }
-      await doUpload(hash);
+      await operation.step(() => doUpload(hash, undefined, operation));
     } catch (err: unknown) {
+      if (err instanceof FileOperationCancelled || !operation.isCurrent()) return;
       console.error('Duplicate check failed:', err);
       setError('Something went wrong. Please try again.');
       setUploading(false);
@@ -271,7 +287,7 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, is
           <label className="field-label">Document name</label>
           <input
             className="field"
-            placeholder="e.g. Mia's passport"
+            placeholder={isBusinessSpace ? 'e.g. Company registration certificate' : "e.g. Mia's passport"}
             value={name}
             onChange={e => setName(e.target.value)}
           />
@@ -293,7 +309,7 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, is
 
         {/* Member */}
         <div>
-          <label className="field-label">Belongs to</label>
+          <label className="field-label">{isBusinessSpace ? 'Filed under' : 'Belongs to'}</label>
           <select
             className="field"
             value={memberId}
@@ -304,6 +320,12 @@ function UploadPanel({ members, existingDocs, categories, onUpload, onCancel, is
               <option key={m.id} value={m.id}>{m.name}</option>
             ))}
           </select>
+          {isBusinessSpace && (
+            <p className="text-[12px] text-ink-500 mt-1.5">
+              Uploads here are shared with the team. Filing under a person does not make a file private.
+              Use their profile’s Documents tab for private staff files.
+            </p>
+          )}
         </div>
 
         {/* Notes */}
@@ -390,12 +412,14 @@ interface BulkPhotoImportPanelProps {
   isBusinessSpace?: boolean;
   members: FamilyMember[];
   categories: VaultCategory[];
-  onImport: (docs: VaultDocument[]) => void;
+  onImport: (docs: VaultDocument[], isCurrent?: () => boolean) => void | Promise<void>;
   onCancel: () => void;
 }
 
 function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusinessSpace = false }: BulkPhotoImportPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const operationEpoch = useRef(0);
+  useEffect(() => () => { operationEpoch.current++; }, []);
   const [items, setItems] = useState<ImportItem[]>([]);
   const [category, setCategory] = useState<VaultCategory>('Other');
   const [memberId, setMemberId] = useState('');
@@ -404,6 +428,8 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusin
   const [error, setError] = useState<string | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    operationEpoch.current++;
+    setImporting(false);
     const files = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = '';
     if (!files.length) return;
@@ -424,6 +450,7 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusin
     if (!items.length || importing) return;
     setImporting(true);
     setError(null);
+    const operation = createFileOperationScope(() => [auth.currentUser?.uid, FAMILY_ID, operationEpoch.current]);
     const uploaded: VaultDocument[] = [];
     let failCount = 0;
     // Sequential, not parallel — predictable progress and it keeps a single
@@ -431,18 +458,19 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusin
     for (let i = 0; i < items.length; i++) {
       const { file } = items[i];
       try {
+        operation.check();
         setStatus(i, 'compressing');
-        const raw = await readFile(file);
+        const raw = await operation.step(() => readFile(file));
         // Hash the RAW original bytes (matches UploadPanel's semantic) even
         // though the STORED copy is compressed — so a photo imported both via
         // bulk and via the single-file path can still be matched later.
-        const [hash, compressed] = await Promise.all([
+        const [hash, compressed] = await operation.step(() => Promise.all([
           computeFileHash(file),
           compressImageToAvatar(raw, 1600, 0.82),
-        ]);
+        ]));
         setStatus(i, 'uploading');
         const docId = `${Date.now().toString()}${Math.floor(Math.random() * 1000)}_${i}`;
-        const { storagePath, downloadUrl } = await uploadVaultPhoto(compressed, docId, { shared: true });
+        const { storagePath, downloadUrl } = await operation.step(() => uploadVaultPhoto(compressed, docId, { shared: true }));
         uploaded.push({
           id: docId,
           name: file.name.replace(/\.[^.]+$/, '') || 'Photo',
@@ -459,6 +487,7 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusin
         });
         setStatus(i, 'done');
       } catch (err: unknown) {
+        if (err instanceof FileOperationCancelled || !operation.isCurrent()) return;
         console.error('Bulk import: a photo failed', err);
         setStatus(i, 'failed');
         failCount++;
@@ -467,7 +496,10 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusin
     setImporting(false);
     setDone(true);
     // One Firestore write for the whole batch, not one per photo.
-    if (uploaded.length) onImport(uploaded);
+    if (uploaded.length) {
+      try { await operation.step(() => onImport(uploaded, operation.isCurrent)); }
+      catch (err) { if (err instanceof FileOperationCancelled || !operation.isCurrent()) return; throw err; }
+    }
     if (failCount) {
       setError(`${failCount} photo${failCount === 1 ? '' : 's'} couldn't be imported. The rest were saved.`);
     }
@@ -489,6 +521,11 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusin
       <p className="text-[13px] text-ink-500">
         Choose several photos at once from your camera roll — each is saved as its own document in the vault.
       </p>
+      {isBusinessSpace && (
+        <p className="text-[12px] text-ink-500">
+          Imported photos are shared with the team. Use a person’s Documents tab for private staff files.
+        </p>
+      )}
 
       {error && (
         <div className="p-3 bg-honey-50 border border-honey-200 rounded-2xl text-[13px] text-honey-900 flex items-start gap-2">
@@ -548,7 +585,7 @@ function BulkPhotoImportPanel({ members, categories, onImport, onCancel, isBusin
             </select>
           </div>
           <div>
-            <label className="field-label">Belongs to</label>
+            <label className="field-label">{isBusinessSpace ? 'Filed under' : 'Belongs to'}</label>
             <select className="field" value={memberId} disabled={importing} onChange={e => setMemberId(e.target.value)}>
               <option value="">{isBusinessSpace ? 'Whole team' : 'Whole family'}</option>
               {members.map(m => (
@@ -633,7 +670,13 @@ function FilterBar({ active, counts, categories, onChange }: FilterBarProps) {
 /* Main component                                                       */
 /* ------------------------------------------------------------------ */
 
-export default function DocumentVault({ members, isBusinessSpace, onMembersChange, emberMode = false, openUploadSignal = 0, incomingFile = null, onIncomingConsumed }: { members: FamilyMember[]; isBusinessSpace?: boolean; onMembersChange?: (members: FamilyMember[]) => Promise<void> | void; emberMode?: boolean; openUploadSignal?: number; incomingFile?: File | null; onIncomingConsumed?: () => void }) {
+export default function DocumentVault({ members, isBusinessSpace, canEdit = false, onMembersChange, emberMode = false, openUploadSignal = 0, incomingFile = null, onIncomingConsumed }: { members: FamilyMember[]; isBusinessSpace?: boolean; canEdit?: boolean; onMembersChange?: (members: FamilyMember[]) => Promise<void> | void; emberMode?: boolean; openUploadSignal?: number; incomingFile?: File | null; onIncomingConsumed?: () => void }) {
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
+  useEffect(() => {
+    canEditRef.current = canEdit;
+    return () => { canEditRef.current = false; };
+  }, [canEdit]);
   const [docs, setDocs] = useState<VaultDocument[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
@@ -692,22 +735,29 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   const categories = isBusinessSpace ? CATEGORIES.filter(c => !HIDDEN_IN_BUSINESS.includes(c)) : CATEGORIES;
 
   useEffect(() => {
-    if (!openUploadSignal) return;
+    if (!canEdit || !openUploadSignal) return;
     setShowUpload(true);
     setShowBulkImport(false);
     setSelectMode(false);
-  }, [openUploadSignal]);
+  }, [openUploadSignal, canEdit]);
 
   /* A file arriving IS the intent to upload it — opening the panel is not a
    * guess. Bulk import and select mode close, because all three fight for the
    * same region of the screen and the arriving file is the most recent thing
    * the person did. */
   useEffect(() => {
-    if (!pendingFile) return;
+    if (!canEdit || !pendingFile) return;
     setShowUpload(true);
     setShowBulkImport(false);
     setSelectMode(false);
-  }, [pendingFile]);
+  }, [pendingFile, canEdit]);
+
+  useEffect(() => {
+    if (canEdit) return;
+    setShowUpload(false);
+    setShowBulkImport(false);
+    setGmailToken(null);
+  }, [canEdit]);
 
   /* Paste. Bound to the document rather than a field because there is nothing
    * sensible to focus first — the gesture is "I copied a PDF, put it here".
@@ -719,6 +769,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
    * case this is for. */
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
+      if (!canEditRef.current) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
@@ -732,11 +783,12 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   }, []);
 
   useEffect(() => {
+    if (!canEdit) return;
     let active = true;
     fetchInboundMailAddress().then((a) => { if (active) setInboundAddress(a); });
     fetchGmailBridgeStatus().then((st) => { if (active) setGmailStatus(st); });
     return () => { active = false; };
-  }, []);
+  }, [canEdit]);
 
   useEffect(() => {
     let active = true;
@@ -784,32 +836,37 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   }, [needsAssetNames]);
   const filedWith = useMemo(() => filedWithIndex(household, assetNames), [household, assetNames]);
 
-  const persist = async (next: VaultDocument[]) => {
-    setDocs(next);
-    const ok = await saveDocuments(next);
-    setCloudSynced(ok);
-  };
+  const persist = (next: VaultDocument[]) => persistReferenceEdit(next, {
+    canEdit: () => canEditRef.current,
+    demo: false,
+    apply: setDocs,
+    save: saveDocuments,
+    onCloudResult: setCloudSynced,
+  });
 
   // Bulk import hands back the whole successful batch at once — one Firestore
   // write for N photos, not N writes. Prepended newest-first, same as a
   // single upload.
-  const handleBulkImport = async (newDocs: VaultDocument[]) => {
+  const handleBulkImport = async (newDocs: VaultDocument[], isCurrent = () => true) => {
+    if (!canEditRef.current || !isCurrent()) return;
     const next = [...newDocs, ...docs];
     await persist(next);
   };
 
-  const handleUpload = async (doc: VaultDocument, replaceId?: string) => {
+  const handleUpload = async (doc: VaultDocument, replaceId?: string, isCurrent = () => true) => {
+    if (!canEditRef.current || !isCurrent()) return;
     let base = docs;
     if (replaceId) {
       const old = docs.find(d => d.id === replaceId);
       if (old) {
         try { await deleteVaultFile(old.storagePath); } catch (e) { console.error('Replace: old file delete failed (removing metadata anyway):', e); }
+        if (!canEditRef.current || !isCurrent()) return;
         base = docs.filter(d => d.id !== replaceId);
       }
     }
     const next = [doc, ...base];
     await persist(next);
-    closeUpload();
+    if (canEditRef.current && isCurrent()) closeUpload();
   };
 
   const closeUpload = () => setShowUpload(false);
@@ -839,6 +896,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   // call site — a bare window.confirm() looks and behaves like a broken
   // webpage inside the iOS home-screen PWA.
   const handleDelete = async (doc: VaultDocument) => {
+    if (!canEditRef.current) return;
     setDeletingId(doc.id);
     const result = await deleteDocumentEverywhere({ vaultDoc: doc, members });
     if (result.membersChanged) await onMembersChange?.(result.members);
@@ -936,6 +994,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
    * browser navigates away to display the file, which loses the whole page —
    * the single most common way a drop target silently does not work. */
   const onDragEnter = (e: React.DragEvent) => {
+    if (!canEditRef.current) return;
     if (!e.dataTransfer?.types?.includes('Files')) return;
     dragDepth.current += 1;
     setDragActive(true);
@@ -947,7 +1006,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
   const onDragOver = (e: React.DragEvent) => {
     if (!e.dataTransfer?.types?.includes('Files')) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
+    e.dataTransfer.dropEffect = canEditRef.current ? 'copy' : 'none';
   };
   const onDrop = (e: React.DragEvent) => {
     const f = e.dataTransfer?.files?.[0];
@@ -955,6 +1014,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
     setDragActive(false);
     if (!f || !f.size) return;
     e.preventDefault();
+    if (!canEditRef.current) return;
     setDroppedFile(f);
   };
 
@@ -987,12 +1047,12 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
           </div>
           <label className="ember-vault-search-field">
             <Search className="h-5 w-5" />
-            <input type="search" placeholder="Try “Ben passport” or “school report”…" value={search} onChange={event => setSearch(event.target.value)} />
+            <input type="search" placeholder={isBusinessSpace ? 'Try “company registration” or “insurance”…' : 'Try “Ben passport” or “school report”…'} value={search} onChange={event => setSearch(event.target.value)} />
           </label>
-          <div className="ember-vault-actions">
+          {canEdit && <div className="ember-vault-actions">
             <button onClick={() => { setShowBulkImport(v => !v); setShowUpload(false); setSelectMode(false); }} className="btn-quiet"><ImagePlus className="h-4 w-4" />Import photos</button>
             <button onClick={() => { setShowUpload(v => !v); setShowBulkImport(false); setSelectMode(false); }} className="btn-primary"><Plus className="h-4 w-4" />Upload document</button>
-          </div>
+          </div>}
         </section>
       ) : (
       <div className="card p-5 sm:p-6">
@@ -1004,7 +1064,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
             <div>
               <h2 className="font-display text-2xl font-semibold text-ink-900">Document vault</h2>
               <p className="text-[13px] text-ink-500 font-medium">
-                Passports, certificates, school reports — scanned and kept safe.
+                {isBusinessSpace ? 'Company records, certificates and policies — scanned and kept safe.' : 'Passports, certificates, school reports — scanned and kept safe.'}
               </p>
             </div>
           </div>
@@ -1020,6 +1080,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
               </button>
             )}
             <button
+              disabled={!canEdit}
               onClick={() => { setShowBulkImport(v => !v); setShowUpload(false); setSelectMode(false); }}
               className="btn-quiet shrink-0"
             >
@@ -1027,6 +1088,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
               {showBulkImport ? 'Cancel' : 'Import photos'}
             </button>
             <button
+              disabled={!canEdit}
               onClick={() => { setShowUpload(v => !v); setShowBulkImport(false); setSelectMode(false); }}
               className="btn-primary shrink-0"
             >
@@ -1081,7 +1143,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
       )}
 
       {/* Upload panel (inline, collapsible) */}
-      {inboundAddress && (
+      {canEdit && inboundAddress && (
         <div className="card p-4 flex items-start gap-3">
           <div className="w-9 h-9 rounded-xl bg-sage-100 text-sage-700 flex items-center justify-center shrink-0">
             <Upload className="w-4 h-4" />
@@ -1112,7 +1174,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
         </div>
       )}
 
-      {gmailStatus && (
+      {canEdit && gmailStatus && (
         <div className="card p-4">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-xl bg-sage-100 text-sage-700 flex items-center justify-center shrink-0">
@@ -1215,7 +1277,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
         </div>
       )}
 
-      {showUpload && (
+      {canEdit && showUpload && (
         <UploadPanel isBusinessSpace={isBusinessSpace}
           initialFile={pendingFile}
           members={members}
@@ -1227,7 +1289,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
       )}
 
       {/* Bulk photo import panel (inline, collapsible) */}
-      {showBulkImport && (
+      {canEdit && showBulkImport && (
         <BulkPhotoImportPanel isBusinessSpace={isBusinessSpace}
           members={members}
           categories={categories}
@@ -1265,11 +1327,11 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
             </h4>
             <p className="text-[13px] text-clay-700 mt-1 max-w-xs leading-relaxed">
               {docs.length === 0
-                ? 'Upload your first document — passports, birth certificates, school reports…'
+                ? isBusinessSpace ? 'Upload a company record — registration certificates, policies or business agreements.' : 'Upload your first document — passports, birth certificates, school reports…'
                 : 'Try a different search term or category filter.'}
             </p>
           </div>
-          {docs.length === 0 && (
+          {canEdit && docs.length === 0 && (
             <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
               <button className="btn-primary text-sm" onClick={() => setShowUpload(true)}>
                 <Plus className="w-3.5 h-3.5" /> Upload document
@@ -1346,7 +1408,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
                       {doc.uploadedBy && (
                         <span className="text-[12px] text-ink-400">by {doc.uploadedBy.split(' ')[0]}</span>
                       )}
-                      {!selectMode && (
+                      {!selectMode && canEdit && (
                         <DocDate
                           value={doc.docDate}
                           onChange={(docDate) => persist(docs.map((d) => (d.id === doc.id ? { ...d, docDate } : d)))}
@@ -1376,7 +1438,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
                         business spaces, images with no text to extract) —
                         canAskAboutDocument mirrors the server's own gate, which
                         stays authoritative. See utils/docReadEligibility.ts. */}
-                    {canAskAboutDocument({
+                    {canEdit && canAskAboutDocument({
                       category: doc.category,
                       name: doc.name,
                       fileType: doc.fileType,
@@ -1392,13 +1454,13 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
                         Ask
                       </button>
                     )}
-                    <ConfirmDeleteButton
+                    {canEdit && <ConfirmDeleteButton
                       onConfirm={() => handleDelete(doc)}
                       ariaLabel={`Delete "${doc.name}" everywhere`}
                       hint={`Removes the file from the vault and from any ${isBusinessSpace ? 'team' : 'family'} member's profile it was filed on.${filedText ? ` It is also filed with ${filedText} — that entry keeps its details, just not this file.` : ''}`}
                       busy={isDeleting}
                       className="rounded-xl"
-                    />
+                    />}
                   </div>
                 )}
               </div>
@@ -1413,7 +1475,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
           {cloudSynced === false ? (
             <><CloudOff className="w-3.5 h-3.5 text-honey-700" /><span>Saved on this device — cloud sync unavailable</span></>
           ) : (
-            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your {isBusinessSpace ? 'team' : 'family'}{cloudSynced ? ' · synced' : ''}</span></>
+            <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>{isBusinessSpace ? 'Team vault · access checked per file' : 'Shared with your family'}{cloudSynced ? ' · synced' : ''}</span></>
           )}
         </div>
       </div>
@@ -1422,7 +1484,7 @@ export default function DocumentVault({ members, isBusinessSpace, onMembersChang
         document={viewingDoc ? toFamilyDoc(viewingDoc) : null}
         memberName={viewingDoc ? (memberName(viewingDoc.memberId) ?? (isBusinessSpace ? 'the team' : 'the family')) : ''}
         onClose={() => setViewingDoc(null)}
-        onExtractKeyFacts={viewingDoc ? async () => {
+        onExtractKeyFacts={canEdit && viewingDoc ? async () => {
           // Same pipeline as the trip pack's button (utils/docKeyFacts.ts).
           // saveKeyFacts returns the post-merge doc list; adopting it keeps
           // this screen honest about what was actually stored, and updating

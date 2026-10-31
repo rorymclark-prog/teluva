@@ -106,11 +106,8 @@ service cloud.firestore {
         && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['displayName', 'email', 'aiConsent', 'tourSeenAt', 'interviewSeenAt', 'interviewStep']);
-      // Admins can update the 'role' field on another member's profile
-      allow update: if signedIn()
-        && request.auth.uid != uid
-        && isAdminOf(resource.data.familyId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']);
+      // Role changes and their per-space mirrors are one server transaction.
+      // A client cannot update the active-space mirror independently.
       allow create, delete: if false;
     }
 
@@ -144,18 +141,20 @@ service cloud.firestore {
       // planExpiresAt would let the admin push their OWN expiry into the
       // future indefinitely from the client, turning a 14-day trial into a
       // permanent free grant without ever touching the guarded `plan` field
-      // itself. The comparison errors (and so DENIES, failing closed) on a
-      // client-side create that tries to set either — which is correct; the
-      // info doc is only ever created server-side.
+      // itself. Removing the expiry has the same effect as extending it:
+      // absent means an indefinite grant. Check the complete field diff so
+      // deleteField() and replacement writes cannot erase either field.
       match /info/{doc} {
         allow read: if isMemberOf(familyId);
-        allow write: if isAdminOf(familyId)
-          && (!('plan' in request.resource.data) || request.resource.data.plan == resource.data.plan)
-          && (!('planExpiresAt' in request.resource.data) || request.resource.data.planExpiresAt == resource.data.planExpiresAt);
+        allow create: if isAdminOf(familyId)
+          && !request.resource.data.keys().hasAny(['plan', 'planExpiresAt']);
+        allow update: if isAdminOf(familyId)
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plan', 'planExpiresAt']);
+        allow delete: if false;
       }
 
-      // Role assignments — one doc per uid. Created ONLY by the server
-      // (create-family / join-family with the Admin SDK). Self-create would let
+      // Role assignments — one doc per uid. Written ONLY by the server
+      // (create/join and atomic role changes with the Admin SDK). Self-create would let
       // any signed-in stranger add themselves to any family — so it's closed.
       // This doc is the AUTHORITATIVE membership record — server-side auth
       // (requireMember) and isMemberOf() below both key off its existence, and
@@ -170,7 +169,7 @@ service cloud.firestore {
       match /roles/{uid} {
         allow read:   if isMemberOf(familyId);
         allow create: if false;
-        allow update: if isAdminOf(familyId);
+        allow update: if false;
         allow delete: if false;
       }
 
@@ -206,12 +205,14 @@ service cloud.firestore {
         allow create: if canWriteIn(familyId)
           && (!isBusinessSpace(familyId) || isAdminOf(familyId)
               || (request.resource != null ? ownsMemberRecord(request.resource.data) : false))
+          && (isAdminOf(familyId) || request.resource.data.get('id', memberId) == memberId)
           && (isAdminOf(familyId) || request.resource.data.get('digitalAccounts', []) == []);
         // Preserve private credential sources while other adults edit family
         // facts. The server's legacy classifier must still see their origin.
         allow update: if canWriteIn(familyId)
           && (!isBusinessSpace(familyId) || isAdminOf(familyId)
               || (resource != null ? ownsMemberRecord(resource.data) : false))
+          && (isAdminOf(familyId) || request.resource.data.get('id', memberId) == memberId)
           && (isAdminOf(familyId)
               || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['digitalAccounts']));
         allow delete: if canWriteIn(familyId)

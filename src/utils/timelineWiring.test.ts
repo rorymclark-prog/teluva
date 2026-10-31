@@ -23,7 +23,7 @@ const destructive = read('utils/aiDestructive.ts');
 //    shared-doc store can three-way merge: a moment someone else added in the
 //    meantime survives, and a delete only lands if nobody touched that moment
 //    since. Restoring a backup is the one deliberate whole-document replace.
-const BASELESS_ALLOWED = ['saveTimeline(backupData.timeline)'];
+const BASELESS_ALLOWED = ['saveTimeline(value)'];
 function baselessSaves(files: Record<string, string>): string[] {
   const out: string[] = [];
   for (const [name, text] of Object.entries(files)) {
@@ -49,6 +49,10 @@ const callers = {
   'components/TimelineView.tsx': timelineView,
   'utils/aiDestructive.ts': destructive,
 };
+assert.match(dashboard, /case 'timeline': return saveTimeline\(value\);/,
+  'the only baseless save belongs to the validated backup restore switch');
+assert.equal((dashboard.match(/saveTimeline\(value\)/g) || []).length, 1,
+  'the whole-document restore exception cannot be reused by ordinary edits');
 const totalCalls = Object.values(callers).reduce((n, t) => n + (t.match(/saveTimeline\(/g) || []).length, 0);
 assert.ok(totalCalls >= 5, `expected at least five saveTimeline calls (view, AI apply, AI undo, AI update/delete, backup), found ${totalCalls}`);
 assert.deepStrictEqual(baselessSaves(callers), [], 'a saveTimeline call drops the merge base');
@@ -113,5 +117,7 @@ assert.ok(!prefills(timelineView.replace('defaultMemberId={person?.id}', '')), '
 console.log('timelineWiring.test.ts: all assertions passed');
 
 const cvSource = fs.readFileSync(new URL('../components/MemberCV.tsx', import.meta.url), 'utf8');
-assert.ok(cvSource.includes('(isDemoMode() || isBusinessSpace) ?'), 'business CV uploads retain record-level access instead of moving to the shared bucket');
-assert.ok(cvSource.includes('isBusinessSpace ? 700*1024'), 'inline business CVs retain the existing Firestore size limit');
+assert.match(cvSource, /await fileProfileAttachment\(/, 'CV uploads guard the complete upload, filing and replacement operation');
+assert.match(cvSource, /store: \(\) => persistProfileFile\(/, 'CV uploads use the protected profile-file pipeline');
+assert.doesNotMatch(cvSource, /isDemoMode\(\) \|\| isBusinessSpace/, 'business uploads must not fall back to inline HR file bytes');
+assert.match(cvSource, /uploadLimit = PROFILE_FILE_LIMIT_BYTES/, 'CVs use the protected gateway limit without accumulating bytes in Firestore');

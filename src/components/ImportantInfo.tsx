@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { persistReferenceEdit } from '../utils/referenceEditing';
+import { DEMO_BUSINESS_CONTACTS, DEMO_CONTACTS } from '../utils/demoData';
 import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType, FamilyInfoDoc, HouseholdVendor, VendorTrade, IdCountry } from '../types';
 import { loadFamilyInfo, saveFamilyInfo, loadSpaceInfo } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
@@ -18,19 +20,28 @@ function newId() {
 }
 
 interface ImportantInfoProps {
+  canEdit?: boolean;
+  demo?: boolean;
   isBusinessSpace?: boolean;
   refreshKey?: number;
   onContactsChange?: (contacts: ContactEntry[]) => void;
   country?: IdCountry;
 }
 
-export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsChange, country }: ImportantInfoProps) {
+export default function ImportantInfo({ canEdit = false, demo = false, isBusinessSpace, refreshKey, onContactsChange, country }: ImportantInfoProps) {
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
   const [info, setInfo] = useState<FamilyInfo>(EMPTY);
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
+    if (demo) {
+      setInfo({ ...EMPTY, contacts: isBusinessSpace ? DEMO_BUSINESS_CONTACTS : DEMO_CONTACTS });
+      setLoaded(true);
+      return;
+    }
     let active = true;
     (async () => {
       const data = await loadFamilyInfo();
@@ -45,7 +56,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
     })();
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey]);
+  }, [refreshKey, demo, isBusinessSpace]);
 
   // Live updates from other family members. Applied silently — the number /
   // contact / provider forms are child components holding their own draft
@@ -58,14 +69,13 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
     const next = { numbers: d.numbers || [], contacts: d.contacts || [], providers: d.providers || [], vendors: d.vendors || [] };
     setInfo(next);
     onContactsChange?.(next.contacts);
-  });
+  }, { disabled: demo });
 
-  const persist = async (next: FamilyInfo) => {
-    setInfo(next);
-    const ok = await saveFamilyInfo(next);
-    setCloudSynced(ok);
-    onContactsChange?.(next.contacts);
-  };
+  const persist = (next: FamilyInfo) => persistReferenceEdit(next, {
+    canEdit: () => canEditRef.current, demo,
+    apply: value => { setInfo(value); onContactsChange?.(value.contacts); },
+    save: saveFamilyInfo, onCloudResult: setCloudSynced,
+  });
 
   // --- Business Milestones: founding date + AI-written anniversary note.
   // Reads families/{id}/info/info directly (distinct doc from the FamilyInfo
@@ -80,19 +90,21 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
 
   useEffect(() => {
     let active = true;
-    if (!isBusinessSpace) { setSpaceInfo(null); setSpaceInfoLoaded(false); return; }
+    if (!isBusinessSpace || demo) { setSpaceInfo(null); setSpaceInfoLoaded(false); return; }
     setSpaceInfoLoaded(false);
     loadSpaceInfo().then((s) => { if (active) { setSpaceInfo(s); setSpaceInfoLoaded(true); } });
     return () => { active = false; };
-  }, [refreshKey, isBusinessSpace]);
+  }, [refreshKey, isBusinessSpace, demo]);
 
   const handleGenerateMilestoneNote = async () => {
+    if (!canEditRef.current || demo) return;
     setNoteLoading(true);
     setNoteError(null);
     try {
       const user = auth.currentUser;
       if (!user) throw new Error('Please sign in first.');
       const token = await user.getIdToken();
+      if (!canEditRef.current) return;
       const res = await fetch('/api/business-milestone-note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -138,6 +150,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
 
   return (
     <div className="space-y-6 font-sans">
+      {!canEdit && <p className="text-[13px] text-ink-500" role="status">You have view-only access. You can read and search these shared records.</p>}
       <div className="card p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -168,6 +181,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
 
       {isBusinessSpace && spaceInfoLoaded && (
         <MilestoneSection
+          canEdit={canEdit}
           spaceInfo={spaceInfo}
           noteLoading={noteLoading}
           noteError={noteError}
@@ -182,6 +196,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
           more than a family does. ProvidersSection re-labels itself via
           isBusinessSpace rather than disappearing. */}
       <ProvidersSection
+        canEdit={canEdit}
         entries={providers}
         isBusinessSpace={isBusinessSpace}
         onAdd={(p) => persist({ ...info, providers: [...(info.providers || []), p] })}
@@ -196,6 +211,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
           an office needs its own plumber and locksmith too — so it re-labels
           itself via isBusinessSpace rather than disappearing. */}
       <VendorsSection
+        canEdit={canEdit}
         entries={vendors}
         isBusinessSpace={isBusinessSpace}
         onAdd={(v) => persist({ ...info, vendors: [...(info.vendors || []), v] })}
@@ -205,6 +221,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <NumbersSection
+          canEdit={canEdit}
           entries={numbers}
           onAdd={(e) => persist({ ...info, numbers: [...info.numbers, e] })}
           onUpdate={(e) => persist({ ...info, numbers: info.numbers.map(n => n.id === e.id ? e : n) })}
@@ -213,6 +230,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
           country={country}
         />
         <ContactsSection
+          canEdit={canEdit}
           entries={contacts}
           onAdd={(c) => persist({ ...info, contacts: [...info.contacts, c] })}
           onUpdate={(c) => persist({ ...info, contacts: info.contacts.map(x => x.id === c.id ? c : x) })}
@@ -223,7 +241,7 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
 
       <div className="text-center">
         <div className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-white rounded-full border border-cream-300/70 shadow-soft text-[12px] font-semibold text-ink-500">
-          {cloudSynced === false ? (
+          {demo ? <span>Demo records stay in this preview</span> : cloudSynced === false ? (
             <><CloudOff className="w-3.5 h-3.5 text-honey-700" /><span>Saved on this device — cloud sync unavailable</span></>
           ) : (
             <><Cloud className="w-3.5 h-3.5 text-sage-600" /><span>Shared with your {isBusinessSpace ? 'team' : 'family'}{cloudSynced ? ' · synced' : ''}</span></>
@@ -236,7 +254,8 @@ export default function ImportantInfo({ isBusinessSpace, refreshKey, onContactsC
 
 /* ---------------- Business Milestones ---------------- */
 
-function MilestoneSection({ spaceInfo, noteLoading, noteError, onGenerateNote }: {
+function MilestoneSection({ canEdit, spaceInfo, noteLoading, noteError, onGenerateNote }: {
+  canEdit: boolean;
   spaceInfo: FamilyInfoDoc | null;
   noteLoading: boolean;
   noteError: string | null;
@@ -274,14 +293,14 @@ function MilestoneSection({ spaceInfo, noteLoading, noteError, onGenerateNote }:
               <EmptyState size="sm" title="No milestone note yet — write a short AI note for this anniversary." />
             )}
             {noteError && <p className="text-xs text-rosa-700 bg-rosa-50 rounded-xl px-3 py-2">{noteError}</p>}
-            <button
+            {canEdit && <button
               onClick={onGenerateNote}
               disabled={noteLoading}
               className="btn-quiet text-xs px-3 py-1.5 disabled:opacity-50"
             >
               {noteLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Dices className="w-3.5 h-3.5" />}
               {note?.text ? 'Write a new one' : 'Write a note'}
-            </button>
+            </button>}
           </div>
         </>
       )}
@@ -310,7 +329,8 @@ function businessRegHint(country?: IdCountry): string {
 
 /* ---------------- Numbers ---------------- */
 
-function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace, country }: {
+function NumbersSection({ canEdit, entries, onAdd, onUpdate, onDelete, isBusinessSpace, country }: {
+  canEdit: boolean;
   entries: InfoEntry[];
   onAdd: (e: InfoEntry) => void;
   onUpdate: (e: InfoEntry) => void;
@@ -325,12 +345,12 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace, c
     <section className="card p-5 space-y-4">
       <div className="flex items-center justify-between pb-3 border-b border-cream-200">
         <h3 className="section-label flex items-center gap-1.5"><Hash className="w-3.5 h-3.5" /> Key numbers</h3>
-        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
+        {canEdit && <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
           <Plus className="w-3.5 h-3.5" /> Add
-        </button>
+        </button>}
       </div>
 
-      {adding && (
+      {canEdit && adding && (
         <NumberForm
           onSave={(e) => { onAdd(e); setAdding(false); }}
           onCancel={() => setAdding(false)}
@@ -348,7 +368,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace, c
         />
       ) : (
         <div className="space-y-2.5">
-          {entries.map(e => editId === e.id ? (
+          {entries.map(e => canEdit && editId === e.id ? (
             <div key={e.id}>
               <NumberForm
                 initial={e}
@@ -365,7 +385,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace, c
                 <p className="font-mono tabular-nums text-[15px] text-ink-900 break-all">{e.value || '—'}</p>
                 {e.note && <p className="text-[12px] text-ink-500 mt-0.5">{e.note}</p>}
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              {canEdit && <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => { setEditId(e.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -373,7 +393,7 @@ function NumbersSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace, c
                   onConfirm={() => onDelete(e.id)}
                   ariaLabel={`Delete ${e.label || 'this number'}`}
                 />
-              </div>
+              </div>}
             </div>
           ))}
         </div>
@@ -422,7 +442,8 @@ function NumberForm({ initial, onSave, onCancel, isBusinessSpace, country }: {
 
 /* ---------------- Contacts ---------------- */
 
-function ContactsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }: {
+function ContactsSection({ canEdit, entries, onAdd, onUpdate, onDelete, isBusinessSpace }: {
+  canEdit: boolean;
   entries: ContactEntry[];
   onAdd: (c: ContactEntry) => void;
   onUpdate: (c: ContactEntry) => void;
@@ -436,12 +457,12 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }
     <section className="card p-5 space-y-4">
       <div className="flex items-center justify-between pb-3 border-b border-cream-200">
         <h3 className="section-label flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Contacts</h3>
-        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
+        {canEdit && <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5">
           <Plus className="w-3.5 h-3.5" /> Add
-        </button>
+        </button>}
       </div>
 
-      {adding && (
+      {canEdit && adding && (
         <ContactForm
           onSave={(c) => { onAdd(c); setAdding(false); }}
           onCancel={() => setAdding(false)}
@@ -458,7 +479,7 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }
         />
       ) : (
         <div className="space-y-2.5">
-          {entries.map(c => editId === c.id ? (
+          {entries.map(c => canEdit && editId === c.id ? (
             <div key={c.id}>
               <ContactForm
                 initial={c}
@@ -488,7 +509,7 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }
                   {c.note && <p className="text-[12px] text-ink-500">{c.note}</p>}
                 </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              {canEdit && <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => { setEditId(c.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -496,7 +517,7 @@ function ContactsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }
                   onConfirm={() => onDelete(c.id)}
                   ariaLabel={`Delete contact ${c.name || 'Unnamed'}`}
                 />
-              </div>
+              </div>}
             </div>
           ))}
         </div>
@@ -595,7 +616,8 @@ const PROFESSIONAL_PROVIDER_TYPES: ProviderType[] = ['Financial advisor', 'Accou
 const PROVIDER_TYPES: ProviderType[] = [...MEDICAL_PROVIDER_TYPES, ...PROFESSIONAL_PROVIDER_TYPES, 'Other'];
 const isProfessionalType = (t: ProviderType) => PROFESSIONAL_PROVIDER_TYPES.includes(t);
 
-function ProvidersSection({ entries, isBusinessSpace, onAdd, onUpdate, onDelete }: {
+function ProvidersSection({ canEdit, entries, isBusinessSpace, onAdd, onUpdate, onDelete }: {
+  canEdit: boolean;
   entries: HealthcareProvider[];
   isBusinessSpace?: boolean;
   onAdd: (p: HealthcareProvider) => void;
@@ -619,12 +641,12 @@ function ProvidersSection({ entries, isBusinessSpace, onAdd, onUpdate, onDelete 
               : "Your family's GP, dentist, specialists, financial adviser, accountant, lawyer — one place to find who to call."}
           </p>
         </div>
-        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5 shrink-0">
+        {canEdit && <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5 shrink-0">
           <Plus className="w-3.5 h-3.5" /> Add
-        </button>
+        </button>}
       </div>
 
-      {adding && (
+      {canEdit && adding && (
         <ProviderForm
           isBusinessSpace={isBusinessSpace}
           onSave={(p) => { onAdd(p); setAdding(false); }}
@@ -641,7 +663,7 @@ function ProvidersSection({ entries, isBusinessSpace, onAdd, onUpdate, onDelete 
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {entries.map(p => editId === p.id ? (
+          {entries.map(p => canEdit && editId === p.id ? (
             <div key={p.id} className="sm:col-span-2">
               <ProviderForm
                 initial={p}
@@ -685,7 +707,7 @@ function ProvidersSection({ entries, isBusinessSpace, onAdd, onUpdate, onDelete 
                   {p.note && <p className="text-[12px] text-ink-500">{p.note}</p>}
                 </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              {canEdit && <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => { setEditId(p.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -693,7 +715,7 @@ function ProvidersSection({ entries, isBusinessSpace, onAdd, onUpdate, onDelete 
                   onConfirm={() => onDelete(p.id)}
                   ariaLabel={`Delete ${p.name || 'this provider'}`}
                 />
-              </div>
+              </div>}
             </div>
           ))}
         </div>
@@ -813,7 +835,8 @@ const VENDOR_TRADES: VendorTrade[] = [
   'Cleaner', 'Gardener', 'Appliance repair', 'Pest control', 'Neighbour (spare key)', 'Other',
 ];
 
-function VendorsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }: {
+function VendorsSection({ canEdit, entries, onAdd, onUpdate, onDelete, isBusinessSpace }: {
+  canEdit: boolean;
   entries: HouseholdVendor[];
   onAdd: (v: HouseholdVendor) => void;
   onUpdate: (v: HouseholdVendor) => void;
@@ -836,12 +859,12 @@ function VendorsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
               : 'Your plumber, electrician, boiler service, locksmith, the neighbour with the spare key — one place to find who to call.'}
           </p>
         </div>
-        <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5 shrink-0">
+        {canEdit && <button onClick={() => { setAdding(true); setEditId(null); }} className="btn-primary text-xs px-3 py-1.5 shrink-0">
           <Plus className="w-3.5 h-3.5" /> Add
-        </button>
+        </button>}
       </div>
 
-      {adding && (
+      {canEdit && adding && (
         <VendorForm
           onSave={(v) => { onAdd(v); setAdding(false); }}
           onCancel={() => setAdding(false)}
@@ -857,7 +880,7 @@ function VendorsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {entries.map(v => editId === v.id ? (
+          {entries.map(v => canEdit && editId === v.id ? (
             <div key={v.id} className="sm:col-span-2">
               <VendorForm
                 initial={v}
@@ -890,7 +913,7 @@ function VendorsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
                   {v.notes && <p className="text-[12px] text-ink-500">{v.notes}</p>}
                 </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              {canEdit && <div className="flex items-center gap-1 shrink-0">
                 <button onClick={() => { setEditId(v.id); setAdding(false); }} className="p-1.5 text-ink-400 hover:text-ink-700 hover:bg-cream-100 rounded-lg" title="Edit">
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -898,7 +921,7 @@ function VendorsSection({ entries, onAdd, onUpdate, onDelete, isBusinessSpace }:
                   onConfirm={() => onDelete(v.id)}
                   ariaLabel={`Delete ${v.name || 'this vendor'}`}
                 />
-              </div>
+              </div>}
             </div>
           ))}
         </div>

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { pulseSpaceCopy, rankPulseDecisions, tripBannerCopy } from './FamilyPulse';
+import { positiveMoment, pulseSpaceCopy, rankPulseDecisions, tripBannerCopy } from './FamilyPulse';
 import type { FamilyMember } from '../types';
 import type { Trip } from '../utils/trip';
 
@@ -23,6 +23,12 @@ assert.equal(family.emptyTitle, 'Start your family story.');
 assert.equal(business.emptyTitle, 'Build your team.');
 assert.equal(business.emptyAction, 'Add your first team member');
 assert.ok(!JSON.stringify(business).toLowerCase().includes('family'), 'business Pulse copy must not leak family language');
+
+const employeeOnly = [{ id: 'employee', name: 'Sam Singh' } as FamilyMember];
+const safeTeam = [{ id: 'employee', name: 'Sam Singh' }, { id: 'colleague', name: 'Ada Lovelace' }];
+assert.equal(positiveMoment(employeeOnly, true, safeTeam)?.title, '2 people, one team.', 'business team size comes from the directory, not visible HR files');
+assert.equal(positiveMoment(employeeOnly, true, employeeOnly, false)?.title, 'One team, moving forward.', 'an unavailable directory must not undercount the team');
+assert.equal(positiveMoment(employeeOnly, false, safeTeam)?.title, '1 person, one family story.', 'family counts keep using the family profiles');
 
 // --- Travel banner ---------------------------------------------------------
 //

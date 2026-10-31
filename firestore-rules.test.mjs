@@ -20,7 +20,7 @@
 // notices structural damage (a carve-out deleted while tidying up). This one
 // asks what actually happens.
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, getDocs, collection, query, where, setDoc, updateDoc, deleteDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, query, where, setDoc, updateDoc, deleteDoc, arrayUnion, arrayRemove, deleteField } from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -116,6 +116,16 @@ let n = 0;
 const allowed = async (label, p) => { await assertSucceeds(p); console.log(`  ok      ${label}`); n++; };
 const refused = async (label, p) => { await assertFails(p);    console.log(`  refused ${label}`); n++; };
 
+console.log('\n── role changes and active-space mirrors are server-only ──');
+await env.withSecurityRulesDisabled(async ctx => {
+  await setDoc(doc(ctx.firestore(), 'users/u-mem'), { familyId: FAM, role: 'member', displayName: 'Member' });
+});
+await refused('an admin cannot bypass role transaction with a direct role update', updateDoc(doc(admin, `families/${FAM}/roles/u-mem`), { role: 'admin' }));
+await refused('an admin cannot directly rewrite another account active-role mirror', updateDoc(doc(admin, 'users/u-mem'), { role: 'admin' }));
+await refused('a member cannot change their own authoritative role', updateDoc(doc(mem, `families/${FAM}/roles/u-mem`), { role: 'admin' }));
+await refused('a member cannot change their own active-role mirror', updateDoc(doc(mem, 'users/u-mem'), { role: 'admin' }));
+await allowed('ordinary self-owned display names remain writable', updateDoc(doc(mem, 'users/u-mem'), { displayName: 'New display name' }));
+
 console.log('\n── willsEstate, no access list yet: admins only ──');
 await allowed('admin reads it',                       getDoc(wills(admin)));
 await refused('a member reads it',                    getDoc(wills(mem)));
@@ -208,6 +218,35 @@ const bizEmp2   = env.authenticatedContext('u-emp2',   { email_verified: true, e
 const bizIntern = env.authenticatedContext('u-intern', { email_verified: true, email: 'intern@example.com' }).firestore();
 const bizStranger = ctxFor('u-nobody');
 
+console.log('\n── plan grants are server-managed, including field removal ──');
+// The source of a time-limited grant must survive every ordinary admin edit.
+// Omitting an expiry was previously accepted and planOf() interprets it as
+// indefinite, so exercise transforms AND replacement writes in the real engine.
+for (const [space, editor, other] of [[FAM, admin, mem], [BIZ, bizOwner, bizEmp]]) {
+  const type = space === BIZ ? 'business' : 'family';
+  const grant = { type, name: 'Original', plan: 'trial', planExpiresAt: '2030-01-01T00:00:00.000Z' };
+  await env.withSecurityRulesDisabled(async ctx => {
+    await setDoc(doc(ctx.firestore(), `families/${space}/info/info`), grant);
+  });
+  const info = doc(editor, `families/${space}/info/info`);
+  await allowed(`${type}: admin changes ordinary info`, updateDoc(info, { name: 'Renamed' }));
+  await allowed(`${type}: replacement preserves the server grant`, setDoc(info, { ...grant, name: 'Replacement' }));
+  await refused(`${type}: member changes ordinary info`, updateDoc(doc(other, `families/${space}/info/info`), { name: 'Not mine' }));
+  await refused(`${type}: admin removes expiry with deleteField`, updateDoc(info, { planExpiresAt: deleteField() }));
+  await refused(`${type}: replacement omits expiry`, setDoc(info, { type, name: 'Forever', plan: 'trial' }));
+  await refused(`${type}: admin removes plan with deleteField`, updateDoc(info, { plan: deleteField() }));
+  await refused(`${type}: replacement omits both protected fields`, setDoc(info, { type, name: 'No grant' }));
+  await refused(`${type}: admin changes the granted plan`, updateDoc(info, { plan: 'paid' }));
+  await refused(`${type}: admin extends the expiry`, updateDoc(info, { planExpiresAt: '2040-01-01T00:00:00.000Z' }));
+  await refused(`${type}: admin deletes the whole grant document`, deleteDoc(info));
+  const ordinary = doc(editor, `families/${space}/info/ordinary`);
+  await allowed(`${type}: admin may create ordinary info without billing fields`, setDoc(ordinary, { label: 'Ordinary info' }));
+  await refused(`${type}: admin cannot add a plan to ordinary info`, updateDoc(ordinary, { plan: 'paid' }));
+  await refused(`${type}: admin cannot create a plan-bearing info document`, setDoc(doc(editor, `families/${space}/info/new-grant`), { plan: 'paid' }));
+  await refused(`${type}: admin cannot create an expiry-bearing info document`, setDoc(doc(editor, `families/${space}/info/new-expiry`), { planExpiresAt: grant.planExpiresAt }));
+}
+
+
 const colleague = (db) => doc(db, `families/${BIZ}/family_members/m-colleague`);
 const ownRec    = (db) => doc(db, `families/${BIZ}/family_members/m-emp`);
 const linkedRec = (db) => doc(db, `families/${BIZ}/family_members/m-emp2`);
@@ -221,7 +260,11 @@ await allowed('the owner still edits every record',     updateDoc(colleague(bizO
 
 await allowed('an employee reads their OWN record (matched by email)', getDoc(ownRec(bizEmp)));
 await allowed('an employee edits their OWN record',      updateDoc(ownRec(bizEmp), { name: 'Employee' }));
+await refused('an employee cannot spoof a colleague id in their own stored record', updateDoc(ownRec(bizEmp), { id: 'm-colleague' }));
+await allowed('an employee may retain their canonical profile id', updateDoc(ownRec(bizEmp), { id: 'm-emp', name: 'Employee' }));
+await refused('a self-created employee record cannot carry a colleague id', setDoc(doc(bizEmp, `families/${BIZ}/family_members/m-new-own`), { id: 'm-colleague', linkedUid: 'u-emp' }));
 await allowed('and linkedUid works as well as email',    getDoc(linkedRec(bizEmp2)));
+await allowed('a linked employee can still edit their contact email', updateDoc(linkedRec(bizEmp2), { email: 'new-contact@example.com' }));
 await refused('one employee cannot read another\u2019s',    getDoc(linkedRec(bizEmp)));
 
 /* Claiming a colleague's record by writing your own email onto it is the

@@ -1,10 +1,13 @@
 import { createVaultHandlers, collectLegacySharedValues, collectLegacyCredentialValues, vaultSpaceId, resolveVaultMembership, VaultError } from './server/vault.mjs';
 import { createFileRouter, createFileHandlers, isEstateFile, fileTarget, canonicalFileUrl, FileAccessError, projectedFilePaths, projectConnectedFileUrls, connectedPhotoPaths, fileAccessPolicy } from './server/files.mjs';
+import { recordFromSnapshot } from './server/firestoreRecords.mjs';
+import { includesCalendarOccasions, loadCalendarPublicationSources, carerManagementAccess, carerPublicAccess } from './server/spaceSharing.mjs';
+import { changeMemberRole, removeSpaceMember, resolveRemovalCaller, RoleManagementError } from './server/roleManagement.mjs';
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import admin from 'firebase-admin';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { resolveMembership, checkRemoveMember, profileAfterRemoval } from './authz.mjs';
+import { resolveMembership } from './authz.mjs';
 import { GoogleAuth } from 'google-auth-library';
 import crypto from 'crypto';
 import path from 'path';
@@ -72,7 +75,7 @@ import { keyFactsSystem, sanitizeKeyFacts } from './server/keyFacts.mjs';
 import { TIMELINE_PARSE_MAX_CHARS, timelineParseSystem, sanitizeTimelineRows } from './server/timelineParse.mjs';
 import { addPendingReader, namedList } from './server/willsInvite.mjs';
 import { redeemFamilyInvite, InviteRedemptionError } from './server/inviteRedemption.mjs';
-import { buildDirectory } from './server/directory.mjs';
+import { buildDirectory, resolveDirectoryMembership } from './server/directory.mjs';
 import {
   requestRelease, approveRelease, declineRelease, settleReleases, releaseRequests,
   RELEASE_WAIT_DAYS,
@@ -312,7 +315,7 @@ async function currentFilePolicy(familyId, storagePath, metadata, caller) {
     family.collection('reference').doc('willsAccess').get(), family.collection('reference').doc('documents').get(),
   ]);
   const spaceInfo = info.exists ? info.data() : {};
-  const members = spaceInfo.type === 'business' ? (await family.collection('family_members').get()).docs.map(snap => ({ id: snap.id, ...snap.data() })) : [];
+  const members = spaceInfo.type === 'business' ? (await family.collection('family_members').get()).docs.map(recordFromSnapshot) : [];
   return fileAccessPolicy({ storagePath, metadata, caller, spaceInfo, members,
     estate: estate.exists ? estate.data() : null, access: access.exists ? access.data() : null,
     documents: documents.exists ? documents.data() : null, bucketName: STORAGE_BUCKET });
@@ -336,14 +339,14 @@ const fileGatewayDependencies = {
     const roleSnap = await adminDb.doc(`families/${receiver}/roles/${caller.uid}`).get();
     if (!roleSnap.exists || !['admin', 'member', 'child'].includes(roleSnap.data().role)) throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That shared photo is unavailable.');
     const linkSnap = await adminDb.doc(`familyLinks/${linkId}`).get();
-    const link = linkSnap.exists ? { id: linkSnap.id, ...linkSnap.data() } : null;
+    const link = linkSnap.exists ? recordFromSnapshot(linkSnap) : null;
     if (!isLinkParty(link, receiver) || link.status !== 'active') throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That family connection is no longer active.');
     const other = linkOtherSide(link, receiver);
     if (target.familyId !== other.id) throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That shared photo is unavailable.');
     const index = shareModeFor(link, other.id) === 'everyone' ? await memberIndexIds(other.id) : null;
     if (!resolveSharedIds(link, other.id, index).includes(memberId)) throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That person is no longer shared.');
     const memberSnap = await adminDb.doc(`families/${other.id}/family_members/${memberId}`).get();
-    const projected = memberSnap.exists ? projectSharedMember({ id: memberSnap.id, ...memberSnap.data() }, categoriesFor(link, other.id, memberId)) : null;
+    const projected = memberSnap.exists ? projectSharedMember(recordFromSnapshot(memberSnap), categoriesFor(link, other.id, memberId)) : null;
     if (!connectedPhotoPaths(projected, STORAGE_BUCKET).has(target.path)) throw new FileAccessError(403, 'FILE_ACCESS_DENIED', 'That photo is not shared with this family.');
     return { ...caller, ...target, role: 'connected' };
   },
@@ -3070,6 +3073,11 @@ async function readFamilyEvents(familyId) {
   return docs.filter((d) => d.exists).map((d) => d.data());
 }
 
+async function readSharingSpaceInfo(familyId) {
+  const snap = await adminDb.doc(`families/${familyId}/info/info`).get();
+  return snap.exists ? snap.data() : null;
+}
+
 /**
  * The birthdays and anniversaries behind a family's calendar — the half that is
  * DERIVED rather than filed, and so is invisible to readFamilyEvents above.
@@ -3092,7 +3100,7 @@ async function readFamilyOccasionSources(familyId) {
     // server/yearlyCelebrations.mjs.
     adminDb.doc(`families/${familyId}/reference/info`).get(),
   ]);
-  const members = membersSnap.docs.map((d) => ({ id: d.id, ...(d.data() || {}) }));
+  const members = membersSnap.docs.map(recordFromSnapshot);
   const stored = (ebSnap.exists ? ebSnap.data()?.extendedBirthdays : null) || [];
   // A legacy contact birthday counts as an extended birthday here, so it obeys
   // the same calendarDivisions toggle below and reaches subscribers the same
@@ -3148,7 +3156,7 @@ app.post('/api/calendar-publish/create', async (req, res) => {
     // records, so the person creating the link chooses, at the moment they
     // create it. Meaningless in busy mode — a feed with every title stripped
     // has nothing to say about whose birthday it is.
-    const includeOccasions = mode !== 'busy' && body.includeOccasions === true;
+    const includeOccasions = includesCalendarOccasions(await readSharingSpaceInfo(caller.familyId), { mode, includeOccasions: body.includeOccasions });
 
     // 32 bytes — the URL is the only thing standing between this feed and
     // anybody who tries one. 24 would already be far beyond guessing; the
@@ -4992,7 +5000,14 @@ async function withReleaseState(familyId, mutate) {
  */
 app.post('/api/business/directory', async (req, res) => {
   try {
-    const caller = await requireMember(req);
+    const caller = await resolveDirectoryMembership(req, {
+      signedIn: requireSignedIn,
+      activeMember: () => requireMember(req),
+      roleFor: async (spaceId, uid) => {
+        const snap = await adminDb.doc(`families/${spaceId}/roles/${uid}`).get();
+        return snap.exists ? snap.data().role : null;
+      },
+    });
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
 
     const infoSnap = await adminDb.doc(`families/${caller.familyId}/info/info`).get();
@@ -5007,8 +5022,8 @@ app.post('/api/business/directory', async (req, res) => {
     }
 
     const snap = await adminDb.collection(`families/${caller.familyId}/family_members`).get();
-    const members = buildDirectory(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    res.json({ members });
+    const members = buildDirectory(snap.docs.map(recordFromSnapshot));
+    res.json({ familyId: caller.familyId, members });
   } catch (err) {
     console.error('/api/business/directory error:', err);
     res.status(500).json({ error: 'Could not load the team directory.' });
@@ -5229,87 +5244,47 @@ app.post('/api/join-family', async (req, res) => {
   }
 });
 
-// --- Remove a member from the caller's ACTIVE space (admins only) ---
-// The counterpart to join-family that never existed: until now membership could
-// be granted but never taken away, which is what made every other access control
-// in the app advisory. Always operates on caller.familyId (server-verified via
-// requireMember), never a client-supplied space id, so an admin of space A can
-// never evict someone from space B.
-//
-// Removal is 4 writes and they matter in this order:
-//   1. DELETE families/{familyId}/roles/{targetUid} — the authoritative record.
-//      This alone ends their access to Firestore (rules' isMemberOf) and to
-//      every server route (requireMember now reads this doc).
-//   2. Rewrite users/{targetUid} — drop the space from spaces[] and move/clear
-//      the active pointer, so the space switcher stops offering a space they
-//      can no longer open.
-//   3. Re-mint custom claims — Storage rules gate vault FILES on familyIds.
-//   4. Revoke refresh tokens — forces their next token refresh to pick up (3)
-//      instead of coasting on a cached claim.
+// Membership management authorizes the requested space inside the same
+// transaction as the role/account-mirror change. Removal and demotion share
+// their last-admin read set; neither can rely on an admin disappearing in the
+// other operation. External claims/token cleanup follows a removal commit.
+app.post('/api/set-member-role', async (req, res) => {
+  try {
+    const caller = await requireSignedIn(req);
+    if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const { spaceId, uid, role } = req.body || {};
+    res.json(await changeMemberRole({ db: adminDb, spaceId, callerUid: caller.uid, targetUid: uid, newRole: role }));
+  } catch (error) {
+    if (error instanceof RoleManagementError) return res.status(error.status).json({ error: error.message, code: error.code });
+    console.error('/api/set-member-role error:', error);
+    res.status(500).json({ error: 'Could not update that role. Please try again.' });
+  }
+});
+
 app.post('/api/remove-member', async (req, res) => {
   try {
-    const caller = await requireMember(req);
+    const caller = await resolveRemovalCaller(req, {
+      signedIn: requireSignedIn,
+      activeMember: requireMember,
+    });
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
-
     const familyId = caller.familyId;
-    const targetUid = String((req.body || {}).uid || '').trim();
-
-    const rolesCol = adminDb.collection(`families/${familyId}/roles`);
-    const targetRoleSnap = targetUid ? await rolesCol.doc(targetUid).get() : null;
-    const targetRole = targetRoleSnap?.exists ? targetRoleSnap.data().role : undefined;
-    // Count admins INCLUDING the target — checkRemoveMember reasons about the
-    // pre-removal state so the "would this orphan the space?" rule is explicit.
-    const adminsSnap = await rolesCol.where('role', '==', 'admin').get();
-
-    const verdict = checkRemoveMember({
-      callerUid: caller.uid,
-      callerRole: caller.role,
-      targetUid,
-      targetIsMember: !!targetRoleSnap?.exists,
-      targetRole,
-      adminCount: adminsSnap.size,
-    });
-    if (!verdict.ok) return res.status(verdict.status).json({ error: verdict.error });
-
-    // 1. The authoritative membership record.
-    await rolesCol.doc(targetUid).delete();
-
-    // 2. The mirror. Transactional because it read-modify-writes spaces[].
-    const targetUserRef = adminDb.doc(`users/${targetUid}`);
-    let nextClaims = { familyId: null, familyIds: [] };
-    await adminDb.runTransaction(async (tx) => {
-      const snap = await tx.get(targetUserRef);
-      if (!snap.exists) return; // nothing to clean up
-      const data = snap.data();
-      const next = profileAfterRemoval(data.spaces, familyId, data.familyId);
-      const update = { spaces: next.spaces };
-      if (next.familyId) {
-        update.familyId = next.familyId;
-        update.role = next.role;
-      } else {
-        // No spaces left — clear the pointer entirely rather than leaving it
-        // aimed at a space they can no longer read. requireMember then returns
-        // "not part of a family yet", which is the create/join onboarding path.
-        update.familyId = FieldValue.delete();
-        update.role = FieldValue.delete();
-      }
-      tx.set(targetUserRef, update, { merge: true });
-      nextClaims = { familyId: next.familyId, familyIds: next.spaces.map((s) => s.id) };
+    const targetUid = typeof req.body?.uid === 'string' ? req.body.uid.trim() : '';
+    const result = await removeSpaceMember({
+      db: adminDb, spaceId: familyId, callerUid: caller.uid, targetUid,
+      deleteField: () => FieldValue.delete(),
     });
 
-    // 3. Storage rules read these. 4. Force a refresh so (3) actually lands —
-    // without it their existing ID token keeps the old familyIds claim (and so
-    // keeps Storage read access to this space's files) until it expires.
-    await admin.auth().setCustomUserClaims(targetUid, nextClaims).catch(() => {});
+    // Membership and its account mirror have committed together. External
+    // claim, token and notification side effects only follow a real commit.
+    await admin.auth().setCustomUserClaims(targetUid, result.claims).catch(() => {});
     await admin.auth().revokeRefreshTokens(targetUid).catch(() => {});
-
-    // 5. Their devices come off the family's notification list.
     await dropPushSubscriptions(familyId, targetUid);
-
     console.info(`[remove-member] uid=${targetUid} removed from familyId=${familyId} by uid=${caller.uid}`);
-    res.json({ ok: true, removed: targetUid });
-  } catch (err) {
-    console.error('/api/remove-member error:', err);
+    res.json({ ok: true, removed: targetUid, spaceId: familyId });
+  } catch (error) {
+    if (error instanceof RoleManagementError) return res.status(error.status).json({ error: error.message, code: error.code });
+    console.error('/api/remove-member error:', error);
     res.status(500).json({ error: 'Could not remove that member. Please try again.' });
   }
 });
@@ -5830,7 +5805,7 @@ async function linksForSpace(familyId) {
     q.forEach((d) => {
       if (seen.has(d.id)) return;
       seen.add(d.id);
-      out.push({ id: d.id, ...d.data() });
+      out.push(recordFromSnapshot(d));
     });
   }
   return out;
@@ -5966,7 +5941,7 @@ app.post('/api/family-link/accept', async (req, res) => {
 
     const q = await adminDb.collection('familyLinks').where('code', '==', code).limit(1).get();
     const snap = q.empty ? null : q.docs[0];
-    const link = snap ? { id: snap.id, ...snap.data() } : null;
+    const link = snap ? recordFromSnapshot(snap) : null;
     const verdict = checkAcceptLink({ link, callerFamilyId: caller.familyId, callerRole: caller.role });
     if (!verdict.ok) return res.status(verdict.status).json({ error: verdict.error });
 
@@ -5996,7 +5971,7 @@ app.post('/api/family-link/accept', async (req, res) => {
     const fresh = await adminDb.doc(`familyLinks/${link.id}`).get();
     res.json({
       ok: true,
-      link: linkForClient({ id: link.id, ...fresh.data() }, caller.familyId, await memberIndexIds(caller.familyId)),
+      link: linkForClient(recordFromSnapshot(fresh), caller.familyId, await memberIndexIds(caller.familyId)),
     });
   } catch (err) {
     console.error('/api/family-link/accept error:', err);
@@ -6043,7 +6018,7 @@ app.post('/api/family-link/share', async (req, res) => {
 
     const ref = adminDb.doc(`familyLinks/${linkId}`);
     const snap = await ref.get();
-    const link = snap.exists ? { id: snap.id, ...snap.data() } : null;
+    const link = snap.exists ? recordFromSnapshot(snap) : null;
     if (!isLinkParty(link, caller.familyId)) return res.status(404).json({ error: 'That connection was not found.' });
 
     // Validate against the caller's OWN member index, so a bad or malicious id
@@ -6097,7 +6072,7 @@ app.get('/api/family-link/profiles', async (req, res) => {
     if (!linkId) return res.status(400).json({ error: 'Missing connection.' });
 
     const snap = await adminDb.doc(`familyLinks/${linkId}`).get();
-    const link = snap.exists ? { id: snap.id, ...snap.data() } : null;
+    const link = snap.exists ? recordFromSnapshot(snap) : null;
     if (!isLinkParty(link, caller.familyId)) return res.status(404).json({ error: 'That connection was not found.' });
     if (link.status !== 'active') return res.json({ members: [], otherName: '' });
 
@@ -6130,7 +6105,7 @@ app.get('/api/family-link/profiles', async (req, res) => {
 
     const members = snaps
       .map((s) => (s.exists
-        ? projectConnectedFileUrls(projectSharedMember({ id: s.id, ...s.data() }, categoriesFor(link, other.id, s.id), surnameMeanings),
+        ? projectConnectedFileUrls(projectSharedMember(recordFromSnapshot(s), categoriesFor(link, other.id, s.id), surnameMeanings),
             { spaceId: caller.familyId, linkId, memberId: s.id }, STORAGE_BUCKET)
         : null))
       .filter(Boolean);
@@ -6175,7 +6150,7 @@ app.post('/api/family-link/revoke', async (req, res) => {
     const ref = adminDb.doc(`familyLinks/${linkId}`);
     const snap = await ref.get();
     if (!snap.exists) return res.json({ ok: true });
-    if (!isLinkParty({ id: snap.id, ...snap.data() }, caller.familyId)) {
+    if (!isLinkParty(recordFromSnapshot(snap), caller.familyId)) {
       return res.status(404).json({ error: 'That connection was not found.' });
     }
     await ref.delete();
@@ -6191,7 +6166,8 @@ app.post('/api/carer-share/create', async (req, res) => {
   try {
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
-    if (caller.role === 'child') return res.status(403).json({ error: 'Only parents can create a carer link.' });
+    const blocked = await carerManagementAccess(caller, 'create', readSharingSpaceInfo);
+    if (blocked) return res.status(blocked.status).json({ error: blocked.error });
     const body = req.body || {};
     const snapshot = sanitizeCarerSnapshot(body.snapshot);
     if (!snapshot.children.length && !snapshot.contacts.length) {
@@ -6223,6 +6199,8 @@ app.post('/api/carer-share/revoke', async (req, res) => {
   try {
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const blocked = await carerManagementAccess(caller, 'revoke', readSharingSpaceInfo);
+    if (blocked) return res.status(blocked.status).json({ error: blocked.error });
     const token = clip((req.body || {}).token, 200);
     if (!token) return res.status(400).json({ error: 'Missing link id.' });
     const ref = adminDb.doc(`carerShares/${token}`);
@@ -6241,6 +6219,8 @@ app.get('/api/carer-share/list', async (req, res) => {
   try {
     const caller = await requireMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
+    const blocked = await carerManagementAccess(caller, 'list', readSharingSpaceInfo);
+    if (blocked) return res.status(blocked.status).json({ error: blocked.error });
     const q = await adminDb.collection('carerShares').where('familyId', '==', caller.familyId).get();
     const now = Date.now();
     const shares = [];
@@ -6393,27 +6373,25 @@ app.get('/cal/:token', async (req, res) => {
     // point: a link created before this existed has no such field, and must
     // keep serving exactly what its owner agreed to share when they handed the
     // URL out — a live credential is not the place for a silent widening.
-    const wantsOccasions = record.includeOccasions === true && record.mode !== 'busy';
-
-    const [storedEvents, infoSnap, allOccasionSources, hiddenLists] = await Promise.all([
-      readFamilyEvents(record.familyId),
-      adminDb.doc(`families/${record.familyId}/info/info`).get().catch(() => null),
-      wantsOccasions ? readFamilyOccasionSources(record.familyId).catch((e) => {
+    const { events: storedEvents, spaceInfo, occasionSources: allOccasionSources, hiddenLists } = await loadCalendarPublicationSources(record, {
+      readSpaceInfo: readSharingSpaceInfo,
+      readEvents: readFamilyEvents,
+      readOccasions: familyId => readFamilyOccasionSources(familyId).catch((e) => {
         // A birthday that fails to load must never take the appointments down
         // with it — the feed is a wholesale replacement for the subscriber, so
         // a thrown error here would blank their calendar.
         console.warn('[cal] could not read occasions:', e?.message || e);
         return null;
-      }) : null,
-      readFeedHiddenLists(record.familyId, record.createdBy),
-    ]);
+      }),
+      readHiddenLists: readFeedHiddenLists,
+    });
     // "Hide <Name>'s dates": their typed birthday/anniversary entries and
     // their derived occasions leave the feed; every other event stays.
     const { events, occasionSources } = hideFromFeed(
       { events: storedEvents, occasionSources: allOccasionSources },
       feedHiddenPeople(hiddenLists, allOccasionSources),
     );
-    const familyName = (infoSnap && infoSnap.exists ? infoSnap.data()?.name : '') || 'Teluva';
+    const familyName = spaceInfo?.name || 'Teluva';
     const calendarName = record.label
       || (record.mode === 'busy' ? `${familyName} (busy)` : familyName);
 
@@ -6422,7 +6400,7 @@ app.get('/cal/:token', async (req, res) => {
       mode: record.mode === 'busy' ? 'busy' : 'details',
       refreshMinutes: PUBLISH_REFRESH_MINUTES,
       occasions: occasionSources ? buildFeedOccasions(occasionSources) : [],
-      business: !!(infoSnap && infoSnap.exists && infoSnap.data()?.type === 'business'),
+      business: spaceInfo?.type === 'business',
     });
 
     // Record the fetch so the family can see the link is live — throttled,
@@ -6518,8 +6496,8 @@ app.get('/carer/:token', async (req, res) => {
     const token = String(req.params.token || '').slice(0, 200);
     const snap = await adminDb.doc(`carerShares/${token}`).get();
     const v = snap.exists ? snap.data() : null;
-    const expired = !!(v && v.expiresAt && new Date(v.expiresAt).getTime() < Date.now());
-    if (!v || v.revoked || expired) return res.status(410).send(carerErrorPage());
+    const access = await carerPublicAccess(v, readSharingSpaceInfo);
+    if (access !== 200) return res.status(access).send(carerErrorPage());
     return res.send(carerPage(v));
   } catch (err) {
     console.error('/carer render error:', err);
@@ -7060,7 +7038,7 @@ async function runDailyCelebrations() {
       hiddenNow = remindersHiddenPeople({
         familyList: spaceSettings.hiddenDatePeople,
         forList: spaceSettings.hiddenDatePeopleFor,
-        prefs: prefsSnap ? prefsSnap.docs.map((d) => ({ uid: d.id, ...(d.data() || {}) })) : [],
+        prefs: prefsSnap ? prefsSnap.docs.map((d) => ({ ...(d.data() || {}), uid: d.id })) : [],
         members: membersSnap.docs.map((d) => ({ id: d.id, name: (d.data() || {}).name })),
         extendedBirthdays: refData(ebSnap).extendedBirthdays || [],
       });

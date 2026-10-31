@@ -146,3 +146,31 @@ export function eventBelongsToMember(
 ): boolean {
   return resolveEventMembers(ev, members).memberIds.includes(memberId);
 }
+
+/** A display roster may contain a public colleague name, never their HR file. */
+export type CalendarPerson = Pick<FamilyMember, 'id' | 'name'> & Partial<Pick<FamilyMember, 'avatarUrl' | 'avatarColor'>>;
+
+/** Keep every explicit tag visible, including departed people or an offline
+ * directory. Losing a name never turns a personal event into a team event. */
+export function resolveCalendarPeople(
+  ev: Pick<CalendarEvent, 'title' | 'memberIds'>,
+  people: readonly CalendarPerson[],
+  business = false,
+  directoryAvailable = true,
+): { memberIds: string[]; explicit: boolean; people: CalendarPerson[]; wholeGroup: boolean } {
+  const resolved = resolveEventMembers(ev, people);
+  const memberIds = [...new Set(resolved.memberIds)];
+  return {
+    ...resolved, memberIds, wholeGroup: memberIds.length === 0,
+    people: memberIds.map(id => people.find(person => person.id === id) || {
+      id, name: business ? directoryAvailable ? 'Previous team member' : 'Assigned teammate' : 'Previous member',
+    }),
+  };
+}
+
+/** A currently selected unknown tag remains editable without making departed
+ * people available for new assignments or dropping their existing IDs. */
+export function calendarTagPeople(people: readonly CalendarPerson[], selectedIds: readonly string[], business = false, directoryAvailable = true): CalendarPerson[] {
+  const selected = resolveCalendarPeople({ title: '', memberIds: [...selectedIds] }, people, business, directoryAvailable);
+  return [...people, ...selected.people.filter(person => !people.some(known => known.id === person.id))];
+}

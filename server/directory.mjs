@@ -89,3 +89,21 @@ export function buildDirectory(members) {
     .filter(Boolean)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/** A second tab can change the account-wide active pointer. A new client asks
+ * for its exact visible space and must prove membership THERE; older clients
+ * retain their existing authoritative active-space lookup. */
+export async function resolveDirectoryMembership(req, { signedIn, activeMember, roleFor }) {
+  const spaceId = req.body?.spaceId;
+  if (spaceId === undefined) return activeMember(req);
+  if (typeof spaceId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(spaceId)) {
+    return { status: 400, error: 'Choose a valid business space.' };
+  }
+  const caller = await signedIn(req);
+  if (caller.error) return caller;
+  const role = await roleFor(spaceId, caller.uid);
+  if (!['admin', 'member', 'child'].includes(role)) {
+    return { status: 403, error: 'You no longer have access to this business space.' };
+  }
+  return { ...caller, familyId: spaceId, role };
+}

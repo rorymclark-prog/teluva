@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import type { FamilyAction, FamilyMember } from '../types';
 import {
-  actionCounts, actionDateISO, actionDaysUntil, buildActionSuggestions,
+  actionCounts, actionDateISO, actionDaysUntil, actionOwnerFilterPeople, actionOwnerName, actionPeople, actionSourceAvailable, buildActionSuggestions,
   createActionFromSuggestion, filterActions, isFamilyActionsDoc, setActionStatus, sortActions,
 } from './actions';
 import { mergeShared } from './mergeShared';
+import { demoActions } from './demoActions';
+import { DEMO_BUSINESS_MEMBERS, DEMO_MEMBERS } from './demoData';
 
 const now = new Date(2026, 9, 29, 18, 30);
 const stamp = now.toISOString();
@@ -152,3 +154,37 @@ for (const invalid of [
 }
 
 console.log('actions.test.ts: dates, filters, lifecycle, source suggestions, privacy, deduplication, concurrent merges and backup validation passed');
+
+// An ordinary employee loads only their OWN confidential profile. Directory
+// names still make colleague assignments usable without opening those profiles.
+const self = { id: 'self', name: 'Sam', medical: { conditions: 'never pass through' }, email: 'private@example.test' };
+const directory = [{ id: 'colleague', name: 'Ada', workPhone: '123' }, { id: 'self', name: 'Sam' }];
+const workPeople = actionPeople([self], directory);
+assert.deepEqual(workPeople, [{ id: 'colleague', name: 'Ada' }, { id: 'self', name: 'Sam' }], 'owner options include safe colleague names and exclude confidential fields');
+const colleagueTask = action('colleague-task', { ownerMemberId: 'colleague', source: { key: 'work', label: 'Work record', memberId: 'colleague', tab: 'cv' } });
+assert.equal(actionOwnerName(colleagueTask, workPeople, true), 'Ada', 'a current colleague is not mislabelled as a previous member');
+assert.ok(workPeople.some(person => person.id === 'colleague'), 'an employee can choose a colleague for a new assignment');
+assert.deepEqual(filterActions([colleagueTask, action('self-task', { ownerMemberId: 'self' })], { ownerMemberId: 'colleague' }).map(item => item.id), ['colleague-task']);
+assert.equal(actionSourceAvailable(colleagueTask, [self]), false, 'directory presence never opens the colleague’s confidential source');
+assert.equal(actionSourceAvailable(colleagueTask, [{ id: 'colleague' }]), true, 'an admin with the loaded source can still open it');
+
+const offlinePeople = actionPeople([self]);
+assert.equal(actionOwnerName(colleagueTask, offlinePeople, true, false), 'Assigned teammate', 'an offline directory never turns a real assignment into Unassigned/Previous member');
+assert.deepEqual(actionOwnerFilterPeople(offlinePeople, [colleagueTask], true, false), [{ id: 'colleague', name: 'Assigned teammate' }, { id: 'self', name: 'Sam' }], 'existing colleague assignments remain filterable when names cannot load');
+assert.equal(setActionStatus(colleagueTask, 'done', now).ownerMemberId, 'colleague', 'completion preserves an unavailable colleague assignment');
+assert.equal(actionOwnerName(colleagueTask, offlinePeople, true, true), 'Previous team member', 'a successfully loaded directory distinguishes a removed colleague');
+assert.equal(actionOwnerName(action('unassigned'), workPeople, true), 'Unassigned');
+assert.equal(actionOwnerName(colleagueTask, offlinePeople, false), 'Previous member', 'family fallback wording stays unchanged');
+assert.deepEqual(self.medical, { conditions: 'never pass through' }, 'directory projection does not mutate the confidential source');
+console.log('actions.test.ts: safe business directory assignments, filtering, offline fallback and source privacy passed');
+
+const businessDemo = demoActions(true, now).items[0];
+assert.match(businessDemo.title, /team roster/);
+assert.equal(actionOwnerName(businessDemo, actionPeople(DEMO_BUSINESS_MEMBERS), true), 'Tomas Lindqvist');
+assert.equal(businessDemo.source, undefined, 'work demo does not link to a family school record');
+const familyDemo = demoActions(false, now).items[0];
+assert.equal(familyDemo.title, 'Send the school form');
+assert.equal(actionOwnerName(familyDemo, actionPeople(DEMO_MEMBERS)), 'Papa');
+assert.equal(familyDemo.source?.memberId, 'demo-mia');
+assert.equal(businessDemo.dueDate, '2026-11-02');
+console.log('actions.test.ts: demo worklists use matching business and family owners passed');

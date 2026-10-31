@@ -182,7 +182,7 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
         disabled={busy}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex min-w-0 items-center gap-2.5 rounded-2xl -m-1 p-1 pr-2 transition-colors hover:bg-white/10 cursor-pointer disabled:opacity-60 text-white"
+        className="flex min-w-0 max-w-full items-center gap-2.5 rounded-2xl -m-1 p-1 pr-2 transition-colors hover:bg-white/10 cursor-pointer disabled:opacity-60 text-white"
         title="Spaces, settings and account"
       >
         {avatar ?? (busy
@@ -199,7 +199,7 @@ export default function SpaceSwitcher({ spaces, activeId, canCreate, onSwitch, o
       </button>
 
       {open && (
-        <div role="menu" className="absolute left-0 mt-2 w-64 bg-white rounded-2xl border border-cream-300 shadow-lift p-1.5 z-50">
+        <div role="menu" className="fixed left-4 right-4 top-[4.5rem] mt-2 max-h-[calc(100dvh-6rem)] overflow-y-auto sm:absolute sm:left-0 sm:right-auto sm:top-auto sm:w-64 bg-white rounded-2xl border border-cream-300 shadow-lift p-1.5 z-50">
           {spaces.map((s) => {
             const Icon = TYPE_ICON[s.type] || Users;
             const isActive = s.id === activeId;

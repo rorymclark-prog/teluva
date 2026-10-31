@@ -87,20 +87,28 @@ export async function shareMultiple(items: { src: string; name: string }[]): Pro
 // structured data file in the same download. Optional and empty by default,
 // so every existing caller (DocumentVault.tsx's "zip selected" export) is
 // unaffected.
-export async function downloadZip(
+export class IncompleteZipError extends Error {
+  constructor(public readonly missing: string[]) {
+    super(`Backup incomplete: ${missing.length} file${missing.length === 1 ? '' : 's'} could not be downloaded. Keep the original records and try again. No backup was downloaded.`);
+    this.name = 'IncompleteZipError';
+  }
+}
+
+export async function buildDownloadZip(
   items: { src: string; name: string }[],
-  zipName = 'documents.zip',
   extraFiles: { name: string; content: string }[] = [],
-): Promise<void> {
+  options: { requireAllFiles?: boolean; fetch?: typeof fetch } = {},
+): Promise<Blob> {
   const { default: JSZip } = await import('jszip');
   const zip = new JSZip();
   const used = new Set<string>();
+  const missing: string[] = [];
   for (const it of items) {
     try {
-      const res = await fetch(normalizeFileReference(it.src), { credentials: 'same-origin' });
+      const res = await (options.fetch || fetch)(normalizeFileReference(it.src), { credentials: 'same-origin' });
       if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
       const blob = await res.blob();
-      const ext = (blob.type.split('/')[1] || '').replace('jpeg', 'jpg');
+      const ext = fileExtensionFor(it.name, blob.type, it.src);
       // Strip characters that are unsafe in a zip entry on any OS, but KEEP
       // '/' — callers may pass a folder-shaped name (e.g. "documents/x.pdf")
       // to organise the archive; JSZip treats '/' as a path separator.
@@ -114,17 +122,29 @@ export async function downloadZip(
         n++;
       }
       used.add(entryName);
-      zip.file(entryName, blob);
+      zip.file(entryName, await blob.arrayBuffer());
     } catch (e) {
       // One broken/expired link shouldn't sink the whole export — skip it and
       // keep going with everything that did fetch successfully.
       console.error('downloadZip: skipping file (fetch failed):', it.name, e);
+      missing.push(it.name);
     }
   }
+  if (options.requireAllFiles && missing.length) throw new IncompleteZipError(missing);
   for (const ef of extraFiles) {
     zip.file(ef.name, ef.content);
   }
-  const content = await zip.generateAsync({ type: 'blob' });
+  const content = await zip.generateAsync({ type: 'uint8array' });
+  return new Blob([content as BlobPart], { type: 'application/zip' });
+}
+
+export async function downloadZip(
+  items: { src: string; name: string }[],
+  zipName = 'documents.zip',
+  extraFiles: { name: string; content: string }[] = [],
+  options: { requireAllFiles?: boolean } = {},
+): Promise<void> {
+  const content = await buildDownloadZip(items, extraFiles, options);
   const url = URL.createObjectURL(content);
   const link = document.createElement('a');
   link.href = url;

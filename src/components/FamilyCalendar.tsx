@@ -27,7 +27,7 @@ import { partitionNewEvents } from '../utils/calendarDedup';
 import {
   findDuplicateGroups, duplicateCount, removeDuplicates, describeGroup,
 } from '../utils/calendarDuplicates';
-import { resolveEventMembers } from '../utils/eventMemberMatch';
+import { calendarTagPeople, resolveCalendarPeople, resolveEventMembers, type CalendarPerson } from '../utils/eventMemberMatch';
 import { sortByRelevance } from '../utils/eventRelevance';
 import {
   buildCalendarDocumentExpiries,
@@ -184,6 +184,10 @@ interface PublishedLink {
 
 interface FamilyCalendarProps {
   members: FamilyMember[];
+  /** Work-facing names for tags only; `members` remains the private source. */
+  tagPeople?: readonly Pick<CalendarPerson, 'id' | 'name'>[];
+  tagDirectoryAvailable?: boolean;
+  onRetryTagDirectory?: () => void;
   events: CalendarEvent[];
   onSaveEvents: (events: CalendarEvent[], options?: CalendarSaveOptions) => void | boolean | Promise<boolean | void>;
   // Opt-in outbound sync switch (HubSettings.autoSyncEventsToGoogle, owned by
@@ -210,8 +214,11 @@ interface FamilyCalendarProps {
   meMemberId?: string;
 }
 
-export default function FamilyCalendar({ members, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings, emberMode = false, openAddSignal = 0, isBusinessSpace = false, meMemberId }: FamilyCalendarProps) {
+export default function FamilyCalendar({ members, tagPeople, tagDirectoryAvailable = true, onRetryTagDirectory, events, onSaveEvents, autoSyncEnabled, onToggleAutoSync, calendarFeeds, onSaveCalendarFeeds, settings, emberMode = false, openAddSignal = 0, isBusinessSpace = false, meMemberId }: FamilyCalendarProps) {
   const { isAdmin, canWrite, aiEligible, aiConsent, familyId } = useFamilyCtx();
+  // This roster is used only to name/tag saved events. Derived dates, medical
+  // prompts, imports and AI keep using the confidential `members` prop.
+  const eventPeople: readonly CalendarPerson[] = isBusinessSpace ? tagPeople || members.map(({ id, name }) => ({ id, name })) : members;
   // People whose dates this account (or the whole family) has chosen not to
   // see — utils/hiddenPeople.ts. Every date-showing part of this screen reads
   // `dateMembers` / `shownEvents` and the filtered records below instead of
@@ -1101,7 +1108,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
     // Pre-fill with the name-matched person when nobody was tagged, so
     // opening an inferred event and saving it promotes the guess to a real
     // tag — and clearing the box is how you tell the app the guess was wrong.
-    setTaggedMemberIds(resolveEventMembers(ev, members).memberIds);
+    setTaggedMemberIds(resolveEventMembers(ev, eventPeople).memberIds);
     setEndDate(ev.endDate || '');
     setDestination(ev.destination || '');
     setIsFormOpen(true);
@@ -3009,8 +3016,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                   // Google before this app learned to read names out of
                   // titles has no tags at all, and showing it as "All family"
                   // is simply wrong when the title says whose it is.
-                  const resolved = resolveEventMembers(ev, members);
-                  const assignedMembers = members.filter(m => resolved.memberIds.includes(m.id));
+                  const resolved = resolveCalendarPeople(ev, eventPeople, isBusinessSpace, tagDirectoryAvailable);
+                  const assignedMembers = resolved.people;
                   const matchedByName = !resolved.explicit;
 
                   // Tinted-fill event chip: ~15% alpha of the category color, full-strength text, 8px radius
@@ -3066,7 +3073,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                       <div className="flex items-center justify-between pt-2 border-t border-cream-300/50">
                         <div className="flex items-center space-x-1.5">
                           <Users className="w-3 h-3 text-ink-400 mr-0.5" />
-                          {assignedMembers.length === 0 ? (
+                          {resolved.wholeGroup ? (
                             <span className="text-[12px] text-ink-400">{isBusinessSpace ? 'Whole team' : 'All family'}</span>
                           ) : (
                             <div className="flex -space-x-1">
@@ -3206,8 +3213,8 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                         </div>
                         <div className="divide-y divide-cream-200">
                           {visibleEvents.map((rem) => {
-                            const resolved = resolveEventMembers(rem, members);
-                            const assigned = members.filter((m) => resolved.memberIds.includes(m.id));
+                            const resolved = resolveCalendarPeople(rem, eventPeople, isBusinessSpace, tagDirectoryAvailable);
+                            const assigned = resolved.people;
                             const categoryDot =
                               rem.category === 'School' ? 'bg-dusk-500' :
                               rem.category === 'Travel' ? 'bg-honey-500' :
@@ -3417,7 +3424,7 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
               <div>
                 <label className="field-label">Tag {isBusinessSpace ? 'team' : 'family'} members</label>
                 <div className="flex flex-wrap gap-2 pt-1">
-                  {members.map(m => {
+                  {calendarTagPeople(eventPeople, taggedMemberIds, isBusinessSpace, tagDirectoryAvailable).map(m => {
                     const isTagged = taggedMemberIds.includes(m.id);
                     return (
                       <button
@@ -3430,12 +3437,17 @@ export default function FamilyCalendar({ members, events, onSaveEvents, autoSync
                             : 'bg-white text-ink-600 border-cream-300 hover:bg-cream-100'
                         }`}
                       >
-                        <span className={`w-2 h-2 rounded-full ${m.avatarColor}`}></span>
+                        <span className={`w-2 h-2 rounded-full ${warmAvatarColor(m.avatarColor)}`}></span>
                         <span>{m.name}</span>
                       </button>
                     );
                   })}
                 </div>
+                {isBusinessSpace && !tagDirectoryAvailable && (
+                  <p className="text-[12px] text-ink-500 mt-2">Team names are unavailable. Existing tags are kept.
+                    {onRetryTagDirectory && <button type="button" onClick={onRetryTagDirectory} className="ml-1 font-semibold text-clay-700 underline">Retry team directory</button>}
+                  </p>
+                )}
               </div>
 
               <div>

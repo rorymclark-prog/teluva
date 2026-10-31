@@ -354,3 +354,10 @@ export function demoSpaceType(): 'family' | 'business' {
   const v = new URLSearchParams(window.location.search).get('demo');
   return v === 'business' ? 'business' : 'family';
 }
+
+/** The employee preview obeys the same confidential-record boundary as a
+ * real employee. The directory is projected separately from all five names. */
+export function demoProfileMembers(spaceType: 'family' | 'business', owner: boolean): FamilyMember[] {
+  if (spaceType !== 'business') return DEMO_MEMBERS;
+  return owner ? DEMO_BUSINESS_MEMBERS : DEMO_BUSINESS_MEMBERS.filter(member => member.id === 'demo-biz-manager');
+}

@@ -8,6 +8,7 @@ import {
   FILE_SESSION_COOKIE, FILE_SESSION_MS, MAX_FILE_BYTES,
 } from './files.mjs';
 import { fileRetirementPlan } from './fileMigration.mjs';
+import { recordFromSnapshot } from './firestoreRecords.mjs';
 
 const BUCKET = 'fixture-bucket';
 const PATH = 'families/household/documents/doc-one/file.pdf';
@@ -214,6 +215,27 @@ test('business profile source and permanent owner ledger cannot be relabelled th
   const copied = { id: 'person-b', linkedUid: 'bob', documents: [{ id: 'copied', fileData: canonicalFileUrl(PATH) }] };
   assert.equal(fileAccessPolicy({ ...input, members: [member, copied], caller: { uid: 'bob', role: 'member' } }).ownerAllowed, false, 'copying a colleague’s file into one’s own editable profile cannot add a grant');
   assert.equal(fileAccessPolicy({ ...input, metadata: { metadata: { teluvaOwnerUid: 'alice' } }, members: [member, copied], caller: { uid: 'bob', role: 'member' } }).ownerAllowed, false, 'untrusted references cannot replace an upload’s authenticated owner');
+});
+
+test('a forged stored profile id cannot impersonate the owner of protected business bytes', async () => {
+  const snapshots = [
+    { id: 'colleague-profile', data: () => ({ id: 'colleague-profile', linkedUid: 'alice' }) },
+    { id: 'employee-profile', data: () => ({ id: 'colleague-profile', linkedUid: 'member', documents: [{ fileData: canonicalFileUrl(PATH) }] }) },
+  ];
+  const members = snapshots.map(recordFromSnapshot);
+  assert.equal(members[1].id, 'employee-profile', 'only the document reference establishes identity');
+  const metadata = { metadata: { teluvaProfileIds: '["colleague-profile"]' } };
+  const input = { storagePath: PATH, metadata, spaceInfo: { type: 'business' }, members, bucketName: BUCKET };
+  const f = fixture();
+  f.records.get(PATH).info.metadata = metadata.metadata;
+  f.policies.set(PATH, fileAccessPolicy({ ...input, caller: { uid: 'member', role: 'member' } }));
+  for (const operation of ['read', 'write', 'remove']) {
+    assert.equal((await f.request(operation, 'member')).status, 403, `${operation} cannot use a forged profile id`);
+  }
+  assert.equal(f.records.get(PATH).data.toString(), '0123456789');
+  assert.equal(fileAccessPolicy({ ...input, caller: { uid: 'alice', role: 'member' } }).ownerAllowed, true);
+  const plan = fileRetirementPlan(PATH, { metadata: {}, metageneration: '1' }, { members, spaceInfo: { type: 'business' } }, BUCKET);
+  assert.equal(plan.metadata.metadata.teluvaProfileIds, '["employee-profile"]', 'migration also binds the actual source document, never its forged stored id');
 });
 
 test('admin diff-based profile binding grants an intended employee without trusting a member-supplied binding', async () => {

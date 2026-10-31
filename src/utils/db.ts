@@ -6,6 +6,8 @@ import { ref, uploadBytes, getDownloadURL, deleteObject, fetchFileBlob } from '.
 import { calendarWriteBatches, canAdoptCalendarRead, evictGoogleMergeBases, mergeCalendarWrite, reconcileCalendarIndex, withCalendarWriteLock, type CalendarSaveOptions } from './calendarPersistence';
 import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
 import { filePathFromReference, newProfileFileBindings, normalizeFileReferences } from './fileReferences';
+import { watchReadableMembers } from './memberLiveSync';
+import { purgeAccountRoleCaches } from './accountRole';
 import { setVaultAccessScope, reportVaultAccessIssue } from './vaultAccess';
 import {
   isLoggableKind, visibilityFor, visibilitiesFor, orderActivity, shouldLog,
@@ -29,6 +31,7 @@ const EVENT_IDS_KEY = 'metadata:events';
 // docs use below (getSeen/noteSeen), just namespaced under 'member:' so it
 // can never collide with MEMBER_IDS_KEY or a reference doc called 'members'.
 const memberSeenKey = (id: string) => `member:${id}`;
+const memberSaveListeners = new Set<{ space: string; uid: string | undefined; refresh: () => void }>();
 
 // One shared vault for the whole household. Every authorised family account
 // (see firestore.rules) reads and writes this same path, so Mama, Papa and the
@@ -267,6 +270,11 @@ export async function saveFamilyMembers(members: FamilyMember[]): Promise<boolea
   // silently discarded the next time this device successfully LOADS members
   // (loadFamilyMembers checks this before it would overwrite localStorage).
   if (cloudOk) clearDirty('members', spaceAtStart); else markDirty('members', spaceAtStart);
+  if (cloudOk && current()) for (const listener of memberSaveListeners) {
+    if (listener.space === spaceAtStart && listener.uid === user?.uid) {
+      try { listener.refresh(); } catch (error) { console.error('Profile live refresh failed', error); }
+    }
+  }
 
   return cloudOk;
 }
@@ -495,33 +503,89 @@ export async function saveCalendarEvents(events: CalendarEvent[], options: Calen
 }
 
 /** Family profile changes are also shared live; encrypted fields are revealed before painting. */
-export function subscribeFamilyMembers(cb: (members: FamilyMember[]) => void, onError: (error: unknown) => void): () => void {
+export function subscribeFamilyMembers(cb: (members: FamilyMember[]) => void, onError: (error: unknown) => void, readableIds?: readonly string[]): () => void {
   const space = FAMILY_ID;
+  const uid = auth.currentUser?.uid;
   let ids: string[] | undefined;
   let records: Map<string, FamilyMember> | undefined;
   let sequence = 0;
   let stopped = false;
+  const current = () => space === FAMILY_ID && uid === auth.currentUser?.uid && !isDirty('members', space);
+  const revoke = (id?: string) => {
+    if (stopped || space !== FAMILY_ID || uid !== auth.currentUser?.uid) return;
+    sequence++;
+    let cached: FamilyMember[] = [];
+    try { cached = JSON.parse(localStorage.getItem(membersKey()) || '[]'); } catch { /* invalid cache */ }
+    const remaining = Array.isArray(cached) && id ? cached.filter(member => member.id !== id) : [];
+    const prefix = `${space}::member:`;
+    for (const key of lastSeen.keys()) if (key.startsWith(prefix) && (!id || key === `${prefix}${id}`)) lastSeen.delete(key);
+    try {
+      const cachePrefix = `family_mergeBase_${uid || 'anon'}_${prefix}`;
+      for (const key of Object.keys(localStorage)) if (key.startsWith(cachePrefix) && (!id || key === `${cachePrefix}${id}`)) localStorage.removeItem(key);
+      localStorage.setItem(membersKey(), JSON.stringify(remaining));
+    } catch { /* best effort */ }
+    if (!remaining.length) clearDirty('members', space);
+    cb(remaining);
+  };
+  const failed = (error: unknown) => {
+    if (stopped) return;
+    if ((error as { code?: string })?.code === 'permission-denied') { records = undefined; ids = undefined; revoke(); }
+    onError(error);
+  };
+  if (readableIds) return watchReadableMembers<FamilyMember>({
+    ids: readableIds,
+    watch: (id, value, error) => onSnapshot(doc(db, 'families', space, 'family_members', id), { includeMetadataChanges: true }, snapshot => {
+      if (!snapshot.metadata.hasPendingWrites && !snapshot.metadata.fromCache) value(snapshot.exists() ? normalizeFileReferences(snapshot.data() as FamilyMember) : undefined);
+    }, error),
+    reveal: member => revealMemberSensitive(member, space),
+    canAdopt: current,
+    onRevoked: revoke,
+    onSaved: refresh => {
+      const listener = { space, uid, refresh };
+      memberSaveListeners.add(listener);
+      return () => { memberSaveListeners.delete(listener); };
+    },
+    publish: members => {
+      for (const member of members) noteSeen(memberSeenKey(member.id), member);
+      // Do not replace the full metadata index baseline with this readable subset.
+      try { localStorage.setItem(membersKey(), JSON.stringify(members)); } catch { /* best effort */ }
+      cb(members);
+    },
+    onError,
+  });
   const apply = async () => {
     const mine = ++sequence;
-    if (space !== FAMILY_ID || !ids || !records || isDirty('members', space) || !ids.every(id => records!.has(id))) return;
+    if (!current() || !ids || !records || !ids.every(id => records!.has(id))) return;
     const idSnapshot = [...ids];
     const members = await Promise.all(idSnapshot.map(id => revealMemberSensitive(records!.get(id)!)));
-    if (stopped || mine !== sequence || space !== FAMILY_ID || isDirty('members', space)) return;
+    if (stopped || mine !== sequence || !current()) return;
     noteSeen(MEMBER_IDS_KEY, idSnapshot);
     for (const member of members) noteSeen(memberSeenKey(member.id), member);
     try { localStorage.setItem(membersKey(), JSON.stringify(members)); } catch { /* best effort */ }
     cb(members);
   };
   const changed = () => { void apply().catch(onError); };
-  const stopMembers = onSnapshot(collection(db, 'families', space, 'family_members'), { includeMetadataChanges: true }, snapshot => {
-    if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
-    records = new Map(snapshot.docs.map(s => [s.id, normalizeFileReferences(s.data() as FamilyMember)])); changed();
-  }, onError);
-  const stopIds = onSnapshot(doc(db, 'families', space, 'metadata', 'members'), { includeMetadataChanges: true }, snapshot => {
-    if (snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
-    ids = snapshot.exists() ? snapshot.data().ids || [] : []; changed();
-  }, onError);
-  return () => { stopped = true; stopMembers(); stopIds(); };
+  let stopMembers = () => {};
+  let stopIds = () => {};
+  let connection = 0;
+  const connect = () => {
+    const generation = ++connection;
+    sequence++; ids = undefined; records = undefined;
+    stopMembers(); stopIds();
+    const failure = (error: unknown) => { if (generation === connection) failed(error); };
+    stopMembers = onSnapshot(collection(db, 'families', space, 'family_members'), { includeMetadataChanges: true }, snapshot => {
+      if (generation !== connection || snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
+      records = new Map(snapshot.docs.map(s => [s.id, normalizeFileReferences(s.data() as FamilyMember)])); changed();
+    }, failure);
+    stopIds = onSnapshot(doc(db, 'families', space, 'metadata', 'members'), { includeMetadataChanges: true }, snapshot => {
+      if (generation !== connection || snapshot.metadata.hasPendingWrites || snapshot.metadata.fromCache) return;
+      ids = snapshot.exists() ? snapshot.data().ids || [] : []; changed();
+    }, failure);
+  };
+  connect();
+  const listener = { space, uid, refresh: connect };
+  memberSaveListeners.add(listener);
+  return () => { stopped = true; sequence++; stopMembers(); stopIds(); memberSaveListeners.delete(listener); };
 }
 
 /** Calendar updates from other devices. Never replace pending local edits. */
@@ -720,6 +784,12 @@ function getSeen<T>(key: string): T | undefined {
  */
 export function resetSharedDocBaselines(): void {
   lastSeen.clear();
+}
+
+/** Discard plaintext and stale merge intent after an authoritative role change. */
+export function clearRoleSensitiveCaches(spaceId: string, uid: string): void {
+  resetSharedDocBaselines();
+  try { purgeAccountRoleCaches(localStorage, spaceId, uid); } catch { /* storage unavailable */ }
 }
 
 /**
@@ -1398,11 +1468,12 @@ export async function deleteVaultFile(storagePath: string): Promise<void> {
 // the SAME families/{FAMILY_ID}/documents/{docId}/... prefix uploadVaultFile
 // already writes to, so no storage.rules change is needed. Modeled on
 // uploadVaultFile exactly, just skipping the File object in favour of a data URL.
-export async function uploadVaultPhoto(dataUrl: string, docId: string, options: { shared?: boolean } = {}): Promise<{ storagePath: string; downloadUrl: string }> {
+export async function uploadVaultPhoto(dataUrl: string, docId: string, options: { shared?: boolean; fileName?: string } = {}): Promise<{ storagePath: string; downloadUrl: string }> {
   const spaceAtStart = FAMILY_ID;
   const accountAtStart = auth.currentUser?.uid;
   const blob = await fetchFileBlob(dataUrl);
-  const storagePath = `families/${spaceAtStart}/documents/${docId}/photo.jpg`;
+  const fileName = (options.fileName || 'photo.jpg').replace(/[^\w.\-]+/g, '_');
+  const storagePath = `families/${spaceAtStart}/documents/${docId}/${fileName}`;
   if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg', shared: options.shared });
@@ -2093,7 +2164,7 @@ export async function loadFamilyRoles(familyId: string): Promise<Record<string, 
 }
 
 /**
- * Remove someone from the caller's ACTIVE space. Server-only (the Admin SDK
+ * Remove someone from the explicit space shown when the action started. Server-only (the Admin SDK
  * deletes the authoritative families/{id}/roles/{uid} doc, rewrites their
  * users/{uid} mirror and re-mints their custom claims) — Firestore rules block
  * clients from doing any of that. Admin-only and self-removal-proof, both
@@ -2101,33 +2172,43 @@ export async function loadFamilyRoles(familyId: string): Promise<Record<string, 
  */
 export async function removeFamilyMember(targetUid: string): Promise<void> {
   const user = auth.currentUser;
+  const spaceAtStart = FAMILY_ID;
   if (!user) throw new Error('Must be signed in to remove a member');
   const trimmed = targetUid.trim();
   if (!trimmed) throw new Error('Missing member');
 
   const token = await user.getIdToken();
+  const current = () => FAMILY_ID === spaceAtStart && auth.currentUser?.uid === user.uid;
+  if (!current()) throw new Error('Your account or space changed. Please try the removal again.');
   const res = await fetch('/api/remove-member', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ uid: trimmed }),
+    body: JSON.stringify({ spaceId: spaceAtStart, uid: trimmed }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Could not remove that member. Please try again.');
+  if (!current() || data.spaceId !== spaceAtStart) throw new Error('Your space changed. Reload before reviewing the removal.');
 }
 
 /**
- * Update a family member's role in Firestore.
- * Callers must prevent admin self-demotion before calling this.
+ * Update one explicit space's role and matching account mirror atomically.
  */
 export async function setFamilyMemberRole(
   familyId: string,
   targetUid: string,
   newRole: FamilyRole,
 ): Promise<void> {
-  const batch = writeBatch(db);
-  batch.set(doc(db, 'families', familyId, 'roles', targetUid), { role: newRole }, { merge: true });
-  batch.set(doc(db, 'users', targetUid), { role: newRole }, { merge: true });
-  await batch.commit();
+  const user = auth.currentUser;
+  if (!user) throw new Error('Sign in to change a role.');
+  const token = await user.getIdToken();
+  if (auth.currentUser?.uid !== user.uid) throw new Error('Your account changed. Please try the role change again.');
+  const res = await fetch('/api/set-member-role', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ spaceId: familyId, uid: targetUid, role: newRole }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not update that role. Please try again.');
 }
 
 // --- Chat history (stored per-space: families/{FAMILY_ID}/chat/{uid}) ---
@@ -2311,7 +2392,7 @@ export async function revealSharedSecrets(values: string[], spaceId = FAMILY_ID)
 let accountRole: string | null = null;
 export function setAccountRole(role: string | null): void {
   accountRole = role;
-  setSharedRevealEnabled(role !== 'child');
+  setSharedRevealEnabled(role === 'admin' || role === 'member');
 }
 
 // ── Passwords ── (admin-only; rules deny reads to members/children)
@@ -2410,6 +2491,8 @@ export async function deleteDocumentEverywhere(opts: {
   memberDoc?: FamilyDocument;
   memberId?: string;
   members: FamilyMember[];
+  /** Newly filed replacements may have identical bytes but own a different object. */
+  preserveDocumentIds?: readonly string[];
 }): Promise<DeleteEverywhereResult> {
   const { vaultDoc, memberDoc, memberId, members } = opts;
   const notes: string[] = [];
@@ -2451,6 +2534,7 @@ export async function deleteDocumentEverywhere(opts: {
   const nextMembers = members.map(m => {
     const docs = m.documents || [];
     const keep = docs.filter(d => {
+      if (opts.preserveDocumentIds?.includes(d.id)) return true;
       const isTheClickedOne = !!memberDoc && m.id === memberId && d.id === memberDoc.id;
       // Strip the copy from EVERY member, not just the one being viewed: the
       // underlying Storage object is gone now, so any other profile holding it
@@ -2742,8 +2826,14 @@ export interface DirectoryEntry {
  * fields, so there is no version of this the client could read directly
  * without reopening the HR file. server/directory.mjs holds the allowlist.
  */
-export const loadBusinessDirectory = () =>
-  authedPost<{ members: DirectoryEntry[] }>('/api/business/directory');
+export async function loadBusinessDirectory(spaceId = FAMILY_ID): Promise<{ familyId: string; members: DirectoryEntry[] }> {
+  const accountUid = auth.currentUser?.uid;
+  const result = await authedPost<{ familyId: string; members: DirectoryEntry[] }>('/api/business/directory', { spaceId });
+  if (result.familyId !== spaceId || FAMILY_ID !== spaceId || auth.currentUser?.uid !== accountUid) {
+    throw new Error('Your space changed. Reload the team directory before trying again.');
+  }
+  return result;
+}
 
 /** Settle any request whose seven days have run out, and report the state. */
 export const loadReleaseState = () =>
