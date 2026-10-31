@@ -62,6 +62,7 @@ async function sections(file: string, names: string[]) {
         export const loadHousehold = async () => null, saveHousehold = async () => true,
           loadFamilyInfo = async () => null, saveFamilyInfo = async () => true,
           loadAssets = async () => [], loadSpaceInfo = async () => null;
+        export const generateBusinessMilestoneNote = async () => { throw new Error('Unexpected note generation in a render-only fixture'); };
         export const auth = { currentUser: null }, useSharedDoc = () => false;
         export const useVaultDocs = () => ({ docs: [], adopt: () => {} });
         export const AttachServiceDoc = () => null;

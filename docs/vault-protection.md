@@ -129,6 +129,10 @@ role mirror changes only if that same space is active. Clients cannot change
 role or plan fields directly, including deleting an expiry to make a temporary
 plan permanent. Open sessions observe server-confirmed role changes and clear
 sensitive local state before reloading with the new permissions.
+Current clients pin invite creation, renaming, founding-date updates, leaving
+and deletion to an explicit space. The server rechecks membership there rather
+than letting another tab's active-space pointer redirect the action. Leaving,
+removing and demoting members use the same transactional admin checks.
 
 Public business calendar subscriptions read shared calendar events without
 loading private staff birthdays or derived occasions, including subscriptions

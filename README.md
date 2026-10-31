@@ -61,6 +61,8 @@ profiles hold work details, CVs, qualifications and personal documents. The
 team directory supplies work contact details and names for assignments;
 employees can open their own private profile, and admins can manage the team.
 Job titles on profiles are separate from account permissions.
+Readable staff records update live. Reload after an admin links an additional
+profile to an employee's account.
 
 The company document vault is a shared filing area. Filing a document under a
 person is a label; private staff files belong on that person's profile. Every

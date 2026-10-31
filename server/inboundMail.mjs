@@ -19,7 +19,7 @@
  *    familyId itself and not sequential, so there is nothing to enumerate.
  * 3. Someone who KNOWS a family's real inbound address forges a From: header
  *    to write into that family's vault. senderAllowed is the last gate: the
- *    allow-list is that family's own member emails, resolved server-side —
+ *    allow-list is that family's own current writer emails, resolved server-side —
  *    never anything the message itself claims. An empty allow-list must DENY
  *    outright, not fall open, because "no members loaded yet" and "anyone may
  *    post" must never look the same to this function.
@@ -153,14 +153,18 @@ export function parseInboundAddress(recipient) {
   return { token: local, domain };
 }
 
-/**
- * Does `fromHeader` belong to a member of the family the mail claims to be
- * for? `allowedEmails` must be THAT family's own member emails, resolved
- * server-side — never anything from the message. An empty or missing list
- * denies everything: this is the boundary that stops a guessed address from
- * writing into a vault whose member list happened not to load, so "deny" is
- * the only safe reading of "we don't know who may post here".
- */
+/** Build the allow-list from authoritative writer roles before reading email
+ * fields. Viewers and unknown roles cannot use email as a second write path. */
+export function writableInboundSenderEmails(roles) {
+  if (!Array.isArray(roles)) return [];
+  return roles
+    .filter(role => role && (role.role === 'admin' || role.role === 'member'))
+    .map(role => role.email)
+    .filter(email => typeof email === 'string' && email.trim());
+}
+
+/** Match a sender against the current family's server-built writer allow-list.
+ * An empty or missing list denies, including when membership did not load. */
 export function senderAllowed(fromHeader, allowedEmails) {
   if (!Array.isArray(allowedEmails) || allowedEmails.length === 0) return false;
   const from = extractEmailAddress(fromHeader);

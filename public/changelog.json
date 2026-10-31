@@ -1,5 +1,14 @@
 [
   {
+    "label": "v376",
+    "changes": [
+      "Invites and space-management actions stay bound to the space visible in the tab, even when another tab switches the account’s active space.",
+      "Leaving a space uses the same transaction protections as role changes and member removal, preserving an administrator during simultaneous requests.",
+      "Calendar links, email filing and business milestone notes stay tied to the selected business. Delayed account or space changes cannot update another screen."
+    ],
+    "date": "2026-10-31"
+  },
+  {
     "label": "v375",
     "changes": [
       "Business Actions and calendar tags now use the team directory for colleague names and assignments while keeping staff profiles private.",

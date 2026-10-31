@@ -1,11 +1,8 @@
 {
-  "label": "v375",
+  "label": "v376",
   "changes": [
-    "Business Actions and calendar tags now use the team directory for colleague names and assignments while keeping staff profiles private.",
-    "CVs, work files and personal documents use protected file storage, with uploads smaller than 20 MB and safer replacement handling.",
-    "Full backups restore business assets, receipts and milestones along with the other saved sections. Staff records update live within each account’s access.",
-    "Role changes apply to the selected space, keep other memberships intact and refresh access in open sessions. Trial expiry and file ownership checks are hardened.",
-    "Business calendar links no longer export private staff birth dates, and family carer links stay confined to family spaces.",
-    "Business screens have clearer shared-file guidance, read-only viewer controls and work-specific demo content."
+    "Invites and space-management actions stay bound to the space visible in the tab, even when another tab switches the account’s active space.",
+    "Leaving a space uses the same transaction protections as role changes and member removal, preserving an administrator during simultaneous requests.",
+    "Calendar links, email filing and business milestone notes stay tied to the selected business. Delayed account or space changes cannot update another screen."
   ]
 }

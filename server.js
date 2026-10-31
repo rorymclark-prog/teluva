@@ -1,8 +1,10 @@
 import { createVaultHandlers, collectLegacySharedValues, collectLegacyCredentialValues, vaultSpaceId, resolveVaultMembership, VaultError } from './server/vault.mjs';
 import { createFileRouter, createFileHandlers, isEstateFile, fileTarget, canonicalFileUrl, FileAccessError, projectedFilePaths, projectConnectedFileUrls, connectedPhotoPaths, fileAccessPolicy } from './server/files.mjs';
 import { recordFromSnapshot } from './server/firestoreRecords.mjs';
+import { createCalendarPublicationHandlers } from './server/calendarPublicationManagement.mjs';
 import { includesCalendarOccasions, loadCalendarPublicationSources, carerManagementAccess, carerPublicAccess } from './server/spaceSharing.mjs';
-import { changeMemberRole, removeSpaceMember, resolveRemovalCaller, RoleManagementError } from './server/roleManagement.mjs';
+import { changeMemberRole, removeSpaceMember, leaveSpaceMember, resolveRemovalCaller, RoleManagementError } from './server/roleManagement.mjs';
+import { resolveRequestedMembership, remainingSpacesAfterRemoval } from './server/requestMembership.mjs';
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import admin from 'firebase-admin';
@@ -29,7 +31,6 @@ import {
   selectPublishableEvents,
   buildPublishedIcs,
   publicationState,
-  PUBLISH_MODES,
 } from './server/calendarPublish.mjs';
 import {
   alarmsFor,
@@ -88,7 +89,7 @@ import {
 } from './server/familyLink.mjs';
 import { notifiableCelebrations, resolvableCelebrations, LEGACY_NAME_DAY_ID } from './server/nameCelebrations.mjs';
 import {
-  familyAddressToken, resolveFamilyToken, verifyInboundRequest, parseInboundAddress, senderAllowed,
+  familyAddressToken, resolveFamilyToken, verifyInboundRequest, parseInboundAddress, senderAllowed, writableInboundSenderEmails,
   senderDisplay, pickAttachments, describeInbound, parseMultipartFormData,
   MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT,
 } from './server/inboundMail.mjs';
@@ -520,6 +521,27 @@ async function requireMember(req) {
     role, // from families/{familyId}/roles/{uid} — NEVER the users/{uid} mirror
     aiConsent: profile.aiConsent?.granted === true && (profile.aiConsent?.version ?? 0) >= AI_CONSENT_VERSION,
   };
+}
+
+// Opt in only where a new client sends its visible space. Existing callers of
+// requireMember retain their legacy, authoritative active-space behavior.
+async function requireRequestedMember(req) {
+  return resolveRequestedMembership(req, {
+    signedIn: async request => {
+      const caller = await requireSignedIn(request);
+      if (caller.error) return caller;
+      // Consent belongs to the signed-in account, independently of its active
+      // space pointer. AI routes using explicit membership retain that gate.
+      const snap = await adminDb.doc(`users/${caller.uid}`).get();
+      const profile = snap.exists ? snap.data() : {};
+      return { ...caller, aiConsent: profile.aiConsent?.granted === true && (profile.aiConsent?.version ?? 0) >= AI_CONSENT_VERSION };
+    },
+    activeMember: requireMember,
+    roleFor: async (spaceId, uid) => {
+      const snap = await adminDb.doc(`families/${spaceId}/roles/${uid}`).get();
+      return snap.exists ? snap.data().role : null;
+    },
+  });
 }
 
 // AI gate (defense in depth alongside the UI): child accounts never use AI, and
@@ -3142,102 +3164,24 @@ async function readFeedHiddenLists(familyId, createdBy) {
   };
 }
 
-app.post('/api/calendar-publish/create', async (req, res) => {
-  try {
-    const caller = await requireMember(req);
-    if (caller.error) return res.status(caller.status).json({ error: caller.error });
-    if (caller.role === 'child') {
-      return res.status(403).json({ error: 'Only parents can publish the family calendar.' });
-    }
-    const body = req.body || {};
-    const mode = PUBLISH_MODES.includes(body.mode) ? body.mode : 'details';
-    const label = typeof body.label === 'string' ? body.label.trim().slice(0, 80) : '';
-    // Birthdays and anniversaries reach past calendar_events into the member
-    // records, so the person creating the link chooses, at the moment they
-    // create it. Meaningless in busy mode — a feed with every title stripped
-    // has nothing to say about whose birthday it is.
-    const includeOccasions = includesCalendarOccasions(await readSharingSpaceInfo(caller.familyId), { mode, includeOccasions: body.includeOccasions });
-
-    // 32 bytes — the URL is the only thing standing between this feed and
-    // anybody who tries one. 24 would already be far beyond guessing; the
-    // extra 8 cost nothing and this link lives in other people's calendar
-    // apps for years.
-    const token = crypto.randomBytes(32).toString('base64url');
-    const now = new Date();
-    await adminDb.doc(`calendarPublications/${token}`).set({
-      familyId: caller.familyId,
-      createdBy: caller.uid,
-      createdByName: caller.displayName || '',
-      createdAt: now.toISOString(),
-      mode,
-      label,
-      includeOccasions,
-      revoked: false,
-      fetchCount: 0,
-    });
-    console.log(`[calendar-publish] created (${mode}${includeOccasions ? ' +occasions' : ''}) for family ${caller.familyId} by ${who(caller)}`);
-    res.json({ ok: true, token, path: `/cal/${token}.ics`, mode, includeOccasions });
-  } catch (err) {
-    console.error('/api/calendar-publish/create error:', err);
-    res.status(500).json({ error: 'Could not create the calendar link. Please try again.' });
-  }
+const calendarPublicationHandlers = createCalendarPublicationHandlers({
+  member: requireRequestedMember,
+  readSpaceInfo: readSharingSpaceInfo,
+  readPublication: async token => {
+    const snap = await adminDb.doc(`calendarPublications/${token}`).get();
+    return snap.exists ? snap.data() : null;
+  },
+  writePublication: (token, value) => adminDb.doc(`calendarPublications/${token}`).set(value, { merge: true }),
+  listPublications: async familyId => {
+    const snap = await adminDb.collection('calendarPublications').where('familyId', '==', familyId).get();
+    return snap.docs.map(recordFromSnapshot);
+  },
 });
-
-app.get('/api/calendar-publish/list', async (req, res) => {
-  try {
-    const caller = await requireMember(req);
-    if (caller.error) return res.status(caller.status).json({ error: caller.error });
-    const q = await adminDb.collection('calendarPublications')
-      .where('familyId', '==', caller.familyId).get();
-    const links = [];
-    q.forEach((d) => {
-      const v = d.data();
-      if (publicationState(v) !== 'active') return;
-      links.push({
-        token: d.id,
-        path: `/cal/${d.id}.ics`,
-        mode: v.mode || 'details',
-        label: v.label || '',
-        includeOccasions: v.includeOccasions === true,
-        createdAt: v.createdAt || '',
-        createdByName: v.createdByName || '',
-        // Surfaced so the family can SEE whether a link is being used — the
-        // only signal available for a credential nobody has to log in with.
-        lastFetchedAt: v.lastFetchedAt || null,
-        fetchCount: v.fetchCount || 0,
-      });
-    });
-    links.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    res.json({ links });
-  } catch (err) {
-    console.error('/api/calendar-publish/list error:', err);
-    res.status(500).json({ error: 'Could not load your calendar links.' });
-  }
-});
-
-app.post('/api/calendar-publish/revoke', async (req, res) => {
-  try {
-    const caller = await requireMember(req);
-    if (caller.error) return res.status(caller.status).json({ error: caller.error });
-    if (caller.role === 'child') {
-      return res.status(403).json({ error: 'Only parents can change the family calendar links.' });
-    }
-    const token = typeof (req.body || {}).token === 'string' ? req.body.token.slice(0, 200) : '';
-    if (!token) return res.status(400).json({ error: 'Missing link id.' });
-    const ref = adminDb.doc(`calendarPublications/${token}`);
-    const snap = await ref.get();
-    if (!snap.exists) return res.json({ ok: true });
-    if (snap.data().familyId !== caller.familyId) {
-      return res.status(403).json({ error: 'That link is not yours.' });
-    }
-    await ref.set({ revoked: true, revokedAt: new Date().toISOString() }, { merge: true });
-    console.log(`[calendar-publish] revoked for family ${caller.familyId} by ${who(caller)}`);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('/api/calendar-publish/revoke error:', err);
-    res.status(500).json({ error: 'Could not turn that link off.' });
-  }
-});
+app.post('/api/calendar-publish/create', calendarPublicationHandlers.create);
+// GET remains for older clients. New clients send the visible space in POST.
+app.get('/api/calendar-publish/list', calendarPublicationHandlers.list);
+app.post('/api/calendar-publish/list', calendarPublicationHandlers.list);
+app.post('/api/calendar-publish/revoke', calendarPublicationHandlers.revoke);
 
 // ---------------------------------------------------------------------------
 // Automatic phone alarms — management. The feed itself is GET /alarms/:token
@@ -3497,7 +3441,7 @@ app.post('/api/business-milestone-note', async (req, res) => {
   try {
     if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
 
-    const caller = await requireMember(req);
+    const caller = await requireRequestedMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
@@ -3545,7 +3489,7 @@ app.post('/api/business-milestone-note', async (req, res) => {
     const note = { text: candidate.trim(), generatedAt: new Date().toISOString(), forFoundingDate: infoData.foundingDate };
     await infoRef.set({ milestoneNote: note }, { merge: true });
     await recordAiUsage(familyId);
-    res.json({ ok: true, note });
+    res.json({ ok: true, spaceId: familyId, note });
   } catch (e) {
     console.error('[business-milestone-note] error', e);
     res.status(502).json({ error: 'Something went wrong generating the note — please try again.' });
@@ -4401,11 +4345,12 @@ for (const [route, handler] of [
  * answer in production: no domain exists yet. See docs/INBOUND-MAIL.md.
  */
 app.get('/api/inbound-mail/address', async (req, res) => {
-  const caller = await requireMember(req);
+  res.set('Cache-Control', 'private, no-store');
+  const caller = await requireRequestedMember(req);
   if (caller.error) return res.status(caller.status).json({ error: caller.error });
-  if (!INBOUND_MAIL_READY) return res.json({ enabled: false });
+  if (!INBOUND_MAIL_READY) return res.json({ enabled: false, spaceId: caller.familyId });
   const token = familyAddressToken(caller.familyId, INBOUND_MAIL_SECRET);
-  return res.json({ enabled: true, address: `${token}@${INBOUND_MAIL_DOMAIN}` });
+  return res.json({ enabled: true, address: `${token}@${INBOUND_MAIL_DOMAIN}`, spaceId: caller.familyId });
 });
 
 app.post('/api/inbound-mail', express.raw({ type: '*/*', limit: '30mb' }), async (req, res) => {
@@ -4464,11 +4409,13 @@ app.post('/api/inbound-mail', express.raw({ type: '*/*', limit: '30mb' }), async
       return reject('too many inbound messages for this family in the last hour');
     }
 
+    // Only current writers may file email attachments. Knowing an address
+    // cannot turn a child/viewer or unknown role into a writer.
     // The allow-list is THIS family's own member emails, read from the same
     // roles doc every other membership check in this file authorises against
     // — never anything the message itself claims to be from.
     const rolesSnap = await adminDb.collection(`families/${familyId}/roles`).get();
-    const allowedEmails = rolesSnap.docs.map((d) => d.data()?.email).filter(Boolean);
+    const allowedEmails = writableInboundSenderEmails(rolesSnap.docs.map(d => d.data()));
     if (!senderAllowed(fields.from, allowedEmails)) {
       return reject('sender is not a member of the resolved family');
     }
@@ -4538,15 +4485,17 @@ const BRIDGE_INDEX = (hash) => `gmailBridgeTokens/${hash}`;
 const BRIDGE_DOC = (familyId) => `families/${familyId}/private/gmailBridge`;
 
 app.get('/api/gmail-bridge/status', async (req, res) => {
-  const caller = await requireMember(req);
+  res.set('Cache-Control', 'private, no-store');
+  const caller = await requireRequestedMember(req);
   if (caller.error) return res.status(caller.status).json({ error: caller.error });
   const snap = await adminDb.doc(BRIDGE_DOC(caller.familyId)).get();
-  if (!snap.exists) return res.json({ connected: false });
+  if (!snap.exists) return res.json({ connected: false, spaceId: caller.familyId });
   const d = snap.data() || {};
   // Never the hash. It is not a secret that unlocks anything, but there is no
   // reason for it to leave the server and every reason for the habit.
   return res.json({
     connected: !!d.tokenHash,
+    spaceId: caller.familyId,
     createdAt: d.createdAt || null,
     createdBy: d.createdBy || null,
     lastUsedAt: d.lastUsedAt || null,
@@ -4555,7 +4504,8 @@ app.get('/api/gmail-bridge/status', async (req, res) => {
 });
 
 app.post('/api/gmail-bridge/token', async (req, res) => {
-  const caller = await requireMember(req);
+  res.set('Cache-Control', 'private, no-store');
+  const caller = await requireRequestedMember(req);
   if (caller.error) return res.status(caller.status).json({ error: caller.error });
   // Same bar as creating an invite: this hands out a way into the vault.
   if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can connect Gmail.' });
@@ -4579,11 +4529,12 @@ app.post('/api/gmail-bridge/token', async (req, res) => {
 
   console.log(`[gmail-bridge] token minted for family=${familyId} by uid=${caller.uid}`);
   // The one and only time the raw token exists outside the caller's script.
-  return res.json({ token, createdAt: now });
+  return res.json({ token, createdAt: now, spaceId: familyId });
 });
 
 app.delete('/api/gmail-bridge/token', async (req, res) => {
-  const caller = await requireMember(req);
+  res.set('Cache-Control', 'private, no-store');
+  const caller = await requireRequestedMember(req);
   if (caller.error) return res.status(caller.status).json({ error: caller.error });
   if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can disconnect Gmail.' });
 
@@ -4593,7 +4544,7 @@ app.delete('/api/gmail-bridge/token', async (req, res) => {
   if (hash) await adminDb.doc(BRIDGE_INDEX(hash)).delete().catch(() => {});
   await ref.delete().catch(() => {});
   console.log(`[gmail-bridge] token revoked for family=${caller.familyId} by uid=${caller.uid}`);
-  return res.json({ ok: true });
+  return res.json({ ok: true, spaceId: caller.familyId });
 });
 
 app.post('/api/gmail-bridge/deliver', express.json({ limit: '30mb' }), async (req, res) => {
@@ -4805,7 +4756,7 @@ app.post('/api/create-space', async (req, res) => {
 // only a pointer lives here.
 app.post('/api/create-invite', async (req, res) => {
   try {
-    const caller = await requireMember(req);
+    const caller = await requireRequestedMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can create invites.' });
 
@@ -4833,7 +4784,7 @@ app.post('/api/create-invite', async (req, res) => {
 
     if (!willReaderId) {
       await adminDb.doc(`invites/${code}`).set(invite);
-      return res.json({ ok: true, code, role });
+      return res.json({ ok: true, spaceId: caller.familyId, code, role });
     }
 
     // Both writes in one transaction: an invite whose willReaderId points at no
@@ -4856,7 +4807,7 @@ app.post('/api/create-invite', async (req, res) => {
       tx.set(accessRef, { pendingReaders: next, updatedAt: now.toISOString(), updatedBy: caller.email || '' }, { merge: true });
     });
     // pendingId lets the caller cancel or re-send this exact invite later.
-    res.json({ ok: true, code, role, pendingId: willReaderId });
+    res.json({ ok: true, spaceId: caller.familyId, code, role, pendingId: willReaderId });
   } catch (err) {
     console.error('/api/create-invite error:', err);
     res.status(500).json({ error: 'Could not create an invite. Please try again.' });
@@ -5337,16 +5288,15 @@ app.post('/api/switch-space', async (req, res) => {
   }
 });
 
-// --- Rename the caller's ACTIVE space (Business Hub) ---
+// --- Rename the caller's requested space (Business Hub) ---
 // Updates the canonical families/{id}/info/info.name AND propagates the new
 // name into every member's cached users/{uid}.spaces[] entry for that space,
 // so the space switcher shows the new name for everyone, not just the admin
-// who renamed it. Always operates on caller.familyId (from requireMember,
-// server-verified) — never a client-supplied id — so a member of space A can
-// never rename space B by guessing its id.
+// who renamed it. The requested space is independently authorized; omitted
+// space IDs retain the legacy authoritative active-space lookup.
 app.post('/api/rename-space', async (req, res) => {
   try {
-    const caller = await requireMember(req);
+    const caller = await requireRequestedMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can rename the space.' });
 
@@ -5369,20 +5319,20 @@ app.post('/api/rename-space', async (req, res) => {
       });
     }));
 
-    res.json({ ok: true, name });
+    res.json({ ok: true, spaceId: caller.familyId, name });
   } catch (err) {
     console.error('/api/rename-space error:', err);
     res.status(500).json({ error: 'Could not rename the space. Please try again.' });
   }
 });
 
-// --- Set the founding date on the caller's ACTIVE space (Business Milestones) ---
+// --- Set the founding date on the caller's requested space (Business Milestones) ---
 // Admin-only (mirrors rename-space's role guard); business-only, re-verified
 // server-side by re-reading the info doc so even a direct API call from a
 // family-space admin can never write a foundingDate onto a family space.
 app.post('/api/set-founding-date', async (req, res) => {
   try {
-    const caller = await requireMember(req);
+    const caller = await requireRequestedMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     if (caller.role !== 'admin') return res.status(403).json({ error: 'Only admins can set the founding date.' });
 
@@ -5407,7 +5357,7 @@ app.post('/api/set-founding-date', async (req, res) => {
     }
 
     await infoRef.set({ foundingDate }, { merge: true });
-    res.json({ ok: true, foundingDate });
+    res.json({ ok: true, spaceId: caller.familyId, foundingDate });
   } catch (err) {
     console.error('/api/set-founding-date error:', err);
     res.status(500).json({ error: 'Could not save the founding date. Please try again.' });
@@ -5497,7 +5447,7 @@ async function removeMemberFromFamilySpace(uid, familyId) {
     const snap = await tx.get(userRef);
     if (!snap.exists) return; // already cleaned up (retry) or never had a profile doc
     const data = snap.data() || {};
-    const spaces = (Array.isArray(data.spaces) ? data.spaces : []).filter((s) => s && s.id !== familyId);
+    const spaces = remainingSpacesAfterRemoval(data, familyId);
     if (spaces.length === 0) {
       tx.delete(userRef);
       return;
@@ -5516,10 +5466,10 @@ async function removeMemberFromFamilySpace(uid, familyId) {
 // in this application — read the full authorization + safety writeup below
 // before touching any of it. ---
 //
-// AUTHORIZATION: the target is ALWAYS `caller.familyId` from requireMember()
-// (the caller's own server-verified ACTIVE space) — a familyId in the request
-// body is never trusted for this, so a member of family A can never delete
-// family B by guessing/sending its id. The caller must additionally be an
+// AUTHORIZATION: the target is ALWAYS `caller.familyId` from the authoritative
+// requested-space membership check. A body spaceId only selects the role doc
+// to verify; it grants nothing. Old clients retain the active-space lookup.
+// The caller must additionally be an
 // 'admin' of that family. This role model has no separate "owner" tier above
 // admin — every admin is symmetric (see firestore.rules isAdminOf, and
 // FamilySettings.tsx's role selector, which lets any admin promote/demote any
@@ -5559,9 +5509,9 @@ async function removeMemberFromFamilySpace(uid, familyId) {
 // (invites/carerShares by familyId) simply return empty on a repeat.
 app.post('/api/delete-family', async (req, res) => {
   try {
-    const caller = await requireMember(req);
+    const caller = await requireRequestedMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
-    const familyId = caller.familyId; // NEVER read from req.body
+    const familyId = caller.familyId; // Requested space, independently authorized above.
 
     const rolesRef = adminDb.doc(`families/${familyId}/roles/${caller.uid}`);
     const infoRef = adminDb.doc(`families/${familyId}/info/info`);
@@ -5684,7 +5634,7 @@ app.post('/api/delete-family', async (req, res) => {
     );
 
     console.log(`[delete-family] family ${familyId} deleted by ${who(caller)} (${caller.uid}) — storage ${storageDeleted} deleted/${storageErrors} failed, ${memberUids.size} member(s) unlinked.`);
-    res.json({ ok: true, storageFilesDeleted: storageDeleted, storageErrors });
+    res.json({ ok: true, spaceId: familyId, storageFilesDeleted: storageDeleted, storageErrors });
   } catch (err) {
     console.error('/api/delete-family error:', err);
     res.status(500).json({ error: 'Could not delete the family. Please try again — it is safe to retry.' });
@@ -5697,28 +5647,20 @@ app.post('/api/delete-family', async (req, res) => {
 // one able to manage it (invite, remove members, or delete it later). ---
 app.post('/api/leave-family', async (req, res) => {
   try {
-    const caller = await requireMember(req);
+    const caller = await requireRequestedMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     const familyId = caller.familyId;
 
-    const rolesSnap = await adminDb.collection(`families/${familyId}/roles`).get();
-    if (rolesSnap.docs.length <= 1 && rolesSnap.docs[0]?.id === caller.uid) {
-      return res.status(400).json({ error: "You're the only member — delete the family instead if you want to remove it." });
-    }
-    if (caller.role === 'admin') {
-      const hasAnotherAdmin = rolesSnap.docs.some((d) => d.id !== caller.uid && d.data().role === 'admin');
-      if (!hasAnotherAdmin) {
-        return res.status(400).json({ error: "You're the only admin — promote another member to admin first, or delete the family instead." });
-      }
-    }
-
-    await adminDb.doc(`families/${familyId}/roles/${caller.uid}`).delete();
-    await removeMemberFromFamilySpace(caller.uid, familyId);
+    const result = await leaveSpaceMember({ db: adminDb, spaceId: familyId, callerUid: caller.uid, deleteField: () => FieldValue.delete() });
+    // The role and mirror commit together before external session/device cleanup.
+    await admin.auth().setCustomUserClaims(caller.uid, result.claims).catch(() => {});
+    await admin.auth().revokeRefreshTokens(caller.uid).catch(() => {});
     await dropPushSubscriptions(familyId, caller.uid);
 
     console.log(`[leave-family] ${who(caller)} (${caller.uid}) left family ${familyId}.`);
-    res.json({ ok: true });
+    res.json({ ok: true, spaceId: familyId });
   } catch (err) {
+    if (err instanceof RoleManagementError) return res.status(err.status).json({ error: err.message, code: err.code });
     console.error('/api/leave-family error:', err);
     res.status(500).json({ error: 'Could not leave the family. Please try again.' });
   }

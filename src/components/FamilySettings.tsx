@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { X, Copy, Check, Users, ShieldCheck, Loader2, Share2, Link, Sparkles, Globe, PartyPopper, Plus, Trash2, Trophy, TrendingUp, UserMinus, AlertTriangle, CalendarDays } from 'lucide-react';
 import { useFamilyCtx } from '../contexts/FamilyContext';
-import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, saveSuppressReligiousSuggestions, loadBusinessMilestones, saveBusinessMilestones, deleteFamily, loadAiUsage } from '../utils/db';
+import { loadFamilyRoles, setFamilyMemberRole, removeFamilyMember, loadSettings, saveSettings, loadSpaceInfo, saveFoundingDate, saveSuppressReligiousSuggestions, loadBusinessMilestones, saveBusinessMilestones, deleteFamily, loadAiUsage, createMemberInvite } from '../utils/db';
 import { FamilyRole, FamilyMemberRole, IdCountry, BusinessMilestonesDoc, BusinessMilestoneEntry, BusinessMilestoneKind, HeadcountLog, AiUsage, HubSettings } from '../types';
 import { COUNTRY_OPTIONS } from './HubSettingsModal';
 import { headcountTrend } from '../utils/businessMilestone';
 import SheetGrabber from './SheetGrabber';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
-import { auth } from '../lib/firebase';
 
 const MILESTONE_KINDS: BusinessMilestoneKind[] = ['First customer', 'New location', 'Certification / licence', 'Revenue target', 'Product launch', 'Funding', 'Award / recognition', 'Other'];
 
@@ -282,14 +281,7 @@ export default function FamilySettings({ onClose, onSettingsChanged }: FamilySet
     setInviteLoading(true);
     setInviteError(null);
     try {
-      const token = await auth.currentUser?.getIdToken();
-      const res = await fetch('/api/create-invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ role: inviteRole }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Could not create an invite.');
+      const data = await createMemberInvite(inviteRole);
       setInviteCode(data.code);
     } catch (e: any) {
       setInviteError(e?.message || 'Could not create an invite.');

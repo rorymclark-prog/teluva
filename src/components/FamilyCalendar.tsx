@@ -62,7 +62,7 @@ import { parseIcs, buildIcs } from '../utils/ics';
 import {
   CalendarFeed, mergeFeedEvents, removeFeedEvents, feedIdForUrl, describeSync, suggestFeedLabel,
 } from '../utils/calendarFeeds';
-import { loadAnniversaries, loadExtendedBirthdays, loadHousehold } from '../utils/db';
+import { createCalendarPublication, listCalendarPublications, revokeCalendarPublication, loadAnniversaries, loadExtendedBirthdays, loadHousehold, type CalendarPublication } from '../utils/db';
 import { useHiddenPeople, HideDatesButton, HiddenDatesLine, memberDates, extendedDates, petDates, type HideTarget } from '../contexts/HiddenPeopleContext';
 import {
   visibleDateMembers, visibleEvents as withoutHiddenDates, visibleAnniversaries, visibleExtendedBirthdays, visiblePets,
@@ -170,17 +170,7 @@ function daysUntilLabel(days: number): string {
 }
 
 /** One published outbound feed, as /api/calendar-publish/list returns it. */
-interface PublishedLink {
-  token: string;
-  path: string;
-  mode: 'details' | 'busy';
-  label: string;
-  includeOccasions: boolean;
-  createdAt: string;
-  createdByName: string;
-  lastFetchedAt: string | null;
-  fetchCount: number;
-}
+type PublishedLink = CalendarPublication;
 
 interface FamilyCalendarProps {
   members: FamilyMember[];
@@ -480,37 +470,29 @@ export default function FamilyCalendar({ members, tagPeople, tagDirectoryAvailab
   const [publishOccasions, setPublishOccasions] = useState(true);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
-  const publishApi = async (path: string, init?: RequestInit) => {
-    const user = auth.currentUser;
-    if (!user) throw new Error('Please sign in again.');
-    const idToken = await user.getIdToken();
-    const res = await fetch(path, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}`, ...(init?.headers || {}) },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'That did not work. Please try again.');
-    return data;
-  };
-
   const loadPublishedLinks = async () => {
+    const spaceAtStart = familyId;
+    const uid = auth.currentUser?.uid;
+    const current = () => calendarSpaceRef.current === spaceAtStart && auth.currentUser?.uid === uid;
     try {
-      const data = await publishApi('/api/calendar-publish/list');
-      setPublishedLinks(data.links || []);
+      const data = await listCalendarPublications();
+      if (current()) setPublishedLinks(data.links || []);
     } catch {
-      setPublishedLinks([]);   // never block the panel on this
+      if (current()) setPublishedLinks([]);   // never block the panel on this
     }
   };
 
   const handlePublish = async () => {
+    const spaceAtStart = familyId;
+    const uid = auth.currentUser?.uid;
+    const current = () => calendarSpaceRef.current === spaceAtStart && auth.currentUser?.uid === uid;
     setPublishBusy('creating');
     setIcsNote(null);
     try {
-      const data = await publishApi('/api/calendar-publish/create', {
-        method: 'POST',
-        body: JSON.stringify({ mode: publishMode, includeOccasions: publishMode !== 'busy' && publishOccasions }),
-      });
+      const data = await createCalendarPublication({ mode: publishMode, includeOccasions: publishMode !== 'busy' && publishOccasions });
+      if (!current()) return;
       await loadPublishedLinks();
+      if (!current()) return;
       const url = `${window.location.origin}${data.path}`;
       // Copying immediately is the whole point — the link is unreadable and
       // nobody is going to retype 43 characters of base64.
@@ -520,23 +502,28 @@ export default function FamilyCalendar({ members, tagPeople, tagDirectoryAvailab
         + (data.includeOccasions ? ' Birthdays, name days and anniversaries are included and repeat every year.' : ''),
       );
     } catch (e: any) {
-      setIcsNote(e?.message || 'Could not create the link.');
+      if (current()) setIcsNote(e?.message || 'Could not create the link.');
     } finally {
-      setPublishBusy(null);
+      if (current()) setPublishBusy(null);
     }
   };
 
   const handleRevokePublish = async (link: PublishedLink) => {
+    const spaceAtStart = familyId;
+    const uid = auth.currentUser?.uid;
+    const current = () => calendarSpaceRef.current === spaceAtStart && auth.currentUser?.uid === uid;
     if (!(await appConfirm('Turn this link off? Anyone using it — including your own Apple or Outlook calendar — will stop receiving these events.', { danger: true, confirmLabel: 'Turn off' }))) return;
+    if (!current()) return;
     setPublishBusy(link.token);
     try {
-      await publishApi('/api/calendar-publish/revoke', { method: 'POST', body: JSON.stringify({ token: link.token }) });
+      await revokeCalendarPublication(link.token);
+      if (!current()) return;
       await loadPublishedLinks();
-      setIcsNote('That link is off. It will stop working within the hour, wherever it was used.');
+      if (current()) setIcsNote('That link is off. It will stop working within the hour, wherever it was used.');
     } catch (e: any) {
-      setIcsNote(e?.message || 'Could not turn that link off.');
+      if (current()) setIcsNote(e?.message || 'Could not turn that link off.');
     } finally {
-      setPublishBusy(null);
+      if (current()) setPublishBusy(null);
     }
   };
 

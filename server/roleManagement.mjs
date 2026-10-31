@@ -113,3 +113,51 @@ export async function removeSpaceMember({ db, spaceId, callerUid, targetUid, del
     return { ok: true, spaceId, removed: targetUid, claims };
   });
 }
+
+/** Self-departure shares the admin-query read set with removals and role
+ * changes. Checking counts outside this transaction would let two admins
+ * each leave while relying on the other, or race another admin's demotion. */
+export async function leaveSpaceMember({ db, spaceId, callerUid, deleteField }) {
+  if (!validSpaceId(spaceId) || !validUid(callerUid)) {
+    throw new RoleManagementError(400, 'ROLE_INVALID', 'Choose a valid space and member.');
+  }
+  const roles = db.collection(`families/${spaceId}/roles`);
+  const userRef = db.doc(`users/${callerUid}`);
+  return membershipTransaction(db, async tx => {
+    // Keep the common prefix in exactly the same order as demotion/removal.
+    await tx.get(db.doc(`families/${spaceId}/info/info`));
+    const admins = await tx.get(roles.where('role', '==', 'admin'));
+    const members = await tx.get(roles);
+    const caller = await tx.get(roles.doc(callerUid));
+    const user = await tx.get(userRef);
+    const role = caller.exists ? caller.data().role : null;
+    if (!['admin', 'member', 'child'].includes(role)) {
+      throw new RoleManagementError(403, 'ROLE_MEMBER_MISSING', 'You no longer have access to this space.');
+    }
+    if (members.size <= 1) {
+      throw new RoleManagementError(400, 'ROLE_ONLY_MEMBER', "You're the only member — delete the family instead if you want to remove it.");
+    }
+    if (role === 'admin' && admins.size <= 1) {
+      throw new RoleManagementError(400, 'ROLE_LAST_ADMIN', "You're the only admin — promote another member to admin first, or delete the family instead.");
+    }
+    let claims = { familyId: null, familyIds: [] };
+    if (user.exists) {
+      const profile = user.data();
+      let spaces = Array.isArray(profile.spaces) ? profile.spaces.filter(space => space && validSpaceId(space.id)) : [];
+      const activeOther = validSpaceId(profile.familyId) && profile.familyId !== spaceId;
+      if (activeOther && !spaces.some(space => space.id === profile.familyId)) {
+        spaces = [...spaces, { id: profile.familyId, role: profile.role || 'member', type: 'family' }];
+      }
+      const next = profileAfterRemoval(spaces, spaceId, profile.familyId);
+      const update = { spaces: next.spaces };
+      if (!activeOther) {
+        update.familyId = next.familyId || deleteField();
+        update.role = next.role || deleteField();
+      }
+      tx.set(userRef, update, { merge: true });
+      claims = { familyId: activeOther ? profile.familyId : next.familyId, familyIds: next.spaces.map(space => space.id) };
+    }
+    tx.delete(roles.doc(callerUid));
+    return { ok: true, spaceId, claims };
+  });
+}

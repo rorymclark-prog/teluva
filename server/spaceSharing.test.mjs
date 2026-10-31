@@ -95,7 +95,8 @@ test('legacy business carer tokens return neutral 404; current family links stil
 
 test('live routes use the tested current-space sharing gates for new links and previously issued tokens', () => {
   const source = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
-  assert.match(source, /includesCalendarOccasions\(await readSharingSpaceInfo\(caller\.familyId\)/);
+  const management = fs.readFileSync(new URL('./calendarPublicationManagement.mjs', import.meta.url), 'utf8');
+  assert.match(management, /includesCalendarOccasions\(await readSpaceInfo\(caller\.familyId\)/);
   assert.match(source, /await loadCalendarPublicationSources\(record,/);
   for (const operation of ['create', 'list', 'revoke']) assert.ok(source.includes(`carerManagementAccess(caller, '${operation}', readSharingSpaceInfo)`));
   assert.ok(source.includes('await carerPublicAccess(v, readSharingSpaceInfo)'));

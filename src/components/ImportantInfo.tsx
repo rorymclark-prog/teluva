@@ -2,9 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { persistReferenceEdit } from '../utils/referenceEditing';
 import { DEMO_BUSINESS_CONTACTS, DEMO_CONTACTS } from '../utils/demoData';
 import { FamilyInfo, InfoEntry, ContactEntry, HealthcareProvider, ProviderType, FamilyInfoDoc, HouseholdVendor, VendorTrade, IdCountry } from '../types';
-import { loadFamilyInfo, saveFamilyInfo, loadSpaceInfo } from '../utils/db';
+import { loadFamilyInfo, saveFamilyInfo, loadSpaceInfo, generateBusinessMilestoneNote } from '../utils/db';
 import { useSharedDoc } from '../hooks/useSharedDoc';
-import { auth } from '../lib/firebase';
 import { yearsSinceFounding, ordinal } from '../utils/businessMilestone';
 import {
   Hash, Phone, Mail, Plus, Pencil, Check, X,
@@ -101,18 +100,9 @@ export default function ImportantInfo({ canEdit = false, demo = false, isBusines
     setNoteLoading(true);
     setNoteError(null);
     try {
-      const user = auth.currentUser;
-      if (!user) throw new Error('Please sign in first.');
-      const token = await user.getIdToken();
+      const note = await generateBusinessMilestoneNote();
       if (!canEditRef.current) return;
-      const res = await fetch('/api/business-milestone-note', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Could not generate a note right now.');
-      setSpaceInfo((prev) => (prev ? { ...prev, milestoneNote: data.note } : prev));
+      setSpaceInfo((prev) => (prev ? { ...prev, milestoneNote: note } : prev));
     } catch (e: any) {
       setNoteError(e?.message || 'Could not generate a note right now.');
     } finally {

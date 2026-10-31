@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { test } from 'node:test';
 import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
-import { changeMemberRole, removeSpaceMember, RoleManagementError } from './roleManagement.mjs';
+import { changeMemberRole, leaveSpaceMember, removeSpaceMember, RoleManagementError } from './roleManagement.mjs';
 
 if (!/^(127\.0\.0\.1|localhost):\d+$/.test(process.env.FIRESTORE_EMULATOR_HOST || '')
   || (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT !== 'rules-probe')) {
@@ -37,8 +37,9 @@ async function fixture(otherActive = false) {
   await batch.commit();
   const remove = (callerUid, targetUid) => removeSpaceMember({ db, spaceId, callerUid, targetUid, deleteField: () => FieldValue.delete() });
   const demote = (callerUid, targetUid) => changeMemberRole({ db, spaceId, callerUid, targetUid, newRole: 'member' });
+  const leave = callerUid => leaveSpaceMember({ db, spaceId, callerUid, deleteField: () => FieldValue.delete() });
   const value = async path => { const snap = await db.doc(path).get(); return snap.exists ? snap.data() : null; };
-  return { spaceId, otherId, uids, remove, demote, value };
+  return { spaceId, otherId, uids, remove, demote, leave, value };
 }
 
 test('real Firestore serializes removals with other removals and demotions', async t => {
@@ -79,6 +80,46 @@ test('real Firestore serializes removals with other removals and demotions', asy
       assert.deepEqual(result.claims, { familyId: f.otherId, familyIds: [f.otherId] });
       await assert.rejects(f.remove(...f.uids), error => error instanceof RoleManagementError && error.status === 404);
       assert.deepEqual(await f.value(`users/${f.uids[1]}`), after);
+    });
+    for (const operation of ['leave', 'demote', 'remove']) {
+      await t.test(`admin departure racing ${operation} retains an admin and consistent mirrors`, async () => {
+        for (let round = 0; round < 2; round += 1) {
+          const f = await fixture();
+          const [first, second] = f.uids;
+          const other = operation === 'leave' ? f.leave(second)
+            : operation === 'demote' ? f.demote(first, second) : f.remove(first, second);
+          const results = await Promise.allSettled([f.leave(first), other]);
+          assert.equal(results.filter(result => result.status === 'fulfilled').length, 1, outcomes(results));
+          assert.equal(results.filter(result => result.status === 'rejected' && result.reason instanceof RoleManagementError && [400, 403].includes(result.reason.status)).length, 1, outcomes(results));
+          const roles = await db.collection(`families/${f.spaceId}/roles`).get();
+          assert.equal(roles.docs.filter(doc => doc.data().role === 'admin').length, 1);
+          for (const uid of f.uids) {
+            const role = await f.value(`families/${f.spaceId}/roles/${uid}`);
+            const user = await f.value(`users/${uid}`);
+            if (!role) {
+              assert.deepEqual(user.spaces, []);
+              assert.equal('familyId' in user, false);
+              assert.equal('role' in user, false);
+            } else {
+              assert.equal(user.familyId, f.spaceId);
+              assert.equal(user.role, role.role);
+              assert.equal(user.spaces.find(space => space.id === f.spaceId).role, role.role);
+            }
+            assert.deepEqual(user.aiConsent, { granted: true });
+          }
+        }
+      });
+    }
+    await t.test('departure from an inactive space preserves the current mirror and repeats without mutation', async () => {
+      const f = await fixture(true);
+      const uid = f.uids[0];
+      const before = await f.value(`users/${uid}`);
+      const result = await f.leave(uid);
+      const after = await f.value(`users/${uid}`);
+      assert.deepEqual(after, { ...before, spaces: [{ id: f.otherId, role: 'admin', type: 'personal' }] });
+      assert.deepEqual(result, { ok: true, spaceId: f.spaceId, claims: { familyId: f.otherId, familyIds: [f.otherId] } });
+      await assert.rejects(f.leave(uid), error => error instanceof RoleManagementError && error.status === 403);
+      assert.deepEqual(await f.value(`users/${uid}`), after);
     });
   } finally {
     const refs = [...cleanup.values()];

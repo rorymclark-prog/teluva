@@ -62,10 +62,10 @@ const revoke = routeBody(/app\.delete\('\/api\/gmail-bridge\/token'[\s\S]{0,1200
 const status = routeBody(/app\.get\('\/api\/gmail-bridge\/status'[\s\S]{0,1200}?\n\}\);/);
 const deliver = routeBody(/app\.post\('\/api\/gmail-bridge\/deliver'[\s\S]{0,4000}?\n\}\);/);
 
-check('minting authenticates the caller', /requireMember\(req\)/.test(mint));
+check('minting authenticates the requested space', /requireRequestedMember\(req\)/.test(mint));
 check('and requires admin, not merely membership', /caller\.role !== 'admin'/.test(mint));
 check('revoking requires admin too', /caller\.role !== 'admin'/.test(revoke));
-check('status is member-only', /requireMember\(req\)/.test(status));
+check('status is member-only in the requested space', /requireRequestedMember\(req\)/.test(status));
 
 // ── 2. The raw token exists in exactly one response ────────────────────────
 // If status ever returned it, the "shown once" promise in the UI would be a

@@ -14,12 +14,14 @@ import {
   verifyInboundRequest,
   parseInboundAddress,
   senderAllowed,
+  writableInboundSenderEmails,
   senderDisplay,
   pickAttachments,
   describeInbound,
   parseMultipartFormData,
   MAX_ATTACHMENT_BYTES,
 } from './inboundMail.mjs';
+import { readFileSync } from 'node:fs';
 
 let failures = 0;
 function check(cond, what) {
@@ -103,6 +105,32 @@ check(!senderAllowed('erika@example.com', undefined), 'a MISSING allow-list deni
 check(!senderAllowed('erika@example.com', null), 'a null allow-list denies');
 check(!senderAllowed('not an address', ['erika@example.com']), 'an unparsable From: header is refused, not skipped');
 check(!senderAllowed('erika@example.com', ['', '   ', 42, null]), 'junk allow-list entries never accidentally match');
+
+console.log('\ninbound sender roles — viewer accounts never gain a write through email');
+{
+  const roles = [
+    { role: 'admin', email: 'admin@example.test' },
+    { role: 'member', email: 'member@example.test' },
+    { role: 'child', email: 'child@example.test' },
+    { role: 'unknown', email: 'unknown@example.test' },
+    { email: 'missing-role@example.test' },
+    { role: 'member', email: null }, null,
+  ];
+  const allowed = writableInboundSenderEmails(roles);
+  eq(allowed, ['admin@example.test', 'member@example.test'], 'only current admin/member roles contribute sender emails');
+  for (const kind of ['admin', 'member']) check(senderAllowed(`${kind}@example.test`, allowed), `${kind} can still file an attachment`);
+  for (const kind of ['child', 'unknown', 'missing-role']) check(!senderAllowed(`${kind}@example.test`, allowed), `${kind} cannot file even when the inbound address is known`);
+  roles[1].role = 'child';
+  check(!senderAllowed('member@example.test', writableInboundSenderEmails(roles)), 'a freshly demoted sender loses filing access without changing the inbound address');
+  eq(writableInboundSenderEmails(null), [], 'missing role data fails closed');
+  eq(writableInboundSenderEmails([{ role: 'child', get email() { throw new Error('non-writer email must not be read'); } }]), [], 'role filtering happens before sender email extraction');
+  const source = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const start = source.indexOf("app.post('/api/inbound-mail'");
+  const route = source.slice(start, source.indexOf('\n});', start));
+  check(route.includes('writableInboundSenderEmails(rolesSnap.docs.map(d => d.data()))'), 'the live webhook uses the tested current-role filter');
+  check(route.indexOf('writableInboundSenderEmails(') < route.indexOf('senderAllowed(fields.from, allowedEmails)')
+    && route.indexOf('senderAllowed(fields.from, allowedEmails)') < route.indexOf('fileAttachmentsIntoVault('), 'writer permission is checked before any attachment is filed');
+}
 
 console.log('\nsenderDisplay — provenance text, never empty');
 eq(senderDisplay('Erika <erika@example.com>'), 'erika@example.com', 'prefers the parsed address');

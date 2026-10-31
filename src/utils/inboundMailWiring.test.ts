@@ -29,6 +29,7 @@ const read = (p: string) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const server = read('server.js');
 const db = read('src/utils/db.ts');
 const vault = read('src/components/DocumentVault.tsx');
+const scopedRequest = read('src/utils/scopedSpaceRequest.ts');
 
 let n = 0;
 const check = (label: string, cond: boolean) => { assert.ok(cond, `FAILED: ${label}`); n++; };
@@ -40,7 +41,7 @@ check('the address endpoint exists', !!routeMatch);
 const route = routeMatch![0];
 
 check('it authenticates the caller before doing anything else',
-  /requireMember\(req\)/.test(route));
+  /requireRequestedMember\(req\)/.test(route));
 check('and refuses rather than continuing when that fails',
   /if \(caller\.error\) return res\.status\(caller\.status\)/.test(route));
 
@@ -57,7 +58,7 @@ check('nothing in the request body or query feeds the derivation',
 // 503 here would make the client's happy path an error path; `enabled:false`
 // keeps one shape to read either way.
 check('a dormant deployment answers enabled:false, not an error status',
-  /if \(!INBOUND_MAIL_READY\) return res\.json\(\{ enabled: false \}\)/.test(route));
+  /if \(!INBOUND_MAIL_READY\) return res\.json\(\{ enabled: false, spaceId: caller\.familyId \}\)/.test(route));
 check('and the live answer carries both the flag and the address',
   /enabled: true, address:/.test(route));
 
@@ -78,9 +79,9 @@ check('db.ts exposes fetchInboundMailAddress', !!fnMatch);
 const fn = fnMatch![0];
 
 check('it sends the caller\'s ID token, since the endpoint is member-only',
-  /Authorization: `Bearer \$\{token\}`/.test(fn));
+  /await scopedSpacePost/.test(fn) && /method: 'GET'/.test(fn) && /Authorization: `Bearer \$\{token\}`/.test(scopedRequest));
 check('a non-ok response yields null rather than throwing',
-  /if \(!res\.ok\) return null/.test(fn));
+  /if \(!response\.ok\) throw new Error/.test(scopedRequest) && /catch \{\s*return null;/.test(fn));
 check('the enabled flag AND the address type are both required',
   /data\?\.enabled && typeof data\.address === 'string'/.test(fn));
 check('a thrown fetch yields null too — a missing row beats a crashed vault',

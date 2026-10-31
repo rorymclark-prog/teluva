@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { changeMemberRole, removeSpaceMember, resolveRemovalCaller, RoleManagementError } from './roleManagement.mjs';
+import { changeMemberRole, leaveSpaceMember, removeSpaceMember, resolveRemovalCaller, RoleManagementError } from './roleManagement.mjs';
 
 function fixture(activeSpace = 'personal') {
   const records = new Map(Object.entries({
@@ -21,7 +21,7 @@ function fixture(activeSpace = 'personal') {
   };
   const db = {
     doc: path => ({ path }),
-    collection: path => ({ doc: id => ({ path: `${path}/${id}` }), where: (field, op, value) => ({ path, field, op, value, query: true }) }),
+    collection: path => ({ path, query: true, doc: id => ({ path: `${path}/${id}` }), where: (field, op, value) => ({ path, field, op, value, query: true }) }),
     runTransaction: async callback => {
       for (let attempt = 0; attempt < 20; attempt += 1) {
         const writes = [], reads = new Map(), queries = new Map();
@@ -29,7 +29,7 @@ function fixture(activeSpace = 'personal') {
           get: async ref => {
             if (ref.query) {
               queries.set(ref.path, queryVersions.get(ref.path) || 0);
-              return { size: [...records].filter(([path, data]) => path.startsWith(`${ref.path}/`) && data[ref.field] === ref.value).length };
+              return { size: [...records].filter(([path, data]) => path.startsWith(`${ref.path}/`) && (!ref.field || data[ref.field] === ref.value)).length };
             }
             reads.set(ref.path, versions.get(ref.path) || 0);
             return snap(ref.path);
@@ -57,7 +57,8 @@ function fixture(activeSpace = 'personal') {
   };
   const change = extra => changeMemberRole({ db, spaceId: 'business', callerUid: 'owner', targetUid: 'staff', newRole: 'child', ...extra });
   const remove = extra => removeSpaceMember({ db, spaceId: 'business', callerUid: 'owner', targetUid: 'staff', deleteField: () => '__DELETE__', ...extra });
-  return { db, records, change, remove };
+  const leave = extra => leaveSpaceMember({ db, spaceId: 'business', callerUid: 'staff', deleteField: () => '__DELETE__', ...extra });
+  return { db, records, change, remove, leave };
 }
 
 test('business role changes work while target is active in personal or another business without changing that active role', async () => {
@@ -233,4 +234,92 @@ test('the live route runs external cleanup after committed removal and client se
   assert.match(remove, /spaceId: spaceAtStart/);
   assert.match(remove, /auth\.currentUser\?\.uid === user\.uid/);
   assert.match(remove, /data\.spaceId !== spaceAtStart/);
+});
+
+test('self-departure checks authoritative membership, only-member and last-admin guards before any write', async () => {
+  for (const [args, setup, code] of [
+    [{ callerUid: 'outsider' }, () => {}, 'ROLE_MEMBER_MISSING'],
+    [{ callerUid: 'owner' }, () => {}, 'ROLE_LAST_ADMIN'],
+    [{ callerUid: 'owner' }, f => f.records.delete('families/business/roles/staff'), 'ROLE_ONLY_MEMBER'],
+    [{ callerUid: 'staff' }, f => f.records.delete('families/business/roles/owner'), 'ROLE_ONLY_MEMBER'],
+    [{ spaceId: '../business' }, () => {}, 'ROLE_INVALID'],
+  ]) {
+    const f = fixture();
+    setup(f);
+    const before = structuredClone([...f.records]);
+    await assert.rejects(f.leave(args), error => error instanceof RoleManagementError && error.code === code);
+    assert.deepEqual([...f.records], before);
+  }
+});
+
+test('members and viewers can leave only their own membership while preserving unrelated account data', async () => {
+  for (const role of ['member', 'child']) {
+    const f = fixture('personal');
+    f.records.get('families/business/roles/staff').role = role;
+    const before = structuredClone(f.records.get('users/staff'));
+    const result = await f.leave();
+    assert.equal(f.records.has('families/business/roles/staff'), false);
+    assert.deepEqual(f.records.get('families/business/roles/owner'), { role: 'admin' });
+    assert.deepEqual(f.records.get('users/staff'), { ...before, spaces: before.spaces.filter(space => space.id !== 'business') });
+    assert.deepEqual(result, { ok: true, spaceId: 'business', claims: { familyId: 'personal', familyIds: ['personal', 'another-business'] } });
+    const after = structuredClone([...f.records]);
+    await assert.rejects(f.leave(), error => error.code === 'ROLE_MEMBER_MISSING');
+    assert.deepEqual([...f.records], after, 'repeated departure cannot clear remaining spaces');
+  }
+});
+
+test('leaving an active membership moves or clears its pointer and preserves legacy active-other mirrors', async () => {
+  const f = fixture('business');
+  await f.leave();
+  assert.equal(f.records.get('users/staff').familyId, 'personal');
+  assert.equal(f.records.get('users/staff').role, 'admin');
+  const onlyMembership = fixture('business');
+  onlyMembership.records.get('users/staff').spaces = [{ id: 'business', role: 'member', type: 'business' }];
+  assert.deepEqual((await onlyMembership.leave()).claims, { familyId: null, familyIds: [] });
+  assert.deepEqual(onlyMembership.records.get('users/staff'), { spaces: [], aiConsent: { granted: true } });
+  const legacy = fixture('personal');
+  delete legacy.records.get('users/staff').spaces;
+  await legacy.leave();
+  assert.equal(legacy.records.get('users/staff').familyId, 'personal');
+  assert.equal(legacy.records.get('users/staff').role, 'admin');
+  assert.deepEqual(legacy.records.get('users/staff').spaces, [{ id: 'personal', role: 'admin', type: 'family' }]);
+});
+
+test('mutual admin leave, leave versus demotion and leave versus removal retain one admin and consistent mirrors', async () => {
+  for (const other of ['leave', 'demote', 'remove']) {
+    const f = twoAdmins();
+    const results = await Promise.allSettled([
+      f.leave({ callerUid: 'owner' }),
+      other === 'leave' ? f.leave({ callerUid: 'staff' })
+        : other === 'demote' ? f.change({ callerUid: 'owner', targetUid: 'staff', newRole: 'member' })
+          : f.remove({ callerUid: 'owner', targetUid: 'staff' }),
+    ]);
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1, other);
+    const rejected = results.find(result => result.status === 'rejected');
+    assert.ok(rejected.reason instanceof RoleManagementError && [400, 403].includes(rejected.reason.status));
+    const admins = [...f.records].filter(([path, value]) => path.startsWith('families/business/roles/') && value.role === 'admin');
+    assert.equal(admins.length, 1, other);
+    for (const uid of ['owner', 'staff']) {
+      const role = f.records.get(`families/business/roles/${uid}`);
+      const user = f.records.get(`users/${uid}`);
+      const membership = user.spaces.find(space => space.id === 'business');
+      assert.equal(membership?.role, role?.role);
+    }
+  }
+});
+
+test('departure retries aborted transactions without partial or repeated mirror changes', async () => {
+  const f = fixture('personal');
+  const run = f.db.runTransaction;
+  let attempts = 0;
+  f.db.runTransaction = async operation => {
+    attempts += 1;
+    if (attempts === 1) throw Object.assign(new Error('transaction aborted'), { code: 10 });
+    return run(operation);
+  };
+  await f.leave();
+  assert.equal(attempts, 2);
+  assert.equal(f.records.has('families/business/roles/staff'), false);
+  assert.equal(f.records.get('users/staff').familyId, 'personal');
+  assert.equal(f.records.get('users/staff').spaces.filter(space => space.id === 'personal').length, 1);
 });

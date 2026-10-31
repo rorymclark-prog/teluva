@@ -8,6 +8,7 @@ import { mergeShared, mergeIdList, deepEqual } from './mergeShared';
 import { filePathFromReference, newProfileFileBindings, normalizeFileReferences } from './fileReferences';
 import { watchReadableMembers } from './memberLiveSync';
 import { purgeAccountRoleCaches } from './accountRole';
+import { createScopedSpacePost } from './scopedSpaceRequest';
 import { setVaultAccessScope, reportVaultAccessIssue } from './vaultAccess';
 import {
   isLoggableKind, visibilityFor, visibilitiesFor, orderActivity, shouldLog,
@@ -38,6 +39,7 @@ const memberSaveListeners = new Set<{ space: string; uid: string | undefined; re
 // kids all see the same family — instead of each Google account getting its own
 // private island.
 export let FAMILY_ID = 'household';
+const scopedSpacePost = createScopedSpacePost({ getUser: () => auth.currentUser, getSpace: () => FAMILY_ID });
 
 /** Called by FamilyProvider once it resolves the user's familyId. */
 export function setFamilyId(id: string): void {
@@ -1247,13 +1249,9 @@ export async function saveWillsAccess(readerUids: string[], updatedBy?: string):
  * or computed on, the client.
  */
 export async function fetchInboundMailAddress(): Promise<string | null> {
-  const user = auth.currentUser;
-  if (!user) return null;
+  if (!auth.currentUser) return null;
   try {
-    const token = await user.getIdToken();
-    const res = await fetch('/api/inbound-mail/address', { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) return null;
-    const data = await res.json().catch(() => ({}));
+    const data = await scopedSpacePost<{ spaceId: string; enabled?: boolean; address?: string }>('/api/inbound-mail/address', {}, 'The inbound address is unavailable.', { method: 'GET' });
     return data?.enabled && typeof data.address === 'string' ? data.address : null;
   } catch {
     return null;
@@ -1283,13 +1281,9 @@ export type GmailBridgeStatus = {
 };
 
 export async function fetchGmailBridgeStatus(): Promise<GmailBridgeStatus | null> {
-  const user = auth.currentUser;
-  if (!user) return null;
+  if (!auth.currentUser) return null;
   try {
-    const token = await user.getIdToken();
-    const res = await fetch('/api/gmail-bridge/status', { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) return null;
-    const data = await res.json().catch(() => null);
+    const data = await scopedSpacePost<GmailBridgeStatus & { spaceId: string }>('/api/gmail-bridge/status', {}, 'The Gmail connection is unavailable.', { method: 'GET' });
     return data && typeof data.connected === 'boolean' ? (data as GmailBridgeStatus) : null;
   } catch {
     return null;
@@ -1298,47 +1292,35 @@ export async function fetchGmailBridgeStatus(): Promise<GmailBridgeStatus | null
 
 /** Mints a token and returns the RAW value — the only time it is ever available. */
 export async function createGmailBridgeToken(): Promise<string> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Must be signed in');
-  const token = await user.getIdToken();
-  const res = await fetch('/api/gmail-bridge/token', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.token) throw new Error(data.error || 'Could not create the token. Please try again.');
-  return data.token as string;
+  const data = await scopedSpacePost<{ spaceId: string; token?: string }>('/api/gmail-bridge/token', {}, 'Could not create the token. Please try again.');
+  if (!data.token) throw new Error('Could not create the token. Please try again.');
+  return data.token;
 }
 
 export async function revokeGmailBridgeToken(): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Must be signed in');
-  const token = await user.getIdToken();
-  const res = await fetch('/api/gmail-bridge/token', {
-    method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'Could not disconnect. Please try again.');
-  }
+  await scopedSpacePost('/api/gmail-bridge/token', {}, 'Could not disconnect. Please try again.', { method: 'DELETE' });
+}
+
+export async function generateBusinessMilestoneNote(): Promise<NonNullable<FamilyInfoDoc['milestoneNote']>> {
+  const data = await scopedSpacePost<{ spaceId: string; note?: FamilyInfoDoc['milestoneNote'] }>('/api/business-milestone-note', {}, 'Could not generate a note right now.');
+  if (!data.note) throw new Error('Could not generate a note right now.');
+  return data.note;
 }
 
 export async function createEstateInvite(
   forName: string,
   replacePendingId?: string,
 ): Promise<{ code: string; pendingId: string }> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Must be signed in');
-  const token = await user.getIdToken();
-  const res = await fetch('/api/create-invite', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ willReader: true, forName, replacePendingId: replacePendingId || null }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.code) throw new Error(data.error || 'Could not create the invite. Please try again.');
+  const data = await scopedSpacePost<{ spaceId: string; code?: string; pendingId: string }>('/api/create-invite',
+    { willReader: true, forName, replacePendingId: replacePendingId || null }, 'Could not create the invite. Please try again.');
+  if (!data.code) throw new Error('Could not create the invite. Please try again.');
   return { code: data.code, pendingId: data.pendingId };
+}
+
+export async function createMemberInvite(role: 'member' | 'child'): Promise<{ code: string }> {
+  const data = await scopedSpacePost<{ spaceId: string; code?: string }>('/api/create-invite', { role }, 'Could not create an invite.');
+  if (!data.code) throw new Error('Could not create an invite.');
+  return { code: data.code };
 }
 
 /**
@@ -1959,24 +1941,15 @@ export async function switchSpace(spaceId: string): Promise<void> {
 }
 
 /**
- * Rename the caller's ACTIVE space (families/{id}/info/info.name). Admin-only
+ * Rename the visible space (families/{id}/info/info.name). Admin-only
  * server-side; also propagates the new name into every member's cached
  * users/{uid}.spaces[] entry so the space switcher shows it for everyone.
  */
 export async function renameSpace(name: string): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Must be signed in to rename a space');
   const trimmed = name.trim();
   if (!trimmed) throw new Error('Missing name');
 
-  const token = await user.getIdToken();
-  const res = await fetch('/api/rename-space', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ name: trimmed }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Could not rename the space. Please try again.');
+  await scopedSpacePost('/api/rename-space', { name: trimmed }, 'Could not rename the space. Please try again.');
 }
 
 /**
@@ -2009,24 +1982,15 @@ export async function loadSpaceInfo(): Promise<FamilyInfoDoc | null> {
 }
 
 /**
- * Set the founding date on the caller's ACTIVE space (Business Milestones).
+ * Set the founding date on the visible space (Business Milestones).
  * Admin-only and business-only, both re-verified server-side — mirrors
  * renameSpace's fetch/error-handling exactly.
  */
 export async function saveFoundingDate(foundingDate: string): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Must be signed in to set a founding date');
   const trimmed = foundingDate.trim();
   if (!trimmed) throw new Error('Missing founding date');
 
-  const token = await user.getIdToken();
-  const res = await fetch('/api/set-founding-date', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ foundingDate: trimmed }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Could not save the founding date. Please try again.');
+  await scopedSpacePost('/api/set-founding-date', { foundingDate: trimmed }, 'Could not save the founding date. Please try again.');
 }
 
 /**
@@ -2051,7 +2015,7 @@ export async function saveSuppressReligiousSuggestions(suppress: boolean): Promi
 }
 
 /**
- * PERMANENTLY delete the caller's ACTIVE space and everything in it — every
+ * PERMANENTLY delete the visible space and everything in it — every
  * member, document/photo file, calendar event, and record. Server-side
  * (/api/delete-family) re-verifies admin status against the authoritative
  * roles doc and independently re-checks confirmName against the real family
@@ -2059,36 +2023,17 @@ export async function saveSuppressReligiousSuggestions(suppress: boolean): Promi
  * There is no undo. See server.js for the full authorization writeup.
  */
 export async function deleteFamily(confirmName: string): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Must be signed in to delete a family');
-
-  const token = await user.getIdToken();
-  const res = await fetch('/api/delete-family', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ confirmName }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Could not delete the family. Please try again.');
+  await scopedSpacePost('/api/delete-family', { confirmName }, 'Could not delete the family. Please try again.');
 }
 
 /**
- * Leave the caller's ACTIVE space — removes only their own access; every
+ * Leave the visible space — removes only the caller's own access; every
  * other member's data is untouched. Server-side refuses if the caller is the
  * family's only admin (or its only member), so a family can never be left
  * unmanageable or orphaned.
  */
 export async function leaveFamily(): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) throw new Error('Must be signed in to leave a family');
-
-  const token = await user.getIdToken();
-  const res = await fetch('/api/leave-family', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Could not leave the family. Please try again.');
+  await scopedSpacePost('/api/leave-family', {}, 'Could not leave the family. Please try again.');
 }
 
 // Ask the server to (re)stamp the familyId/familyIds custom claims, then
@@ -2833,6 +2778,30 @@ export async function loadBusinessDirectory(spaceId = FAMILY_ID): Promise<{ fami
     throw new Error('Your space changed. Reload the team directory before trying again.');
   }
   return result;
+}
+
+export interface CalendarPublication {
+  token: string;
+  path: string;
+  mode: 'details' | 'busy';
+  label: string;
+  includeOccasions: boolean;
+  createdAt: string;
+  createdByName: string;
+  lastFetchedAt: string | null;
+  fetchCount: number;
+}
+
+export async function createCalendarPublication(options: { mode: 'details' | 'busy'; includeOccasions?: boolean; label?: string }): Promise<{ spaceId: string; token: string; path: string; mode: 'details' | 'busy'; includeOccasions: boolean }> {
+  return await scopedSpacePost('/api/calendar-publish/create', options, 'Could not create the calendar link. Please try again.');
+}
+
+export async function listCalendarPublications(): Promise<{ spaceId: string; links: CalendarPublication[] }> {
+  return await scopedSpacePost('/api/calendar-publish/list', {}, 'Could not load your calendar links.');
+}
+
+export async function revokeCalendarPublication(token: string): Promise<void> {
+  await scopedSpacePost('/api/calendar-publish/revoke', { token }, 'Could not turn that link off.');
 }
 
 /** Settle any request whose seven days have run out, and report the state. */
