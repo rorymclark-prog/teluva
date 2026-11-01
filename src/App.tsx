@@ -19,6 +19,7 @@ import EmergencyOfflinePack from './components/EmergencyOfflinePack';
 import { activateEmergencyPackScope } from './utils/emergencyPack';
 import VaultAccessNotice from './components/VaultAccessNotice';
 import { subscribeVaultAccess, getVaultAccessIssue } from './utils/vaultAccess';
+const ConnectorAuthorization = React.lazy(() => import('./components/ConnectorAuthorization'));
 
 // ---------------------------------------------------------------------------
 // AppInner — reads FamilyContext and gates which screen to show
@@ -28,6 +29,10 @@ function AppInner() {
   const { loading, uid, familyId, isAdmin, loadError, spaces } = useFamilyCtx();
   const vaultIssue = React.useSyncExternalStore(subscribeVaultAccess, getVaultAccessIssue, () => null);
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+  const [connectorRequestId, setConnectorRequestId] = React.useState(() => {
+    const value = new URLSearchParams(window.location.search).get('connector_authorize');
+    return value && /^[A-Za-z0-9_-]{12,200}$/.test(value) ? value : null;
+  });
   // FamilySettings is a SIBLING of Dashboard, and it writes the shared
   // HubSettings doc directly rather than through Dashboard's own save path.
   // Dashboard loads that doc ONCE, in an effect keyed on the signed-in user and
@@ -89,6 +94,13 @@ function AppInner() {
   if (familyId === null) {
     return <FamilyOnboarding />;
   }
+
+  if (connectorRequestId) return <React.Suspense fallback={<div className="p-8 text-sm">Loading connection request…</div>}>
+    <ConnectorAuthorization requestId={connectorRequestId} onClose={() => {
+      const url = new URL(window.location.href); url.searchParams.delete('connector_authorize');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash); setConnectorRequestId(null);
+    }} />
+  </React.Suspense>;
 
   if (vaultIssue?.spaceId === familyId) return <VaultAccessNotice issue={vaultIssue} />;
 

@@ -976,6 +976,15 @@ export default function DocumentVault({ members, isBusinessSpace, canEdit = fals
   // a bare new-tab download link — same PDF/image rendering, same layout.
   const [viewingDoc, setViewingDoc] = useState<VaultDocument | null>(null);
   const [askingDoc, setAskingDoc] = useState<VaultDocument | null>(null);
+  const openedConnectorDocument = useRef(false);
+  useEffect(() => {
+    if (!loaded || openedConnectorDocument.current) return;
+    const query = new URLSearchParams(window.location.search);
+    const id = query.get('connector_document'), space = query.get('connector_space');
+    if (!id || (space && space !== FAMILY_ID)) return;
+    const found = docs.find(document => document.id === id);
+    if (found) { openedConnectorDocument.current = true; setViewingDoc(found); }
+  }, [loaded, docs]);
 
   if (!loaded) {
     return (
@@ -1038,6 +1047,11 @@ export default function DocumentVault({ members, isBusinessSpace, canEdit = fals
       )}
 
       {/* Search is the Ember front door; Classic keeps the compact header. */}
+      {canEdit && <div className="flex flex-wrap items-center gap-3 text-xs">
+        <a href="/?open=inbox" className="btn-quiet text-xs">AI import inbox</a>
+        <a href="/?open=connectors" className="btn-quiet text-xs">Connect ChatGPT or Claude</a>
+      </div>}
+      {new URLSearchParams(window.location.search).get('connector_space') && new URLSearchParams(window.location.search).get('connector_space') !== FAMILY_ID && <p className="text-sm text-ink-500">This document belongs to another connected space. Switch to that space to open the original.</p>}
       {emberMode ? (
         <section className="ember-vault-search">
           <div className="ember-vault-search-copy">

@@ -15,7 +15,7 @@ const destinationViews: Record<Exclude<EmberDestination, 'pulse'>, string[]> = {
   profiles: ['profiles', 'emergency', 'info', 'timeline', 'familyWords', 'inMemory', 'familyTree', 'chat'],
   calendar: ['calendar', 'travelTimeline', 'recipes', 'shopping', 'gifts', 'anniversaries', 'extendedBirthdays'],
   household: ['household', 'vehicles', 'pets', 'assets', 'medicineCabinet'],
-  vault: ['vault', 'drive', 'finances', 'insurance', 'slips', 'passwords', 'willsEstate'],
+  vault: ['vault', 'inbox', 'connectors', 'drive', 'finances', 'insurance', 'slips', 'passwords', 'willsEstate'],
 };
 
 export function emberDestinationFor(view: string): EmberDestination {

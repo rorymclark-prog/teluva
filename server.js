@@ -5,6 +5,10 @@ import { createCalendarPublicationHandlers } from './server/calendarPublicationM
 import { includesCalendarOccasions, loadCalendarPublicationSources, carerManagementAccess, carerPublicAccess } from './server/spaceSharing.mjs';
 import { changeMemberRole, removeSpaceMember, leaveSpaceMember, resolveRemovalCaller, RoleManagementError } from './server/roleManagement.mjs';
 import { resolveRequestedMembership, remainingSpacesAfterRemoval } from './server/requestMembership.mjs';
+import { createConnectorIntegration } from './server/connectorIntegration.mjs';
+import { createConnectorAuth } from './server/connectorAuth.mjs';
+import { createImportInbox, createImportInboxRouter } from './server/importInbox.mjs';
+import { createConnectorMcpRouter } from './server/connectorMcp.mjs';
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import admin from 'firebase-admin';
@@ -878,6 +882,28 @@ app.use((req, res, next) => {
 
 // Raw file uploads must precede the general JSON parser (JSON files are bytes).
 app.use('/api/files', createFileRouter(fileGatewayDependencies));
+
+// A connector grant is separate from Firebase sign-in: one account, one space,
+// explicit documents and revocable capabilities. The external AI can prepare
+// inbox drafts; canonical records are filed only through the app's review flow.
+const connectorOrigin = 'https://teluva-x3k4bua7pq-nw.a.run.app';
+const connectorIntegration = createConnectorIntegration({ db: adminDb, bucket: admin.storage().bucket(STORAGE_BUCKET),
+  getUserIdentity: uid => admin.auth().getUser(uid), getPolicy: currentFilePolicy,
+  generateContent: (body, signal) => generateContent(MODEL_TEXT, body, signal),
+  aiRateLimited, checkAiUsage, recordAiUsage, aiReady: AI_READY, aiConsentVersion: AI_CONSENT_VERSION, origin: connectorOrigin });
+const connectorAuth = createConnectorAuth({ db: adminDb, origin: connectorOrigin,
+  verifyFirebaseToken: async token => {
+    const identity = await admin.auth().verifyIdToken(token, true);
+    if (!identity.email_verified) throw new Error('Verify your email before connecting.');
+    return identity;
+  }, resolveMembership: connectorIntegration.resolveMembership, canReadDocument: connectorIntegration.canReadDocument });
+const importInbox = createImportInbox({ db: adminDb, resolveMembership: connectorIntegration.resolveMembership,
+  canReadDocument: connectorIntegration.canReadDocument, extractDocument: connectorIntegration.extractDocument });
+app.use(connectorAuth.router);
+app.use('/api/import-inbox', createImportInboxRouter({ service: importInbox, authenticateFirebase: connectorAuth.requireFirebase }));
+app.use('/mcp', createConnectorMcpRouter({ authenticateConnector: connectorAuth.authenticateConnector, inbox: importInbox, origin: connectorOrigin,
+  searchDocuments: (actor, spaceId, { query, documentIds }) => connectorIntegration.searchDocuments({ ...actor, spaceId, documentIds }, query),
+  fetchDocument: (actor, spaceId, documentId) => connectorIntegration.fetchDocument({ ...actor, spaceId }, documentId) }));
 app.use(express.json({ limit: '25mb' }));
 
 // Where the report-only CSP above sends what it WOULD have blocked. Registered

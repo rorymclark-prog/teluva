@@ -35,7 +35,7 @@ const destinations: Record<Destination, { label: string; icon: ElementType; ids:
   vault: {
     label: 'Vault',
     icon: ShieldCheck,
-    ids: ['vault', 'drive', 'finances', 'insurance', 'slips', 'passwords', 'willsEstate'],
+    ids: ['vault', 'inbox', 'connectors', 'drive', 'finances', 'insurance', 'slips', 'passwords', 'willsEstate'],
   },
 };
 
@@ -62,6 +62,8 @@ const copy: Record<string, { kicker: string; title: string; note: string }> = {
   pets: { kicker: 'House · Pets', title: 'Care for every member of the family.', note: 'Health, routines and the details someone else would need to step in.' },
   assets: { kicker: 'House · Things', title: 'The important objects have a story.', note: 'Receipts, warranties, manuals and ownership attached to the thing itself.' },
   vault: { kicker: 'Vault · Documents', title: 'Find it in seconds.', note: 'Search, ownership, expiry and evidence—without guessing which folder won.' },
+  inbox: { kicker: 'Vault · AI import inbox', title: 'Let the paperwork become useful.', note: 'Bring in originals, review suggested details and file the records you choose.' },
+  connectors: { kicker: 'Vault · AI connections', title: 'Use the assistant you prefer.', note: 'Connect ChatGPT or Claude to selected documents and your review inbox.' },
   drive: { kicker: 'Vault · Google Drive', title: 'Keep the source connected.', note: 'Bring existing family files into reach without creating another orphaned copy.' },
   finances: { kicker: 'Vault · Money records', title: 'Know what exists. Know who can act.', note: 'A calm index of accounts, responsibilities and the documents behind them.' },
   insurance: { kicker: 'Vault · Cover', title: 'Understand what protects the family.', note: 'Policies, people and claim moments connected in plain language.' },

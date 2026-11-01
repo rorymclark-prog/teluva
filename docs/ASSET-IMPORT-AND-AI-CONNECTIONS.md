@@ -1,9 +1,12 @@
 # Asset capture and AI connections
 
 Rory's requested experience: connect a source once, let AI find the purchase
-evidence, and review the few details that need a human decision. This plan is
-separate from the asset-register release; it does not claim a desktop scanner
-or public chatbot connector has shipped.
+evidence, and review the few details that need a human decision. The persistent
+family/business inbox and authenticated ChatGPT/Claude custom MCP connector are
+now implemented. See [AI-CONNECTORS.md](AI-CONNECTORS.md) for current setup,
+permissions, limits and operations. This earlier plan retains the future device
+discovery options; a native desktop scanner and public marketplace listing are
+not part of this release.
 
 ## Recommended order
 
@@ -15,7 +18,7 @@ or public chatbot connector has shipped.
    applying a batch. Treat uncertain dates as unknown. Do not infer an expiry
    from a purchase date, retailer name or consumer-law assumption.
 2. **A Teluva connector.** Expose narrowly scoped search, fetch, propose-asset,
-   link-evidence and apply-reviewed-import operations. Bind every operation to
+   and pending-review import operations. Bind every operation to
    the authenticated account, selected space and current role. Use OAuth and
    revocable grants; a chatbot subscription is not authorization to access a
    person's files or another provider's connections. Keep source access separate
@@ -47,8 +50,8 @@ or public chatbot connector has shipped.
 OpenAI's official plugin/MCP guidance supports authenticated tools for live
 data and controlled actions. A Teluva MCP server can let ChatGPT or Codex find
 records and prepare imports without requiring a custom visual interface.
-Public availability still requires the applicable hosting, authentication and
-publication work; there is no published Teluva connector in this release.
+Teluva now hosts the authenticated custom connector. Public marketplace
+publication remains separate from adding its URL as a custom connector.
 
 Gemini's API supports function calling into application code and external
 APIs. That supports the same Teluva operations through an integration we build.

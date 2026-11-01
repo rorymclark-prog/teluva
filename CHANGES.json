@@ -1,8 +1,8 @@
 {
-  "label": "v378",
+  "label": "v379",
   "changes": [
-    "Family and business assets now keep separate manufacturer, retailer and extended warranties, ownership and purchase details, policy links and dated replacement-value references.",
-    "Attach original invoices and warranty files, link existing purchase slips, and receive reminders from recorded warranty and return dates. Earlier asset records remain intact.",
-    "Export an evidence ZIP with original files, receipts and repair paperwork, alongside complete multi-page PDF, CSV and JSON summaries. Damaged items are supported and values stay separated by currency."
+    "Family and business spaces now have an AI import inbox: upload originals, choose Vault documents or paste named text, then review suggested asset and warranty details before filing.",
+    "Connect ChatGPT or Claude through Teluva’s custom MCP server. Sign in, choose one space and specific documents, let the chatbot prepare drafts, and revoke access in AI connections.",
+    "Original evidence stays linked to saved records. Review protects against changed files, repeated submissions and matching serial numbers; only administrators can apply records."
   ]
 }

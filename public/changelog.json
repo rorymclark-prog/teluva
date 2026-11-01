@@ -1,5 +1,14 @@
 [
   {
+    "label": "v379",
+    "changes": [
+      "Family and business spaces now have an AI import inbox: upload originals, choose Vault documents or paste named text, then review suggested asset and warranty details before filing.",
+      "Connect ChatGPT or Claude through Teluva’s custom MCP server. Sign in, choose one space and specific documents, let the chatbot prepare drafts, and revoke access in AI connections.",
+      "Original evidence stays linked to saved records. Review protects against changed files, repeated submissions and matching serial numbers; only administrators can apply records."
+    ],
+    "date": "2026-11-01"
+  },
+  {
     "label": "v378",
     "changes": [
       "Family and business assets now keep separate manufacturer, retailer and extended warranties, ownership and purchase details, policy links and dated replacement-value references.",

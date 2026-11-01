@@ -208,6 +208,8 @@ const FamilyTreeView = React.lazy(() => import('./FamilyTreeView'));
 const TimelineView = React.lazy(() => import('./TimelineView'));
 const TravelTimelineView = React.lazy(() => import('./TravelTimelineView'));
 const DocumentVault = React.lazy(() => import('./DocumentVault'));
+const ImportInbox = React.lazy(() => import('./ImportInbox'));
+const ConnectorCenter = React.lazy(() => import('./ConnectorCenter'));
 const ShoppingList = React.lazy(() => import('./ShoppingList'));
 const FamilyChat = React.lazy(() => import('./FamilyChat'));
 const GoogleDriveSync = React.lazy(() => import('./GoogleDriveSync'));
@@ -267,7 +269,7 @@ function isJoinLinkVisit(): boolean {
 }
 
 type TabId = 'education' | 'addresses' | 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians' | 'timeline';
-type ViewId = 'pulse' | 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree' | 'medicineCabinet';
+type ViewId = 'pulse' | 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'inbox' | 'connectors' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree' | 'medicineCabinet';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -342,6 +344,8 @@ const VIEWS: { id: ViewId; icon: React.ElementType }[] = [
   { id: 'timeline', icon: CalendarHeart },
   { id: 'travelTimeline', icon: Globe2 },
   { id: 'vault', icon: FolderArchive },
+  { id: 'inbox', icon: Sparkles },
+  { id: 'connectors', icon: Cloud },
   { id: 'assets', icon: Package },
   { id: 'recipes', icon: ChefHat },
   { id: 'anniversaries', icon: HeartHandshake },
@@ -369,6 +373,8 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     timeline: isBusinessSpace ? 'Business timeline' : t.nav_timeline,
     travelTimeline: 'Travel timeline',
     vault: t.nav_documents,
+    inbox: 'AI import inbox',
+    connectors: 'AI connections',
     assets: t.nav_assets,
     passwords: t.nav_passwords,
     familyWords: 'Family Words',
@@ -635,6 +641,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [deleteConfirmMemberId, setDeleteConfirmMemberId] = useState<string | null>(null);
 
   const [mainView, setMainView] = useState<ViewId>(() => {
+    const requested = new URLSearchParams(window.location.search).get('open');
+    if (requested === 'inbox' || requested === 'connectors' || requested === 'vault' || requested === 'drive') return requested;
     if (demo && new URLSearchParams(window.location.search).get('view') === 'timeline') return 'timeline';
     if (!emberInterface) return 'profiles';
     if (initialFirstJob === 'week') return 'calendar';
@@ -3018,6 +3026,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     // looks broken).
     .filter(view => !((view.id === 'finances' || view.id === 'insurance') && isBusinessSpace && !isAdmin))
     .filter(view => !(view.id === 'willsEstate' && !mayReadWills))
+    .filter(view => !(['inbox', 'connectors'].includes(view.id) && !canWrite && !demo))
     .filter(view => !(isBusinessSpace && HIDDEN_VIEWS_IN_BUSINESS.includes(view.id)))
     .map(view => ({ id: view.id, icon: view.icon, label: viewLabel(view.id, t, isBusinessSpace) }));
 
@@ -3286,6 +3295,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           // persist member records (Dashboard owns that write).
           demo ? <DemoUnavailable label="The document vault" isBusinessSpace={isBusinessSpace} /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} canEdit={canWrite} onMembersChange={persistChanges} emberMode={emberInterface} openUploadSignal={captureVaultSignal} incomingFile={sharedFile} onIncomingConsumed={() => setSharedFile(null)} />
         )}
+
+        {mainView === 'inbox' && (demo ? <DemoUnavailable label="The AI import inbox" isBusinessSpace={isBusinessSpace} /> : canWrite ? <div key={`${accountUid}:${activeSpaceId}`}><ImportInbox /></div> : null)}
+        {mainView === 'connectors' && (demo ? <DemoUnavailable label="AI connections" isBusinessSpace={isBusinessSpace} /> : canWrite ? <div key={`${accountUid}:${activeSpaceId}`}><ConnectorCenter /></div> : null)}
 
         {mainView === 'shopping' && (
           demo ? <DemoUnavailable label="The shopping list" isBusinessSpace={isBusinessSpace} /> : <ShoppingList key={aiDataVersion} />

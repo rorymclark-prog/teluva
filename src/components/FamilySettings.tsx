@@ -465,6 +465,11 @@ export default function FamilySettings({ onClose, onSettingsChanged }: FamilySet
 
         {/* Body */}
         <div className="flex-1 p-6 space-y-6">
+          <div className="card p-5 space-y-3">
+            <h3 className="section-label flex items-center gap-2"><Sparkles size={14} />AI documents &amp; connections</h3>
+            <p className="text-[13px] text-ink-500">Prepare document details in the import inbox, or connect ChatGPT and Claude to the files you select.</p>
+            <div className="flex flex-wrap gap-2"><a className="btn-quiet text-xs" href="/?open=inbox">Open import inbox</a><a className="btn-quiet text-xs" href="/?open=connectors">Manage AI connections</a></div>
+          </div>
           {/* Section 0: Country — drives which ID/passport fields show. Each
               space has its own, so a family and its business can differ. */}
           <div className="card p-5 space-y-2">
