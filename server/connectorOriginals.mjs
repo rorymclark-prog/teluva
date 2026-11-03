@@ -99,6 +99,7 @@ function fileType(bytes, suggested) {
 }
 
 export function createConnectorOriginals({ db, bucket, resolveMembership, canReadDocument, inbox, download = downloadHostFile, origin }) {
+  let activeImports = 0;
   async function authority(actor, tx) {
     const member = await resolveMembership(actor, actor.spaceId, { transaction: tx });
     if (!member || !['admin', 'member'].includes(member.role) || !actor.grantId) fail(403, 'IMPORT_FORBIDDEN', 'Reconnect to this space before importing originals.');
@@ -189,5 +190,9 @@ export function createConnectorOriginals({ db, bucket, resolveMembership, canRea
     return { spaceId: space, item, original: { documentId: document.id, fileName: document.fileName, mimeType: document.fileType, bytes: document.fileSize, sha256: document.contentHash, source: document.connectorSource },
       reviewUrl: `${origin}/?open=inbox&connector_space=${encodeURIComponent(space)}`, pendingReviewOnly: true };
   }
-  return { importOriginal };
+  return { importOriginal: async (...args) => {
+    if (activeImports >= 3) fail(429, 'ORIGINAL_IMPORT_BUSY', 'Original imports are busy. Retry this item shortly with the same request ID.');
+    activeImports++;
+    try { return await importOriginal(...args); } finally { activeImports--; }
+  } };
 }

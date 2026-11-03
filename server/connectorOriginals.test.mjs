@@ -22,7 +22,7 @@ function fixture() {
   const service = createConnectorOriginals({ db, bucket, origin: 'https://teluva.test',
     resolveMembership: async (actor, space, { transaction } = {}) => { const ref = db.doc(`families/${space}/roles/${actor.uid}`), snap = transaction ? await transaction.get(ref) : await ref.get(); return snap.exists ? { role: snap.data().role, membershipVersion: 'v1' } : null; },
     canReadDocument: async (_actor, space, id) => !!records.get(`families/${space}/reference/documents`)?.docs.some(doc => doc.id === id),
-    download: async () => { downloads++; onDownload(); return { bytes: Buffer.from('%PDF-1.7\nSynthetic attachment'), mimeType: 'application/pdf' }; },
+    download: async () => { downloads++; await onDownload(); return { bytes: Buffer.from('%PDF-1.7\nSynthetic attachment'), mimeType: 'application/pdf' }; },
     inbox: { create: async (actor, space, input) => {
       const previous = drafts.get(input.requestId); if (previous) { assert.deepEqual(previous.input, input); return previous.item; }
       const item = { id: `draft-${drafts.size}`, status: 'pending', createdBy: actor.uid, spaceId: space, source: { documentId: input.documentId }, proposal: input.proposal };
@@ -90,6 +90,17 @@ test('a reissued host file ID can retry the same source only when the original b
   const refreshed = await f.service.importOriginal(f.actor, { ...f.input, file: { ...f.input.file, file_id: 'file-reissued-reference' } });
   assert.equal(refreshed.item.id, first.item.id); assert.equal(f.objects.size, 1); assert.equal(f.drafts.size, 1);
   assert.equal(f.counts().downloads, 2);
+});
+
+test('bounded concurrent originals protect memory and release capacity after completion', async () => {
+  const f = fixture(); let release;
+  const gate = new Promise(done => { release = done; }); f.onDownload(() => gate);
+  const jobs = [1, 2, 3].map(index => f.service.importOriginal(f.actor, { ...f.input, requestId: `parallel-${index}` }));
+  await new Promise(done => setImmediate(done));
+  assert.equal(f.counts().downloads, 3);
+  await assert.rejects(f.service.importOriginal(f.actor, { ...f.input, requestId: 'fourth' }), error => error.status === 429 && error.code === 'ORIGINAL_IMPORT_BUSY');
+  release(); await Promise.all(jobs);
+  assert.equal((await f.service.importOriginal(f.actor, { ...f.input, requestId: 'parallel-1' })).pendingReviewOnly, true);
 });
 
 test('host downloads reject arbitrary URLs, private DNS, oversized bodies and unsafe redirects', async () => {
