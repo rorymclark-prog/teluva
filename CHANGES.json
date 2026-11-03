@@ -1,6 +1,6 @@
 {
-  "label": "v383",
+  "label": "v384",
   "changes": [
-    "Add an optional short video to your family profile in Hub settings. Tap the family photo to watch it."
+    "Family profile videos now loop silently in the header. Tap the profile to watch full size."
   ]
 }

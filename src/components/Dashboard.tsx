@@ -176,7 +176,7 @@ import {
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt, PawPrint, BriefcaseMedical, Network,
   Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck, HeartHandshake, Cake, MessageSquare, Link2, Camera, Lock, Play} from 'lucide-react';
-import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
+import { motion, AnimatePresence, Reorder, useDragControls, useReducedMotion } from 'motion/react';
 
 // Lazy-loaded main-view screens — audit finding, 2026-07-30. Exactly one of
 // these is ever visible at once (each renders behind a single `mainView ===
@@ -630,6 +630,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const [settings, setSettings] = useState<HubSettings>({});
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [playingFamilyVideo, setPlayingFamilyVideo] = useState<string>();
+  const reduceMotion = useReducedMotion();
   /* One control on the avatar, not two. Every app that does this well — Apple,
    * WhatsApp, Facebook, Google — puts a SINGLE small badge on the picture and
    * opens a sheet of labelled options from it; two competing badges on one
@@ -2936,11 +2938,25 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     <button
       type="button"
       onClick={() => setLightboxImage(settings.familyPhotoUrl!)}
-      title={isBusinessSpace ? 'View business photo' : familyProfileVideo ? 'Play family profile video' : 'View family photo'}
-      aria-label={isBusinessSpace ? 'View business photo' : familyProfileVideo ? 'Play family profile video' : 'View family photo'}
+      title={isBusinessSpace ? 'View business photo' : familyProfileVideo ? 'Open family profile video' : 'View family photo'}
+      aria-label={isBusinessSpace ? 'View business photo' : familyProfileVideo ? 'Open family profile video' : 'View family photo'}
       className="relative w-12 h-12 rounded-2xl overflow-hidden shrink-0 border border-cream-300 shadow-soft cursor-zoom-in transition-transform hover:scale-105"
     >
       <img src={settings.familyPhotoUrl} alt={isBusinessSpace ? 'Business' : 'Family'} className="w-full h-full object-cover" />
+      {familyProfileVideo && reduceMotion === false && (
+        <video
+          key={familyProfileVideo}
+          src={familyProfileVideo}
+          aria-hidden="true"
+          autoPlay
+          muted
+          playsInline
+          loop
+          onPlaying={() => setPlayingFamilyVideo(familyProfileVideo)}
+          onError={() => setPlayingFamilyVideo(undefined)}
+          className={`pointer-events-none absolute inset-0 h-full w-full object-cover ${playingFamilyVideo === familyProfileVideo ? '' : 'invisible'}`}
+        />
+      )}
       {familyProfileVideo && <Play aria-hidden="true" className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full bg-black/75 p-0.5 text-white" />}
     </button>
   ) : (

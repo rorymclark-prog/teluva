@@ -416,7 +416,7 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, ca
               {canSetVideo && photo && (
                 <div className="space-y-2">
                   <label className="field-label" htmlFor="family-profile-video">Family profile video (optional)</label>
-                  <p className="text-xs text-ink-500">MP4 or WebM, up to 10 seconds and 8 MB. Tap the family photo to watch it.</p>
+                  <p className="text-xs text-ink-500">MP4 or WebM, up to 10 seconds and 8 MB. The clip loops silently in the header. Tap to open it full size.</p>
                   <input
                     id="family-profile-video"
                     type="file"
