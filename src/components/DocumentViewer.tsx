@@ -5,7 +5,9 @@ import { X, Download, Share2, Shield, Calendar, Layers, Info, Sparkles, Loader2,
 import { canShare, shareFile } from '../utils/share';
 import { canOpenElsewhere, openElsewhere } from '../utils/openElsewhere';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { normalizeFileReference } from '../utils/fileReferences';
 import CopyableValue from './CopyableValue';
+import { ImageDocumentPreview, PdfDocumentPreview } from './DocumentPreview';
 
 interface DocumentViewerProps {
   document: FamilyDocument | null;
@@ -33,28 +35,10 @@ export default function DocumentViewer({ document: doc, memberName, onClose, onE
   const [factsBusy, setFactsBusy] = useState(false);
   const [factsError, setFactsError] = useState<string | null>(null);
 
-  const isPdf = doc?.fileType === 'application/pdf';
-  // NO exit animation, by design — this supersedes the old "BUG FIX #3" note.
-  //
-  // This modal used to unmount through AnimatePresence: close → doc null →
-  // exit animation → onExitComplete removes the node. With a PDF open, that
-  // exit could stall for SECONDS or hang outright (bisected in the browser:
-  // an <img> document closed instantly, the same viewer with the PDF
-  // <iframe> did not — Chrome's PDF plugin starves the animation's
-  // completion). From the outside that is a dead Close button under a
-  // full-screen modal, which is how the bug was first hit from TripPack
-  // (v265, commit aa369ba sidestepped it host-side).
-  //
-  // So the viewer now unmounts the moment doc goes null. The entrance still
-  // animates — the `anim-fade` / `anim-pop` CSS classes fire on mount and
-  // need no JS to finish — and an instant close is fine: nobody mourns a
-  // 150ms fade on a modal they asked to leave. Do not reintroduce
-  // AnimatePresence here without solving the iframe stall.
-
   const getDocSource = () => {
     if (!doc) return '';
     if (doc.fileData && doc.fileData !== 'PLACEHOLDER') {
-      return doc.fileData;
+      return normalizeFileReference(doc.fileData);
     }
     return getDocumentPlaceholderSvg(doc.name, doc.category, memberName, doc.uploadedAt);
   };
@@ -89,6 +73,12 @@ export default function DocumentViewer({ document: doc, memberName, onClose, onE
   };
 
   if (!doc) return null;
+  const source = getDocSource();
+  const genericType = !doc.fileType || doc.fileType === 'application/octet-stream';
+  const placeholder = !doc.fileData || doc.fileData === 'PLACEHOLDER';
+  const isPdf = !placeholder && (doc.fileType === 'application/pdf' || (genericType && /\.pdf$/i.test(doc.fileName)));
+  const isImage = placeholder || !doc.fileType || doc.fileType.startsWith('image/')
+    || (genericType && /\.(png|jpe?g|gif|webp|avif|bmp|heic|heif)$/i.test(doc.fileName));
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -115,20 +105,9 @@ export default function DocumentViewer({ document: doc, memberName, onClose, onE
             <div className="lg:col-span-8 bg-cream-100 flex items-center justify-center p-6 border-b lg:border-b-0 lg:border-r border-cream-200 lg:max-h-[90dvh] overflow-y-auto">
               <div className={`w-full bg-white rounded-2xl shadow-soft overflow-hidden border border-cream-300 relative flex items-center justify-center ${isPdf ? 'max-w-2xl h-[80dvh]' : 'max-w-md aspect-[4/5.6]'}`}>
                 {isPdf ? (
-                  // #navpanes=0 keeps Chromium's PDF viewer from opening the
-                  // page-thumbnail sidebar (a third of an already-split pane);
-                  // view=FitH opens the page fitted to the width instead of
-                  // whatever zoom the viewer last remembered. Browsers that
-                  // ignore PDF open parameters (Safari) simply see the plain
-                  // URL — the fragment can only ever improve the default.
-                  <iframe src={`${getDocSource()}#navpanes=0&view=FitH`} title={doc.name} className="w-full h-full border-0" />
-                ) : (doc.fileType?.startsWith('image/') || doc.fileData === 'PLACEHOLDER' || !doc.fileType) ? (
-                  <img
-                    src={getDocSource()}
-                    alt={doc.name}
-                    className="w-full h-full object-contain pointer-events-none"
-                    referrerPolicy="no-referrer"
-                  />
+                  <PdfDocumentPreview key={source} source={source} name={doc.name} />
+                ) : isImage ? (
+                  <ImageDocumentPreview key={source} source={source} name={doc.name} />
                 ) : (
                   <div className="text-center p-8 space-y-3">
                     <div className="w-16 h-16 bg-cream-100 border border-cream-300 rounded-2xl flex items-center justify-center mx-auto text-ink-500 font-bold uppercase text-xs font-mono">

@@ -12,9 +12,7 @@ export const VAULT_CATEGORY_TO_FAMILY: Record<VaultCategory, FamilyDocument['cat
   Financial: 'Other', Legal: 'Other', Travel: 'Travel', Other: 'Other',
 };
 
-/** A vault document as the viewer expects it. `fileData` carries the URL —
- *  DocumentViewer feeds it straight into an <img>/<iframe> src, which takes a
- *  https URL as happily as a data URI. */
+/** A vault document as the viewer expects it, with the file URL in fileData. */
 export function toFamilyDoc(v: VaultDocument): FamilyDocument {
   return {
     id: v.id, name: v.name, category: VAULT_CATEGORY_TO_FAMILY[v.category],

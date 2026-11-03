@@ -1,6 +1,7 @@
 {
-  "label": "v381",
+  "label": "v382",
   "changes": [
-    "The desktop Sections menu opens inside the window, so you can see and select all its items."
+    "The Vault renders protected PDFs directly in Teluva and lets you move between pages.",
+    "Image previews recognise common image filenames on older records. If a preview fails, you can retry it or download the original."
   ]
 }
