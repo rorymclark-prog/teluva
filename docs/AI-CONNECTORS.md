@@ -189,14 +189,27 @@ family's drafts unchanged and its originals under the business storage prefix.
 Content-derived IDs can match across separate spaces; identical IDs do not
 constitute shared storage or shared access.
 
-First-time Google sign-in, the customer's initial consent screen and normal
-browser review/apply remain a separate interactive acceptance gate. Do not
-describe the fixture as proving those steps or claim public marketplace
-availability. The operator has requested the normal connection screen without
-revoking the customer's working connection. The customer reported no new prompt;
-the existing connection was already authenticated. Do not request a disconnect
-merely to repeat sign-in. A previously unconnected Google test identity and an
-interactive customer session are needed for that remaining first-time check.
+The normal consent page was also verified in the customer's existing signed-in
+browser session, for both family and business selection. Saved-document reading
+stays unchecked and import drafts are checked by default. That temporary request
+was closed without approval; no grant was issued, its client/request metadata
+was removed and the original family home was restored. Screenshots are kept in
+the ignored verification directory. The existing chat connection still works
+with its original one-document selection.
+
+First-time Google sign-in and normal browser review/apply remain separate
+interactive acceptance gates. Do not describe the fixture as proving those
+steps or claim public marketplace availability. A selected synthetic original
+opened in the real Vault viewer, but browser automation did not complete its
+download event and reported a paused document response. Authenticated browser
+download therefore remains unproven; this observation alone does not establish
+an application defect.
+
+The customer reported no new connection prompt because the existing connection
+was already authenticated. Do not request a disconnect merely to repeat sign-in.
+A previously unconnected Google test identity and an interactive customer
+session are needed for the remaining first-time check. No passwords, provider
+configuration changes or expanded permissions are needed in chat.
 
 The connector does not yet include public marketplace publication, a native
 desktop folder watcher, or a consumer Gemini-app extension. Native device-wide
