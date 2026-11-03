@@ -44,7 +44,9 @@ of approval or listing in either provider's public directory.
 The chatbot opens Teluva's sign-in and consent screen. Choose one family or
 business, the permitted actions, and specific Vault documents (up to 50).
 Business document reading requires a business administrator. Adult employees
-can authorize text-only draft submission. To connect another space, create a
+can prepare drafts and import explicitly provided originals without reading
+existing saved documents. Imported originals retain their owner's protected
+file access. To connect another space, create a
 separate connection. The app never silently switches the selected space.
 
 Try: “Find my selected television receipt and prepare an asset draft for review
@@ -147,6 +149,54 @@ Run `npm run test:connector-flow` for the local Firestore emulator's integrated
 OAuth → MCP → inbox → review/apply flow. It uses synthetic actors, files and an
 extractor stub; it does not contact a live AI service or write production data.
 `npm test` includes the focused server, UI capability and scoped-request tests.
+
+### Live acceptance evidence for v380
+
+Both Cloud Run service names serve the same immutable v380 image. The release
+passed type checking, colour checks, Firestore/Vault rules, 671 server tests,
+the frontend test sequence and the production build. Public tool discovery
+works before connection; unauthenticated tool execution returns 401.
+
+The private Teluva plugin was updated in place to 0.2.0 and remains private.
+The supported native host reports it installed and enabled. This chat's actual
+Teluva tools successfully inspected the existing connection, searched its one
+selected synthetic document and fetched its prepared text. This establishes a
+working existing account connection; it does not establish first-time signup.
+
+`scripts/verify-connector-customer.mjs --run-live` is an explicit operator test
+for disposable accounts and spaces. It accepts only one or two deliberately
+selected source fixtures. The tested `--backend-fixture` mode supplies consent
+and review through a loopback disposable-identity adapter because production
+password sign-in is disabled and the operator cannot sign custom Firebase
+tokens. It leaves auth providers, IAM and customer credentials unchanged.
+OAuth discovery, DCR, PKCE, token exchange and all MCP calls still use the
+deployed service; consent/review in this mode are not production HTTP or browser
+acceptance. Its report records that distinction.
+
+Live verification covered a native Drive PDF export and one separately
+authorised email attachment: byte-identical protected copies, SHA-256,
+pending review, retries, content deduplication, synthetic durable apply,
+self-approved preferences, space pinning, forbidden-space rejection,
+authenticated-use status, revocation and reconnect. The real attachment
+remained pending and all disposable copies, records, accounts and test grants
+were removed. No paid Teluva AI was invoked. Detailed reports stay under the
+ignored `output/verification/connector-v380/` directory and contain no source
+contents, bearer tokens or temporary download URLs.
+
+A second synthetic-only live run also verified original import and durable
+asset/document application in a business space. Applying its records left the
+family's drafts unchanged and its originals under the business storage prefix.
+Content-derived IDs can match across separate spaces; identical IDs do not
+constitute shared storage or shared access.
+
+First-time Google sign-in, the customer's initial consent screen and normal
+browser review/apply remain a separate interactive acceptance gate. Do not
+describe the fixture as proving those steps or claim public marketplace
+availability. The operator has requested the normal connection screen without
+revoking the customer's working connection. The customer reported no new prompt;
+the existing connection was already authenticated. Do not request a disconnect
+merely to repeat sign-in. A previously unconnected Google test identity and an
+interactive customer session are needed for that remaining first-time check.
 
 The connector does not yet include public marketplace publication, a native
 desktop folder watcher, or a consumer Gemini-app extension. Native device-wide
