@@ -1,5 +1,5 @@
 import type { ElementType } from 'react';
-import { Calendar, Sparkles, Cake, Ruler, GraduationCap, PartyPopper, Plane, BookOpen, Quote } from 'lucide-react';
+import { Calendar, Sparkles, Cake, Ruler, GraduationCap, PartyPopper, Plane, Quote } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FamilyMember, CalendarEvent, ExtendedBirthday, NameCelebration } from '../types';
 import { resolveCelebrations, daysUntilCelebration } from '../utils/nameCelebrations';
@@ -233,10 +233,10 @@ function growthInsight(m: FamilyMember, today: Date): Insight | null {
 }
 
 // "X years ago today/this week" — a past event landing on, or within a few days
-// of, today's month/day. Appointments are deliberately excluded (routine, not memory).
+// of, today's month/day. The caller supplies saved timeline memories.
 function anniversaryInsight(ev: CalendarEvent, memberById: Map<string, FamilyMember>, today: Date): Insight | null {
   if (ev.category === 'Appointment') return null;
-  const d = new Date(ev.date);
+  const d = new Date(`${ev.date}T00:00:00`);
   if (isNaN(d.getTime())) return null;
 
   const t0 = startOfDay(today);
@@ -259,7 +259,7 @@ function anniversaryInsight(ev: CalendarEvent, memberById: Map<string, FamilyMem
     .filter((x): x is FamilyMember => !!x)
     .map((x) => firstName(x.name));
   const who = names.length ? `${names.join(' & ')}: ` : '';
-  const when = diff === 0 ? 'today' : `${Math.abs(diff)} day${Math.abs(diff) === 1 ? '' : 's'} ago`;
+  const when = diff === 0 ? 'today' : 'this week';
 
   return {
     key: `anniv-${ev.id}`,
@@ -313,65 +313,6 @@ function sayingInsight(m: FamilyMember, today: Date): Insight | null {
   };
 }
 
-// Fallback when there's nothing dated to celebrate: either a just-added record
-// (recent document upload), or, failing that, how long this family's story has
-// been kept here at all — computed from the earliest dated evidence we have.
-function recordInsight(members: FamilyMember[], events: CalendarEvent[], today: Date): Insight | null {
-  const t0 = startOfDay(today).getTime();
-
-  let newestDoc: { t: number; name: string; first: string } | null = null;
-  for (const m of members) {
-    for (const doc of m.documents || []) {
-      const t = new Date(doc.uploadedAt).getTime();
-      if (isNaN(t) || t > t0) continue;
-      if (!newestDoc || t > newestDoc.t) newestDoc = { t, name: doc.name, first: firstName(m.name) };
-    }
-  }
-  if (newestDoc && t0 - newestDoc.t <= DAY * 5) {
-    const days = Math.round((t0 - newestDoc.t) / DAY);
-    const when = days <= 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`;
-    return {
-      key: 'record-new',
-      icon: Sparkles,
-      text: `🆕 ${newestDoc.first}'s "${newestDoc.name}" was added ${when}`,
-      tone: 'cream',
-      score: 100,
-    };
-  }
-
-  const stamps: number[] = [];
-  for (const m of members) {
-    for (const doc of m.documents || []) {
-      const t = new Date(doc.uploadedAt).getTime();
-      if (!isNaN(t)) stamps.push(t);
-    }
-    for (const g of m.growthHistory || []) {
-      const t = new Date(g.date).getTime();
-      if (!isNaN(t)) stamps.push(t);
-    }
-  }
-  for (const ev of events) {
-    const t = new Date(ev.date).getTime();
-    if (!isNaN(t)) stamps.push(t);
-  }
-  if (stamps.length === 0) return null;
-
-  const earliest = Math.min(...stamps);
-  if (earliest > t0) return null;
-  const days = Math.round((t0 - earliest) / DAY);
-  if (days < 1) return null;
-  const years = Math.floor(days / 365);
-  const label = years >= 1 ? `${years} year${years === 1 ? '' : 's'}` : `${days} day${days === 1 ? '' : 's'}`;
-
-  return {
-    key: 'record-age',
-    icon: BookOpen,
-    text: `📖 ${label} of family memories kept safe here`,
-    tone: 'cream',
-    score: 50,
-  };
-}
-
 // Rank every candidate, always keep "today or very soon" items, and gently rotate
 // the long tail by day-of-year so it isn't always the same 2-4 items.
 // `hidden`: people whose dates this account has chosen not to see
@@ -418,11 +359,6 @@ function buildInsights(members: FamilyMember[], allEvents: CalendarEvent[], allE
     const start = rest.length ? dayOfYear(today) % rest.length : 0;
     const rotated = [...rest.slice(start), ...rest.slice(0, start)].slice(0, slots);
     picked = [...urgent, ...rotated];
-  }
-
-  if (picked.length === 0) {
-    const fallback = recordInsight(members, events, today);
-    picked = fallback ? [fallback] : [];
   }
 
   return picked;

@@ -131,9 +131,8 @@ import MemberSayings from './MemberSayings';
 import MemberFavoriteQuotes from './MemberFavoriteQuotes';
 import SpaceSwitcher from './SpaceSwitcher';
 import { switchSpace, createSpace, joinFamily, renameSpace, readCachedFamilyMembers, loadChatHistory, NewBusinessExtra } from '../utils/db';
-import OnThisDay from './OnThisDay';
+import FamilyMemoryCards from './FamilyMemoryCards';
 import FamilyWordOfDay from './FamilyWordOfDay';
-import FlashbackCard from './FlashbackCard';
 import EmergencyCard from './EmergencyCard';
 import BabysitterMode from './BabysitterMode';
 import TravelPack from './TravelPack';
@@ -4136,12 +4135,17 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
               isBusinessSpace={isBusinessSpace}
             />
 
-            <OnThisDay members={members} events={events} extendedBirthdays={homeExtendedBirthdays} />
+            <FamilyMemoryCards
+              scope={actionScope}
+              members={members}
+              extendedBirthdays={homeExtendedBirthdays}
+              canReadTimeline={!demo && !isBusinessSpace && !ctxLoading && !!accountUid && !!activeSpaceId}
+              isBusinessSpace={isBusinessSpace}
+            />
 
             {!isBusinessSpace && (
               <>
                 <FamilyWordOfDay demo={demo} onOpen={() => setMainView('familyWords')} />
-                <FlashbackCard members={members} events={events} />
                 <div className="flex flex-wrap gap-2">
                   <button data-tour="quick-emergency" type="button" onClick={() => setShowEmergency(true)} className="btn-quiet px-3.5 py-2 text-[13px]"><Siren className="w-4 h-4" /><span>Emergency</span></button>
                   <button type="button" onClick={() => setShowBabysitter(true)} className="btn-quiet px-3.5 py-2 text-[13px]"><Baby className="w-4 h-4" /><span>Babysitter</span></button>

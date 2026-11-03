@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildLifeTimeline, filterLifeTimeline } from './lifeTimeline';
+import { buildLifeTimeline, filterLifeTimeline, timelineMemoryEvents } from './lifeTimeline';
 import { buildHealthTimeline } from './healthTimeline';
 import { buildFamilyTimeline } from './familyTimeline';
 import { memberAppointments } from './memberAppointments';
@@ -12,6 +12,16 @@ const now = new Date(2026, 8, 16);
 const adult: FamilyMember = { id: 'adult', name: 'Alex Example', birthdate: '1975-03-12', role: 'Parent', avatarColor: '', clothingSizes: {}, documents: [] };
 const child: FamilyMember = { ...adult, id: 'child', name: 'Sam Example', birthdate: '2015-06-01', role: 'Child' };
 const members = [adult, child];
+assert.deepEqual(timelineMemoryEvents([
+  { id: 'story', date: '2015-09-16', title: 'Gardening pirates', category: 'memory', memberIds: [child.id] },
+  { id: 'trip', date: '2018-09-16', title: 'First trip together', category: 'holiday' },
+  { id: 'paper', date: '2020-09-16', title: 'Renewed a passport', category: 'papers' },
+  { id: 'medical', date: '2022-09-16', title: 'Medical letter', category: 'medical' },
+  { id: 'rough', date: '2015-01-01', title: 'Sometime in 2015', datePrecision: 'year', category: 'memory' },
+]).map(({ id, category, memberIds }) => ({ id, category, memberIds })), [
+  { id: 'story', category: 'Other', memberIds: [child.id] },
+  { id: 'trip', category: 'Travel', memberIds: undefined },
+], 'memory cards use dated stories and preserve the tags used by hide-date preferences');
 const names = ['Big shopping: Alex', 'Alex picks up Sam', 'Dinner with Alex', 'Parents evening', 'Dentist — Alex', 'Alex Orthopädie', 'Dr Steiner — Alex'];
 const events: CalendarEvent[] = names.map((title, index) => ({ id: `gcal-${index}`, title, date: `2026-09-${String(index + 1).padStart(2, '0')}`, category: 'Appointment', memberIds: ['adult'], remindMe: false }));
 const before = JSON.stringify(events);

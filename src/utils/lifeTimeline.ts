@@ -204,6 +204,23 @@ const VAULT_CATEGORY: Record<VaultCategory, LifeCategory> = {
   Other: 'other',
 };
 
+/** The two memory cards share a feed of deliberately saved, dated stories. */
+export function timelineMemoryEvents(entries: readonly TimelineEntry[]): CalendarEvent[] {
+  return entries.flatMap((entry) => {
+    const category = categoryOfEntry(entry);
+    if (entry.datePrecision || !isValidIso(entry.date) || !entry.title.trim()) return [];
+    if (category !== 'memory' && category !== 'milestone' && category !== 'holiday') return [];
+    return [{
+      id: entry.id,
+      title: entry.title,
+      date: entry.date,
+      category: category === 'milestone' ? 'Milestone' : category === 'holiday' ? 'Travel' : 'Other',
+      memberIds: entry.memberIds,
+      remindMe: false,
+    }];
+  });
+}
+
 function isValidIso(date: string | undefined): date is string {
   return !!date && /^\d{4}-\d{2}-\d{2}$/.test(date) && parseDateOnly(date) != null;
 }

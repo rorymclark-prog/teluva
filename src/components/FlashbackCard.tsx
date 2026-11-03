@@ -60,8 +60,7 @@ function buildMemories(members: FamilyMember[], events: CalendarEvent[]): Memory
   }
 
   for (const ev of events) {
-    if (ev.category === 'Appointment') continue; // routine, not memory — same exclusion OnThisDay.tsx uses
-    const d = new Date(ev.date);
+    const d = new Date(`${ev.date}T00:00:00`);
     if (isNaN(d.getTime())) continue;
     const yearsAgo = new Date().getFullYear() - d.getFullYear();
     if (yearsAgo < 1) continue; // not a throwback yet
