@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { EMBER_THREAD_ENABLED } from '../config/features';
+import { PREFERENCE_EVENT, PREFERENCE_OVERRIDE_KEY } from '../utils/reviewedPreferences';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 export type InterfacePreference = 'ember' | 'classic';
@@ -44,6 +45,15 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
   const [interfacePreference, setInterfaceState] = useState<InterfacePreference>(storedInterface);
   const [system, setSystem] = useState<'light' | 'dark'>(systemTheme);
   const resolvedTheme = theme === 'system' ? system : theme;
+  useEffect(() => {
+    const reviewed = (event: Event) => { const next = (event as CustomEvent).detail?.theme;
+      if (!['system', 'light', 'dark'].includes(next)) return;
+      try { localStorage.setItem(THEME_KEY, next); } catch { /* private mode */ }
+      setThemeState(next);
+    };
+    window.addEventListener(PREFERENCE_EVENT, reviewed);
+    return () => window.removeEventListener(PREFERENCE_EVENT, reviewed);
+  }, []);
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
@@ -61,7 +71,7 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
   }, [resolvedTheme, interfacePreference]);
 
   const setTheme = (next: ThemePreference) => {
-    try { localStorage.setItem(THEME_KEY, next); } catch { /* private mode */ }
+    try { localStorage.setItem(THEME_KEY, next); localStorage.setItem(PREFERENCE_OVERRIDE_KEY, String(Date.now())); } catch { /* private mode */ }
     setThemeState(next);
   };
 

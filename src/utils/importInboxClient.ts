@@ -1,15 +1,18 @@
 import type { AssetItem, VaultCategory } from '../types';
+import type { LangCode } from '../i18n/locales';
+export const PREFERENCE_LANGUAGES = ['en', 'de', 'es', 'fr', 'pt', 'it', 'nl', 'pl', 'af', 'ro'] as const;
 
-export type ImportProposal = { kind: 'asset'; asset: Partial<AssetItem> } | { kind: 'document'; document: { name: string; category: VaultCategory; docDate?: string; notes?: string } };
+export interface ReviewPreferences { language?: LangCode; theme?: 'system' | 'light' | 'dark' }
+export type ImportProposal = { kind: 'asset'; asset: Partial<AssetItem> } | { kind: 'document'; document: { name: string; category: VaultCategory; docDate?: string; notes?: string } } | { kind: 'preferences'; preferences: ReviewPreferences };
 export interface ImportInboxItem {
   id: string; spaceId: string; createdBy: string;
   status: 'pending' | 'applied' | 'dismissed';
-  source: { documentId?: string; contentHash?: string; sourceName?: string; sourceText?: string };
+  source: { documentId?: string; contentHash?: string; sourceName?: string; sourceText?: string; provenance?: { provider: string; label: string; representation: string; url?: string; contentHash?: string; attribution?: string } };
   proposal?: ImportProposal;
   analysis: { status: 'idle' | 'running' | 'ready' | 'failed'; error?: string; startedAt?: string; leaseUntil?: string; extractedText?: string; evidenceQuotes?: unknown[] };
-  revision: number; createdAt: string; updatedAt: string; appliedRecordId?: string;
+  revision: number; createdAt: string; updatedAt: string; appliedRecordId?: string; appliedAt?: string;
 }
-export interface ConnectorGrant { id: string; clientName: string; spaceId: string; scopes: string[]; documentIds: string[]; createdAt: number | string; expiresAt: number | string }
+export interface ConnectorGrant { id: string; clientName: string; spaceId: string; scopes: string[]; documentIds: string[]; createdAt: number | string; expiresAt: number | string; lastUsedAt?: number; lastTool?: string }
 export interface ConnectorRequest { id: string; clientName: string; redirectHost?: string; scopes: string[]; expiresAt: number }
 interface User { uid: string; getIdToken: () => Promise<string> }
 interface Options { getUser: () => User | null; getSpace: () => string | null; getGeneration?: () => unknown; fetch?: typeof fetch }
@@ -50,6 +53,7 @@ export function createImportInboxClient(options: Options) {
   const itemRoute = (id: string) => `/api/import-inbox/${encodeURIComponent(id)}`;
   return {
     list: () => request<{ spaceId: string; items: ImportInboxItem[] }>('/api/import-inbox', 'GET'),
+    preferences: () => request<{ spaceId: string; preferences: ReviewPreferences & { reviewedAt?: string } }>('/api/import-inbox/preferences', 'GET'),
     create: (input: { documentId?: string; sourceText?: string; sourceName?: string; proposal?: ImportProposal; requestId: string }) => request<{ spaceId: string; item: ImportInboxItem }>('/api/import-inbox', 'POST', input),
     patch: (id: string, proposal: ImportProposal, expectedRevision: number) => request<{ spaceId: string; item: ImportInboxItem }>(itemRoute(id), 'PATCH', { proposal, expectedRevision }),
     act: (id: string, action: 'analyze' | 'apply' | 'dismiss', expectedRevision: number) => request<{ spaceId: string; item: ImportInboxItem }>(`${itemRoute(id)}/${action}`, 'POST', { expectedRevision }),

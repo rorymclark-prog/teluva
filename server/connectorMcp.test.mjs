@@ -78,7 +78,11 @@ async function fixture() {
 async function withFixture(run) { const f = await fixture(); try { await run(f); } finally { await f.close(); } }
 
 test('Streamable HTTP initialization, JSON replies, notifications, method errors and auth challenges', () => withFixture(async f => {
-  const unauthorized = await f.rpc('initialize', {}, { token: '' });
+  const discovery = await f.rpc('initialize', {}, { token: '' });
+  assert.equal(discovery.status, 200, 'public metadata lets hosts discover tools before account connection');
+  const publicTools = (await f.rpc('tools/list', {}, { token: '' }).then(response => response.json())).result.tools;
+  assert.ok(publicTools.every(tool => tool.securitySchemes[0].type === 'oauth2'));
+  const unauthorized = await f.rpc('tools/call', { name: 'get_connection', arguments: {} }, { token: '' });
   assert.equal(unauthorized.status, 401);
   assert.match(unauthorized.headers.get('www-authenticate'), /resource_metadata="https:\/\/teluva.test\/\.well-known\/oauth-protected-resource\/mcp"/);
   assert.equal((await unauthorized.text()).includes('private token'), false);
@@ -109,9 +113,12 @@ test('tool discovery exposes only consented scopes and truthful read/write annot
   const submit = write.find(tool => tool.name === 'submit_import');
   assert.equal(submit.annotations.readOnlyHint, false); assert.equal(submit.annotations.destructiveHint, false); assert.equal(submit.annotations.idempotentHint, true);
   assert.equal(submit.inputSchema.additionalProperties, false);
-  assert.equal(submit.inputSchema.properties.proposal.oneOf.length, 2, 'hosts discover the actual fixed asset/document proposal schema');
+  assert.equal(submit.inputSchema.properties.proposal.oneOf.length, 3, 'hosts discover fixed asset/document/personal-preference proposals');
   const connection = (await f.tool('get_connection', {}, { token: 'read' }).then(response => response.json())).result.structuredContent;
-  assert.deepEqual(connection, { spaceId: 'selected-space', scopes: ['documents:read'], selectedDocumentCount: 2, pendingReviewOnly: true });
+  assert.equal(connection.spaceId, 'selected-space'); assert.deepEqual(connection.scopes, ['documents:read']);
+  assert.equal(connection.selectedDocumentCount, 2); assert.equal(connection.pendingReviewOnly, true);
+  assert.equal(connection.originalImportsSupported, false);
+  assert.match(connection.reviewUrl, /open=inbox/);
   assert.equal(JSON.stringify(connection).includes('verified-adult'), false, 'connection inspection is bounded to the selected space');
 }));
 

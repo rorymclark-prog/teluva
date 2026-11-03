@@ -288,6 +288,7 @@ export function createFileHandlers({ verifyIdToken, verifySessionCookie, createS
       const file = bucket.file(caller.path);
       const previous = await metadata(file);
       await enforcePolicy(caller, previous, true);
+      if (previous?.metadata?.teluvaOriginalHash) throw new FileAccessError(409, 'FILE_ORIGINAL_IMMUTABLE', 'Imported originals keep their verified bytes. Upload a new original instead of replacing this file.');
       const custom = { ...(previous?.metadata || {}) };
       delete custom.firebaseStorageDownloadTokens;
       if (!custom.teluvaOwnerUid) custom.teluvaOwnerUid = caller.uid;

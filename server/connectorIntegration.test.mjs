@@ -65,6 +65,16 @@ test('AI opt-out and child role block processing before sending any bytes', asyn
   }
 });
 
+test('imported proof fails closed if its protected checksum marker is missing or changed', async () => {
+  const f = fixture(), document = f.records.get('families/family/reference/documents').docs[0];
+  document.connectorSource = { contentHash: document.contentHash };
+  assert.equal(await f.integration.canReadDocument({ uid: 'owner' }, 'family', 'receipt'), false);
+  f.bucket.file = name => ({ name, getMetadata: async () => [{ size: 16, contentType: 'application/pdf', metadata: { teluvaOriginalHash: document.contentHash } }] });
+  assert.equal(await f.integration.canReadDocument({ uid: 'owner' }, 'family', 'receipt'), true);
+  document.connectorSource.contentHash = 'tampered-reference';
+  assert.equal(await f.integration.canReadDocument({ uid: 'owner' }, 'family', 'receipt'), false);
+});
+
 test('MCP search hides selected files whose byte access is unavailable', async () => {
   const f = fixture();
   const result = await f.integration.searchDocuments({ uid: 'owner', spaceId: 'family', documentIds: ['receipt', 'private', 'foreign'] }, '');

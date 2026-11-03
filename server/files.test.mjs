@@ -173,6 +173,18 @@ test('upload keeps exact bytes, owner identity and unrelated metadata without cr
   assert.equal((await f.request('write', 'member', { body: Buffer.alloc(MAX_FILE_BYTES) })).status, 413);
 });
 
+test('an imported checksum original cannot be overwritten through the ordinary file API', async () => {
+  const f = fixture();
+  const record = f.records.get(PATH);
+  record.info.metadata = { teluvaOwnerUid: 'member', teluvaOriginalHash: 'verified-source-hash' };
+  const before = Buffer.from(record.data);
+  for (const uid of ['member', 'admin']) {
+    const response = await f.request('write', uid, { body: Buffer.from('replacement') });
+    assert.equal(response.status, 409); assert.equal(response.body.code, 'FILE_ORIGINAL_IMMUTABLE');
+  }
+  assert.deepEqual(f.records.get(PATH).data, before);
+});
+
 test('a concurrent estate protection cannot be erased by a stale upload or delete', async () => {
   for (const action of ['write', 'remove']) {
     const f = fixture();

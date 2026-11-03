@@ -7,6 +7,22 @@ const documentProposal = patch => ({ kind: 'document', document: { name: 'Review
 const actor = uid => ({ uid });
 const rejectCode = code => error => error instanceof ImportInboxError && error.code === code;
 
+test('personal language and appearance stay proposals until their requesting adult approves', async () => {
+  const f = fixture();
+  const entry = await f.service.create(actor('staff'), 'business', { requestId: 'personal', sourceName: 'Explicit customer request', sourceText: 'Please use German and dark appearance.', proposal: { kind: 'preferences', preferences: { language: 'de', theme: 'dark' } } });
+  assert.equal(f.records.has('users/staff/preferences/teluva'), false);
+  await assert.rejects(f.service.apply(actor('admin'), 'business', entry.id), rejectCode('IMPORT_ADMIN_REQUIRED'));
+  await assert.rejects(f.service.apply(actor('colleague'), 'business', entry.id), rejectCode('IMPORT_ADMIN_REQUIRED'));
+  await assert.rejects(f.service.analyze(actor('staff'), 'business', entry.id), rejectCode('INVALID_IMPORT'));
+  const applied = await f.service.apply(actor('staff'), 'business', entry.id);
+  assert.equal(applied.status, 'applied'); assert.equal(f.extracts.length, 0);
+  assert.deepEqual(await f.service.preferences(actor('staff'), 'business'), { language: 'de', theme: 'dark', reviewedAt: applied.appliedAt });
+  assert.deepEqual(await f.service.preferences(actor('admin'), 'business'), {});
+  assert.equal([...f.records.keys()].some(key => key.includes('family_members')), false, 'no private profile facts or roles are changed');
+  await assert.rejects(f.service.create(actor('staff'), 'business', { requestId: 'infer', documentId: 'invoice', proposal: { kind: 'preferences', preferences: { language: 'de' } } }), rejectCode('INVALID_IMPORT'));
+  for (const preferences of [{ nationality: 'AT' }, { language: 'made-up' }, { theme: 'hacker' }, {}]) assert.throws(() => sanitizeImportProposal({ kind: 'preferences', preferences }), rejectCode('INVALID_IMPORT'));
+});
+
 function fixture(extractor) {
   const records = new Map(Object.entries({
     'families/business/roles/admin': { role: 'admin' }, 'families/business/roles/staff': { role: 'member' },

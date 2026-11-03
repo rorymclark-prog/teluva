@@ -58,6 +58,9 @@ export function createConnectorIntegration({ db, bucket, getUserIdentity, getPol
     const file = bucket.file(storagePath);
     let metadata;
     try { [metadata] = await file.getMetadata(); } catch (error) { if (error?.code === 404) throw fail(404, 'The original file is unavailable.'); throw error; }
+    if (document.connectorSource && (metadata.metadata?.teluvaOriginalHash !== document.contentHash || document.connectorSource.contentHash !== document.contentHash)) {
+      throw fail(409, 'The imported original could not be verified. Keep the file and re-import the selected source before applying it.');
+    }
     const caller = { uid, email: membership.email, role: membership.role, familyId: spaceId, path: storagePath };
     const policy = await getPolicy(spaceId, storagePath, metadata, caller);
     if (policy?.ownerAllowed === false || (policy?.estate && membership.role !== 'admin' && !policy.readerUids?.includes(uid))) {

@@ -14,6 +14,7 @@ import AccountLoadError from './components/AccountLoadError';
 import FamilySettings from './components/FamilySettings';
 import UpdateBanner from './components/UpdateBanner';
 import GlobalCopyScan from './components/GlobalCopyScan';
+import ReviewedPreferencesSync from './components/ReviewedPreferencesSync';
 import { AppearanceProvider } from './contexts/AppearanceContext';
 import EmergencyOfflinePack from './components/EmergencyOfflinePack';
 import { activateEmergencyPackScope } from './utils/emergencyPack';
@@ -159,7 +160,7 @@ export default function App() {
       <LangProvider>
         <FamilyProvider>
           <ChatDraftProvider>
-            <AppInner />
+            <ReviewedPreferencesSync /><AppInner />
             <GlobalCopyScan />
           </ChatDraftProvider>
         </FamilyProvider>

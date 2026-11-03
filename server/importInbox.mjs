@@ -13,6 +13,7 @@ const safeId = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:-
 const validSpace = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const stable = value => Array.isArray(value) ? value.map(stable) : plain(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
 const digest = value => createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
+const PREFERENCE_LANGUAGES = ['en', 'de', 'es', 'fr', 'pt', 'it', 'nl', 'pl', 'af', 'ro'];
 const ASSET_CATEGORIES = ['Electronics', 'Appliance', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other'];
 const DOCUMENT_CATEGORIES = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
 const ASSET_STRINGS = { name: 200, make: 160, model: 160, serialNumber: 200, purchasePrice: 80, currency: 3, purchaseLocation: 250,
@@ -23,6 +24,9 @@ const DOCUMENT_STRINGS = { name: 200, notes: 4000 };
 const stringSchema = limits => Object.fromEntries(Object.entries(limits).map(([key, maxLength]) => [key, { type: 'string', maxLength }]));
 export const IMPORT_PROPOSAL_SCHEMA = {
   oneOf: [
+    { type: 'object', additionalProperties: false, required: ['kind', 'preferences'], properties: { kind: { const: 'preferences' }, preferences: {
+      type: 'object', additionalProperties: false, minProperties: 1, properties: { language: { enum: PREFERENCE_LANGUAGES }, theme: { enum: ['system', 'light', 'dark'] } },
+    } } },
     { type: 'object', additionalProperties: false, required: ['kind', 'asset'], properties: { kind: { const: 'asset' }, asset: {
       type: 'object', additionalProperties: false, required: ['name', 'category'], properties: {
         ...stringSchema(ASSET_STRINGS), category: { enum: ASSET_CATEGORIES }, purchaseContext: { enum: ['consumer', 'business', 'unknown'] },
@@ -63,6 +67,14 @@ function strings(input, limits, required = [], keepEmpty = false) {
 }
 export function sanitizeImportProposal(input) {
   if (!plain(input) || bytes(input) > IMPORT_LIMITS.proposalBytes) fail(400, 'INVALID_IMPORT', 'The proposed record is invalid or too large.');
+  if (input.kind === 'preferences') {
+    allowedKeys(input, ['kind', 'preferences']); allowedKeys(input.preferences, ['language', 'theme']);
+    const preferences = {};
+    if (input.preferences.language !== undefined) { if (!PREFERENCE_LANGUAGES.includes(input.preferences.language)) fail(400, 'INVALID_IMPORT', 'Choose a supported language.'); preferences.language = input.preferences.language; }
+    if (input.preferences.theme !== undefined) { if (!['system', 'light', 'dark'].includes(input.preferences.theme)) fail(400, 'INVALID_IMPORT', 'Choose a supported appearance.'); preferences.theme = input.preferences.theme; }
+    if (!Object.keys(preferences).length) fail(400, 'INVALID_IMPORT', 'Choose at least one preference to review.');
+    return { kind: 'preferences', preferences };
+  }
   if (input.kind === 'asset') {
     allowedKeys(input, ['kind', 'asset']);
     const value = input.asset;
@@ -110,7 +122,7 @@ export function importDocumentVersion(document) {
 }
 function sourceSnapshot(document) {
   return { kind: 'document', hasOriginalDocument: true, documentId: document.id, sourceName: String(document.name || document.fileName || 'Vault document').slice(0, 200), contentHash: document.contentHash || null,
-    documentVersion: importDocumentVersion(document) };
+    documentVersion: importDocumentVersion(document), ...(document.connectorSource ? { provenance: document.connectorSource } : {}) };
 }
 function validateRevision(options = {}) {
   if (options.expectedRevision !== undefined && (!Number.isSafeInteger(options.expectedRevision) || options.expectedRevision < 1)) fail(400, 'INVALID_IMPORT', 'Use a valid draft revision.');
@@ -134,6 +146,13 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
     let role = membership?.role;
     if (transaction) { const snap = await transaction.get(db.doc(`families/${spaceId}/roles/${actor.uid}`)); role = snap.exists ? snap.data().role : null; }
     if (!['admin', 'member'].includes(role)) fail(403, 'IMPORT_ADULT_REQUIRED', 'Only current adult members of this space can use the import inbox.');
+    if (actor.grantId) {
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(actor.grantId)) fail(403, 'CONNECTION_REVOKED', 'Reconnect before importing.');
+      const ref = db.doc(`connector_grants/${actor.grantId}`), snap = transaction ? await transaction.get(ref) : await ref.get();
+      const grant = snap.exists && snap.data();
+      if (!grant || grant.uid !== actor.uid || grant.spaceId !== spaceId || grant.revokedAt || grant.expiresAt <= Date.now()
+        || !grant.scopes?.includes('inbox:write') || (grant.membershipVersion || '') !== (membership?.membershipVersion || '')) fail(403, 'CONNECTION_REVOKED', 'The connection changed or was revoked. Reconnect before importing.');
+    }
     return { ...membership, role };
   }
   async function original(actor, spaceId, item, transaction, compare = false) {
@@ -184,6 +203,7 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
     const sourceName = !documentId ? text(input.sourceName, 200, true) : input.sourceName === undefined ? undefined : text(input.sourceName, 200);
     if (sourceText && Buffer.byteLength(sourceText, 'utf8') > IMPORT_LIMITS.sourceBytes) fail(413, 'IMPORT_TOO_LARGE', 'The submitted text is too large.');
     const proposal = input.proposal === undefined ? undefined : sanitizeImportProposal(input.proposal);
+    if (proposal?.kind === 'preferences' && documentId) fail(400, 'INVALID_IMPORT', 'Personal preferences must come from an explicit named request, not inferred document facts.');
     const payloadHash = digest({ documentId, sourceText, sourceName, proposal });
     const id = createHash('sha256').update(`${actor.uid}\n${input.requestId}`).digest('hex').slice(0, 40);
     return db.runTransaction(async transaction => {
@@ -215,6 +235,7 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       const membership = await authorize(actor, spaceId, transaction);
       const { ref, item } = await readItem(actor, spaceId, id, transaction, membership);
       pending(item); revisionCheck(item, input);
+      if (proposal.kind === 'preferences' && item.source.documentId) fail(400, 'INVALID_IMPORT', 'Personal preferences need an explicit request, not document inference.');
       await original(actor, spaceId, item, transaction, true);
       const next = { ...item, proposal, analysis: { status: 'ready',
         ...(item.analysis?.extractedText ? { extractedText: item.analysis.extractedText } : {}),
@@ -230,6 +251,7 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       const membership = await authorize(actor, spaceId, transaction);
       const { ref, item } = await readItem(actor, spaceId, id, transaction, membership);
       pending(item); revisionCheck(item, options);
+      if (item.proposal?.kind === 'preferences') fail(400, 'INVALID_IMPORT', 'Preferences come from your request and do not need paid analysis.');
       if (item.analysis?.status === 'running' && now().getTime() - Date.parse(item.analysis.startedAt) < IMPORT_LIMITS.analysisLeaseMs) fail(409, 'ANALYSIS_RUNNING', 'This import is already being analyzed.');
       const resolved = await original(actor, spaceId, item, transaction);
       const source = resolved ? sourceSnapshot(resolved.document) : item.source;
@@ -241,6 +263,7 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
     try {
       const result = await extractDocument(actor, spaceId, { ...(started.document ? { document: started.document, documentId: started.document.id } : { sourceText: started.item.source.sourceText }), sourceName: started.item.source.sourceName });
       const proposal = sanitizeImportProposal(result?.proposal);
+      if (proposal.kind === 'preferences') throw new Error('preferences-require-explicit-review-request');
       const extractedText = result.extractedText === undefined ? undefined : text(result.extractedText, IMPORT_LIMITS.sourceChars);
       if (extractedText && Buffer.byteLength(extractedText, 'utf8') > IMPORT_LIMITS.sourceBytes) throw new Error('extracted-text-too-large');
       const originalText = extractedText || started.item.source.sourceText || '';
@@ -270,8 +293,13 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
     allowedKeys(options, ['expectedRevision']); validateRevision(options);
     return db.runTransaction(async transaction => {
       const membership = await authorize(actor, spaceId, transaction);
-      if (membership.role !== 'admin') fail(403, 'IMPORT_ADMIN_REQUIRED', 'Only an admin can apply an import to the asset register or vault.');
+      if (membership.role !== 'admin') {
+        const candidate = await transaction.get(refs(spaceId).inbox.doc(id));
+        if (!candidate.exists || candidate.data().proposal?.kind !== 'preferences' || candidate.data().createdBy !== actor.uid) fail(403, 'IMPORT_ADMIN_REQUIRED', 'Only an admin can apply an import to the asset register or vault.');
+      }
       const { ref, item } = await readItem(actor, spaceId, id, transaction, membership);
+      const personal = item.proposal?.kind === 'preferences';
+      if (personal ? item.createdBy !== actor.uid : membership.role !== 'admin') fail(403, 'IMPORT_ADMIN_REQUIRED', personal ? 'Only the person who requested these preferences can approve them.' : 'Only an admin can apply an import to the asset register or vault.');
       const resolved = await original(actor, spaceId, item, transaction, item.status !== 'applied');
       if (item.status === 'applied') return item;
       pending(item); revisionCheck(item, options);
@@ -279,7 +307,10 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       const proposal = sanitizeImportProposal(item.proposal);
       const stamp = timestamp();
       let appliedRecordId;
-      if (proposal.kind === 'asset') {
+      if (proposal.kind === 'preferences') {
+        appliedRecordId = actor.uid;
+        transaction.set(db.doc(`users/${actor.uid}/preferences/teluva`), { ...proposal.preferences, reviewedAt: stamp, sourceInboxId: id }, { merge: true });
+      } else if (proposal.kind === 'asset') {
         const asset = proposal.asset;
         const assetRef = refs(spaceId).assets.doc(`import-${id}`);
         const existing = await transaction.get(assetRef);
@@ -320,7 +351,16 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       transaction.set(ref, next); return next;
     });
   }
-  return { list, create, analyze, update, apply, dismiss };
+  async function preferences(actor, spaceId) {
+    await authorize(actor, spaceId);
+    const snapshot = await db.doc(`users/${actor.uid}/preferences/teluva`).get();
+    const value = snapshot.exists ? snapshot.data() : {};
+    await authorize(actor, spaceId);
+    return { ...(value.language && PREFERENCE_LANGUAGES.includes(value.language) ? { language: value.language } : {}),
+      ...(value.theme && ['system', 'light', 'dark'].includes(value.theme) ? { theme: value.theme } : {}),
+      ...(typeof value.reviewedAt === 'string' ? { reviewedAt: value.reviewedAt } : {}) };
+  }
+  return { list, create, analyze, update, apply, dismiss, preferences };
 }
 
 export function createImportInboxRouter({ service, authenticateFirebase }) {
@@ -342,6 +382,7 @@ export function createImportInboxRouter({ service, authenticateFirebase }) {
     }
   };
   router.get('/', run(async (actor, space) => ({ items: await service.list(actor, space) })));
+  router.get('/preferences', run(async (actor, space) => ({ preferences: await service.preferences(actor, space) })));
   router.post('/', run(async (actor, space, _id, body) => ({ item: await service.create(actor, space, body) })));
   router.patch('/:id', run(async (actor, space, id, body) => ({ item: await service.update(actor, space, id, body) })));
   for (const action of ['analyze', 'apply', 'dismiss']) router.post(`/:id/${action}`, run(async (actor, space, id, body) => ({ item: await service[action](actor, space, id, body) })));

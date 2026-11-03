@@ -14,6 +14,7 @@ import { CONNECTOR_COLLECTIONS, createFirestoreConnectorStore } from './connecto
 import { createConnectorIntegration } from './connectorIntegration.mjs';
 import { createImportInbox, createImportInboxRouter } from './importInbox.mjs';
 import { createConnectorMcpRouter } from './connectorMcp.mjs';
+import { createConnectorOriginals } from './connectorOriginals.mjs';
 
 const endpoint = /^(127\.0\.0\.1|localhost):(\d{1,5})$/.exec(process.env.FIRESTORE_EMULATOR_HOST || '');
 if (!endpoint || Number(endpoint[2]) < 1 || Number(endpoint[2]) > 65535
@@ -39,6 +40,7 @@ test('connector OAuth, MCP and review inbox use real Firestore transactions and 
   const written = new Set();
   const identities = new Map();
   const objects = new Map();
+  const objectMetadata = new Map();
   const byteAcl = new Set();
   let extractionCount = 0;
   let sequence = 0;
@@ -65,7 +67,11 @@ test('connector OAuth, MCP and review inbox use real Firestore transactions and 
       async getMetadata() {
         const bytes = objects.get(path);
         if (!bytes) throw Object.assign(new Error('synthetic missing object'), { code: 404 });
-        return [{ size: String(bytes.length), contentType: 'text/plain', generation: '1' }];
+        return [{ size: String(bytes.length), contentType: 'text/plain', generation: '1', ...(objectMetadata.get(path) || {}) }];
+      },
+      async save(bytes, options) {
+        if (objects.has(path)) throw Object.assign(new Error('synthetic existing original'), { code: 412 });
+        objects.set(path, Buffer.from(bytes)); objectMetadata.set(path, options.metadata);
       },
       async download() {
         const bytes = objects.get(path);
@@ -76,7 +82,7 @@ test('connector OAuth, MCP and review inbox use real Firestore transactions and 
   } };
   const integration = createConnectorIntegration({ db, bucket,
     getUserIdentity: async uid => identities.get(uid) || null,
-    getPolicy: async (spaceId, path, _metadata, caller) => ({ estate: false, ownerAllowed: path.startsWith(`families/${spaceId}/`) && byteAcl.has(`${caller.uid}:${path}`) }),
+    getPolicy: async (spaceId, path, metadata, caller) => ({ estate: false, ownerAllowed: path.startsWith(`families/${spaceId}/`) && (byteAcl.has(`${caller.uid}:${path}`) || metadata.metadata?.teluvaOwnerUid === caller.uid) }),
     generateContent: async body => {
       const source = body.contents.flatMap(content => content.parts).map(part => part.text || '').join('\n');
       assert.ok(source.includes(quote), 'the extractor receives the selected original, not an arbitrary URL');
@@ -93,12 +99,13 @@ test('connector OAuth, MCP and review inbox use real Firestore transactions and 
     return { uid, email_verified: true };
   }, resolveMembership: integration.resolveMembership, canReadDocument: integration.canReadDocument });
   const inbox = createImportInbox({ db, resolveMembership: integration.resolveMembership, canReadDocument: integration.canReadDocument, extractDocument: integration.extractDocument });
+  const originals = createConnectorOriginals({ db, bucket, resolveMembership: integration.resolveMembership, canReadDocument: integration.canReadDocument, inbox, origin: CONNECTOR_ORIGIN });
   const app = express();
   app.use(auth.router);
   app.use('/api/import-inbox', createImportInboxRouter({ service: inbox, authenticateFirebase: auth.requireFirebase }));
   // Match server.js wiring: the MCP router supplies the verified connection as
   // actor, never arguments from the model, to both integration callbacks.
-  app.use('/mcp', createConnectorMcpRouter({ authenticateConnector: auth.authenticateConnector, inbox, origin: CONNECTOR_ORIGIN,
+  app.use('/mcp', createConnectorMcpRouter({ authenticateConnector: auth.authenticateConnector, recordConnectorUse: auth.recordConnectorUse, inbox, originals, origin: CONNECTOR_ORIGIN,
     searchDocuments: (actor, _spaceId, { query }) => integration.searchDocuments(actor, query),
     fetchDocument: (actor, _spaceId, documentId) => integration.fetchDocument(actor, documentId),
   }));
@@ -193,7 +200,7 @@ test('connector OAuth, MCP and review inbox use real Firestore transactions and 
       const initialized = await rpc(token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'synthetic probe', version: '1' } });
       assert.equal(initialized.data.result.serverInfo.name, 'teluva-connector');
       const listed = await rpc(token, 'tools/list');
-      assert.deepEqual(listed.data.result.tools.map(item => item.name).sort(), ['fetch', 'get_connection', 'search', 'submit_import']);
+      assert.deepEqual(listed.data.result.tools.map(item => item.name).sort(), ['fetch', 'get_connection', 'import_original', 'search', 'submit_import']);
       const searched = result(await tool(token, 'search', { query: 'appliance' }));
       assert.deepEqual(searched.results.map(item => item.id), [f.documentId]);
       assert.equal(result(await tool(token, 'fetch', { id: f.documentId })).text, quote);
@@ -239,7 +246,7 @@ test('connector OAuth, MCP and review inbox use real Firestore transactions and 
       const connection = await grant(f, { clientId, user: f.staff, scopes: ['inbox:write'], documentIds: [] });
       const tokens = (await exchange(connection)).data;
       const listed = await rpc(tokens.access_token, 'tools/list');
-      assert.deepEqual(listed.data.result.tools.map(item => item.name).sort(), ['get_connection', 'submit_import']);
+      assert.deepEqual(listed.data.result.tools.map(item => item.name).sort(), ['get_connection', 'import_original', 'submit_import']);
       assert.equal((await tool(tokens.access_token, 'fetch', { id: f.documentId })).data.result.isError, true);
       const submitted = result(await tool(tokens.access_token, 'submit_import', { requestId: 'staff-text', sourceName: 'Explicitly pasted synthetic text', sourceText: quote, proposal, analyze: false }));
       assert.equal(submitted.item.source.hasOriginalDocument, false);
@@ -303,6 +310,54 @@ test('connector OAuth, MCP and review inbox use real Firestore transactions and 
       assert.equal((await refresh(connection.clientId, rejoin.refresh_token)).status, 400);
     });
 
+    await t.test('original attachments keep exact bytes, deduplicate and file only after review; revocation requires a fresh grant', async () => {
+      const f = await fixture('originals');
+      const authorization = await grant(f, { scopes: ['inbox:write'], documentIds: [] });
+      const tokens = (await exchange(authorization)).data;
+      const bytes = Buffer.from('%PDF-1.7\nSynthetic original bytes for the emulator');
+      const input = { requestId: 'original-test', contentBase64: bytes.toString('base64'), fileName: 'synthetic.pdf', mimeType: 'application/pdf',
+        source: { provider: 'local', label: 'Explicit synthetic attachment', representation: 'original' },
+        proposal: { kind: 'document', document: { name: 'Reviewed synthetic invoice', category: 'Financial' } } };
+      const first = result(await tool(tokens.access_token, 'import_original', input));
+      const retry = result(await tool(tokens.access_token, 'import_original', input));
+      const duplicate = result(await tool(tokens.access_token, 'import_original', { ...input, requestId: 'same-bytes-new-request' }));
+      assert.equal(first.item.id, retry.item.id); assert.equal(first.item.id, duplicate.item.id);
+      assert.equal(first.item.source.hasOriginalDocument, true);
+      assert.equal(first.item.source.provenance.representation, 'original');
+      const docs = (await db.doc(`families/${f.spaceId}/reference/documents`).get()).data().docs;
+      const saved = docs.find(doc => doc.id === first.original.documentId);
+      assert.deepEqual(objects.get(saved.storagePath), bytes);
+      assert.equal(saved.category, 'Other', 'categorisation waits for explicit review');
+      assert.equal((await tool(tokens.access_token, 'fetch', { id: saved.id })).data.result.isError, true, 'ingestion does not silently broaden selected-document reading');
+      const applied = await request(reviewPath(f, first.item.id, 'apply'), { method: 'POST', user: f.owner, body: { expectedRevision: first.item.revision } });
+      assert.equal(applied.status, 200); assert.equal(applied.data.item.status, 'applied');
+      assert.equal((await db.doc(`families/${f.spaceId}/reference/documents`).get()).data().docs.find(doc => doc.id === saved.id).category, 'Financial');
+      assert.deepEqual(objects.get(saved.storagePath), bytes);
+      const connections = await request(`/api/connectors?spaceId=${f.spaceId}`, { user: f.owner });
+      assert.ok(connections.data.connectors[0].lastUsedAt, 'the app can distinguish consent from actual authenticated use');
+      await request(`/api/connectors/${connections.data.connectors[0].id}`, { method: 'DELETE', user: f.owner });
+      assert.equal((await tool(tokens.access_token, 'import_original', { ...input, requestId: 'revoked' })).status, 401);
+      const renewed = await grant(f, { scopes: ['inbox:write'], documentIds: [] });
+      const reconnected = (await exchange(renewed)).data;
+      assert.equal(result(await tool(reconnected.access_token, 'get_connection')).spaceId, f.spaceId);
+    });
+
+    await t.test('personalisation persists only after self-review, merges preferences and remains account isolated', async () => {
+      const f = await fixture('personal', 'business');
+      const connected = await grant(f, { user: f.staff, scopes: ['inbox:write'], documentIds: [] });
+      const token = (await exchange(connected)).data.access_token;
+      const pending = result(await tool(token, 'submit_import', { requestId: 'personalisation', sourceName: 'Explicit synthetic customer request', sourceText: 'Please use German and dark appearance.', analyze: false,
+        proposal: { kind: 'preferences', preferences: { language: 'de', theme: 'dark' } } }));
+      assert.equal((await db.doc(`users/${f.staff}/preferences/teluva`).get()).exists, false);
+      assert.equal((await request(reviewPath(f, pending.item.id, 'apply'), { method: 'POST', user: f.owner, body: {} })).status, 403);
+      const applied = await request(reviewPath(f, pending.item.id, 'apply'), { method: 'POST', user: f.staff, body: {} });
+      assert.equal(applied.status, 200); assert.equal(applied.data.item.status, 'applied');
+      const preferences = await request(`/api/import-inbox/preferences?spaceId=${f.spaceId}`, { user: f.staff });
+      assert.equal(preferences.data.preferences.language, 'de'); assert.equal(preferences.data.preferences.theme, 'dark');
+      assert.deepEqual((await request(`/api/import-inbox/preferences?spaceId=${f.spaceId}`, { user: f.owner })).data.preferences, {});
+      assert.equal((await request(`/api/import-inbox/preferences?spaceId=${f.otherId}`, { user: f.staff })).status, 403);
+    });
+
     await t.test('Firestore rules deny direct connector registry and import inbox access even to the space administrator', async () => {
       rules = await initializeTestEnvironment({ projectId: 'rules-probe', firestore: { host: endpoint[1], port: Number(endpoint[2]), rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8') } });
       const browser = rules.authenticatedContext(rulesFixture.owner, { email_verified: true }).firestore();
@@ -325,6 +380,7 @@ test('connector OAuth, MCP and review inbox use real Firestore transactions and 
     if (server) await new Promise(resolve => { server.closeAllConnections(); server.close(resolve); });
     if (rules) await rules.cleanup();
     for (const spaceId of spaces) await db.recursiveDelete(db.doc(`families/${spaceId}`));
+    for (const uid of uids) await db.recursiveDelete(db.doc(`users/${uid}`));
     const paths = [...written, ...[...uids].map(uid => `users/${uid}`)];
     for (let offset = 0; offset < paths.length; offset += 400) {
       const batch = db.batch();

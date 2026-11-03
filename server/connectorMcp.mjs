@@ -16,7 +16,13 @@ function keys(args, allowed) {
 }
 const objectSchema = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+const sourceSchema = objectSchema({ provider: { enum: ['drive', 'gmail', 'local', 'chatgpt', 'other'] }, sourceId: { type: 'string', maxLength: 500 },
+  url: { type: 'string', maxLength: 2000, description: 'Original source page, never a temporary download URL or token.' }, label: { type: 'string', maxLength: 200 }, representation: { enum: ['original', 'export'] } }, ['provider', 'label', 'representation']);
 const TOOLS = [
+  { name: 'import_original', title: 'Import an original attachment for review', description: 'Copy an explicitly authorized original attachment into protected Teluva storage, preserve its checksum and reported source, and prepare a pending asset/document draft. Use host file references for files up to 12 MiB; exact base64 bytes up to 96 KiB are a fallback for compatible hosts. Never generate a substitute original from extracted text. Native Google documents must be exported and labelled export. Does not analyze with paid AI or apply records.',
+    inputSchema: objectSchema({ requestId: { type: 'string', minLength: 1, maxLength: 100 }, file: objectSchema({ download_url: { type: 'string' }, file_id: { type: 'string' }, mime_type: { type: 'string' }, file_name: { type: 'string' } }, ['download_url', 'file_id']),
+      contentBase64: { type: 'string', maxLength: 131072, description: 'Exact source bytes only; never reconstruct a receipt from text.' }, fileName: { type: 'string', maxLength: 180 }, mimeType: { type: 'string', maxLength: 100 }, sha256: { type: 'string', pattern: '^[a-f0-9]{64}$' }, source: sourceSchema, proposal: IMPORT_PROPOSAL_SCHEMA }, ['requestId', 'source']),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }, _meta: { 'openai/fileParams': ['file'] } },
   { name: 'search', title: 'Search selected Teluva documents', description: 'Search only the vault documents selected when this connection was authorized. Returns document IDs, titles and Teluva links. It cannot search other people, spaces or the web.',
     inputSchema: objectSchema({ query: { type: 'string', minLength: 1, maxLength: 300 } }, ['query']), annotations: readOnly },
   { name: 'fetch', title: 'Read a selected Teluva document', description: 'Fetch prepared text from one explicitly selected document. A fresh PDF may not have text yet; submit_import can prepare a review draft. This never returns binary files or download credentials.',
@@ -29,6 +35,15 @@ const TOOLS = [
       requestId: { type: 'string', minLength: 1, maxLength: 128, description: 'Stable ID for this submission; retry the same payload with the same ID.' }, analyze: { type: 'boolean', default: true, description: 'Analyze the selected original when no proposal was supplied. Both document read and inbox write consent are required.' } }, ['requestId']),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
 ];
+const textSchema = { type: 'string' };
+const objectResult = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
+const OUTPUT_SCHEMAS = {
+  search: objectResult({ results: { type: 'array', items: objectResult({ id: textSchema, title: textSchema, url: textSchema }) } }),
+  fetch: objectResult({ id: textSchema, title: textSchema, text: textSchema, url: textSchema, metadata: { type: 'object', additionalProperties: true } }),
+  get_connection: objectResult({ spaceId: textSchema, spaceName: textSchema, spaceType: textSchema, scopes: { type: 'array', items: textSchema }, selectedDocumentCount: { type: 'integer' }, pendingReviewOnly: { const: true }, reviewUrl: textSchema, originalImportsSupported: { type: 'boolean' } }),
+  submit_import: objectResult({ spaceId: textSchema, item: { type: 'object', additionalProperties: true }, pendingReviewOnly: { const: true }, message: textSchema }),
+  import_original: objectResult({ spaceId: textSchema, item: { type: 'object', additionalProperties: true }, original: { type: 'object', additionalProperties: true }, reviewUrl: textSchema, pendingReviewOnly: { const: true } }),
+};
 const rpcError = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
 const content = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, isError: false });
 function safeText(value, limit = MAX_TEXT) {
@@ -44,7 +59,7 @@ function linkFor(origin, spaceId, id, candidate) {
 
 /** Stateless Streamable HTTP: JSON replies, 202 for accepted notifications,
  * no unsolicited SSE stream and no remote tool that applies canonical data. */
-export function createConnectorMcpRouter({ authenticateConnector, inbox, searchDocuments, fetchDocument, origin, allowedOrigins = [] }) {
+export function createConnectorMcpRouter({ authenticateConnector, recordConnectorUse, inbox, originals, searchDocuments, fetchDocument, origin, allowedOrigins = [] }) {
   if (typeof authenticateConnector !== 'function' || !inbox || typeof searchDocuments !== 'function' || typeof fetchDocument !== 'function') throw new TypeError('Connector MCP dependencies are required.');
   const canonical = new URL(origin).origin;
   if (!/^https:\/\//.test(canonical) && !/^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/.test(canonical)) throw new TypeError('Use a canonical HTTPS connector origin.');
@@ -58,10 +73,11 @@ export function createConnectorMcpRouter({ authenticateConnector, inbox, searchD
   });
   router.get('/', (_req, res) => res.set('Allow', 'POST').status(405).end());
   router.post('/', express.json({ limit: '160kb', strict: true }), async (req, res) => {
+    const publicDiscovery = !req.headers.authorization && ['initialize', 'ping', 'tools/list'].includes(req.body?.method);
     let grant;
     try {
-      grant = await authenticateConnector(req);
-      if (!grant?.uid || !scopeOk(grant.spaceId) || !Array.isArray(grant.scopes) || !Array.isArray(grant.documentIds)) throw new Error('invalid-grant');
+      grant = publicDiscovery ? { publicDiscovery: true, scopes: [], documentIds: [] } : await authenticateConnector(req);
+      if (!publicDiscovery && (!grant?.uid || !scopeOk(grant.spaceId) || !Array.isArray(grant.scopes) || !Array.isArray(grant.documentIds))) throw new Error('invalid-grant');
     } catch (error) {
       if (error?.status === 429) {
         if (/^\d{1,4}$/.test(error?.headers?.['Retry-After'] || '')) res.set('Retry-After', error.headers['Retry-After']);
@@ -84,9 +100,13 @@ export function createConnectorMcpRouter({ authenticateConnector, inbox, searchD
       return res.status(400).json(rpcError(null, -32600, 'Tool operations require a request ID.'));
     }
     const reply = value => res.json({ jsonrpc: '2.0', id, result: value });
-    if (message.method === 'initialize') return reply({ protocolVersion: MCP_PROTOCOL_VERSION, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'teluva-connector', version: '1.0.0' }, instructions: 'Read selected documents only. Import submissions are pending drafts. An admin reviews and applies them in Teluva.' });
+    if (message.method === 'initialize') return reply({ protocolVersion: MCP_PROTOCOL_VERSION, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'teluva-connector', version: '1.1.0' }, instructions: 'First call get_connection to verify Teluva OAuth, destination and permissions; plugin installation alone is not account connection. Search external email/Drive only with the host’s separately authorized source tools and the user’s bounded scope. Use import_original for exact authorized attachments, never fabricated files. Prepare only pending drafts; review in Teluva applies records or the requesting person’s language/appearance. Never infer private profile facts.' });
     if (message.method === 'ping') return reply({});
-    if (message.method === 'tools/list') return reply({ tools: TOOLS.filter(tool => !['search', 'fetch'].includes(tool.name) || has(grant, 'documents:read')).filter(tool => tool.name !== 'submit_import' || has(grant, 'inbox:write')) });
+    if (message.method === 'tools/list') return reply({ tools: TOOLS.filter(tool => tool.name !== 'import_original' || originals)
+      .filter(tool => publicDiscovery || !['search', 'fetch'].includes(tool.name) || has(grant, 'documents:read'))
+      .filter(tool => publicDiscovery || !['submit_import', 'import_original'].includes(tool.name) || has(grant, 'inbox:write'))
+      .map(tool => { const scopes = ['search', 'fetch'].includes(tool.name) ? ['documents:read'] : ['submit_import', 'import_original'].includes(tool.name) ? ['inbox:write'] : [];
+        const securitySchemes = [{ type: 'oauth2', scopes }]; return { ...tool, outputSchema: OUTPUT_SCHEMAS[tool.name], securitySchemes, _meta: { ...tool._meta, securitySchemes } }; }) });
     if (message.method !== 'tools/call') return res.json(rpcError(id, -32601, 'Method not found.'));
     const params = message.params;
     if (!plain(params) || typeof params.name !== 'string' || !TOOLS.some(tool => tool.name === params.name)) return res.json(rpcError(id, -32602, 'Choose an available tool.'));
@@ -94,21 +114,23 @@ export function createConnectorMcpRouter({ authenticateConnector, inbox, searchD
     const args = params.arguments === undefined ? {} : params.arguments;
     const selected = documents(grant);
     const actor = { uid: grant.uid, spaceId: grant.spaceId, documentIds: [...selected], scopes: [...grant.scopes], ...(grant.grantId ? { grantId: grant.grantId } : {}) };
+    const toolReply = async value => { await recordConnectorUse?.(grant, params.name); return reply(content(value)); };
     const requireScope = scope => { if (!has(grant, scope)) throw new ToolError('INSUFFICIENT_SCOPE', `This connection does not permit ${scope}. Reconnect with that permission.`); };
     const selectedDocument = id => { if (!idOk(id) || !selected.has(id)) throw new ToolError('DOCUMENT_NOT_SELECTED', 'That document was not selected for this connection. Reconnect to change the selected evidence.'); };
     try {
       if (params.name === 'get_connection') {
         keys(args, []);
-        return reply(content({ spaceId: grant.spaceId, scopes: [...new Set(grant.scopes)].filter(scope => ['documents:read', 'inbox:write'].includes(scope)), selectedDocumentCount: selected.size, pendingReviewOnly: true }));
+        return await toolReply({ spaceId: grant.spaceId, spaceName: safeText(grant.spaceName, 150), spaceType: grant.spaceType || 'family', scopes: [...new Set(grant.scopes)].filter(scope => ['documents:read', 'inbox:write'].includes(scope)), selectedDocumentCount: selected.size, pendingReviewOnly: true,
+          reviewUrl: `${canonical}/?open=inbox&connector_space=${encodeURIComponent(grant.spaceId)}`, originalImportsSupported: !!originals });
       }
       if (params.name === 'search') {
         keys(args, ['query']); requireScope('documents:read');
         if (typeof args.query !== 'string' || !args.query.trim() || args.query.length > 300) bad('Enter a search query of at most 300 characters.');
-        if (!selected.size) return reply(content({ results: [] }));
+        if (!selected.size) return await toolReply({ results: [] });
         const found = await searchDocuments(actor, grant.spaceId, { query: args.query.trim(), documentIds: [...selected], limit: 20 });
         const rows = Array.isArray(found) ? found : found?.results;
         const results = (Array.isArray(rows) ? rows : []).filter(row => row && selected.has(row.id)).slice(0, 20).map(row => ({ id: row.id, title: safeText(row.title || row.name || 'Selected document', 200), url: linkFor(canonical, grant.spaceId, row.id, row.url) }));
-        return reply(content({ results }));
+        return await toolReply({ results });
       }
       if (params.name === 'fetch') {
         keys(args, ['id', 'documentId']); requireScope('documents:read');
@@ -122,8 +144,13 @@ export function createConnectorMcpRouter({ authenticateConnector, inbox, searchD
         if (typeof found.metadata?.originalAvailableInTeluva === 'boolean') metadata.originalAvailableInTeluva = found.metadata.originalAvailableInTeluva;
         if (!metadata.textPrepared) metadata.note = 'Text is not prepared for this document. Use submit_import with this selected document ID to prepare a review draft; original bytes are not returned here.';
         else if (/\bai\b|transcript|ocr|generated|model/i.test(metadata.textOrigin || '')) metadata.note = 'This prepared transcription may be incomplete. Verify the original document in Teluva.';
-        return reply(content({ id: documentId, title: safeText(found.title || found.name || 'Selected document', 200), text: safeText(found.text), url: linkFor(canonical, grant.spaceId, documentId, found.url),
-          metadata }));
+        return await toolReply({ id: documentId, title: safeText(found.title || found.name || 'Selected document', 200), text: safeText(found.text), url: linkFor(canonical, grant.spaceId, documentId, found.url),
+          metadata });
+      }
+      if (params.name === 'import_original') {
+        requireScope('inbox:write');
+        if (!originals) throw new ToolError('TOOL_UNAVAILABLE', 'Original import is unavailable in this host.');
+        return await toolReply(await originals.importOriginal(actor, args));
       }
       keys(args, ['documentId', 'sourceText', 'sourceName', 'proposal', 'requestId', 'analyze']); requireScope('inbox:write');
       if (args.analyze !== undefined && typeof args.analyze !== 'boolean') bad('The analyze option must be true or false.');
@@ -132,7 +159,7 @@ export function createConnectorMcpRouter({ authenticateConnector, inbox, searchD
       let item = await inbox.create(actor, grant.spaceId, submission);
       const shouldAnalyze = analyze ?? (!!args.documentId && !args.proposal);
       if (shouldAnalyze && item.status === 'pending' && (!item.proposal || item.analysis?.status === 'failed')) item = await inbox.analyze(actor, grant.spaceId, item.id, { expectedRevision: item.revision });
-      return reply(content({ spaceId: grant.spaceId, item, pendingReviewOnly: true, message: item.status === 'pending' ? 'Submitted for review in Teluva. No asset or vault metadata was applied.' : 'This idempotent submission was already reviewed in Teluva. No additional canonical write was made.' }));
+      return await toolReply({ spaceId: grant.spaceId, item, pendingReviewOnly: true, message: item.status === 'pending' ? 'Submitted for review in Teluva. No asset or vault metadata was applied.' : 'This idempotent submission was already reviewed in Teluva. No additional canonical write was made.' });
     } catch (error) {
       if (error?.code === 'INSUFFICIENT_SCOPE') res.set('WWW-Authenticate', `Bearer resource_metadata="${resourceMetadata}", error="insufficient_scope"`);
       const known = error instanceof ToolError || error instanceof ImportInboxError;

@@ -9,6 +9,7 @@ import { createConnectorIntegration } from './server/connectorIntegration.mjs';
 import { createConnectorAuth } from './server/connectorAuth.mjs';
 import { createImportInbox, createImportInboxRouter } from './server/importInbox.mjs';
 import { createConnectorMcpRouter } from './server/connectorMcp.mjs';
+import { createConnectorOriginals } from './server/connectorOriginals.mjs';
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import admin from 'firebase-admin';
@@ -899,9 +900,11 @@ const connectorAuth = createConnectorAuth({ db: adminDb, origin: connectorOrigin
   }, resolveMembership: connectorIntegration.resolveMembership, canReadDocument: connectorIntegration.canReadDocument });
 const importInbox = createImportInbox({ db: adminDb, resolveMembership: connectorIntegration.resolveMembership,
   canReadDocument: connectorIntegration.canReadDocument, extractDocument: connectorIntegration.extractDocument });
+const connectorOriginals = createConnectorOriginals({ db: adminDb, bucket: admin.storage().bucket(STORAGE_BUCKET),
+  resolveMembership: connectorIntegration.resolveMembership, canReadDocument: connectorIntegration.canReadDocument, inbox: importInbox, origin: connectorOrigin });
 app.use(connectorAuth.router);
 app.use('/api/import-inbox', createImportInboxRouter({ service: importInbox, authenticateFirebase: connectorAuth.requireFirebase }));
-app.use('/mcp', createConnectorMcpRouter({ authenticateConnector: connectorAuth.authenticateConnector, inbox: importInbox, origin: connectorOrigin,
+app.use('/mcp', createConnectorMcpRouter({ authenticateConnector: connectorAuth.authenticateConnector, recordConnectorUse: connectorAuth.recordConnectorUse, inbox: importInbox, originals: connectorOriginals, origin: connectorOrigin,
   searchDocuments: (actor, spaceId, { query, documentIds }) => connectorIntegration.searchDocuments({ ...actor, spaceId, documentIds }, query),
   fetchDocument: (actor, spaceId, documentId) => connectorIntegration.fetchDocument({ ...actor, spaceId }, documentId) }));
 app.use(express.json({ limit: '25mb' }));

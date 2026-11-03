@@ -1,8 +1,8 @@
 {
-  "label": "v379",
+  "label": "v380",
   "changes": [
-    "Family and business spaces now have an AI import inbox: upload originals, choose Vault documents or paste named text, then review suggested asset and warranty details before filing.",
-    "Connect ChatGPT or Claude through Teluva’s custom MCP server. Sign in, choose one space and specific documents, let the chatbot prepare drafts, and revoke access in AI connections.",
-    "Original evidence stays linked to saved records. Review protects against changed files, repeated submissions and matching serial numbers; only administrators can apply records."
+    "AI connections can now bring supported original attachments into protected storage with a checksum, reported source and a review draft. Identical originals and retries reuse one file and draft.",
+    "Connection setup separates plugin installation from account authorisation, keeps reading existing saved documents optional for imports, and shows when an authenticated tool request has actually succeeded.",
+    "Your assistant can propose language and appearance preferences from your explicit request. Only you can approve them; later manual choices are preserved and other people’s profiles stay unchanged."
   ]
 }

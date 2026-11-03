@@ -344,7 +344,8 @@ export function createConnectorAuth({ db, verifyFirebaseToken, resolveMembership
     for (const id of owner?.grantIds || []) {
       const grant = await store.get('grants', id);
       if (grant && grant.uid === user.uid && grant.spaceId === req.query.spaceId && !grant.revokedAt && grant.expiresAt > now()) {
-        connectors.push({ id, clientName: grant.clientName, spaceId: grant.spaceId, scopes: grant.scopes, documentIds: grant.documentIds, createdAt: grant.createdAt, expiresAt: grant.expiresAt });
+        connectors.push({ id, clientName: grant.clientName, spaceId: grant.spaceId, scopes: grant.scopes, documentIds: grant.documentIds, createdAt: grant.createdAt, expiresAt: grant.expiresAt,
+          ...(grant.lastUsedAt ? { lastUsedAt: grant.lastUsedAt, lastTool: grant.lastTool } : {}) });
       }
     }
     res.json({ spaceId: req.query.spaceId, connectors });
@@ -383,5 +384,12 @@ export function createConnectorAuth({ db, verifyFirebaseToken, resolveMembership
     res.set(NO_STORE).set(known ? error.headers : {}).status(status).json({ error: known ? error.code : malformed ? 'invalid_request' : 'server_error',
       error_description: known ? error.message : malformed ? 'Choose a valid connector request.' : 'The connector is temporarily unavailable.' });
   });
-  return { router, authenticateConnector, requireFirebase, resource, metadataUrl };
+  async function recordConnectorUse(grant, toolName) {
+    await store.transaction(async tx => {
+      const current = await tx.get('grants', grant.grantId);
+      if (!current || current.uid !== grant.uid || current.spaceId !== grant.spaceId || current.revokedAt || current.expiresAt <= now()) throw unauthorized();
+      tx.set('grants', grant.grantId, { ...current, lastUsedAt: now(), lastTool: String(toolName).slice(0, 80) });
+    });
+  }
+  return { router, authenticateConnector, requireFirebase, recordConnectorUse, resource, metadataUrl };
 }

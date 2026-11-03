@@ -2,7 +2,8 @@
 
 The family and business sections share a persistent **AI import inbox** and an
 OAuth-protected remote MCP connector. The inbox keeps suggestions separate from
-saved asset records. An administrator reviews and applies each suggestion.
+saved asset records. An administrator reviews asset/document records; each adult
+approves their own language and appearance preferences.
 
 ## Import inside Teluva
 
@@ -57,6 +58,7 @@ It cannot browse arbitrary laptop or phone folders through this connector.
 | --- | --- |
 | `documents:read` | `search` and `fetch` for explicitly selected documents |
 | `inbox:write` | `submit_import` to create pending review drafts |
+| `inbox:write` | `import_original` to copy an explicitly authorised attachment and prepare a pending draft |
 | Both | Prepare a draft by reading a selected original with Teluva AI |
 
 `get_connection` reports the pinned space and permissions. No MCP tool applies,
@@ -64,6 +66,47 @@ overwrites or deletes asset records. `fetch` returns original plain text or
 prepared text with its origin; AI transcriptions may be incomplete and require
 checking against the original. It never returns protected download credentials.
 New PDFs can be prepared using `submit_import` with `analyze: true`.
+
+### Original attachments and provenance
+
+`import_original` accepts ChatGPT's supported `openai/fileParams` file object:
+`download_url`, `file_id`, optional `mime_type` and `file_name`. Original downloads
+are limited to 12 MiB, recognised PDF/images or UTF-8 text, trusted host file
+origins, public DNS pinned for TLS, bounded redirects and timeouts. No source
+cookies, API keys or provider credentials are accepted or forwarded. Source page
+URLs are metadata, never fetched. Temporary download credentials are not stored.
+Compatible native hosts can submit exact original bytes up to 96 KiB in base64.
+
+The caller names the source, provider/source ID and whether the bytes are an
+original attachment or a native-document export. A SHA-256 verifies the copied
+bytes. The source attribution is reported by the assistant, not independently
+attested provider identity. Original files use protected storage with an uploader
+owner; a business employee's new original is not silently shared. Importing a
+file does not automatically add it to an existing read grant.
+
+The request ID makes retries independent of an expiring download link. Identical
+bytes from the same account and space reuse one protected original and one draft;
+conflicting payloads cannot overwrite it. Files remain `Other` until document
+categorisation is reviewed. Asset drafts link their source originals. No paid
+Teluva AI is invoked by `import_original`.
+
+### Account connection and personalisation
+
+Public MCP initialization and tool descriptions contain no customer data and
+are discoverable before sign-in. Every tool execution requires OAuth; tool
+descriptors declare their OAuth scopes. Installing a private plugin is separate
+from authorising a Teluva account. The AI connections screen reports the first
+successful authenticated tool request instead of treating an unused grant as
+proof that a conversation works. After a server update, refresh the host's tool
+metadata when necessary.
+
+`submit_import` also accepts a `preferences` proposal containing only supported
+app language and theme. It must originate from explicit named request text,
+never inferred document facts. The requesting adult alone can approve it in the
+app. It persists in that account's private preferences and updates language and
+appearance; another person's profiles, roles and shared settings are untouched.
+A later manual device choice wins over an older suggestion on reload. Preference
+drafts do not invoke paid document analysis.
 
 The host chatbot uses the user's existing chatbot account. Teluva uses its
 existing configured AI provider for explicit inbox analysis; no OpenAI or
@@ -116,4 +159,4 @@ discovery would require a separate companion and explicit folder permissions.
 - [Claude: remote MCP custom connectors](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
 - [MCP: Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 
-Provider documentation checked 1 November 2026.
+Provider documentation checked 3 November 2026.
