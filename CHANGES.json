@@ -1,8 +1,6 @@
 {
-  "label": "v380",
+  "label": "v381",
   "changes": [
-    "AI connections can now bring supported original attachments into protected storage with a checksum, reported source and a review draft. Identical originals and retries reuse one file and draft.",
-    "Connection setup separates plugin installation from account authorisation, keeps reading existing saved documents optional for imports, and shows when an authenticated tool request has actually succeeded.",
-    "Your assistant can propose language and appearance preferences from your explicit request. Only you can approve them; later manual choices are preserved and other people’s profiles stay unchanged."
+    "The desktop Sections menu opens inside the window, so you can see and select all its items."
   ]
 }

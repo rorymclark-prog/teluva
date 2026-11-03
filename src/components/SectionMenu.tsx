@@ -252,7 +252,7 @@ export default function SectionMenu({ views, current, onSelect }: Props) {
       {open && (
         <div
           role="menu"
-          className="hidden sm:flex sm:flex-col absolute right-0 sm:right-auto sm:left-0 mt-2 w-72 max-h-[min(75vh,44rem)] bg-white rounded-2xl border border-cream-300 shadow-lift z-[70]"
+          className="hidden sm:flex sm:flex-col absolute top-full right-0 mt-2 w-72 max-h-[min(75vh,44rem)] bg-white rounded-2xl border border-cream-300 shadow-lift z-[70]"
         >
           {list}
         </div>
