@@ -209,9 +209,12 @@ twice returned the same pending draft and original. The signed-in browser
 downloaded the original from the Vault viewer. Its byte count and SHA-256
 matched the submitted file. The reviewed asset was then filed from the inbox,
 and a production readback confirmed that it retained the original file link.
-The live browser result for self-approval of the appearance suggestion is
-still pending. Business apply and preference persistence were verified in the
-disposable fixture described above.
+The same test account approved its appearance suggestion from the inbox. The
+browser selected Light, and production readback confirmed the saved preference
+was linked to the reviewed draft. Revoking the temporary connection in the
+same browser left no active connections in the test space. Production readback
+confirmed the exact test grant was revoked. Business apply was verified in
+the disposable fixture described above.
 
 The connector does not yet include public marketplace publication, a native
 desktop folder watcher, or a consumer Gemini-app extension. Native device-wide
