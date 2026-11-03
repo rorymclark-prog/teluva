@@ -1360,12 +1360,17 @@ export const saveSettings = (s: HubSettings, base?: HubSettings) => saveReferenc
 export const loadSettings = () => loadReferenceDoc<HubSettings>('settings', 'family_settings');
 
 export async function uploadFamilyProfileVideo(file: File, spaceId: string, uid: string): Promise<string> {
-  if (FAMILY_ID !== spaceId || auth.currentUser?.uid !== uid) {
+  const spaceAtStart = FAMILY_ID;
+  const accountAtStart = auth.currentUser?.uid;
+  if (spaceAtStart !== spaceId || accountAtStart !== uid) {
     throw new Error('Your account or space changed. Reopen Hub settings and try again.');
   }
   const extension = file.type === 'video/webm' ? 'webm' : 'mp4';
-  const target = ref(storage, `families/${spaceId}/hub-media/${crypto.randomUUID()}.${extension}`);
+  const target = ref(storage, `families/${spaceAtStart}/hub-media/${crypto.randomUUID()}.${extension}`);
   await uploadBytes(target, file, { contentType: file.type, shared: true });
+  if (FAMILY_ID !== spaceAtStart || auth.currentUser?.uid !== accountAtStart) {
+    throw new Error('Your account or space changed before the video was saved.');
+  }
   return getDownloadURL(target);
 }
 
