@@ -158,6 +158,10 @@ the frontend test sequence and the production build. Public tool discovery
 works before connection; unauthenticated tool execution returns 401.
 
 The private Teluva plugin was updated in place to 0.2.0 and remains private.
+The 0.2.1 branding update packages the exact existing Teluva 512px app icon
+and references it as the logo and composer icon in both manifests. The private
+host details page still shows its fallback lightbulb after loading 0.2.1; the
+packaged branding was verified, but the host's displayed icon is unresolved.
 The supported native host reports it installed and enabled. This chat's actual
 Teluva tools successfully inspected the existing connection, searched its one
 selected synthetic document and fetched its prepared text. This establishes a
@@ -201,15 +205,18 @@ First-time Google sign-in and normal browser review/apply remain separate
 interactive acceptance gates. Do not describe the fixture as proving those
 steps or claim public marketplace availability. A selected synthetic original
 opened in the real Vault viewer, but browser automation did not complete its
-download event and reported a paused document response. Authenticated browser
-download therefore remains unproven; this observation alone does not establish
-an application defect.
+download event and reported a paused document response. The browser client also
+blocked direct navigation to the selected synthetic original's content route.
+Authenticated browser download remains unproven; these observations alone do
+not establish an application defect.
 
 The customer reported no new connection prompt because the existing connection
 was already authenticated. Do not request a disconnect merely to repeat sign-in.
 A previously unconnected Google test identity and an interactive customer
-session are needed for the remaining first-time check. No passwords, provider
-configuration changes or expanded permissions are needed in chat.
+session are needed for the remaining first-time check. The separate browser
+is open on Teluva's sign-in screen for the test account. The account owner
+performs Google sign-in and accepts any terms personally; no password or
+authorization code is entered into chat.
 
 The connector does not yet include public marketplace publication, a native
 desktop folder watcher, or a consumer Gemini-app extension. Native device-wide
