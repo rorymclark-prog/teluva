@@ -103,11 +103,11 @@ export default function DocumentViewer({ document: doc, memberName, onClose, onE
           >
             {/* Left panel: File viewer */}
             <div className="lg:col-span-8 bg-cream-100 flex items-center justify-center p-6 border-b lg:border-b-0 lg:border-r border-cream-200 lg:max-h-[90dvh] overflow-y-auto">
-              <div className={`w-full bg-white rounded-2xl shadow-soft overflow-hidden border border-cream-300 relative flex items-center justify-center ${isPdf ? 'max-w-2xl h-[80dvh]' : 'max-w-md aspect-[4/5.6]'}`}>
+              <div key={source} className={`w-full bg-white rounded-2xl shadow-soft overflow-hidden border border-cream-300 relative flex items-center justify-center ${isPdf ? 'max-w-2xl h-[80dvh]' : 'max-w-md aspect-[4/5.6]'}`}>
                 {isPdf ? (
-                  <PdfDocumentPreview key={source} source={source} name={doc.name} />
+                  <PdfDocumentPreview source={source} name={doc.name} />
                 ) : isImage ? (
-                  <ImageDocumentPreview key={source} source={source} name={doc.name} />
+                  <ImageDocumentPreview source={source} name={doc.name} />
                 ) : (
                   <div className="text-center p-8 space-y-3">
                     <div className="w-16 h-16 bg-cream-100 border border-cream-300 rounded-2xl flex items-center justify-center mx-auto text-ink-500 font-bold uppercase text-xs font-mono">
