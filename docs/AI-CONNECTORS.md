@@ -201,22 +201,17 @@ was removed and the original family home was restored. Screenshots are kept in
 the ignored verification directory. The existing chat connection still works
 with its original one-document selection.
 
-First-time Google sign-in and normal browser review/apply remain separate
-interactive acceptance gates. Do not describe the fixture as proving those
-steps or claim public marketplace availability. A selected synthetic original
-opened in the real Vault viewer, but browser automation did not complete its
-download event and reported a paused document response. The browser client also
-blocked direct navigation to the selected synthetic original's content route.
-Authenticated browser download remains unproven; these observations alone do
-not establish an application defect.
-
-The customer reported no new connection prompt because the existing connection
-was already authenticated. Do not request a disconnect merely to repeat sign-in.
-A previously unconnected Google test identity and an interactive customer
-session are needed for the remaining first-time check. The separate browser
-is open on Teluva's sign-in screen for the test account. The account owner
-performs Google sign-in and accepts any terms personally; no password or
-authorization code is entered into chat.
+In a separate Chrome Incognito session, the account owner signed in with a
+previously unconnected Google account, completed first-run setup, and approved
+a connection to a new test family. The native client confirmed draft-write
+permission and zero selected documents. Submitting the same synthetic receipt
+twice returned the same pending draft and original. The signed-in browser
+downloaded the original from the Vault viewer. Its byte count and SHA-256
+matched the submitted file. The reviewed asset was then filed from the inbox,
+and a production readback confirmed that it retained the original file link.
+The live browser result for self-approval of the appearance suggestion is
+still pending. Business apply and preference persistence were verified in the
+disposable fixture described above.
 
 The connector does not yet include public marketplace publication, a native
 desktop folder watcher, or a consumer Gemini-app extension. Native device-wide
