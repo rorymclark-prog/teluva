@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Download, Share2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -8,6 +8,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface Props {
   src: string | null;
+  videoSrc?: string;
   onClose: () => void;
   /** Optional nicer filename for downloads/shares, e.g. "Mia South African Passport". */
   name?: string;
@@ -17,8 +18,10 @@ interface Props {
 
 // Full-screen viewer for a scan / photo / PDF, with download + native share
 // (which is how you email or message a file on mobile). Click the backdrop to close.
-export default function ImageLightbox({ src, onClose, name = 'Teluva document', mimeType }: Props) {
+export default function ImageLightbox({ src, videoSrc, onClose, name = 'Teluva document', mimeType }: Props) {
   useBodyScrollLock(!!src);
+  const [videoFailed, setVideoFailed] = useState(false);
+  useEffect(() => { setVideoFailed(false); }, [src, videoSrc]);
 
   // Escape closes it. Without this the ONLY way out is hitting the backdrop or
   // a 40px button in one corner — and a photo sized to the viewport leaves
@@ -69,7 +72,22 @@ export default function ImageLightbox({ src, onClose, name = 'Teluva document', 
           onClick={onClose}
           className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-ink-900/75 backdrop-blur-sm cursor-zoom-out"
         >
-          {isPdf ? (
+          {videoSrc && !videoFailed ? (
+            <video
+              key={videoSrc}
+              src={videoSrc}
+              poster={src}
+              aria-label="Family profile video"
+              controls
+              muted
+              playsInline
+              loop
+              autoPlay={window.matchMedia('(prefers-reduced-motion: no-preference)').matches}
+              onError={() => setVideoFailed(true)}
+              onClick={e => e.stopPropagation()}
+              className="max-h-[85dvh] max-w-full rounded-3xl bg-black shadow-2xl"
+            />
+          ) : isPdf ? (
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}

@@ -1,7 +1,6 @@
 {
-  "label": "v382",
+  "label": "v383",
   "changes": [
-    "The Vault renders protected PDFs directly in Teluva and lets you move between pages.",
-    "Image previews recognise common image filenames on older records. If a preview fails, you can retry it or download the original."
+    "Add an optional short video to your family profile in Hub settings. Tap the family photo to watch it."
   ]
 }

@@ -27,8 +27,9 @@ interface HubSettingsModalProps {
   isOpen: boolean;
   settings: HubSettings;
   isBusinessSpace?: boolean;
+  canSetVideo?: boolean;
   onClose: () => void;
-  onSave: (s: HubSettings) => void;
+  onSave: (s: HubSettings, video?: File) => Promise<void>;
   /** Runs the first-run tour again, on demand — "replayable from somewhere sensible" means here, since (unlike admin-only Family Settings) every signed-in member can open this modal. Omit to hide the row (e.g. no caller wired up yet). */
   onReplayTour?: () => void;
   /** Reopens the guided setup interview (FamilyInterview.tsx) from the start — "reachable again from settings after completion" per its brief. Omit to hide the row (business spaces, or a caller with no write access). */
@@ -47,11 +48,15 @@ interface HubSettingsModalProps {
 const APP_LABEL =
   typeof __APP_LABEL__ !== 'undefined' && __APP_LABEL__ ? __APP_LABEL__ : 'dev build';
 
-export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, onClose, onSave, onReplayTour, onOpenInterview, namePlaceholder }: HubSettingsModalProps) {
+export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, canSetVideo, onClose, onSave, onReplayTour, onOpenInterview, namePlaceholder }: HubSettingsModalProps) {
   useBodyScrollLock(isOpen);
 
   const [hubName, setHubName] = useState('');
   const [photo, setPhoto] = useState<string>('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoFile, setVideoFile] = useState<File>();
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [uploadFileName, setUploadFileName] = useState('');
   const [nameDisplay, setNameDisplay] = useState<'real' | 'nick' | 'both'>('both');
   const [astrology, setAstrology] = useState(false);
@@ -67,6 +72,9 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
     if (isOpen) {
       setHubName(settings.hubName || '');
       setPhoto(settings.familyPhotoUrl || '');
+      setVideoUrl(settings.familyVideoUrl || '');
+      setVideoFile(undefined);
+      setSaveError('');
       setNameDisplay(settings.nameDisplay || 'both');
       setAstrology(settings.astrology === true);
       setCountry(settings.country || 'AT');
@@ -97,6 +105,8 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
 
   const handleRemovePhoto = () => {
     setPhoto('');
+    setVideoUrl('');
+    setVideoFile(undefined);
     setUploadFileName('');
   };
 
@@ -107,17 +117,26 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
   // list, auto-sync, status…), and a save without them told the merge those
   // keys had been removed — so saving a new family photo quietly unsubscribed
   // every calendar feed.
-  const handleSave = () => {
-    onSave({
-      ...settings,
-      hubName: hubName.trim() || undefined,
-      familyPhotoUrl: photo || undefined,
-      nameDisplay,
-      astrology,
-      country,
-      celebrationsEnabled,
-    });
-    onClose();
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await onSave({
+        ...settings,
+        hubName: hubName.trim() || undefined,
+        familyPhotoUrl: photo || undefined,
+        ...(canSetVideo ? { familyVideoUrl: videoUrl || undefined } : {}),
+        nameDisplay,
+        astrology,
+        country,
+        celebrationsEnabled,
+      }, canSetVideo && photo ? videoFile : undefined);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save Hub settings. Try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -394,6 +413,32 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
                 )}
               </div>
 
+              {canSetVideo && photo && (
+                <div className="space-y-2">
+                  <label className="field-label" htmlFor="family-profile-video">Family profile video (optional)</label>
+                  <p className="text-xs text-ink-500">MP4 or WebM, up to 10 seconds and 8 MB. Tap the family photo to watch it.</p>
+                  <input
+                    id="family-profile-video"
+                    type="file"
+                    accept="video/mp4,video/webm"
+                    disabled={saving}
+                    onChange={event => {
+                      const file = event.target.files?.[0];
+                      if (file) { setVideoFile(file); setSaveError(''); }
+                      event.target.value = '';
+                    }}
+                    className="field"
+                  />
+                  {(videoFile || videoUrl) && (
+                    <div className="flex items-center justify-between gap-2 text-xs text-ink-600">
+                      <span className="min-w-0 truncate">{videoFile?.name || 'Video saved'}</span>
+                      <button type="button" className="btn-quiet" disabled={saving} onClick={() => { setVideoUrl(''); setVideoFile(undefined); setSaveError(''); }}>Remove video</button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {saveError && <p role="alert" className="text-sm text-rosa-700">{saveError}</p>}
+
               {/* Birthday reminders (Web Push) — everyone (not just admins) can
                   reach this modal, and enabling push is a per-device thing, so it
                   belongs here rather than in the admin-only Family Settings panel.
@@ -453,10 +498,11 @@ export default function HubSettingsModal({ isOpen, settings, isBusinessSpace, on
               <button
                 type="button"
                 onClick={handleSave}
+                disabled={saving}
                 className="btn-primary"
               >
                 <Save className="w-4 h-4" />
-                Save
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </motion.div>

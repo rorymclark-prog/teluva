@@ -1,5 +1,12 @@
 [
   {
+    "label": "v383",
+    "changes": [
+      "Add an optional short video to your family profile in Hub settings. Tap the family photo to watch it."
+    ],
+    "date": "2026-11-03"
+  },
+  {
     "label": "v382",
     "changes": [
       "The Vault renders protected PDFs directly in Teluva and lets you move between pages.",

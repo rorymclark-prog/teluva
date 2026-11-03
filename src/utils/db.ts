@@ -1359,6 +1359,16 @@ export const loadTravelTimeline = () => loadReferenceDoc<TravelTimelineDoc>('tra
 export const saveSettings = (s: HubSettings, base?: HubSettings) => saveReferenceDoc('settings', s, 'family_settings', base);
 export const loadSettings = () => loadReferenceDoc<HubSettings>('settings', 'family_settings');
 
+export async function uploadFamilyProfileVideo(file: File, spaceId: string, uid: string): Promise<string> {
+  if (FAMILY_ID !== spaceId || auth.currentUser?.uid !== uid) {
+    throw new Error('Your account or space changed. Reopen Hub settings and try again.');
+  }
+  const extension = file.type === 'video/webm' ? 'webm' : 'mp4';
+  const target = ref(storage, `families/${spaceId}/hub-media/${crypto.randomUUID()}.${extension}`);
+  await uploadBytes(target, file, { contentType: file.type, shared: true });
+  return getDownloadURL(target);
+}
+
 // In Memory: an archive of deceased parents/grandparents — their documents and
 // a few remembered things. Family-level, one shared reference doc like every
 // other feature here.

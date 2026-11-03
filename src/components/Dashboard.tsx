@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } fr
 import { FamilyMember, ClothingSizes, FamilyDocument, CalendarEvent, AssetItem, ContactEntry, ExtendedBirthday, VaultDocument, ReferralRecord, HealthcareProvider, MemberRole, TripDocRole } from '../types';
 import { withContactBirthdays } from '../utils/extendedBirthdaySources';
 import { hubDisplayName } from '../utils/hubName';
+import { validateProfileVideo } from '../utils/familyProfileVideo';
 import ConnectedFamilies from './ConnectedFamilies';
 import ConnectedInline from './ConnectedInline';
 import SharedHousehold from './SharedHousehold';
@@ -20,7 +21,7 @@ import {
   loadFinances, saveFinances,
   loadTimeline, saveTimeline,
   loadBusinessMilestones, saveBusinessMilestones,
-  loadSettings, saveSettings,
+  loadSettings, saveSettings, FAMILY_ID, uploadFamilyProfileVideo,
   loadDocuments, saveDocuments,
   loadShopping, saveShopping,
   loadActions, saveActions,
@@ -174,7 +175,7 @@ import {
   HeartPulse, Plane, Sparkles, Siren, Home, Landmark, CalendarHeart, FolderArchive, GripVertical, ShoppingCart,
   Package, KeyRound, MapPin, Phone, Mail, LayoutDashboard, Stethoscope, BarChart3, HelpCircle, Baby,
   Quote, BookHeart, Car, ChefHat, Globe2, Clapperboard, Flower2, Briefcase, ScrollText, Receipt, PawPrint, BriefcaseMedical, Network,
-  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck, HeartHandshake, Cake, MessageSquare, Link2, Camera, Lock} from 'lucide-react';
+  Loader2, UserMinus, ChevronDown, Settings, CalendarClock, Wand2, Gift, UserRoundCheck, HeartHandshake, Cake, MessageSquare, Link2, Camera, Lock, Play} from 'lucide-react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
 
 // Lazy-loaded main-view screens — audit finding, 2026-07-30. Exactly one of
@@ -2930,15 +2931,17 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   /* Its own button, deliberately outside the space-switcher trigger: tapping a
      family photo should show the family photo. Bigger than the old 36px too —
      it is the one personal thing in the header and it was the size of an icon. */
+  const familyProfileVideo = !isBusinessSpace ? settings.familyVideoUrl : undefined;
   const hubAvatar = settings.familyPhotoUrl ? (
     <button
       type="button"
       onClick={() => setLightboxImage(settings.familyPhotoUrl!)}
-      title={isBusinessSpace ? 'View business photo' : 'View family photo'}
-      aria-label={isBusinessSpace ? 'View business photo' : 'View family photo'}
-      className="w-12 h-12 rounded-2xl overflow-hidden shrink-0 border border-cream-300 shadow-soft cursor-zoom-in transition-transform hover:scale-105"
+      title={isBusinessSpace ? 'View business photo' : familyProfileVideo ? 'Play family profile video' : 'View family photo'}
+      aria-label={isBusinessSpace ? 'View business photo' : familyProfileVideo ? 'Play family profile video' : 'View family photo'}
+      className="relative w-12 h-12 rounded-2xl overflow-hidden shrink-0 border border-cream-300 shadow-soft cursor-zoom-in transition-transform hover:scale-105"
     >
       <img src={settings.familyPhotoUrl} alt={isBusinessSpace ? 'Business' : 'Family'} className="w-full h-full object-cover" />
+      {familyProfileVideo && <Play aria-hidden="true" className="absolute bottom-0.5 right-0.5 h-4 w-4 rounded-full bg-black/75 p-0.5 text-white" />}
     </button>
   ) : (
     <button
@@ -4248,9 +4251,21 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         isOpen={isSettingsOpen}
         settings={settings}
         isBusinessSpace={isBusinessSpace}
+        canSetVideo={!demo && canWrite && !isBusinessSpace}
         namePlaceholder={activeSpaceName}
         onClose={() => setIsSettingsOpen(false)}
-        onSave={handleSaveSettings}
+        onSave={async (next, video) => {
+          if (!video) return handleSaveSettings(next);
+          const space = activeSpaceId;
+          const uid = accountUid;
+          const isCurrent = () => !!space && !!uid && activeSpaceRef.current === space && FAMILY_ID === space && auth.currentUser?.uid === uid;
+          if (!space || !uid || !canWrite || demo || isBusinessSpace || !isCurrent()) throw new Error('Reopen your family Hub settings and try again.');
+          await validateProfileVideo(video);
+          if (!isCurrent()) throw new Error('Your account or space changed. Reopen Hub settings and try again.');
+          const familyVideoUrl = await uploadFamilyProfileVideo(video, space, uid);
+          if (!isCurrent()) throw new Error('Your account or space changed before the video was saved.');
+          await handleSaveSettings({ ...next, familyVideoUrl });
+        }}
         onReplayTour={() => { setIsSettingsOpen(false); setTourReplayKey((k) => k + 1); }}
         onOpenInterview={!isBusinessSpace && (demo || canWrite) ? () => { setIsSettingsOpen(false); setInterviewReplayKey((k) => k + 1); } : undefined}
       />
@@ -4293,7 +4308,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         forceKey={tourReplayKey}
       />}
 
-      <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
+      <ImageLightbox
+        src={lightboxImage}
+        videoSrc={lightboxImage === settings.familyPhotoUrl ? familyProfileVideo : undefined}
+        onClose={() => setLightboxImage(null)}
+      />
 
       {/* Floating AI assistant — only when AI is enabled (opt-in, off by default) */}
       {canUseAI && !emergencyFocus && (

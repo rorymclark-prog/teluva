@@ -1215,6 +1215,7 @@ export interface HubStatus {
 export interface HubSettings {
   hubName?: string;
   familyPhotoUrl?: string;   // compressed base64 thumbnail
+  familyVideoUrl?: string;
   nameDisplay?: 'real' | 'nick' | 'both';   // how member names show (default 'both')
   astrology?: boolean;       // opt-in "just for fun" star-sign view (off by default)
   // Subscribed external calendars (Apple, Outlook, Proton, anything that
