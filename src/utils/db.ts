@@ -368,7 +368,7 @@ export async function loadFamilyMembers(): Promise<FamilyMember[] | null> {
         for (const m of members) noteSeen(memberSeenKey(m.id), m);
 
         // Cache locally (plaintext — this is what the rest of the app reads)
-        localStorage.setItem(membersKey(), JSON.stringify(members));
+        try { localStorage.setItem(membersKey(), JSON.stringify(members)); } catch { /* A full cache must not replace a successful cloud read with stale profiles. */ }
         return members.length > 0 ? members : null;
       }
 
@@ -913,7 +913,7 @@ async function loadReferenceDoc<T>(
       const snap = await getDoc(doc(db, 'families', FAMILY_ID, 'reference', key));
       if (snap.exists()) {
         const data = normalizeFileReferences(await reveal(snap.data() as T));
-        localStorage.setItem(scopedKey, JSON.stringify(data));
+        try { localStorage.setItem(scopedKey, JSON.stringify(data)); } catch { /* The cloud read remains authoritative when the device cache is full. */ }
         noteSeen(key, data);
         return data;
       }

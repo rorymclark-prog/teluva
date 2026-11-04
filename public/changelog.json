@@ -1,5 +1,12 @@
 [
   {
+    "label": "v386",
+    "changes": [
+      "Saved family stories and profile photos stay current when the browser cache is full."
+    ],
+    "date": "2026-11-04"
+  },
+  {
     "label": "v385",
     "changes": [
       "On this day and Flashback now bring back dated moments saved to your family timeline, alongside family sayings and milestones."
