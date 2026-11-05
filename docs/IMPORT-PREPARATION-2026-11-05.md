@@ -53,3 +53,15 @@ The supported Chrome pass used the actual candidate panel/helper/client, built C
 At 390px width, System (resolved dark), Light and Dark each measured document width 390px with original/evidence and forms expanded. The coordinator and owner visually inspected all three actual screenshots: consistent readable light/dark surfaces and no horizontal overflow. Initial fixture-only CSS import stripping and missing appearance-provider defects were repaired in the ignored harness; no production appearance code was changed. Original screenshot/JSON bytes were copied into `output/verification/import-preparation-2026-11-05/release-evidence/`, with original paths and SHA-256s in `browser-evidence-manifest.json`. These are local synthetic verification artifacts, not customer documents.
 
 All release checks passed on the source candidate: lint, Ember tests, full npm test (159 frontend suites plus 676 server tests), rules, production build and synthetic integration. v389 changes only release metadata/documentation after the reviewed source candidate; deployment uses the repository’s normal full-gate script and existing two Cloud Run services. The unrelated untracked pamphlet remains untouched and is excluded from build uploads.
+
+
+## Completed v389 deployment
+
+The normal `npm run deploy` completed successfully with no gate bypass. Build `155e2639-d8d8-4196-8153-8c0438937e11` built source `81a1eb3234b9d4d06487a3c847ba55a1aeefdae0`. Both existing services now use immutable image `europe-west2-docker.pkg.dev/gen-lang-client-0384516171/cloud-run-source-deploy/teluva@sha256:8071d6cdffff453b6bff44d444b4d56dc85fda14a963d9d740555ff88dbe5337` and route all traffic to their new revisions:
+
+- Primary: `teluva-00214-h2b`, https://teluva-x3k4bua7pq-nw.a.run.app/ .
+- Legacy: `family-info-organizer-00368-wtw`, https://family-info-organizer-x3k4bua7pq-nw.a.run.app/ .
+
+Independent post-deployment HTTP reads returned v389 and byte-identical version JSON, index HTML, entry JavaScript, stylesheet and lazy ImportInbox chunk on both aliases. The live `/assets/ImportInbox-85NaXhrr.js` contains the Stop control, accurate halted message and manual-review preservation logic. Full digest/revision/traffic/byte checks are retained in local `output/verification/import-preparation-2026-11-05/release-v389.json`, together with the screenshot evidence manifest. These are deployment/static-byte checks; the synthetic browser checks above establish interaction behavior, not a fresh production customer/provider session.
+
+All temporary processes started by this lane completed or stopped normally. The coordinator verified and stopped its own three synthetic preview processes and closed its own tabs. The unrelated pamphlet was preserved and excluded from cloud upload. No real family/business originals or records were mutated by this release verification.
