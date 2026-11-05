@@ -9,8 +9,9 @@ the diff, verify the affected workflow and use the established Cloud Run release
 gates. Do not alter real household records or personal media.
 
 This is the smaller Teluva lane of the ImbewuField-first sprint. The update-card
-animation remains owned by the separate animation change/PR #1. This branch does
-not integrate or modify its walkthrough components or animation behaviour.
+animation remains owned by the separate animation change/PR #1. Its owner completed
+and verified v387 during this audit. The inbox release includes that exact released
+base without modifying its walkthrough components or animation behaviour.
 
 ## Journey review
 

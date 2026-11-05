@@ -1,9 +1,23 @@
 [
   {
-    "label": "v387",
+    "label": "v388",
     "changes": [
       "Older unfinished imports remain reachable with Load older imports, even after a long history of completed reviews."
     ],
+    "date": "2026-11-05"
+  },
+  {
+    "label": "v387",
+    "changes": [
+      "Important feature updates now include a short animation you can pause and replay.",
+      "Replay the family memories walkthrough from What’s new."
+    ],
+    "feature": {
+      "id": "family-memories-v385",
+      "demo": "family-memories",
+      "title": "Your family memories, rediscovered",
+      "description": "On this day and Flashback bring back dated moments saved to your family timeline, alongside family sayings and milestones."
+    },
     "date": "2026-11-05"
   },
   {
