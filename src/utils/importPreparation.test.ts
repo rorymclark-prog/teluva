@@ -23,7 +23,7 @@ function fixture(ids = ['one', 'two']) {
 {
   const f = fixture(); let active = 0, maxActive = 0;
   const originalAnalyze = f.options.analyze;
-  await prepareImportDrafts(f.entries, { ...f.options, analyze: async (id, revision) => { active++; maxActive = Math.max(maxActive, active); const result = await originalAnalyze(id, revision); active--; return result; } });
+  assert.equal(await prepareImportDrafts(f.entries, { ...f.options, analyze: async (id, revision) => { active++; maxActive = Math.max(maxActive, active); const result = await originalAnalyze(id, revision); active--; return result; } }), 'completed');
   assert.equal(maxActive, 1); assert.deepEqual(f.calls, ['one', 'two']); assert.deepEqual(f.revisions, [3, 3]);
   assert.ok(f.adopted.every(item => item.status === 'pending' && item.source.documentId === `original-${item.id}`));
   assert.ok(f.progress().every(item => item.status === 'ready'));
@@ -40,8 +40,29 @@ function fixture(ids = ['one', 'two']) {
 }
 for (const errorStatus of [402, 403, 429, 503, undefined]) {
   const f = fixture();
-  await prepareImportDrafts(f.entries, { ...f.options, analyze: async id => { f.calls.push(id); return { ...f.items.get(id)!, analysis: { status: 'failed', error: 'Check allowance or service availability', errorStatus } }; } });
+  assert.equal(await prepareImportDrafts(f.entries, { ...f.options, analyze: async id => { f.calls.push(id); return { ...f.items.get(id)!, analysis: { status: 'failed', error: 'Check allowance or service availability', errorStatus } }; } }), 'halted');
   assert.deepEqual(f.calls, ['one']); assert.deepEqual(f.progress().map(item => item.status), ['failed', 'stopped']);
+}
+for (const status of [400, 401, 402, 403, 405, 408, 413, 415, 422, 429, 500, 503]) {
+  const f = fixture();
+  const outcome = await prepareImportDrafts(f.entries, { ...f.options, analyze: async id => { f.calls.push(id); throw new InboxRequestError('Request could not proceed', status); } });
+  assert.equal(outcome, 'halted'); assert.deepEqual(f.calls, ['one'], `unknown/global HTTP ${status} stops later requests`);
+}
+for (const status of [404, 409]) {
+  const f = fixture();
+  assert.equal(await prepareImportDrafts(f.entries, { ...f.options, analyze: async id => { f.calls.push(id); throw new InboxRequestError('Draft changed or missing', status); } }), 'completed');
+  assert.deepEqual(f.calls, ['one', 'two'], 'only known per-row missing/conflict errors continue');
+}
+{
+  const f = fixture(), held = new Set(['one']);
+  await prepareImportDrafts(f.entries, { ...f.options, isHeld: id => held.has(id) });
+  assert.deepEqual(f.calls, ['two'], 'unsaved/in-flight manual review is excluded before any model call');
+  assert.equal(f.progress()[0].status, 'skipped'); assert.match(f.progress()[0].message!, /manual review was kept/);
+}
+{
+  const f = fixture(), held = new Set<string>();
+  await prepareImportDrafts(f.entries, { ...f.options, isHeld: id => held.has(id), analyze: async id => { f.calls.push(id); held.add('two'); return ready(f.items.get(id)!); } });
+  assert.deepEqual(f.calls, ['one'], 'manual holds are checked again synchronously before each request');
 }
 {
   const f = fixture();
@@ -50,7 +71,7 @@ for (const errorStatus of [402, 403, 429, 503, undefined]) {
 }
 {
   const f = fixture(); let stop = false;
-  await prepareImportDrafts(f.entries, { ...f.options, stopRequested: () => stop, analyze: async id => { f.calls.push(id); stop = true; return ready(f.items.get(id)!); } });
+  assert.equal(await prepareImportDrafts(f.entries, { ...f.options, stopRequested: () => stop, analyze: async id => { f.calls.push(id); stop = true; return ready(f.items.get(id)!); } }), 'stopped');
   assert.deepEqual(f.calls, ['one']); assert.deepEqual(f.progress().map(item => item.status), ['ready', 'stopped']);
 }
 {

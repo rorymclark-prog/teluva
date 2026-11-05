@@ -7,6 +7,7 @@ export interface DraftPreparationProgress {
   status: 'queued' | 'analyzing' | 'ready' | 'failed' | 'skipped' | 'stopped';
   message?: string;
 }
+export type DraftPreparationOutcome = 'completed' | 'stopped' | 'halted';
 
 /** Only the originals explicitly queued in this panel are eligible. Existing
  * proposals, including manual reviews, must never be overwritten by a batch. */
@@ -27,14 +28,17 @@ export async function prepareImportDrafts(entries: ImportBatchEntry[], options: 
   analyze: (id: string, expectedRevision: number) => Promise<ImportInboxItem>;
   onItem: (item: ImportInboxItem) => void;
   onProgress: (progress: DraftPreparationProgress[]) => void;
+  isHeld?: (id: string) => boolean;
   stopRequested?: () => boolean;
   now?: () => number;
-}): Promise<void> {
+}): Promise<DraftPreparationOutcome> {
   if (entries.length > 20) throw new Error('Prepare up to 20 selected originals at a time.');
   const unique = entries.filter((entry, index) => entry.inboxItemId && entries.findIndex(other => other.inboxItemId === entry.inboxItemId) === index);
   let progress: DraftPreparationProgress[] = unique.map(entry => {
     const item = options.getItem(entry.inboxItemId!);
-    return { id: entry.inboxItemId!, name: entry.name, status: item?.status === 'pending' && item.proposal && item.analysis.status === 'ready' ? 'ready' : 'queued' };
+    return options.isHeld?.(entry.inboxItemId!)
+      ? { id: entry.inboxItemId!, name: entry.name, status: 'skipped', message: 'Your manual review was kept. Save it before preparing this original.' }
+      : { id: entry.inboxItemId!, name: entry.name, status: item?.status === 'pending' && item.proposal && item.analysis.status === 'ready' ? 'ready' : 'queued' };
   });
   const publish = () => { options.scope.check(); options.onProgress(progress.map(item => ({ ...item }))); };
   const update = (id: string, status: DraftPreparationProgress['status'], message?: string) => {
@@ -44,7 +48,10 @@ export async function prepareImportDrafts(entries: ImportBatchEntry[], options: 
   publish();
   for (const entry of unique) {
     options.scope.check();
-    if (options.stopRequested?.()) { stop('Stopped. Your originals and drafts were kept.'); return; }
+    if (options.stopRequested?.()) { stop('Stopped. Your originals and drafts were kept.'); return 'stopped'; }
+    if (options.isHeld?.(entry.inboxItemId!)) {
+      update(entry.inboxItemId!, 'skipped', 'Your manual review was kept. Save it before preparing this original.'); continue;
+    }
     const item = options.getItem(entry.inboxItemId!);
     if (!canPrepareImport(entry, item, options.now?.())) {
       update(entry.inboxItemId!, item?.status === 'pending' && item.proposal && item.analysis.status === 'ready' ? 'ready' : 'skipped', 'Already prepared, being analyzed, or no longer available.'); continue;
@@ -59,14 +66,15 @@ export async function prepareImportDrafts(entries: ImportBatchEntry[], options: 
         update(result.id, 'failed', result.analysis.error || 'Could not prepare this draft.');
         // Only per-file format/size/readability failures can continue safely.
         // Unknown failures may be an allowance, consent or service problem.
-        if (![413, 415, 422].includes(result.analysis.errorStatus || 0)) { stop('Preparation stopped. Check the error before continuing.'); return; }
+        if (![413, 415, 422].includes(result.analysis.errorStatus || 0)) { stop('Preparation stopped. Check the error before continuing.'); return 'halted'; }
       } else update(result.id, 'skipped', 'This draft changed elsewhere. Its latest state was kept.');
     } catch (error) {
       if (!options.scope.isCurrent()) throw error;
       update(item!.id, 'failed', importErrorMessage(error));
-      if (!(error instanceof InboxRequestError) || error.status === 402 || error.status === 403 || error.status === 429 || error.status >= 500) {
-        stop('Preparation stopped. Check the error before continuing.'); return;
+      if (!(error instanceof InboxRequestError) || ![404, 409].includes(error.status)) {
+        stop('Preparation stopped. Check the error before continuing.'); return 'halted';
       }
     }
   }
+  return 'completed';
 }

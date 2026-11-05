@@ -278,13 +278,22 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       transaction.set(ref, next);
       return { item: next, document: resolved?.document };
     });
-    let analyzed, analysisError, analysisErrorStatus;
+    let result, analyzed, analysisError, analysisErrorStatus;
     try {
-      const result = await extractDocument(actor, spaceId, { ...(started.document ? { document: started.document, documentId: started.document.id } : { sourceText: started.item.source.sourceText }), sourceName: started.item.source.sourceName });
+      result = await extractDocument(actor, spaceId, { ...(started.document ? { document: started.document, documentId: started.document.id } : { sourceText: started.item.source.sourceText }), sourceName: started.item.source.sourceName });
+    } catch (error) {
+      if ([402, 403, 413, 415, 422, 429, 503].includes(error?.status)) analysisErrorStatus = error.status;
+      const safeMessage = [402, 403, 413, 415, 422, 429, 503].includes(error?.status) && typeof error.message === 'string' && error.message.length <= 300
+        && !/https?:\/\/|\/api\/files\/|Bearer\s|token=|-----BEGIN|sk-/i.test(error.message);
+      analysisError = safeMessage ? error.message.replace(/[\x00-\x1f\x7f]/g, ' ') : 'Could not analyze this import. Your draft is still pending; retry the analysis or enter a proposal manually.';
+    }
+    // A model response can be unusable for just this original. Classify local
+    // validation separately from account/service failures so later files run.
+    if (!analysisError) try {
       const proposal = sanitizeImportProposal(result?.proposal);
       if (proposal.kind === 'preferences') throw new Error('preferences-require-explicit-review-request');
+      if (typeof result.extractedText === 'string' && (result.extractedText.length > IMPORT_LIMITS.sourceChars || Buffer.byteLength(result.extractedText, 'utf8') > IMPORT_LIMITS.sourceBytes)) fail(413, 'EXTRACTED_TEXT_TOO_LARGE', 'Extracted text is too large.');
       const extractedText = result.extractedText === undefined ? undefined : text(result.extractedText, IMPORT_LIMITS.sourceChars);
-      if (extractedText && Buffer.byteLength(extractedText, 'utf8') > IMPORT_LIMITS.sourceBytes) throw new Error('extracted-text-too-large');
       const originalText = extractedText || started.item.source.sourceText || '';
       const quotes = Array.isArray(result.evidenceQuotes) ? result.evidenceQuotes.slice(0, 24).flatMap(value => {
         const quote = typeof value === 'string' ? value : value?.quote;
@@ -293,10 +302,10 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       }) : [];
       analyzed = { proposal, analysis: { status: 'ready', ...(extractedText ? { extractedText } : {}), ...(quotes.length ? { evidenceQuotes: quotes } : {}), finishedAt: timestamp() } };
     } catch (error) {
-      if ([402, 403, 413, 415, 422, 429, 503].includes(error?.status)) analysisErrorStatus = error.status;
-      const safeMessage = [402, 403, 413, 415, 422, 429, 503].includes(error?.status) && typeof error.message === 'string' && error.message.length <= 300
-        && !/https?:\/\/|\/api\/files\/|Bearer\s|token=|-----BEGIN|sk-/i.test(error.message);
-      analysisError = safeMessage ? error.message.replace(/[\x00-\x1f\x7f]/g, ' ') : 'Could not analyze this import. Your draft is still pending; retry the analysis or enter a proposal manually.';
+      analysisErrorStatus = error?.status === 413 ? 413 : 422;
+      analysisError = analysisErrorStatus === 413
+        ? 'The extracted text is too large for a draft. Enter the details manually or use a shorter source.'
+        : 'No usable draft could be prepared from this original. Enter the details manually or try a clearer source.';
     }
     return db.runTransaction(async transaction => {
       const membership = await authorize(actor, spaceId, transaction);
@@ -304,7 +313,10 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       const resolved = await original(actor, spaceId, item, transaction);
       // User edits and dismissals win over a slow model response.
       if (item.status !== 'pending' || item.analysis?.jobId !== jobId) return item;
-      if (resolved && sourceSnapshot(resolved.document).documentVersion !== item.source.documentVersion) analysisError = 'The original file changed during analysis. Analyze this import again.';
+      if (resolved && sourceSnapshot(resolved.document).documentVersion !== item.source.documentVersion) {
+        analysisError = 'The original file changed during analysis. Analyze this import again.';
+        analysisErrorStatus = 422;
+      }
       const next = { ...item, ...(analysisError ? { analysis: { status: 'failed', error: analysisError, ...(analysisErrorStatus ? { errorStatus: analysisErrorStatus } : {}), finishedAt: timestamp() } } : analyzed), revision: item.revision + 1, updatedAt: timestamp() };
       transaction.set(ref, next); return next;
     });

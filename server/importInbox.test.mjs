@@ -271,6 +271,39 @@ test('failed extraction keeps manual work, preserves safe quota/consent errors, 
   }
 });
 
+test('unusable model output is a per-file failure, preserves manual work, and never leaks model content', async () => {
+  for (const [output, status] of [
+    [{ proposal: { kind: 'asset', asset: { name: 'secret.test invalid model output', category: 'Unsupported' } } }, 422],
+    [{ proposal: { kind: 'preferences', preferences: { language: 'de' } } }, 422],
+    [{ proposal: assetProposal(), extractedText: 'x'.repeat(IMPORT_LIMITS.sourceChars + 1) }, 413],
+    [{ proposal: assetProposal(), extractedText: '界'.repeat(35_000) }, 413],
+    [{ proposal: assetProposal(), extractedText: 'Invalid\u0001text' }, 422],
+  ]) {
+    const f = fixture(async () => output);
+    const entry = await f.service.create(actor('staff'), 'business', { requestId: 'local-failure', documentId: 'invoice', proposal: assetProposal({ name: 'Manual review survives' }) });
+    const failed = await f.service.analyze(actor('staff'), 'business', entry.id, { expectedRevision: entry.revision });
+    assert.equal(failed.analysis.status, 'failed'); assert.equal(failed.analysis.errorStatus, status);
+    assert.equal(failed.proposal.asset.name, 'Manual review survives');
+    assert.equal(f.extracts.length, 1); assert.equal(failed.status, 'pending');
+    assert.equal(JSON.stringify(failed).includes('secret.test'), false);
+    assert.match(failed.analysis.error, /manually/);
+  }
+});
+
+test('an original changed during analysis is a per-file failure with no stale proposal', async () => {
+  let release;
+  const f = fixture(async () => new Promise(resolve => { release = resolve; }));
+  const entry = await f.service.create(actor('staff'), 'business', { requestId: 'changed-original', documentId: 'invoice' });
+  const analysis = f.service.analyze(actor('staff'), 'business', entry.id, { expectedRevision: entry.revision });
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  const reference = f.records.get('families/business/reference/documents');
+  reference.docs[0].contentHash = 'new-original-hash'; f.bump('families/business/reference/documents', reference);
+  release({ proposal: assetProposal() });
+  const failed = await analysis;
+  assert.equal(failed.analysis.status, 'failed'); assert.equal(failed.analysis.errorStatus, 422);
+  assert.equal(failed.proposal, undefined); assert.equal(f.extracts.length, 1);
+});
+
 test('slow extraction cannot overwrite an edit/dismissal, and a crashed running lease is retryable', async () => {
   let release, calls = 0;
   const f = fixture(async () => { calls++; if (calls === 1) return new Promise(resolve => { release = resolve; }); return { proposal: assetProposal({ name: 'Retried' }) }; });

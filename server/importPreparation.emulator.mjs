@@ -18,7 +18,7 @@ if (!/^(127\.0\.0\.1|localhost):\d{1,5}$/.test(process.env.FIRESTORE_EMULATOR_HO
 
 test('selected originals become categorized pending drafts in family and business, and only explicit admin review files records', async () => {
   const app = initializeApp({ projectId: 'rules-probe' }, `prepare-${randomUUID()}`), db = getFirestore(app);
-  const spaces = [], grants = [], objects = new Map(), metadata = new Map();
+  const spaces = [], grants = [], objects = new Map(), metadata = new Map(), unusable = new Map();
   let extracts = 0;
   const resolveMembership = async (actor, space, { transaction } = {}) => {
     const ref = db.doc(`families/${space}/roles/${actor.uid}`), snap = transaction ? await transaction.get(ref) : await ref.get();
@@ -33,6 +33,8 @@ test('selected originals become categorized pending drafts in family and busines
     extracts++;
     const text = objects.get(source.document.storagePath).toString('utf8');
     assert.match(text, /^SYNTHETIC ONLY/);
+    if (unusable.get(source.document.id) === 'schema') return { proposal: { kind: 'asset', asset: { name: 'Unusable synthetic model output', category: 'Unsupported' } } };
+    if (unusable.get(source.document.id) === 'size') return { proposal: { kind: 'document', document: { name: 'Synthetic oversized response', category: 'Other' } }, extractedText: 'x'.repeat(40_001) };
     const proposal = text.includes('Laptop')
       ? { kind: 'asset', asset: { name: 'Synthetic laptop', category: 'Electronics', serialNumber: 'FIXTURE-001', purchaseDate: '2026-01-10' } }
       : { kind: 'document', document: { name: 'Synthetic founding minutes', category: 'Legal', docDate: '2026-01-10' } };
@@ -88,12 +90,20 @@ test('selected originals become categorized pending drafts in family and busines
       let progress;
       const options = { scope: createFileOperationScope(() => [uid, spaceId]), getItem: id => items.get(id), analyze: async (id, revision) => (await api.act(id, 'analyze', revision)).item, onItem: item => items.set(item.id, item), onProgress: value => { progress = value; } };
       const before = extracts;
+      unusable.set(entries[0].documentId, type === 'family' ? 'schema' : 'size');
+      assert.equal(await prepareImportDrafts(entries, options), 'completed');
+      assert.equal(extracts, before + 2, 'an unusable first response never starves the second original or retries within the run');
+      assert.deepEqual(progress.map(item => item.status), ['failed', 'ready']);
+      assert.equal(items.get(entries[0].inboxItemId).analysis.errorStatus, type === 'family' ? 422 : 413);
+      assert.equal((await db.collection(`families/${spaceId}/assets`).get()).size, 0);
+      unusable.delete(entries[0].documentId);
       await prepareImportDrafts(entries, options);
-      assert.equal(extracts, before + 2); assert.ok(progress.every(item => item.status === 'ready'));
+      assert.equal(extracts, before + 3, 'an explicit retry spends only on the failed original');
+      assert.ok(progress.every(item => item.status === 'ready'));
       assert.deepEqual([...items.values()].map(item => item.proposal.kind).sort(), ['asset', 'document']);
       assert.ok([...items.values()].every(item => item.status === 'pending' && item.analysis.evidenceQuotes.length === 1));
       assert.equal((await db.collection(`families/${spaceId}/assets`).get()).size, 0, 'preparation never applies a record');
-      await prepareImportDrafts(entries, options); assert.equal(extracts, before + 2, 'successful drafts are not analyzed again');
+      await prepareImportDrafts(entries, options); assert.equal(extracts, before + 3, 'successful drafts are not analyzed again');
       const first = [...items.values()][0];
       await assert.rejects(api.act(first.id, 'apply', first.revision), error => error.status === 403);
       uid = 'admin';
@@ -112,7 +122,7 @@ test('selected originals become categorized pending drafts in family and busines
       const grant = (await db.doc(`connector_grants/${grantId}`).get()).data();
       assert.deepEqual(grant.scopes, ['inbox:write']); assert.deepEqual(grant.documentIds, [], 'the workflow never broadens saved-document read permission');
     }
-    console.log('Verified four exact originals, four categorized pending drafts, explicit admin filing, unchanged scoped grants; model and object storage are synthetic adapters.');
+    console.log('Verified four exact originals, per-file schema/size failures without starvation, exact retry call counts, four categorized pending drafts, explicit admin filing and unchanged scoped grants; model and object storage are synthetic adapters.');
   } finally {
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
     for (const space of spaces) await db.recursiveDelete(db.doc(`families/${space}`));
