@@ -97,3 +97,27 @@ SIGTERM; it was stopped. Pagination emulator exec session 93181 owned ports
 8189/4419/4519 for its test and shut them down normally. No other chat's processes
 or user data were removed. Local verification artifacts stay under the ignored
 `output/verification/inbox-history-2026-11-05/` directory.
+
+## Release outcome
+
+Completed as **v388**. Deployed source commit:
+`aadbee639c5df21b86e567fe67338970d5831bc4`. The established deploy script passed
+typecheck/colour checks, security rules, Ember checks, the full frontend sequence,
+all **674 server tests**, and the production build without a bypass. The focused
+inbox suite passed 13 tests; the new HTTP/Firestore emulator acceptance passed for
+both synthetic space types. The browser limitation above still applies.
+
+Verified at 09:18 UTC on 5 November 2026:
+
+- [Primary service](https://teluva-x3k4bua7pq-nw.a.run.app/): `v388`, revision
+  `teluva-00213-pdg`.
+- [Legacy service](https://family-info-organizer-x3k4bua7pq-nw.a.run.app/): `v388`,
+  revision `family-info-organizer-00367-hbp`.
+- Both use the immutable image digest
+  `sha256:60c343f7656d6ecafc3f829a9a6bcaa8ad175537f78110649fba97feaeb3c6b7`.
+- Unauthenticated inbox requests returned **401** on both services.
+
+The release script (PID 37648, exec session 11168) completed and its temporary
+emulators shut down. The release receipt is saved in the ignored verification
+directory. This completion-note addition changes documentation only after the
+verified application image was built.
