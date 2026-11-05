@@ -2,5 +2,11 @@
   "label": "v388",
   "changes": [
     "Older unfinished imports remain reachable with Load older imports, even after a long history of completed reviews."
-  ]
+  ],
+  "feature": {
+    "id": "family-memories-v385",
+    "demo": "family-memories",
+    "title": "Your family memories, rediscovered",
+    "description": "On this day and Flashback bring back dated moments saved to your family timeline, alongside family sayings and milestones."
+  }
 }
