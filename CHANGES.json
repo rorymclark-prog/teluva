@@ -1,6 +1,13 @@
 {
-  "label": "v386",
+  "label": "v387",
   "changes": [
-    "Saved family stories and profile photos stay current when the browser cache is full."
-  ]
+    "Important feature updates now include a short animation you can pause and replay.",
+    "Replay the family memories walkthrough from What’s new."
+  ],
+  "feature": {
+    "id": "family-memories-v385",
+    "demo": "family-memories",
+    "title": "Your family memories, rediscovered",
+    "description": "On this day and Flashback bring back dated moments saved to your family timeline, alongside family sayings and milestones."
+  }
 }

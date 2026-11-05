@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import FeatureUpdateCard from './FeatureUpdateCard';
+import { cleanFeatureUpdate } from '../utils/featureUpdates';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 /**
@@ -20,6 +22,7 @@ interface ChangelogEntry {
   label: string;
   date: string; // YYYY-MM-DD (release day)
   changes: string[];
+  feature?: unknown;
 }
 
 // 154 entries render fine, but nobody arrives wanting v100 — show the recent
@@ -105,6 +108,7 @@ export default function WhatsNewLog({ onClose, currentLabel }: { onClose: () => 
             <ol className="space-y-5">
               {visible.map((e) => (
                 <li key={e.label}>
+                  {cleanFeatureUpdate(e.feature) && <div className="mb-4"><FeatureUpdateCard feature={cleanFeatureUpdate(e.feature)!} /></div>}
                   <div className="flex items-baseline gap-2">
                     <h3 className="text-[13.5px] font-bold text-ink-800 tabular-nums">
                       {e.label}
