@@ -175,13 +175,25 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
     if (item.spaceId !== spaceId || (membership.role !== 'admin' && item.createdBy !== actor.uid)) fail(403, 'IMPORT_FORBIDDEN', 'This account cannot review that import.');
     return { ref, item: { ...item, id } };
   }
-  async function list(actor, spaceId) {
+  async function listPage(actor, spaceId, cursor) {
     const membership = await authorize(actor, spaceId);
     let query = refs(spaceId).inbox;
     if (membership.role !== 'admin') query = query.where('createdBy', '==', actor.uid);
-    const snapshot = await query.orderBy('createdAt', 'desc').limit(IMPORT_LIMITS.list).get();
+    query = query.orderBy('createdAt', 'desc');
+    if (cursor !== undefined) {
+      if (!safeId(cursor)) fail(400, 'INVALID_CURSOR', 'Refresh the inbox before loading older imports.');
+      const after = await refs(spaceId).inbox.doc(cursor).get();
+      const value = after.exists && after.data();
+      if (!value || value.spaceId !== spaceId
+        || (membership.role !== 'admin' && value.createdBy !== actor.uid)) fail(409, 'CURSOR_EXPIRED', 'The inbox changed. Refresh before loading older imports.');
+      // A document snapshot also carries Firestore's implicit ID tie-breaker.
+      // Creation timestamps can be identical within a batch.
+      query = query.startAfter(after);
+    }
+    const snapshot = await query.limit(IMPORT_LIMITS.list + 1).get();
+    const rows = snapshot.docs.slice(0, IMPORT_LIMITS.list);
     const items = [];
-    for (const row of snapshot.docs) {
+    for (const row of rows) {
       const item = { ...row.data(), id: row.id };
       if (item.spaceId !== spaceId || (membership.role !== 'admin' && item.createdBy !== actor.uid)) continue;
       try { await original(actor, spaceId, item); items.push(item); }
@@ -189,8 +201,15 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
     }
     // Do not return a private batch if membership changed while source checks ran.
     const current = await authorize(actor, spaceId);
-    return current.role === 'admin' ? items : items.filter(item => item.createdBy === actor.uid);
+    if (current.role !== membership.role) fail(409, 'IMPORT_ACCESS_CHANGED', 'Your role changed. Refresh the inbox before continuing.');
+    return {
+      items: current.role === 'admin' ? items : items.filter(item => item.createdBy === actor.uid),
+      // Advance over checked rows even when none of their sources are readable.
+      // A fully filtered page must not hide older accessible imports.
+      nextCursor: snapshot.docs.length > IMPORT_LIMITS.list ? rows.at(-1).id : null,
+    };
   }
+  const list = async (actor, spaceId) => (await listPage(actor, spaceId)).items;
   async function create(actor, spaceId, input) {
     actorIn(actor, spaceId);
     allowedKeys(input, ['documentId', 'sourceText', 'sourceName', 'proposal', 'requestId']);
@@ -360,7 +379,7 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       ...(value.theme && ['system', 'light', 'dark'].includes(value.theme) ? { theme: value.theme } : {}),
       ...(typeof value.reviewedAt === 'string' ? { reviewedAt: value.reviewedAt } : {}) };
   }
-  return { list, create, analyze, update, apply, dismiss, preferences };
+  return { list, listPage, create, analyze, update, apply, dismiss, preferences };
 }
 
 export function createImportInboxRouter({ service, authenticateFirebase }) {
@@ -373,7 +392,7 @@ export function createImportInboxRouter({ service, authenticateFirebase }) {
       const spaceId = req.query.spaceId;
       if (!validSpace(spaceId) || (req.body?.spaceId !== undefined && req.body.spaceId !== spaceId)) fail(400, 'INVALID_SPACE', 'Choose one matching explicit space.');
       const body = { ...(req.body || {}) }; delete body.spaceId;
-      const result = await operation(actor, spaceId, req.params.id, body);
+      const result = await operation(actor, spaceId, req.params.id, body, req.query);
       res.json({ spaceId, ...result });
     } catch (error) {
       const known = error instanceof ImportInboxError;
@@ -381,7 +400,7 @@ export function createImportInboxRouter({ service, authenticateFirebase }) {
       res.status(known ? error.status : [401, 403, 429].includes(error?.status) ? error.status : 500).json({ error: known ? error.message : error?.status === 401 ? 'Sign in to use the import inbox.' : error?.status === 403 ? 'This account cannot use this import inbox.' : error?.status === 429 ? 'Too many import requests. Try again shortly.' : 'The import operation failed. Please try again.', code: known ? error.code : error?.status === 429 ? 'IMPORT_RATE_LIMIT' : 'IMPORT_UNAVAILABLE', ...(known && error.details ? { details: error.details } : {}) });
     }
   };
-  router.get('/', run(async (actor, space) => ({ items: await service.list(actor, space) })));
+  router.get('/', run(async (actor, space, _id, _body, query) => service.listPage(actor, space, query.cursor)));
   router.get('/preferences', run(async (actor, space) => ({ preferences: await service.preferences(actor, space) })));
   router.post('/', run(async (actor, space, _id, body) => ({ item: await service.create(actor, space, body) })));
   router.patch('/:id', run(async (actor, space, id, body) => ({ item: await service.update(actor, space, id, body) })));

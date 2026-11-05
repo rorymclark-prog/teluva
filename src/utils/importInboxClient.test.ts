@@ -12,6 +12,8 @@ await api.list();
 assert.equal(calls.at(-1)!.url, '/api/import-inbox?spaceId=space-A');
 assert.equal(calls.at(-1)!.init.headers!['Authorization'], 'Bearer synthetic-token');
 assert.equal(calls.at(-1)!.init.cache, 'no-store');
+await api.list('older:one');
+assert.equal(calls.at(-1)!.url, '/api/import-inbox?cursor=older%3Aone&spaceId=space-A');
 await api.create({ sourceText: 'Synthetic source', sourceName: 'Receipt email', requestId: 'request-one' });
 assert.deepEqual(JSON.parse(String(calls.at(-1)!.init.body)), { sourceText: 'Synthetic source', sourceName: 'Receipt email', requestId: 'request-one' });
 await api.patch('draft/one', { kind: 'asset', asset: { name: 'Television', category: 'Electronics' } }, 7);

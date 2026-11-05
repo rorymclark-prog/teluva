@@ -52,10 +52,10 @@ async function fixture() {
         metadata: { textPrepared: fetchMode !== 'unprepared', textOrigin: fetchMode === 'unprepared' ? 'not-prepared' : 'AI transcription', category: 'Financial', fileType: 'application/pdf', originalAvailableInTeluva: true, downloadUrl: 'SECRET' } };
     },
   }));
-  const restService = Object.fromEntries(['list', 'create', 'update', 'analyze', 'apply', 'dismiss'].map(method => [method, async (...args) => {
+  const restService = Object.fromEntries(['listPage', 'create', 'update', 'analyze', 'apply', 'dismiss'].map(method => [method, async (...args) => {
     calls.rest.push({ method, args });
     if (args[1] === 'failure') throw new Error('RAW_PRIVATE_STACK');
-    if (method === 'list') return [];
+    if (method === 'listPage') return { items: [], nextCursor: null };
     return { id: 'draft', spaceId: args[1], status: 'pending' };
   }]));
   app.use('/api/import-inbox', createImportInboxRouter({ service: restService, authenticateFirebase: async req => {
@@ -205,7 +205,10 @@ test('protocol/body/rate-limit failures are bounded and provider errors do not d
 test('REST review routes bind Firebase actor and explicit space, echo scope, preserve limits and sanitize errors', () => withFixture(async f => {
   const headers = { 'Content-Type': 'application/json' };
   const listed = await f.request('/api/import-inbox?spaceId=selected-space', { token: 'firebase' });
-  assert.deepEqual(await listed.json(), { spaceId: 'selected-space', items: [] });
+  assert.deepEqual(await listed.json(), { spaceId: 'selected-space', items: [], nextCursor: null });
+  const older = await f.request('/api/import-inbox?spaceId=selected-space&cursor=older-page', { token: 'firebase' });
+  assert.equal(older.status, 200);
+  assert.equal(f.calls.rest.at(-1).args[2], 'older-page', 'the HTTP cursor reaches the scoped page service');
   const routes = [ ['POST', '/api/import-inbox', { requestId: 'x', sourceText: 'Source', sourceName: 'Named source' }], ['PATCH', '/api/import-inbox/draft', { proposal: {} }],
     ...['analyze', 'apply', 'dismiss'].map(action => ['POST', `/api/import-inbox/draft/${action}`, { expectedRevision: 2 }]) ];
   for (const [method, path, body] of routes) {

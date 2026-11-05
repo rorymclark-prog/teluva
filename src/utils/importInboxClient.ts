@@ -52,7 +52,7 @@ export function createImportInboxClient(options: Options) {
   };
   const itemRoute = (id: string) => `/api/import-inbox/${encodeURIComponent(id)}`;
   return {
-    list: () => request<{ spaceId: string; items: ImportInboxItem[] }>('/api/import-inbox', 'GET'),
+    list: (cursor?: string) => request<{ spaceId: string; items: ImportInboxItem[]; nextCursor?: string | null }>(`/api/import-inbox${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, 'GET'),
     preferences: () => request<{ spaceId: string; preferences: ReviewPreferences & { reviewedAt?: string } }>('/api/import-inbox/preferences', 'GET'),
     create: (input: { documentId?: string; sourceText?: string; sourceName?: string; proposal?: ImportProposal; requestId: string }) => request<{ spaceId: string; item: ImportInboxItem }>('/api/import-inbox', 'POST', input),
     patch: (id: string, proposal: ImportProposal, expectedRevision: number) => request<{ spaceId: string; item: ImportInboxItem }>(itemRoute(id), 'PATCH', { proposal, expectedRevision }),

@@ -1,8 +1,7 @@
 {
-  "label": "v387",
+  "label": "v388",
   "changes": [
-    "Important feature updates now include a short animation you can pause and replay.",
-    "Replay the family memories walkthrough from What’s new."
+    "Older unfinished imports remain reachable with Load older imports, even after a long history of completed reviews."
   ],
   "feature": {
     "id": "family-memories-v385",
