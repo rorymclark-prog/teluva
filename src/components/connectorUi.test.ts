@@ -16,10 +16,12 @@ const state = {
   request: { id: 'request-one', clientName: 'App supplied connector name', redirectHost: 'claude.ai', scopes: ['documents:read', 'inbox:write'], expiresAt: Date.now() + 600000 },
   selectedIds: [] as string[], scopes: ['inbox:write'], connections: [{ id: 'grant-one', clientName: 'Fixture connection', documentIds: ['original-one'], scopes: ['inbox:write'] }],
   nextCursor: null as string | null,
+  batch: [] as { id: string; name: string; requestId: string; inboxItemId: string; documentId: string; status: string }[],
 };
 async function load(name: string) {
   let source = readFileSync(resolve(root, `src/components/${name}.tsx`), 'utf8');
   source = source.replace('useState<ImportInboxItem[]>([])', 'useState<ImportInboxItem[]>(globalThis.__fixture.items)')
+    .replace('useState<ImportBatchEntry[]>([])', 'useState<ImportBatchEntry[]>(globalThis.__fixture.batch)')
     .replace('useState<string | null>(null)', 'useState<string | null>(globalThis.__fixture.nextCursor)')
     .replace('useState<ConnectorGrant[]>([])', 'useState<ConnectorGrant[]>(globalThis.__fixture.connections)')
     .replace('useState<ConnectorRequest | null>(null)', 'useState<ConnectorRequest | null>(globalThis.__fixture.request)')
@@ -65,6 +67,21 @@ assert.match(admin, /open=drive/);
 assert.match(admin, /open=vault/);
 assert.match(admin, /<button[^>]*disabled=""[^>]*>.*?Analyze again/s, 'analysis requires AI consent');
 assert.doesNotMatch(admin, /JSON|access token|API key/);
+const storedItem = state.items[0];
+state.batch = [{ id: 'batch-one', inboxItemId: 'draft-one', documentId: 'original-one', name: 'Original receipt.pdf', requestId: 'batch-request', status: 'done' }];
+state.items[0] = { ...storedItem, source: { documentId: 'original-one' }, proposal: undefined, analysis: { status: 'idle' } } as any;
+const noConsent = render(ImportInbox);
+const preparationButton = (html: string) => (html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g) || []).find((button: string) => button.includes('Prepare 1 draft with AI')) || '';
+assert.match(preparationButton(noConsent), /disabled=""/, 'batch preparation needs existing AI consent');
+assert.match(noConsent, /existing AI allowance/);
+assert.match(noConsent, /nothing is filed automatically/);
+state.ctx.aiConsent = true;
+const selectedPreparation = render(ImportInbox);
+assert.match(selectedPreparation, /Prepare 1 draft with AI/);
+assert.doesNotMatch(preparationButton(selectedPreparation), /disabled=""/);
+state.items[0] = storedItem;
+assert.doesNotMatch(render(ImportInbox), /Prepare 1 draft with AI/, 'an existing review is never selected for automatic reprocessing');
+state.ctx.aiConsent = false; state.batch = [];
 state.ctx = { ...state.ctx, role: 'member', isAdmin: false, spaces: [{ ...state.ctx.spaces[0], role: 'member' }] };
 const member = render(ImportInbox);
 assert.doesNotMatch(member, /Add reviewed asset|Save reviewed document/);

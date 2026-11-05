@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, FilePlus2, FileText, Inbox, Loader2, Plus, RefreshCw, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import type { AssetItem, AssetWarranty, VaultCategory } from '../types';
 import { useFamilyCtx } from '../contexts/FamilyContext';
@@ -9,6 +9,7 @@ import { uploadServiceDocFile } from '../utils/serviceDocUpload';
 import { createImportInboxClient, importErrorMessage, importStatusLabel, InboxRequestError, processImportBatch, type ImportBatchEntry, type ImportInboxItem, type ImportProposal, type ReviewPreferences } from '../utils/importInboxClient';
 import { ServiceDocChips, useVaultDocs } from './ServiceDocs';
 import { applyReviewedPreferences } from '../utils/reviewedPreferences';
+import { canPrepareImport, prepareImportDrafts, type DraftPreparationProgress } from '../utils/importPreparation';
 
 const assetCategories: AssetItem['category'][] = ['Electronics', 'Appliance', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other'];
 const documentCategories: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
@@ -28,6 +29,7 @@ function ImportInboxBody() {
   const api = useMemo(() => createImportInboxClient({ getUser: () => auth.currentUser, getSpace: () => current() ? latest.current.familyId : null, getGeneration: () => `${mounted.current}:${latest.current.role}` }), []);
   const vault = useVaultDocs(!allowed);
   const [items, setItems] = useState<ImportInboxItem[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState('');
+  const itemsRef = useRef(items); itemsRef.current = items;
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const listing = useRef(false);
   const [filter, setFilter] = useState<'pending' | 'applied' | 'dismissed' | 'all'>('pending');
@@ -35,12 +37,23 @@ function ImportInboxBody() {
   const [documentIds, setDocumentIds] = useState<string[]>([]), [sourceText, setSourceText] = useState(''), [sourceName, setSourceName] = useState('');
   const [busy, setBusy] = useState(false), [intakeError, setIntakeError] = useState(''), [intakeStatus, setIntakeStatus] = useState('');
   const [batch, setBatch] = useState<ImportBatchEntry[]>([]);
+  const [preparation, setPreparation] = useState<DraftPreparationProgress[]>([]);
+  const [preparing, setPreparing] = useState(false), [stopping, setStopping] = useState(false);
+  const stopPreparation = useRef(false);
+  const heldRows = useRef(new Set<string>()), preparationLocks = useRef(new Set<string>());
+  const [heldIds, setHeldIds] = useState(new Set<string>());
+  const onRowHold = useCallback((id: string, held: boolean) => {
+    if (held === heldRows.current.has(id)) return;
+    if (held) heldRows.current.add(id); else heldRows.current.delete(id);
+    if (mounted.current) setHeldIds(new Set(heldRows.current));
+  }, []);
+  const isPreparationLocked = useCallback((id: string) => preparationLocks.current.has(id), []);
   const batchRef = useRef(batch); batchRef.current = batch;
   const fileInput = useRef<HTMLInputElement>(null), pendingFile = useRef<FileOperationScope | null>(null), requestId = useRef(newRequestId());
   const business = ctx.spaces.find(space => space.id === ctx.familyId)?.type === 'business';
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; epoch.current++; }; }, []);
   const reload = async (cursor?: string) => {
-    if (!allowed || !current() || listing.current) return;
+    if (!allowed || !current() || listing.current || intakeBusy.current) return;
     listing.current = true;
     setLoading(true); setError('');
     try {
@@ -59,8 +72,8 @@ function ImportInboxBody() {
     finally { listing.current = false; if (current()) setLoading(false); }
   };
   useEffect(() => { if (allowed) void reload(); else setLoading(false); }, [allowed]);
-  const adopt = (item: ImportInboxItem) => { if (current()) setItems(old => [item, ...old.filter(value => value.id !== item.id)]); };
-  const changeSourceMode = (mode: typeof sourceMode) => { if (intakeBusy.current) return; epoch.current++; pendingFile.current = null; setSourceMode(mode); setDocumentIds([]); setBatch([]); setSourceText(''); setSourceName(''); setIntakeError(''); setIntakeStatus(''); requestId.current = newRequestId(); };
+  const adopt = (item: ImportInboxItem) => { if (current()) { itemsRef.current = [item, ...itemsRef.current.filter(value => value.id !== item.id)]; setItems(itemsRef.current); } };
+  const changeSourceMode = (mode: typeof sourceMode) => { if (intakeBusy.current) return; epoch.current++; pendingFile.current = null; setSourceMode(mode); setDocumentIds([]); setBatch([]); setPreparation([]); setSourceText(''); setSourceName(''); setIntakeError(''); setIntakeStatus(''); requestId.current = newRequestId(); };
   const captureIntake = () => createFileOperationScope(() => [auth.currentUser?.uid, FAMILY_ID, latest.current.familyId, latest.current.role, mounted.current, epoch.current]);
   const runBatch = async (entries: ImportBatchEntry[], scope: FileOperationScope) => {
     if (!allowed || intakeBusy.current || !scope.isCurrent()) return;
@@ -86,13 +99,38 @@ function ImportInboxBody() {
     if (!scope.isCurrent() || intakeBusy.current) return;
     if (files.length > 20) { setIntakeError('Choose up to 20 originals per batch. No files were uploaded.'); return; }
     const entries: ImportBatchEntry[] = files.map(file => ({ id: newRequestId(), name: file.name, file, requestId: newRequestId(), status: 'queued' }));
-    batchRef.current = entries; setBatch(entries); void runBatch(entries, scope);
+    batchRef.current = entries; setBatch(entries); setPreparation([]); void runBatch(entries, scope);
+  };
+  const prepareBatch = async () => {
+    if (!allowed || !current() || !latest.current.aiConsent || intakeBusy.current || listing.current) return;
+    const scope = captureIntake();
+    intakeBusy.current = true; stopPreparation.current = false;
+    setBusy(true); setPreparing(true); setStopping(false); setIntakeError(''); setIntakeStatus('');
+    try {
+      const outcome = await prepareImportDrafts(batchRef.current, {
+        scope,
+        getItem: id => itemsRef.current.find(item => item.id === id),
+        isHeld: id => heldRows.current.has(id),
+        analyze: async (id, expectedRevision) => (await api.act(id, 'analyze', expectedRevision)).item,
+        onItem: adopt,
+        onProgress: progress => {
+          preparationLocks.current = new Set(progress.filter(item => item.status === 'queued' || item.status === 'analyzing').map(item => item.id));
+          setPreparation(progress);
+        },
+        stopRequested: () => stopPreparation.current || !latest.current.aiConsent,
+      });
+      if (scope.isCurrent()) {
+        if (outcome === 'halted') setIntakeError('Preparation paused after an error. Check the results before trying again. Your originals and drafts were kept.');
+        else setIntakeStatus(outcome === 'stopped' ? 'Preparation stopped. Your originals and drafts were kept. Review the results below.' : 'Preparation finished. Review each result below before adding any record.');
+      }
+    } catch (err) { if (scope.isCurrent()) setIntakeError(importErrorMessage(err)); }
+    finally { preparationLocks.current.clear(); intakeBusy.current = false; if (mounted.current) { setBusy(false); setPreparing(false); } }
   };
   const create = async () => {
     if (!allowed || !current() || intakeBusy.current) return;
     if (sourceMode === 'vault') {
       const entries: ImportBatchEntry[] = documentIds.map(documentId => ({ id: documentId, name: vault.docs.find(document => document.id === documentId)?.name || 'Vault original', documentId, requestId: newRequestId(), status: 'queued' }));
-      batchRef.current = entries; setBatch(entries); setDocumentIds([]); await runBatch(entries, captureIntake()); return;
+      batchRef.current = entries; setBatch(entries); setPreparation([]); setDocumentIds([]); await runBatch(entries, captureIntake()); return;
     }
     if (!sourceText.trim() || !sourceName.trim()) { setIntakeError('Give this text a source name and paste its contents.'); return; }
     intakeBusy.current = true; setBusy(true); setIntakeError('');
@@ -105,6 +143,7 @@ function ImportInboxBody() {
   if (wrongSpace) return <section className="rounded-2xl border border-cream-300 bg-white p-5"><h2 className="font-semibold text-ink-900">Switch to the connected space</h2><p className="mt-2 text-sm text-ink-500">This review link belongs to another family or business. Choose that space in the header to review its imports.</p></section>;
   if (!allowed) return <section className="rounded-2xl border border-cream-300 bg-white p-5"><h2 className="font-semibold text-ink-900">Import inbox</h2><p className="mt-2 text-sm text-ink-500">Sign in with an adult {business ? 'team' : 'family'} account to prepare and review imports.</p></section>;
   const visible = items.filter(item => filter === 'all' || item.status === filter);
+  const preparable = batch.filter(entry => !heldIds.has(entry.inboxItemId || '') && canPrepareImport(entry, items.find(item => item.id === entry.inboxItemId)));
   return <section className="mx-auto max-w-4xl space-y-5 pb-8" aria-label="Import inbox">
     <header className="flex items-start gap-3"><span className="rounded-2xl bg-clay-50 p-3 text-clay-700"><Inbox className="h-6 w-6" /></span><div className="min-w-0 flex-1"><h1 className="font-display text-2xl text-ink-900">Import inbox</h1><p className="mt-1 text-[13px] leading-relaxed text-ink-500">Keep the original, review the details, then add a record to your {business ? 'business' : 'family'} space.</p></div></header>
     <details className="rounded-2xl border border-cream-300 bg-white" open>
@@ -117,46 +156,58 @@ function ImportInboxBody() {
         {intakeError && <p role="alert" className="text-xs text-rosa-700">{intakeError}</p>}{intakeStatus && <p role="status" className="text-xs text-sage-700">{intakeStatus}</p>}
         {sourceMode !== 'file' && <button type="button" disabled={busy || (sourceMode === 'text' ? !sourceText.trim() || !sourceName.trim() : !documentIds.length)} onClick={() => void create()} className="btn-primary min-h-[44px] text-xs disabled:opacity-40"><Plus className="h-4 w-4" />{sourceMode === 'vault' ? `Queue ${documentIds.length || ''} selected originals` : 'Add to inbox'}</button>}
         {!!batch.length && <div className="space-y-2" aria-label="Batch import progress"><ul className="space-y-1">{batch.map(entry => <li key={entry.id} className="rounded-xl bg-cream-50 p-3 text-xs"><div className="flex items-start gap-2"><span className="min-w-0 flex-1 break-words text-ink-700">{entry.name}</span><span className={entry.status === 'error' ? 'text-rosa-700' : 'text-ink-400'}>{entry.status === 'uploading' ? 'Saving original…' : entry.status === 'saving' ? 'Queuing…' : entry.status === 'done' ? 'In inbox' : entry.status === 'error' ? 'Retry needed' : 'Waiting'}</span></div>{entry.error && <p className="mt-1 break-words text-rosa-700">{entry.error}{entry.documentId ? ' Original saved; retry will only queue it.' : ''}</p>}</li>)}</ul>{!busy && batch.some(entry => entry.status === 'error') && <button type="button" className="btn-quiet min-h-[44px] text-xs" onClick={() => void runBatch(batchRef.current, captureIntake())}><RefreshCw className="h-3.5 w-3.5" />Retry failed imports</button>}</div>}
+        {(preparable.length > 0 || preparation.length > 0 || batch.some(entry => heldIds.has(entry.inboxItemId || ''))) && <section className="space-y-3 rounded-xl border border-cream-200 p-3" aria-label="Prepare selected import drafts">
+          <p className="text-xs font-semibold text-ink-800">Let AI prepare the selected originals</p>
+          <p className="text-xs leading-relaxed text-ink-500">Uses your existing AI allowance, one file at a time. Originals and source links stay attached. Existing reviews are kept; nothing is filed automatically.</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={busy || loading || !ctx.aiConsent || !preparable.length} onClick={() => void prepareBatch()} className="btn-quiet min-h-[44px] text-xs disabled:opacity-40">{preparing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{preparing ? 'Preparing drafts…' : `Prepare ${preparable.length || ''} ${preparable.length === 1 ? 'draft' : 'drafts'} with AI`}</button>
+            {preparing && <button type="button" disabled={stopping} onClick={() => { stopPreparation.current = true; setStopping(true); }} className="btn-quiet min-h-[44px] text-xs">{stopping ? 'Stopping after this draft…' : 'Stop after this draft'}</button>}
+          </div>
+          {batch.some(entry => heldIds.has(entry.inboxItemId || '')) && <p className="text-xs text-ink-500">Manual reviews in progress are kept out of preparation. Save your edits when ready.</p>}
+          {!ctx.aiConsent && <p className="text-xs text-ink-500">Enable AI features in Settings to prepare these drafts. You can still enter details manually.</p>}
+          {!!preparation.length && <><p role="status" aria-live="polite" className="text-xs text-ink-600">{preparation.filter(item => item.status === 'ready').length} ready for review · {preparation.filter(item => item.status === 'failed').length} need attention</p><ul className="space-y-2 text-xs">{preparation.map(item => <li key={item.id} className="break-words"><span className="font-medium text-ink-700">{item.name}</span><span className="text-ink-500"> · {({ queued: 'Waiting', analyzing: 'Preparing…', ready: 'Ready for review', failed: 'Needs attention', skipped: 'Kept as is', stopped: 'Not started' })[item.status]}</span>{item.message && <p className="mt-1 text-ink-500">{item.message}</p>}</li>)}</ul></>}
+        </section>}
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-clay-700"><a href="/?open=drive" className="inline-flex min-h-[44px] items-center underline">Choose from Google Drive</a><a href="/?open=vault" className="inline-flex min-h-[44px] items-center underline">Open Document Vault</a></div>
       </div>
     </details>
-    <div className="flex flex-wrap items-center gap-2"><label className="mr-auto text-xs text-ink-500">Show<select className="field ml-2 text-xs" aria-label="Filter import inbox" value={filter} onChange={event => setFilter(event.target.value as typeof filter)}><option value="pending">To review ({items.filter(item => item.status === 'pending').length}{nextCursor ? ' loaded' : ''})</option><option value="applied">Added</option><option value="dismissed">Dismissed</option><option value="all">All imports</option></select></label><button type="button" onClick={() => void reload()} disabled={loading} className="btn-quiet min-h-[44px] text-xs"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />Refresh</button></div>
+    <div className="flex flex-wrap items-center gap-2"><label className="mr-auto text-xs text-ink-500">Show<select className="field ml-2 text-xs" aria-label="Filter import inbox" disabled={busy} value={filter} onChange={event => setFilter(event.target.value as typeof filter)}><option value="pending">To review ({items.filter(item => item.status === 'pending').length}{nextCursor ? ' loaded' : ''})</option><option value="applied">Added</option><option value="dismissed">Dismissed</option><option value="all">All imports</option></select></label><button type="button" onClick={() => void reload()} disabled={loading || busy} className="btn-quiet min-h-[44px] text-xs"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />Refresh</button></div>
     {error && <p role="alert" className="rounded-xl bg-rosa-50 p-3 text-xs text-rosa-700">{error}</p>}
-    {loading && !items.length ? <p role="status" className="py-6 text-center text-sm text-ink-400">Loading your inbox…</p> : !visible.length ? <div className="rounded-2xl border border-dashed border-cream-300 p-8 text-center"><FileText className="mx-auto mb-3 h-7 w-7 text-ink-300" /><p className="text-sm text-ink-600">{nextCursor ? 'No matching imports among those loaded so far.' : error ? 'Your inbox could not be fully loaded.' : filter === 'pending' ? 'Nothing waiting for review.' : 'No imports in this view.'}</p><p className="mt-1 text-xs text-ink-400">{nextCursor ? 'Load older imports to check the rest of your inbox.' : error ? 'Refresh to try again.' : 'Upload evidence, choose a saved file or send a draft from a connected chatbot.'}</p></div> : <div className="space-y-3">{visible.map(item => <div key={item.id}><ImportRow item={item} api={api} docs={vault.docs} admin={ctx.isAdmin} aiConsent={ctx.aiConsent} business={business} onItem={adopt} /></div>)}</div>}
-    {nextCursor && <div className="space-y-2 text-center"><p className="text-xs text-ink-500">Showing loaded imports. Older imports are still available.</p><button type="button" disabled={loading} onClick={() => void reload(nextCursor)} className="btn-quiet min-h-[44px] text-xs"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? 'Loading older imports…' : 'Load older imports'}</button></div>}
+    {loading && !items.length ? <p role="status" className="py-6 text-center text-sm text-ink-400">Loading your inbox…</p> : !visible.length ? <div className="rounded-2xl border border-dashed border-cream-300 p-8 text-center"><FileText className="mx-auto mb-3 h-7 w-7 text-ink-300" /><p className="text-sm text-ink-600">{nextCursor ? 'No matching imports among those loaded so far.' : error ? 'Your inbox could not be fully loaded.' : filter === 'pending' ? 'Nothing waiting for review.' : 'No imports in this view.'}</p><p className="mt-1 text-xs text-ink-400">{nextCursor ? 'Load older imports to check the rest of your inbox.' : error ? 'Refresh to try again.' : 'Upload evidence, choose a saved file or send a draft from a connected chatbot.'}</p></div> : <div className="space-y-3">{visible.map(item => <div key={item.id}><ImportRow item={item} api={api} docs={vault.docs} admin={ctx.isAdmin} aiConsent={ctx.aiConsent} business={business} onItem={adopt} onHold={onRowHold} locked={preparing && preparation.some(entry => entry.id === item.id && (entry.status === 'queued' || entry.status === 'analyzing'))} isPreparationLocked={isPreparationLocked} /></div>)}</div>}
+    {nextCursor && <div className="space-y-2 text-center"><p className="text-xs text-ink-500">Showing loaded imports. Older imports are still available.</p><button type="button" disabled={loading || busy} onClick={() => void reload(nextCursor)} className="btn-quiet min-h-[44px] text-xs"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? 'Loading older imports…' : 'Load older imports'}</button></div>}
     {!ctx.isAdmin && <p className="text-xs leading-relaxed text-ink-400">You can prepare your imports here. An administrator reviews and adds the final records.</p>}
   </section>;
 }
 
 type Api = ReturnType<typeof createImportInboxClient>;
-export function ImportRow({ item, api, docs, admin, aiConsent, business, onItem }: { item: ImportInboxItem; api: Api; docs: ReturnType<typeof useVaultDocs>['docs']; admin: boolean; aiConsent: boolean; business: boolean; onItem: (item: ImportInboxItem) => void }) {
+export function ImportRow({ item, api, docs, admin, aiConsent, business, onItem, onHold, locked = false, isPreparationLocked }: { item: ImportInboxItem; api: Api; docs: ReturnType<typeof useVaultDocs>['docs']; admin: boolean; aiConsent: boolean; business: boolean; onItem: (item: ImportInboxItem) => void; onHold?: (id: string, held: boolean) => void; locked?: boolean; isPreparationLocked?: (id: string) => boolean }) {
   const personal = item.proposal?.kind === 'preferences', ownPreferences = personal && item.createdBy === auth.currentUser?.uid;
   const [proposal, setProposal] = useState<ImportProposal | undefined>(item.proposal), [dirty, setDirty] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [duplicates, setDuplicates] = useState<{ id: string; name?: string; serialNumber?: string; model?: string }[]>([]);
-  const revision = useRef(item.revision), working = useRef(false), mounted = useRef(true);
+  const revision = useRef(item.revision), working = useRef(false), mounted = useRef(true), dirtyRef = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => () => onHold?.(item.id, false), [item.id, onHold]);
   useEffect(() => { if (!dirty) { setProposal(item.proposal); revision.current = item.revision; } }, [item.revision, dirty]);
   const [clock, setClock] = useState(Date.now());
   useEffect(() => { if (item.analysis.status !== 'running') return; const timer = window.setInterval(() => setClock(Date.now()), 15000); return () => window.clearInterval(timer); }, [item.analysis.status]);
   const leaseUntil = Date.parse(item.analysis.leaseUntil || '') || (Date.parse(item.analysis.startedAt || '') + 5 * 60_000);
   const pending = item.status === 'pending', running = item.analysis.status === 'running' && (!Number.isFinite(leaseUntil) || leaseUntil > clock);
-  const change = (next: ImportProposal) => { if (!pending || busy) return; setProposal(next); setDirty(true); setError(''); };
+  const change = (next: ImportProposal) => { if (!pending || working.current || running || locked || isPreparationLocked?.(item.id)) return; dirtyRef.current = true; onHold?.(item.id, true); setProposal(next); setDirty(true); setError(''); };
   const action = async (kind: 'save' | 'analyze' | 'apply' | 'dismiss') => {
-    if (working.current || !pending || (kind === 'apply' && (personal ? !ownPreferences : !admin)) || (kind === 'analyze' && (personal || !aiConsent || dirty))) return;
-    working.current = true; setBusy(true); setError(''); setDuplicates([]);
+    if (working.current || !pending || running || locked || isPreparationLocked?.(item.id) || (kind === 'apply' && (personal ? !ownPreferences : !admin)) || (kind === 'analyze' && (personal || !aiConsent || dirty))) return;
+    working.current = true; onHold?.(item.id, true); setBusy(true); setError(''); setDuplicates([]);
     try {
       let result = item;
       if ((kind === 'save' || kind === 'apply') && proposal) {
         result = (await api.patch(item.id, proposal, revision.current)).item;
         if (!mounted.current) return;
-        revision.current = result.revision; setDirty(false); setProposal(result.proposal); onItem(result);
+        revision.current = result.revision; dirtyRef.current = false; setDirty(false); setProposal(result.proposal); onItem(result);
       }
       if (kind !== 'save') result = (await api.act(item.id, kind, kind === 'apply' ? result.revision : revision.current)).item;
       if (!mounted.current) return;
       if (result.status === 'applied' && result.proposal?.kind === 'preferences' && result.createdBy === auth.currentUser?.uid) applyReviewedPreferences(result.proposal.preferences, result.appliedAt);
-      setProposal(result.proposal); revision.current = result.revision; setDirty(false); onItem(result);
+      setProposal(result.proposal); revision.current = result.revision; dirtyRef.current = false; setDirty(false); onItem(result);
     } catch (err) { if (mounted.current) { setError(importErrorMessage(err)); if (err instanceof InboxRequestError) setDuplicates(err.details?.candidates || []); } }
-    finally { working.current = false; if (mounted.current) setBusy(false); }
+    finally { working.current = false; if (mounted.current) { onHold?.(item.id, dirtyRef.current); setBusy(false); } }
   };
   const sourceName = item.source.sourceName || docs.find(document => document.id === item.source.documentId)?.name || 'Imported source';
   return <details className="group overflow-hidden rounded-2xl border border-cream-300 bg-white">
@@ -167,13 +218,14 @@ export function ImportRow({ item, api, docs, admin, aiConsent, business, onItem 
       {item.source.sourceText && <details><summary className="cursor-pointer text-xs text-clay-700">Read source text</summary><p className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-cream-50 p-3 text-xs text-ink-600">{item.source.sourceText}</p></details>}
       {item.analysis.error && <p role="alert" className="text-xs text-rosa-700">{item.analysis.error}</p>}
       {!!item.analysis.evidenceQuotes?.length && <details><summary className="cursor-pointer text-xs text-clay-700">Evidence from the source</summary><ul className="mt-2 space-y-2 text-xs leading-relaxed text-ink-600">{item.analysis.evidenceQuotes.flatMap((quote, index) => { const text = typeof quote === 'string' ? quote : quote && typeof quote === 'object' && 'quote' in quote && typeof quote.quote === 'string' ? quote.quote : ''; return text ? <li key={index} className="break-words border-l-2 border-clay-200 pl-3">{text}</li> : []; })}</ul></details>}
-      {pending && !proposal && <div className="space-y-3"><p className="text-xs leading-relaxed text-ink-500">Analyze the source to suggest a record, or enter the details yourself. Dates and warranty cover need your review.</p><div className="flex flex-wrap gap-2"><button type="button" disabled={busy || running} className="btn-quiet min-h-[44px] text-xs" onClick={() => change({ kind: 'asset', asset: { name: '', category: 'Other' } })}>Enter an asset</button>{item.source.documentId && <button type="button" disabled={busy || running} className="btn-quiet min-h-[44px] text-xs" onClick={() => change({ kind: 'document', document: { name: sourceName, category: 'Other' } })}>File document details</button>}</div></div>}
-      {proposal && <fieldset disabled={!pending || busy || running} className="min-w-0 space-y-4 disabled:opacity-70"><legend className="mb-3 text-xs font-semibold text-ink-800">{proposal.kind === 'preferences' ? 'Review your preferences' : proposal.kind === 'asset' ? 'Review asset details' : 'Review document details'}</legend><ProposalFields proposal={proposal} onChange={change} /></fieldset>}
+      {pending && !proposal && <div className="space-y-3"><p className="text-xs leading-relaxed text-ink-500">Analyze the source to suggest a record, or enter the details yourself. Dates and warranty cover need your review.</p><div className="flex flex-wrap gap-2"><button type="button" disabled={busy || running || locked} className="btn-quiet min-h-[44px] text-xs" onClick={() => change({ kind: 'asset', asset: { name: '', category: 'Other' } })}>Enter an asset</button>{item.source.documentId && <button type="button" disabled={busy || running || locked} className="btn-quiet min-h-[44px] text-xs" onClick={() => change({ kind: 'document', document: { name: sourceName, category: 'Other' } })}>File document details</button>}</div></div>}
+      {proposal && <fieldset disabled={!pending || busy || running || locked} className="min-w-0 space-y-4 disabled:opacity-70"><legend className="mb-3 text-xs font-semibold text-ink-800">{proposal.kind === 'preferences' ? 'Review your preferences' : proposal.kind === 'asset' ? 'Review asset details' : 'Review document details'}</legend><ProposalFields proposal={proposal} onChange={change} /></fieldset>}
+      {locked && <p role="status" className="text-xs text-ink-500">This original is queued for preparation. You can review it after this step finishes.</p>}
       {dirty && <p className="text-[11px] text-ink-400">Save your review before analyzing again.</p>}
-      {dirty && item.revision !== revision.current && <p role="alert" className="text-xs text-amber-800">This import changed elsewhere. Your edits have not been applied. <button type="button" className="min-h-[44px] underline" disabled={busy} onClick={() => { setProposal(item.proposal); revision.current = item.revision; setDirty(false); setError(''); }}>Use latest review</button></p>}
+      {dirty && item.revision !== revision.current && <p role="alert" className="text-xs text-amber-800">This import changed elsewhere. Your edits have not been applied. <button type="button" className="min-h-[44px] underline" disabled={busy || locked} onClick={() => { if (working.current || isPreparationLocked?.(item.id)) return; setProposal(item.proposal); revision.current = item.revision; dirtyRef.current = false; onHold?.(item.id, false); setDirty(false); setError(''); }}>Use latest review</button></p>}
       {error && <p role="alert" className="text-xs text-rosa-700">{error}</p>}
       {!!duplicates.length && <ul className="space-y-1 rounded-xl bg-cream-50 p-3 text-xs text-ink-600" aria-label="Matching existing assets">{duplicates.map(candidate => <li key={candidate.id} className="break-words">{[candidate.name || 'Existing asset', candidate.model, candidate.serialNumber].filter(Boolean).join(' · ')}</li>)}</ul>}
-      {pending ? <><div className="flex flex-wrap gap-2"><button type="button" disabled={personal || busy || running || !aiConsent || dirty} className="btn-quiet min-h-[44px] text-xs disabled:opacity-40" onClick={() => void action('analyze')}>{busy || running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{item.analysis.status === 'failed' || (item.analysis.status === 'running' && !running) ? 'Retry analysis' : proposal ? 'Analyze again' : 'Analyze source'}</button>{proposal && <button type="button" disabled={busy || running || !dirty} className="btn-quiet min-h-[44px] text-xs disabled:opacity-40" onClick={() => void action('save')}>Save review</button>}{(personal ? ownPreferences : admin) && proposal && <button type="button" disabled={busy || running || !(proposal.kind === 'preferences' ? Object.values(proposal.preferences).some(Boolean) : proposal.kind === 'asset' ? proposal.asset.name?.trim() : proposal.document.name?.trim())} className="btn-primary min-h-[44px] text-xs disabled:opacity-40" onClick={() => void action('apply')}><Check className="h-4 w-4" />{proposal.kind === 'preferences' ? 'Use these preferences' : proposal.kind === 'asset' ? 'Add reviewed asset' : 'Save reviewed document'}</button>}<button type="button" disabled={busy || running} className="btn-quiet min-h-[44px] text-xs text-ink-400 disabled:opacity-40" onClick={() => void action('dismiss')}><Trash2 className="h-3.5 w-3.5" />Dismiss draft</button></div>{!aiConsent && <p className="text-[11px] leading-relaxed text-ink-400">Enable AI features in Settings to analyze a source. You can still enter and review details manually.</p>}<p className="text-[11px] leading-relaxed text-ink-400">{admin ? 'Adding a reviewed record is an explicit approval. Check the source first; no warranty duration or insurance cover is inferred.' : 'Save your review for an administrator to approve.'} Dismissing removes only the draft from the review queue.</p></> : <p className="text-xs text-sage-700">{item.status === 'applied' ? 'This reviewed import was added. Open Assets or the Vault to view the record.' : 'This draft was dismissed. The original file was kept.'}</p>}
+      {pending ? <><div className="flex flex-wrap gap-2"><button type="button" disabled={personal || busy || running || locked || !aiConsent || dirty} className="btn-quiet min-h-[44px] text-xs disabled:opacity-40" onClick={() => void action('analyze')}>{busy || running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{item.analysis.status === 'failed' || (item.analysis.status === 'running' && !running) ? 'Retry analysis' : proposal ? 'Analyze again' : 'Analyze source'}</button>{proposal && <button type="button" disabled={busy || running || locked || !dirty} className="btn-quiet min-h-[44px] text-xs disabled:opacity-40" onClick={() => void action('save')}>Save review</button>}{(personal ? ownPreferences : admin) && proposal && <button type="button" disabled={busy || running || locked || !(proposal.kind === 'preferences' ? Object.values(proposal.preferences).some(Boolean) : proposal.kind === 'asset' ? proposal.asset.name?.trim() : proposal.document.name?.trim())} className="btn-primary min-h-[44px] text-xs disabled:opacity-40" onClick={() => void action('apply')}><Check className="h-4 w-4" />{proposal.kind === 'preferences' ? 'Use these preferences' : proposal.kind === 'asset' ? 'Add reviewed asset' : 'Save reviewed document'}</button>}<button type="button" disabled={busy || running || locked} className="btn-quiet min-h-[44px] text-xs text-ink-400 disabled:opacity-40" onClick={() => void action('dismiss')}><Trash2 className="h-3.5 w-3.5" />Dismiss draft</button></div>{!aiConsent && <p className="text-[11px] leading-relaxed text-ink-400">Enable AI features in Settings to analyze a source. You can still enter and review details manually.</p>}<p className="text-[11px] leading-relaxed text-ink-400">{admin ? 'Adding a reviewed record is an explicit approval. Check the source first; no warranty duration or insurance cover is inferred.' : 'Save your review for an administrator to approve.'} Dismissing removes only the draft from the review queue.</p></> : <p className="text-xs text-sage-700">{item.status === 'applied' ? 'This reviewed import was added. Open Assets or the Vault to view the record.' : 'This draft was dismissed. The original file was kept.'}</p>}
     </div>
   </details>;
 }
