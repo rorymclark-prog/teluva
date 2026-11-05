@@ -68,10 +68,39 @@ empty inbox. Expired/access-changed cursors direct the customer to Refresh.
   role/cursor and loaded-count concerns led to explicit guards/copy. Server-side
   status filtering/global counts remain a future usability improvement.
 
-Browser control was disabled in Work settings during this audit, so there is no
-fresh browser click-through or screenshot claim. A synthetic local preview was
+Browser control was disabled in Work settings during the original audit run, so
+that run made no browser click-through or screenshot claim. A synthetic local preview was
 prepared, then stopped when that restriction was observed. Component rendering and
 real HTTP/Firestore behaviour were verified independently of browser automation.
+
+### Supplemental actual customer UI evidence
+
+The coordinator subsequently supplied a supported Chrome observation receipt,
+checked at **13:09 UTC on 5 November 2026**, for the live **v388** family inbox.
+The local receipt was inspected when adding this note; this was not a new test
+run by this chat.
+
+In an existing inbox with fewer than 100 imports, the pending view loaded, a
+synthetic Drive-source draft expanded with its source/details, and the UI correctly
+said **Text reference only. No original receipt is linked to this import.**
+**Save review** was disabled without edits. **All imports** revealed an existing
+Added record. The default pending filter and collapsed draft state were restored.
+No records were edited, applied, dismissed or deleted; no new import or paid
+analysis was performed.
+
+The existing feature spotlight's video was observed crossing a playback boundary
+with looping enabled. Playback controls, dismissal preferences and original user
+tabs were preserved. A spotlight overlay remained present: form/read controls were
+inspected through accessibility, not an unobstructed whole-form visual review.
+The coordinator's temporary tab was closed and CUA completion recorded.
+
+This is bounded actual family-inbox UI evidence. **Load older imports beyond 100
+records was not exercised**, nor was a fresh original-file upload/apply or a
+signed-in business-space journey. The 674 server tests and synthetic Firestore
+pagination checks remain separate evidence, not customer-browser certification.
+The detailed receipt is retained locally under the coordinator's
+`work/secondary-app-audit/teluva-v388-browser-verification.json`; account-specific
+connection metadata is not copied into this public audit document.
 
 ## Remaining limits
 
@@ -105,7 +134,8 @@ Completed as **v388**. Deployed source commit:
 typecheck/colour checks, security rules, Ember checks, the full frontend sequence,
 all **674 server tests**, and the production build without a bypass. The focused
 inbox suite passed 13 tests; the new HTTP/Firestore emulator acceptance passed for
-both synthetic space types. The browser limitation above still applies.
+both synthetic space types. The over-100 pagination and business/original-import
+browser limitations described above still apply.
 
 Verified at 09:18 UTC on 5 November 2026:
 
