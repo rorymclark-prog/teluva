@@ -9,7 +9,7 @@ export interface ImportInboxItem {
   status: 'pending' | 'applied' | 'dismissed';
   source: { documentId?: string; contentHash?: string; sourceName?: string; sourceText?: string; provenance?: { provider: string; label: string; representation: string; url?: string; contentHash?: string; attribution?: string } };
   proposal?: ImportProposal;
-  analysis: { status: 'idle' | 'running' | 'ready' | 'failed'; error?: string; startedAt?: string; leaseUntil?: string; extractedText?: string; evidenceQuotes?: unknown[] };
+  analysis: { status: 'idle' | 'running' | 'ready' | 'failed'; error?: string; errorStatus?: number; startedAt?: string; leaseUntil?: string; extractedText?: string; evidenceQuotes?: unknown[] };
   revision: number; createdAt: string; updatedAt: string; appliedRecordId?: string; appliedAt?: string;
 }
 export interface ConnectorGrant { id: string; clientName: string; spaceId: string; scopes: string[]; documentIds: string[]; createdAt: number | string; expiresAt: number | string; lastUsedAt?: number; lastTool?: string }
@@ -93,7 +93,7 @@ export function importErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The request could not be completed. Please try again.';
 }
 
-export interface ImportBatchEntry { id: string; name: string; requestId: string; file?: File; documentId?: string; status: 'queued' | 'uploading' | 'saving' | 'done' | 'error'; error?: string }
+export interface ImportBatchEntry { id: string; name: string; requestId: string; file?: File; documentId?: string; inboxItemId?: string; status: 'queued' | 'uploading' | 'saving' | 'done' | 'error'; error?: string }
 /** Sequential bounded intake keeps each original and idempotency key after a
  * partial failure. A retry never uploads bytes again when they already saved. */
 export async function processImportBatch(entries: ImportBatchEntry[], options: {
@@ -118,7 +118,7 @@ export async function processImportBatch(entries: ImportBatchEntry[], options: {
       }
       update({ status: 'saving' });
       const item = await options.scope.step(() => options.create({ documentId: entry.documentId!, requestId: entry.requestId }));
-      options.onItem(item); update({ status: 'done' });
+      options.onItem(item); update({ status: 'done', inboxItemId: item.id });
     } catch (error) {
       if (!options.scope.isCurrent()) throw error;
       update({ status: 'error', error: importErrorMessage(error) });

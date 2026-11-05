@@ -9,6 +9,7 @@ import { uploadServiceDocFile } from '../utils/serviceDocUpload';
 import { createImportInboxClient, importErrorMessage, importStatusLabel, InboxRequestError, processImportBatch, type ImportBatchEntry, type ImportInboxItem, type ImportProposal, type ReviewPreferences } from '../utils/importInboxClient';
 import { ServiceDocChips, useVaultDocs } from './ServiceDocs';
 import { applyReviewedPreferences } from '../utils/reviewedPreferences';
+import { canPrepareImport, prepareImportDrafts, type DraftPreparationProgress } from '../utils/importPreparation';
 
 const assetCategories: AssetItem['category'][] = ['Electronics', 'Appliance', 'Bike', 'Sporting', 'Vehicle', 'Jewellery', 'Furniture', 'Other'];
 const documentCategories: VaultCategory[] = ['Identity', 'Education', 'Medical', 'Financial', 'Legal', 'Travel', 'Other'];
@@ -28,6 +29,7 @@ function ImportInboxBody() {
   const api = useMemo(() => createImportInboxClient({ getUser: () => auth.currentUser, getSpace: () => current() ? latest.current.familyId : null, getGeneration: () => `${mounted.current}:${latest.current.role}` }), []);
   const vault = useVaultDocs(!allowed);
   const [items, setItems] = useState<ImportInboxItem[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState('');
+  const itemsRef = useRef(items); itemsRef.current = items;
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const listing = useRef(false);
   const [filter, setFilter] = useState<'pending' | 'applied' | 'dismissed' | 'all'>('pending');
@@ -35,6 +37,9 @@ function ImportInboxBody() {
   const [documentIds, setDocumentIds] = useState<string[]>([]), [sourceText, setSourceText] = useState(''), [sourceName, setSourceName] = useState('');
   const [busy, setBusy] = useState(false), [intakeError, setIntakeError] = useState(''), [intakeStatus, setIntakeStatus] = useState('');
   const [batch, setBatch] = useState<ImportBatchEntry[]>([]);
+  const [preparation, setPreparation] = useState<DraftPreparationProgress[]>([]);
+  const [preparing, setPreparing] = useState(false), [stopping, setStopping] = useState(false);
+  const stopPreparation = useRef(false);
   const batchRef = useRef(batch); batchRef.current = batch;
   const fileInput = useRef<HTMLInputElement>(null), pendingFile = useRef<FileOperationScope | null>(null), requestId = useRef(newRequestId());
   const business = ctx.spaces.find(space => space.id === ctx.familyId)?.type === 'business';
@@ -60,7 +65,7 @@ function ImportInboxBody() {
   };
   useEffect(() => { if (allowed) void reload(); else setLoading(false); }, [allowed]);
   const adopt = (item: ImportInboxItem) => { if (current()) setItems(old => [item, ...old.filter(value => value.id !== item.id)]); };
-  const changeSourceMode = (mode: typeof sourceMode) => { if (intakeBusy.current) return; epoch.current++; pendingFile.current = null; setSourceMode(mode); setDocumentIds([]); setBatch([]); setSourceText(''); setSourceName(''); setIntakeError(''); setIntakeStatus(''); requestId.current = newRequestId(); };
+  const changeSourceMode = (mode: typeof sourceMode) => { if (intakeBusy.current) return; epoch.current++; pendingFile.current = null; setSourceMode(mode); setDocumentIds([]); setBatch([]); setPreparation([]); setSourceText(''); setSourceName(''); setIntakeError(''); setIntakeStatus(''); requestId.current = newRequestId(); };
   const captureIntake = () => createFileOperationScope(() => [auth.currentUser?.uid, FAMILY_ID, latest.current.familyId, latest.current.role, mounted.current, epoch.current]);
   const runBatch = async (entries: ImportBatchEntry[], scope: FileOperationScope) => {
     if (!allowed || intakeBusy.current || !scope.isCurrent()) return;
@@ -86,13 +91,31 @@ function ImportInboxBody() {
     if (!scope.isCurrent() || intakeBusy.current) return;
     if (files.length > 20) { setIntakeError('Choose up to 20 originals per batch. No files were uploaded.'); return; }
     const entries: ImportBatchEntry[] = files.map(file => ({ id: newRequestId(), name: file.name, file, requestId: newRequestId(), status: 'queued' }));
-    batchRef.current = entries; setBatch(entries); void runBatch(entries, scope);
+    batchRef.current = entries; setBatch(entries); setPreparation([]); void runBatch(entries, scope);
+  };
+  const prepareBatch = async () => {
+    if (!allowed || !current() || !latest.current.aiConsent || intakeBusy.current) return;
+    const scope = captureIntake();
+    intakeBusy.current = true; stopPreparation.current = false;
+    setBusy(true); setPreparing(true); setStopping(false); setIntakeError(''); setIntakeStatus('');
+    try {
+      await prepareImportDrafts(batchRef.current, {
+        scope,
+        getItem: id => itemsRef.current.find(item => item.id === id),
+        analyze: async (id, expectedRevision) => (await api.act(id, 'analyze', expectedRevision)).item,
+        onItem: adopt,
+        onProgress: setPreparation,
+        stopRequested: () => stopPreparation.current || !latest.current.aiConsent,
+      });
+      if (scope.isCurrent()) setIntakeStatus('Preparation finished. Review each result below before adding any record.');
+    } catch (err) { if (scope.isCurrent()) setIntakeError(importErrorMessage(err)); }
+    finally { if (scope.isCurrent()) { intakeBusy.current = false; setBusy(false); setPreparing(false); } }
   };
   const create = async () => {
     if (!allowed || !current() || intakeBusy.current) return;
     if (sourceMode === 'vault') {
       const entries: ImportBatchEntry[] = documentIds.map(documentId => ({ id: documentId, name: vault.docs.find(document => document.id === documentId)?.name || 'Vault original', documentId, requestId: newRequestId(), status: 'queued' }));
-      batchRef.current = entries; setBatch(entries); setDocumentIds([]); await runBatch(entries, captureIntake()); return;
+      batchRef.current = entries; setBatch(entries); setPreparation([]); setDocumentIds([]); await runBatch(entries, captureIntake()); return;
     }
     if (!sourceText.trim() || !sourceName.trim()) { setIntakeError('Give this text a source name and paste its contents.'); return; }
     intakeBusy.current = true; setBusy(true); setIntakeError('');
@@ -105,6 +128,7 @@ function ImportInboxBody() {
   if (wrongSpace) return <section className="rounded-2xl border border-cream-300 bg-white p-5"><h2 className="font-semibold text-ink-900">Switch to the connected space</h2><p className="mt-2 text-sm text-ink-500">This review link belongs to another family or business. Choose that space in the header to review its imports.</p></section>;
   if (!allowed) return <section className="rounded-2xl border border-cream-300 bg-white p-5"><h2 className="font-semibold text-ink-900">Import inbox</h2><p className="mt-2 text-sm text-ink-500">Sign in with an adult {business ? 'team' : 'family'} account to prepare and review imports.</p></section>;
   const visible = items.filter(item => filter === 'all' || item.status === filter);
+  const preparable = batch.filter(entry => canPrepareImport(entry, items.find(item => item.id === entry.inboxItemId)));
   return <section className="mx-auto max-w-4xl space-y-5 pb-8" aria-label="Import inbox">
     <header className="flex items-start gap-3"><span className="rounded-2xl bg-clay-50 p-3 text-clay-700"><Inbox className="h-6 w-6" /></span><div className="min-w-0 flex-1"><h1 className="font-display text-2xl text-ink-900">Import inbox</h1><p className="mt-1 text-[13px] leading-relaxed text-ink-500">Keep the original, review the details, then add a record to your {business ? 'business' : 'family'} space.</p></div></header>
     <details className="rounded-2xl border border-cream-300 bg-white" open>
@@ -117,6 +141,16 @@ function ImportInboxBody() {
         {intakeError && <p role="alert" className="text-xs text-rosa-700">{intakeError}</p>}{intakeStatus && <p role="status" className="text-xs text-sage-700">{intakeStatus}</p>}
         {sourceMode !== 'file' && <button type="button" disabled={busy || (sourceMode === 'text' ? !sourceText.trim() || !sourceName.trim() : !documentIds.length)} onClick={() => void create()} className="btn-primary min-h-[44px] text-xs disabled:opacity-40"><Plus className="h-4 w-4" />{sourceMode === 'vault' ? `Queue ${documentIds.length || ''} selected originals` : 'Add to inbox'}</button>}
         {!!batch.length && <div className="space-y-2" aria-label="Batch import progress"><ul className="space-y-1">{batch.map(entry => <li key={entry.id} className="rounded-xl bg-cream-50 p-3 text-xs"><div className="flex items-start gap-2"><span className="min-w-0 flex-1 break-words text-ink-700">{entry.name}</span><span className={entry.status === 'error' ? 'text-rosa-700' : 'text-ink-400'}>{entry.status === 'uploading' ? 'Saving original…' : entry.status === 'saving' ? 'Queuing…' : entry.status === 'done' ? 'In inbox' : entry.status === 'error' ? 'Retry needed' : 'Waiting'}</span></div>{entry.error && <p className="mt-1 break-words text-rosa-700">{entry.error}{entry.documentId ? ' Original saved; retry will only queue it.' : ''}</p>}</li>)}</ul>{!busy && batch.some(entry => entry.status === 'error') && <button type="button" className="btn-quiet min-h-[44px] text-xs" onClick={() => void runBatch(batchRef.current, captureIntake())}><RefreshCw className="h-3.5 w-3.5" />Retry failed imports</button>}</div>}
+        {(preparable.length > 0 || preparation.length > 0) && <section className="space-y-3 rounded-xl border border-cream-200 p-3" aria-label="Prepare selected import drafts">
+          <p className="text-xs font-semibold text-ink-800">Let AI prepare the selected originals</p>
+          <p className="text-xs leading-relaxed text-ink-500">Uses your existing AI allowance, one file at a time. Originals and source links stay attached. Existing reviews are kept; nothing is filed automatically.</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={busy || !ctx.aiConsent || !preparable.length} onClick={() => void prepareBatch()} className="btn-quiet min-h-[44px] text-xs disabled:opacity-40">{preparing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{preparing ? 'Preparing drafts…' : `Prepare ${preparable.length || ''} ${preparable.length === 1 ? 'draft' : 'drafts'} with AI`}</button>
+            {preparing && <button type="button" disabled={stopping} onClick={() => { stopPreparation.current = true; setStopping(true); }} className="btn-quiet min-h-[44px] text-xs">{stopping ? 'Stopping after this draft…' : 'Stop after this draft'}</button>}
+          </div>
+          {!ctx.aiConsent && <p className="text-xs text-ink-500">Enable AI features in Settings to prepare these drafts. You can still enter details manually.</p>}
+          {!!preparation.length && <><p role="status" aria-live="polite" className="text-xs text-ink-600">{preparation.filter(item => item.status === 'ready').length} ready for review · {preparation.filter(item => item.status === 'failed').length} need attention</p><ul className="space-y-2 text-xs">{preparation.map(item => <li key={item.id} className="break-words"><span className="font-medium text-ink-700">{item.name}</span><span className="text-ink-500"> · {({ queued: 'Waiting', analyzing: 'Preparing…', ready: 'Ready for review', failed: 'Needs attention', skipped: 'Kept as is', stopped: 'Not started' })[item.status]}</span>{item.message && <p className="mt-1 text-ink-500">{item.message}</p>}</li>)}</ul></>}
+        </section>}
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-clay-700"><a href="/?open=drive" className="inline-flex min-h-[44px] items-center underline">Choose from Google Drive</a><a href="/?open=vault" className="inline-flex min-h-[44px] items-center underline">Open Document Vault</a></div>
       </div>
     </details>

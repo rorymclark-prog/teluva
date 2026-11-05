@@ -278,7 +278,7 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       transaction.set(ref, next);
       return { item: next, document: resolved?.document };
     });
-    let analyzed, analysisError;
+    let analyzed, analysisError, analysisErrorStatus;
     try {
       const result = await extractDocument(actor, spaceId, { ...(started.document ? { document: started.document, documentId: started.document.id } : { sourceText: started.item.source.sourceText }), sourceName: started.item.source.sourceName });
       const proposal = sanitizeImportProposal(result?.proposal);
@@ -293,6 +293,7 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       }) : [];
       analyzed = { proposal, analysis: { status: 'ready', ...(extractedText ? { extractedText } : {}), ...(quotes.length ? { evidenceQuotes: quotes } : {}), finishedAt: timestamp() } };
     } catch (error) {
+      if ([402, 403, 413, 415, 422, 429, 503].includes(error?.status)) analysisErrorStatus = error.status;
       const safeMessage = [402, 403, 413, 415, 422, 429, 503].includes(error?.status) && typeof error.message === 'string' && error.message.length <= 300
         && !/https?:\/\/|\/api\/files\/|Bearer\s|token=|-----BEGIN|sk-/i.test(error.message);
       analysisError = safeMessage ? error.message.replace(/[\x00-\x1f\x7f]/g, ' ') : 'Could not analyze this import. Your draft is still pending; retry the analysis or enter a proposal manually.';
@@ -304,7 +305,7 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       // User edits and dismissals win over a slow model response.
       if (item.status !== 'pending' || item.analysis?.jobId !== jobId) return item;
       if (resolved && sourceSnapshot(resolved.document).documentVersion !== item.source.documentVersion) analysisError = 'The original file changed during analysis. Analyze this import again.';
-      const next = { ...item, ...(analysisError ? { analysis: { status: 'failed', error: analysisError, finishedAt: timestamp() } } : analyzed), revision: item.revision + 1, updatedAt: timestamp() };
+      const next = { ...item, ...(analysisError ? { analysis: { status: 'failed', error: analysisError, ...(analysisErrorStatus ? { errorStatus: analysisErrorStatus } : {}), finishedAt: timestamp() } } : analyzed), revision: item.revision + 1, updatedAt: timestamp() };
       transaction.set(ref, next); return next;
     });
   }

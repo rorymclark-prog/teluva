@@ -263,6 +263,7 @@ test('failed extraction keeps manual work, preserves safe quota/consent errors, 
     assert.equal(failed.proposal.asset.name, 'Typed draft');
     assert.equal(failed.analysis.status, 'failed');
     assert.ok(failed.analysis.error.includes(expected));
+    assert.equal(failed.analysis.errorStatus, failure.status, 'a safe status lets a batch stop on consent/allowance failures');
     assert.equal(JSON.stringify(failed).includes('secret.test'), false);
     await assert.rejects(f.service.apply(actor('admin'), 'business', entry.id), rejectCode('PROPOSAL_REQUIRED'));
     const reviewed = await f.service.update(actor('staff'), 'business', entry.id, { proposal: failed.proposal, expectedRevision: failed.revision });

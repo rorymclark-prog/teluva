@@ -64,6 +64,7 @@ await processImportBatch([...results.values()], batchOptions);
 assert.equal(uploads, 2, 'retry retains the saved original rather than uploading bytes twice');
 assert.equal(creates, 3, 'successful imports are not queued again');
 assert.equal(applied.length, 2);
+assert.equal(results.get('one')!.inboxItemId, 'request-one', 'queued entries retain their exact draft for later selected-batch preparation');
 assert.equal(results.get('one')!.requestId, 'request-one', 'retry keeps the same idempotency key');
 await assert.rejects(processImportBatch(Array.from({ length: 21 }, () => entries[0]), batchOptions), /up to 20/);
 let cancelledCreates = 0;
