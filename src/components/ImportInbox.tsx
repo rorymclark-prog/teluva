@@ -28,6 +28,8 @@ function ImportInboxBody() {
   const api = useMemo(() => createImportInboxClient({ getUser: () => auth.currentUser, getSpace: () => current() ? latest.current.familyId : null, getGeneration: () => `${mounted.current}:${latest.current.role}` }), []);
   const vault = useVaultDocs(!allowed);
   const [items, setItems] = useState<ImportInboxItem[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState('');
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const listing = useRef(false);
   const [filter, setFilter] = useState<'pending' | 'applied' | 'dismissed' | 'all'>('pending');
   const [sourceMode, setSourceMode] = useState<'file' | 'vault' | 'text'>('file');
   const [documentIds, setDocumentIds] = useState<string[]>([]), [sourceText, setSourceText] = useState(''), [sourceName, setSourceName] = useState('');
@@ -37,12 +39,24 @@ function ImportInboxBody() {
   const fileInput = useRef<HTMLInputElement>(null), pendingFile = useRef<FileOperationScope | null>(null), requestId = useRef(newRequestId());
   const business = ctx.spaces.find(space => space.id === ctx.familyId)?.type === 'business';
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; epoch.current++; }; }, []);
-  const reload = async () => {
-    if (!allowed || !current()) return;
+  const reload = async (cursor?: string) => {
+    if (!allowed || !current() || listing.current) return;
+    listing.current = true;
     setLoading(true); setError('');
-    try { const result = await api.list(); if (current()) setItems(result.items); }
-    catch (err) { if (current()) setError(importErrorMessage(err)); }
-    finally { if (current()) setLoading(false); }
+    try {
+      const result = await api.list(cursor);
+      if (current()) {
+        setItems(old => cursor ? [...old, ...result.items.filter(item => !old.some(existing => existing.id === item.id))] : result.items);
+        setNextCursor(result.nextCursor || null);
+      }
+    }
+    catch (err) {
+      if (current()) {
+        setError(importErrorMessage(err));
+        if (err instanceof InboxRequestError && ['CURSOR_EXPIRED', 'IMPORT_ACCESS_CHANGED'].includes(err.code || '')) setNextCursor(null);
+      }
+    }
+    finally { listing.current = false; if (current()) setLoading(false); }
   };
   useEffect(() => { if (allowed) void reload(); else setLoading(false); }, [allowed]);
   const adopt = (item: ImportInboxItem) => { if (current()) setItems(old => [item, ...old.filter(value => value.id !== item.id)]); };
@@ -106,9 +120,10 @@ function ImportInboxBody() {
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-clay-700"><a href="/?open=drive" className="inline-flex min-h-[44px] items-center underline">Choose from Google Drive</a><a href="/?open=vault" className="inline-flex min-h-[44px] items-center underline">Open Document Vault</a></div>
       </div>
     </details>
-    <div className="flex flex-wrap items-center gap-2"><label className="mr-auto text-xs text-ink-500">Show<select className="field ml-2 text-xs" aria-label="Filter import inbox" value={filter} onChange={event => setFilter(event.target.value as typeof filter)}><option value="pending">To review ({items.filter(item => item.status === 'pending').length})</option><option value="applied">Added</option><option value="dismissed">Dismissed</option><option value="all">All imports</option></select></label><button type="button" onClick={() => void reload()} disabled={loading} className="btn-quiet min-h-[44px] text-xs"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />Refresh</button></div>
+    <div className="flex flex-wrap items-center gap-2"><label className="mr-auto text-xs text-ink-500">Show<select className="field ml-2 text-xs" aria-label="Filter import inbox" value={filter} onChange={event => setFilter(event.target.value as typeof filter)}><option value="pending">To review ({items.filter(item => item.status === 'pending').length}{nextCursor ? ' loaded' : ''})</option><option value="applied">Added</option><option value="dismissed">Dismissed</option><option value="all">All imports</option></select></label><button type="button" onClick={() => void reload()} disabled={loading} className="btn-quiet min-h-[44px] text-xs"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />Refresh</button></div>
     {error && <p role="alert" className="rounded-xl bg-rosa-50 p-3 text-xs text-rosa-700">{error}</p>}
-    {loading && !items.length ? <p role="status" className="py-6 text-center text-sm text-ink-400">Loading your inbox…</p> : !visible.length ? <div className="rounded-2xl border border-dashed border-cream-300 p-8 text-center"><FileText className="mx-auto mb-3 h-7 w-7 text-ink-300" /><p className="text-sm text-ink-600">{filter === 'pending' ? 'Nothing waiting for review.' : 'No imports in this view.'}</p><p className="mt-1 text-xs text-ink-400">Upload evidence, choose a saved file or send a draft from a connected chatbot.</p></div> : <div className="space-y-3">{visible.map(item => <div key={item.id}><ImportRow item={item} api={api} docs={vault.docs} admin={ctx.isAdmin} aiConsent={ctx.aiConsent} business={business} onItem={adopt} /></div>)}</div>}
+    {loading && !items.length ? <p role="status" className="py-6 text-center text-sm text-ink-400">Loading your inbox…</p> : !visible.length ? <div className="rounded-2xl border border-dashed border-cream-300 p-8 text-center"><FileText className="mx-auto mb-3 h-7 w-7 text-ink-300" /><p className="text-sm text-ink-600">{nextCursor ? 'No matching imports among those loaded so far.' : error ? 'Your inbox could not be fully loaded.' : filter === 'pending' ? 'Nothing waiting for review.' : 'No imports in this view.'}</p><p className="mt-1 text-xs text-ink-400">{nextCursor ? 'Load older imports to check the rest of your inbox.' : error ? 'Refresh to try again.' : 'Upload evidence, choose a saved file or send a draft from a connected chatbot.'}</p></div> : <div className="space-y-3">{visible.map(item => <div key={item.id}><ImportRow item={item} api={api} docs={vault.docs} admin={ctx.isAdmin} aiConsent={ctx.aiConsent} business={business} onItem={adopt} /></div>)}</div>}
+    {nextCursor && <div className="space-y-2 text-center"><p className="text-xs text-ink-500">Showing loaded imports. Older imports are still available.</p><button type="button" disabled={loading} onClick={() => void reload(nextCursor)} className="btn-quiet min-h-[44px] text-xs"><RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />{loading ? 'Loading older imports…' : 'Load older imports'}</button></div>}
     {!ctx.isAdmin && <p className="text-xs leading-relaxed text-ink-400">You can prepare your imports here. An administrator reviews and adds the final records.</p>}
   </section>;
 }

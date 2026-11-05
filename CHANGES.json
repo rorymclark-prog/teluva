@@ -1,6 +1,6 @@
 {
-  "label": "v386",
+  "label": "v387",
   "changes": [
-    "Saved family stories and profile photos stay current when the browser cache is full."
+    "Older unfinished imports remain reachable with Load older imports, even after a long history of completed reviews."
   ]
 }

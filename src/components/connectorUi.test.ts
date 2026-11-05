@@ -15,10 +15,12 @@ const state = {
   docs: [{ id: 'original-one', name: 'Original receipt.pdf', fileType: 'application/pdf', fileName: 'Original receipt.pdf', storagePath: 'families/space-A/vault/original-one/file.pdf', downloadUrl: '/api/files/content/families/space-A/vault/original-one/file.pdf' }],
   request: { id: 'request-one', clientName: 'App supplied connector name', redirectHost: 'claude.ai', scopes: ['documents:read', 'inbox:write'], expiresAt: Date.now() + 600000 },
   selectedIds: [] as string[], scopes: ['inbox:write'], connections: [{ id: 'grant-one', clientName: 'Fixture connection', documentIds: ['original-one'], scopes: ['inbox:write'] }],
+  nextCursor: null as string | null,
 };
 async function load(name: string) {
   let source = readFileSync(resolve(root, `src/components/${name}.tsx`), 'utf8');
   source = source.replace('useState<ImportInboxItem[]>([])', 'useState<ImportInboxItem[]>(globalThis.__fixture.items)')
+    .replace('useState<string | null>(null)', 'useState<string | null>(globalThis.__fixture.nextCursor)')
     .replace('useState<ConnectorGrant[]>([])', 'useState<ConnectorGrant[]>(globalThis.__fixture.connections)')
     .replace('useState<ConnectorRequest | null>(null)', 'useState<ConnectorRequest | null>(globalThis.__fixture.request)')
     .replace('const [scopes, setScopes] = useState<string[]>([])', 'const [scopes, setScopes] = useState<string[]>(globalThis.__fixture.scopes)')
@@ -72,6 +74,12 @@ state.items[0].status = 'applied';
 const terminal = render(ImportInbox);
 // Terminal items are filtered out of the default pending view, not offered for re-apply.
 assert.doesNotMatch(terminal, /Add reviewed asset|Dismiss draft|Office television/);
+state.nextCursor = 'older-import';
+const older = render(ImportInbox);
+assert.match(older, /Load older imports/);
+assert.match(older, /No matching imports among those loaded so far/);
+assert.doesNotMatch(older, /Nothing waiting for review/);
+state.nextCursor = null;
 state.items[0].status = 'pending';
 const previousProposal = state.items[0].proposal;
 state.items[0].proposal = { kind: 'preferences', preferences: { language: 'de', theme: 'dark' } } as any;

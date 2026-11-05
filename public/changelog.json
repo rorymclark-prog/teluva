@@ -1,5 +1,12 @@
 [
   {
+    "label": "v387",
+    "changes": [
+      "Older unfinished imports remain reachable with Load older imports, even after a long history of completed reviews."
+    ],
+    "date": "2026-11-05"
+  },
+  {
     "label": "v386",
     "changes": [
       "Saved family stories and profile photos stay current when the browser cache is full."

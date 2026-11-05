@@ -45,15 +45,17 @@ function fixture(extractor) {
   const querySnapshot = query => {
     let rows = [...records].filter(([path]) => path.startsWith(query.path + '/') && path.split('/').length === query.path.split('/').length + 1);
     for (const [field, op, value] of query.filters) rows = rows.filter(([, data]) => op === '==' && data[field] === value);
-    if (query.sort) rows.sort((a, b) => String(a[1][query.sort[0]] || '').localeCompare(String(b[1][query.sort[0]] || '')) * (query.sort[1] === 'desc' ? -1 : 1));
+    if (query.sort) rows.sort((a, b) => (String(a[1][query.sort[0]] || '').localeCompare(String(b[1][query.sort[0]] || '')) || a[0].localeCompare(b[0])) * (query.sort[1] === 'desc' ? -1 : 1));
+    if (query.after) rows = rows.slice(rows.findIndex(([path]) => path.endsWith('/' + query.after.id)) + 1);
     rows = rows.slice(0, query.cap ?? Infinity);
     const docs = rows.map(([path]) => snapshot(path));
     return { docs, size: docs.length, empty: docs.length === 0 };
   };
   const makeRef = path => ({ path, id: path.slice(path.lastIndexOf('/') + 1), get: async () => snapshot(path) });
-  const makeQuery = (path, filters = [], sort, cap) => ({ path, filters, sort, cap, query: true,
+  const makeQuery = (path, filters = [], sort, cap, after) => ({ path, filters, sort, cap, after, query: true,
     doc: id => makeRef(`${path}/${id}`), where: (field, op, value) => makeQuery(path, [...filters, [field, op, value]], sort, cap),
-    orderBy: (field, direction) => makeQuery(path, filters, [field, direction], cap), limit: limit => makeQuery(path, filters, sort, limit), get: async () => querySnapshot({ path, filters, sort, cap }),
+    orderBy: (field, direction) => makeQuery(path, filters, [field, direction], cap, after), limit: limit => makeQuery(path, filters, sort, limit, after),
+    startAfter: snapshot => makeQuery(path, filters, sort, cap, snapshot), get: async () => querySnapshot({ path, filters, sort, cap, after }),
   });
   const db = { doc: makeRef, collection: makeQuery,
     runTransaction: async callback => {
@@ -86,6 +88,55 @@ function fixture(extractor) {
   });
   return { service, records, writes, extracts, bump, db, advance: ms => { clock = new Date(clock.getTime() + ms); } };
 }
+
+test('older unfinished imports remain reachable beyond completed history, including timestamp ties', async () => {
+  const f = fixture();
+  for (let index = 0; index < 206; index++) {
+    const id = `history-${String(index).padStart(3, '0')}`;
+    f.bump(`families/business/importInbox/${id}`, { id, spaceId: 'business', createdBy: 'staff', createdAt: '2026-11-01T12:00:00.000Z', status: index ? 'applied' : 'pending', source: { sourceName: 'Synthetic historical receipt', sourceText: 'Synthetic source' } });
+  }
+  const recent = await f.service.list(actor('staff'), 'business');
+  assert.equal(recent.length, IMPORT_LIMITS.list);
+  assert.equal(recent.filter(item => item.status === 'pending').length, 0, 'the previous one-page view falsely looked empty');
+  const found = [];
+  let cursor, pages = 0;
+  do {
+    const page = await f.service.listPage(actor('staff'), 'business', cursor);
+    assert.ok(page.items.length <= IMPORT_LIMITS.list);
+    found.push(...page.items); cursor = page.nextCursor; pages++;
+  } while (cursor && pages < 5);
+  assert.equal(pages, 3); assert.equal(found.length, 206); assert.equal(new Set(found.map(item => item.id)).size, 206);
+  assert.equal(found.at(-1).id, 'history-000'); assert.equal(found.at(-1).status, 'pending');
+  await assert.rejects(f.service.listPage(actor('staff'), 'business', '../other'), rejectCode('INVALID_CURSOR'));
+  await assert.rejects(f.service.listPage(actor('staff'), 'other', 'history-100'), rejectCode('IMPORT_ADULT_REQUIRED'));
+  await assert.rejects(f.service.listPage(actor('admin'), 'other', 'history-100'), rejectCode('CURSOR_EXPIRED'));
+  await assert.rejects(f.service.listPage(actor('colleague'), 'business', 'history-100'), rejectCode('CURSOR_EXPIRED'));
+  f.bump('families/business/roles/staff', { role: 'child' });
+  await assert.rejects(f.service.listPage(actor('staff'), 'business', 'history-100'), rejectCode('IMPORT_ADULT_REQUIRED'));
+});
+
+test('a fully source-filtered page still exposes a continuation to older accessible imports', async () => {
+  const f = fixture();
+  for (let index = 0; index < 101; index++) {
+    const id = `filtered-${String(index).padStart(3, '0')}`;
+    f.bump(`families/business/importInbox/${id}`, { id, spaceId: 'business', createdBy: 'staff', createdAt: '2026-11-01T12:00:00.000Z', status: 'pending', source: index ? { documentId: 'private' } : { sourceName: 'Accessible receipt', sourceText: 'Synthetic source' } });
+  }
+  const first = await f.service.listPage(actor('staff'), 'business');
+  assert.deepEqual(first.items, []); assert.ok(first.nextCursor);
+  const last = await f.service.listPage(actor('staff'), 'business', first.nextCursor);
+  assert.equal(last.items.length, 1); assert.equal(last.items[0].id, 'filtered-000'); assert.equal(last.nextCursor, null);
+});
+
+test('role changes during source checks cannot return an obsolete page or cursor', async () => {
+  const f = fixture();
+  await f.service.create(actor('staff'), 'business', { requestId: 'role-page', documentId: 'invoice' });
+  const service = createImportInbox({ db: f.db,
+    resolveMembership: async who => ({ role: f.records.get(`families/business/roles/${who.uid}`)?.role }),
+    canReadDocument: async () => { f.bump('families/business/roles/admin', { role: 'member' }); return true; },
+    extractDocument: async () => { throw Error('No analysis in paging checks'); },
+  });
+  await assert.rejects(service.listPage(actor('admin'), 'business'), rejectCode('IMPORT_ACCESS_CHANGED'));
+});
 
  test('submissions are durable, own-space scoped, idempotent and never canonical writes', async () => {
   const f = fixture();
