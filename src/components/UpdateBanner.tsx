@@ -1,3 +1,8 @@
+import { createPortal } from 'react-dom';
+import release from '../../CHANGES.json';
+import FeatureUpdateCard from './FeatureUpdateCard';
+import WhatsNewLog from './WhatsNewLog';
+import { cleanFeatureUpdate } from '../utils/featureUpdates';
 import { useEffect, useState } from 'react';
 import { Check, ArrowRight } from 'lucide-react';
 import { CURRENT_BUILD, BUST_PARAM, fetchDeployedVersion, retiredAddress } from '../utils/appUpdate';
@@ -48,6 +53,9 @@ export function setShowsUpdateNotes(on: boolean) {
 
 // The build this device last actually RAN. Written on every launch; compared on
 // the next one.
+const FEATURE = cleanFeatureUpdate(release.feature);
+const FEATURE_SEEN_KEY = 'teluva:featureSeen:';
+
 const LAST_SEEN_KEY = 'teluva:lastSeenBuild';
 
 /**
@@ -85,6 +93,7 @@ function writeLastSeen(v: string) {
 }
 
 export default function UpdateBanner() {
+  const [logOpen, setLogOpen] = useState(false);
   const [mode, setMode] = useState<Mode>(MOVED_TO ? 'retired' : 'none');
   const [label, setLabel] = useState('');
   const [changes, setChanges] = useState<string[]>([]);
@@ -104,6 +113,10 @@ export default function UpdateBanner() {
        version this device has been running for a week. */
     if (!showsUpdateNotes()) return;
 
+    // A feature gets one announcement on this device; ordinary notes stay opt-in.
+    if (FEATURE) {
+      try { if (localStorage.getItem(FEATURE_SEEN_KEY + FEATURE.id)) return; } catch { /* session only */ }
+    }
     setMode('updated');
     void fetchDeployedVersion().then((d) => {
       if (!d) return;
@@ -123,7 +136,21 @@ export default function UpdateBanner() {
     window.history.replaceState({}, '', url.pathname + url.search + url.hash);
   }, []);
 
+  function dismissFeature() {
+    if (FEATURE) { try { localStorage.setItem(FEATURE_SEEN_KEY + FEATURE.id, '1'); } catch { /* session only */ } }
+    setMode('none');
+  }
+
+  if (logOpen) return createPortal(<WhatsNewLog currentLabel={release.label} onClose={() => setLogOpen(false)} />, document.body);
   if (mode === 'none') return null;
+  if (mode === 'updated' && FEATURE) return <aside aria-label="Important feature update"
+    className="fixed inset-x-4 bottom-4 z-[69] mx-auto max-h-[85dvh] max-w-md overflow-y-auto rounded-3xl border border-cream-300 bg-cream-50 shadow-lift">
+    <FeatureUpdateCard feature={FEATURE} />
+    <div className="flex flex-wrap gap-2 px-5 pb-5 pt-2">
+      <button type="button" onClick={dismissFeature} className="min-h-11 rounded-full bg-cream-200 px-5 font-semibold text-ink-800">Dismiss</button>
+      <button type="button" onClick={() => { dismissFeature(); setLogOpen(true); }} className="min-h-11 rounded-full px-5 font-semibold text-clay-700">Learn more</button>
+    </div>
+  </aside>;
 
   return (
     <div
