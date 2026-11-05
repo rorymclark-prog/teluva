@@ -12,7 +12,15 @@ choose documents already in the Vault, or paste named source text. Existing
 camera scanning, Drive import and email intake remain available through the
 Vault. New original uploads use protected storage and the selected space.
 
-Choose **Analyze source** to prepare a draft using Teluva's existing AI service and
+After queuing selected originals, choose **Prepare N drafts with AI** to prepare
+that panel’s batch sequentially. Existing saved reviews and unsaved or saving
+manual edits are kept. You can stop after the current draft and retry failures;
+successful drafts are not analyzed again. Individual unreadable/oversized files
+allow later originals to proceed, while account, allowance and service problems
+pause preparation. Batch selection is local to the panel and resets on reload.
+Nothing is filed automatically; each final record still needs explicit review.
+
+Choose **Analyze source** on an individual row to prepare one draft using Teluva's existing AI service and
 AI preference. PDFs, JPEG/PNG/WebP images and plain text/CSV originals up to
 12 MiB can be read. Larger or unsupported originals remain saved; relevant text
 can be pasted instead. Pasted text is identified as text, not an original receipt.

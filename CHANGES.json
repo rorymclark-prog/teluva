@@ -1,7 +1,9 @@
 {
-  "label": "v388",
+  "label": "v389",
   "changes": [
-    "Older unfinished imports remain reachable with Load older imports, even after a long history of completed reviews."
+    "Prepare selected originals as a batch of AI drafts in both family and business, then review each record before adding it.",
+    "Manual reviews stay safe; stop after the current draft or retry failed files without re-analyzing successful drafts.",
+    "Unreadable files no longer block later originals; account and allowance errors pause preparation with a clear message."
   ],
   "feature": {
     "id": "family-memories-v385",

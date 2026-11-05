@@ -1,5 +1,20 @@
 [
   {
+    "label": "v389",
+    "changes": [
+      "Prepare selected originals as a batch of AI drafts in both family and business, then review each record before adding it.",
+      "Manual reviews stay safe; stop after the current draft or retry failed files without re-analyzing successful drafts.",
+      "Unreadable files no longer block later originals; account and allowance errors pause preparation with a clear message."
+    ],
+    "feature": {
+      "id": "family-memories-v385",
+      "demo": "family-memories",
+      "title": "Your family memories, rediscovered",
+      "description": "On this day and Flashback bring back dated moments saved to your family timeline, alongside family sayings and milestones."
+    },
+    "date": "2026-11-05"
+  },
+  {
     "label": "v388",
     "changes": [
       "Older unfinished imports remain reachable with Load older imports, even after a long history of completed reviews."
