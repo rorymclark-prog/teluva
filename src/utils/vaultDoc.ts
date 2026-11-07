@@ -18,6 +18,7 @@ export function toFamilyDoc(v: VaultDocument): FamilyDocument {
     id: v.id, name: v.name, category: VAULT_CATEGORY_TO_FAMILY[v.category],
     fileType: v.fileType, fileName: v.fileName, fileSize: v.fileSize,
     uploadedAt: v.uploadedAt, notes: v.notes, fileData: v.downloadUrl,
-    keyFacts: v.keyFacts,
+    storagePath: v.storagePath, contentHash: v.contentHash,
+    connectorSource: v.connectorSource, keyFacts: v.keyFacts,
   };
 }

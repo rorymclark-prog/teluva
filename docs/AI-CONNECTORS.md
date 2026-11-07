@@ -79,6 +79,13 @@ New PDFs can be prepared using `submit_import` with `analyze: true`.
 
 ### Original attachments and provenance
 
+Attachment viewers identify protected Vault files and distinguish original
+attachments from native-document exports. Explicit plain-text originals up to
+64 KiB can be previewed without downloading through the existing authorized
+file endpoint; markup remains literal text. Larger or unsupported files retain
+Download. Storage descriptions do not promise offline availability or certify
+provider identity or legal authenticity.
+
 `import_original` accepts ChatGPT's supported `openai/fileParams` file object:
 `download_url`, `file_id`, optional `mime_type` and `file_name`. Original downloads
 are limited to 12 MiB, recognised PDF/images or UTF-8 text, trusted host file

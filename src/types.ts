@@ -43,6 +43,8 @@ export interface FamilyDocument {
   storagePath?: string; // owned Storage file, when uploaded directly to a profile
   fileData?: string; // base64 string or url
   contentHash?: string; // SHA-256 of the file bytes — powers duplicate detection; absent on documents saved before this existed
+  /** Imported attachment/export provenance, carried from the Vault for display. */
+  connectorSource?: VaultDocument['connectorSource'];
   /** Carried over from the VaultDocument by toFamilyDoc so viewers can show them. */
   keyFacts?: DocKeyFact[];
 }
@@ -1382,6 +1384,13 @@ export interface VaultDocument {
   docDate?: string;
   notes?: string;
   contentHash?: string;  // SHA-256 of the file bytes — powers duplicate detection; absent on documents saved before this existed
+  connectorSource?: {
+    representation: 'original' | 'export';
+    provider?: string;
+    label?: string;
+    byteSource?: string;
+    contentHash?: string;
+  };
   /** Facts lifted out of the file on request — see DocKeyFact for the rules. */
   keyFacts?: DocKeyFact[];
   keyFactsAt?: string;   // YYYY-MM-DD the facts were extracted

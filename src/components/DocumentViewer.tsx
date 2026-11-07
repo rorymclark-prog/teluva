@@ -8,6 +8,8 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { normalizeFileReference } from '../utils/fileReferences';
 import CopyableValue from './CopyableValue';
 import { ImageDocumentPreview, PdfDocumentPreview } from './DocumentPreview';
+import TextDocumentPreview from './TextDocumentPreview';
+import { documentStorageDescription, isPlainTextType } from '../utils/documentPreview';
 
 interface DocumentViewerProps {
   document: FamilyDocument | null;
@@ -76,6 +78,8 @@ export default function DocumentViewer({ document: doc, memberName, onClose, onE
   const source = getDocSource();
   const genericType = !doc.fileType || doc.fileType === 'application/octet-stream';
   const placeholder = !doc.fileData || doc.fileData === 'PLACEHOLDER';
+  const storageDescription = documentStorageDescription(doc);
+  const isText = !placeholder && isPlainTextType(doc.fileType || '');
   const isPdf = !placeholder && (doc.fileType === 'application/pdf' || (genericType && /\.pdf$/i.test(doc.fileName)));
   const isImage = placeholder || !doc.fileType || doc.fileType.startsWith('image/')
     || (genericType && /\.(png|jpe?g|gif|webp|avif|bmp|heic|heif)$/i.test(doc.fileName));
@@ -106,6 +110,8 @@ export default function DocumentViewer({ document: doc, memberName, onClose, onE
               <div key={source} className={`w-full bg-white rounded-2xl shadow-soft overflow-hidden border border-cream-300 relative flex items-center justify-center ${isPdf ? 'max-w-2xl h-[80dvh]' : 'max-w-md aspect-[4/5.6]'}`}>
                 {isPdf ? (
                   <PdfDocumentPreview source={source} name={doc.name} />
+                ) : isText ? (
+                  <TextDocumentPreview source={source} name={doc.name} size={doc.fileSize} version={doc.contentHash || doc.uploadedAt} />
                 ) : isImage ? (
                   <ImageDocumentPreview source={source} name={doc.name} />
                 ) : (
@@ -166,10 +172,8 @@ export default function DocumentViewer({ document: doc, memberName, onClose, onE
                       <Shield className="w-4 h-4 text-ink-400 shrink-0" />
                       <div>
                         <p className="section-label mb-0.5">Storage State</p>
-                        <p className="text-sage-600 font-semibold flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-sage-500 animate-ping inline-block"></span>
-                          Device-Safe Local Storage
-                        </p>
+                        <p className="text-ink-800 font-semibold">{storageDescription.label}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-ink-500">{storageDescription.detail}</p>
                       </div>
                     </div>
                   </div>
