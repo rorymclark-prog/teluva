@@ -1,9 +1,8 @@
 {
-  "label": "v389",
+  "label": "v390",
   "changes": [
-    "Prepare selected originals as a batch of AI drafts in both family and business, then review each record before adding it.",
-    "Manual reviews stay safe; stop after the current draft or retry failed files without re-analyzing successful drafts.",
-    "Unreadable files no longer block later originals; account and allowance errors pause preparation with a clear message."
+    "Document viewers now distinguish protected Vault files, imported originals, document exports and embedded or temporary previews.",
+    "Preview protected plain-text originals up to 64 KB inside the Vault, with safe text rendering and account/document change protection."
   ],
   "feature": {
     "id": "family-memories-v385",
