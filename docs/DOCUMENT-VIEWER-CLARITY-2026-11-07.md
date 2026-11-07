@@ -1,0 +1,21 @@
+# Document viewer storage wording and safe text preview
+
+Actual supported-browser evidence for the two authorized fictional connector QA drafts showed that their original attachment/export labels were correct, and the PDF page rendered. Both viewers nevertheless displayed the same unconditional “Device-Safe Local Storage” text. The 503-byte text original had no preview. The owner opened and visually inspected `pdf-export-preview.jpg`, `pdf-export-source.jpg` and `receipt-attachment-viewer.jpg` plus the actual JSON receipts in Rory’s `Documents/Codex/2026-11-03/realtime-voice-chat/work/secondary-app-audit/teluva-original-ui-20261107/` evidence folder.
+
+Source confirms the wording defect. `DocumentViewer.tsx` hard-coded the label for every file. In contrast, `server/connectorOriginals.mjs` saves imported bytes through the storage bucket, with `families/{space}/documents/{id}/original`, a protected `/api/files/content` reference, checksum and connector provenance. The parent’s hosted text transfer receipt includes an independent exact 503-byte SHA match; the native-PDF export checksum remains server-reported. No transfer or original-file verification was repeated by this source lane.
+
+## Change
+
+The viewer now describes the reference it has: protected Vault file, embedded data, temporary browser preview, linked file, placeholder or unverified location. Protected imports distinguish original attachment from document export. Wording promises neither offline/device persistence nor a completed cloud sync. The Vault-to-viewer adapter carries the storage path, checksum and import provenance for that display. It does not write metadata or change ownership.
+
+For explicit `text/plain` files, a read-only preview uses the existing protected file endpoint. It captures the authenticated user and selected space before token refresh, normalizes only this app’s protected references, refuses another space or arbitrary remote/data/blob source, sends bearer authentication to the same-origin endpoint, and checks identity again before accepting response/body data. Existing server membership/file-policy enforcement remains authoritative. Redirects are refused. Responses must be successful plain text, with a 64 KiB limit on known size, advertised size and actual streamed bytes. Decoding is UTF-8; binary/control data and unreadable encoding fall back to download. A 15-second abort, close/source/version/identity/role/loading cleanup, and stale-result checks prevent a late prior-view result from rendering.
+
+React renders the file inside a wrapped, scrollable `<pre>` using text children. HTML, image attributes and scripts in a plain-text file stay inert; there is no iframe, raw HTML insertion or linkification. Text stays in component memory; no local cache, paid analysis, proposal mutation, file mutation or new permission is added.
+
+## Tests and remaining limits
+
+- `src/utils/documentPreview.test.ts` verifies reference/provenance descriptions and adapter preservation; same-origin authorized reads; other-space/external refusal before requesting; HTTP/MIME/size rejection; stream cancellation and UTF-8 boundaries; identity changes during token refresh/response; and abort.
+- `src/components/TextDocumentPreview.test.ts` executes actual hooks with synthetic identity/HTTP. Markup stays escaped text with no script/image elements; close and space change abort pending reads; late previous-space content never renders.
+- Both suites are in `npm test`. Lint/typecheck, full `npm test` (161 frontend suites, 676 server tests), production build and diff check passed. Log: `/tmp/teluva-document-viewer-checks-20261107.log`.
+
+The new preview deliberately supports only protected UTF-8 plain-text originals up to 64 KiB. Larger files, other encodings/types and external/embedded/transient references retain the existing download path. A storage description reflects the reference/provenance and does not independently certify current bytes, offline availability, provider identity or legal authenticity. Browser verification of this new candidate and deployment remain pending. The two live fictional QA drafts are untouched and pending review; no personal document was read, applied, edited or deleted by this lane.
