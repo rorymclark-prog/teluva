@@ -247,6 +247,7 @@ const COVERAGE_MAP: Record<string, Coverage> = {
   favoriteQuotes: covered('favorite_quote'),
   cv: covered('cv'),
   addressHistory: manual('Previous addresses are entered in the Addresses tab with dates confirmed by the user; automatic address-history filing is not enabled.'),
+  recordHistory: manual('Historical contact and membership numbers, notes and evidence are removed from general AI context. Connected assistants can prepare a person-named source-backed JSON file for explicit review in Past numbers; the general chatbot cannot directly mutate this sensitive register.'),
   'education.schoolYears': manual('School years and reports are entered in Education; users select the academic year and attach existing scans. Automatic report extraction is a later feature.'),
   'education.qualifications': manual('Family qualifications are entered in Education and linked to saved certificates; the business CV assistant does not populate this separate family record.'),
   'travel.transitPasses': covered('transit_pass'),
