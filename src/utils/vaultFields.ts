@@ -29,7 +29,7 @@
 // untouched field as a fresh edit.
 // ---------------------------------------------------------------------------
 
-import { IdentityRecord, HouseholdInfo, FinancesInfo, BankAccount, PassportRecord, VisaRecord, NationalIdentifiers, FinancialAccount } from '../types';
+import { IdentityRecord, HouseholdInfo, FinancesInfo, BankAccount, PassportRecord, VisaRecord, NationalIdentifiers, FinancialAccount, PersonalRecordHistoryEntry } from '../types';
 import { REDACTED_IDENTITY_KEYS, REDACTED_HOUSEHOLD_KEYS, REDACTED_BANK_KEYS, REDACTED_NATIONAL_ID_KEYS, REDACTED_FINANCIAL_ACCOUNT_KEYS } from './aiRedact';
 import { getVaultCacheScope, reportVaultAccessIssue, setVaultAccessScope } from './vaultAccess';
 
@@ -229,6 +229,14 @@ export const protectIdentity = (identity: IdentityRecord | undefined, fn: VaultT
   protectFields(identity, REDACTED_IDENTITY_KEYS, fn);
 export const revealIdentity = (identity: IdentityRecord | undefined, fn: VaultTransform) =>
   revealFields(identity, REDACTED_IDENTITY_KEYS, fn);
+
+// Historical numbers can also occur in quoted evidence and explanatory notes.
+// Use the shared vault purpose so the existing adult reveal rules apply.
+const RECORD_HISTORY_SECRETS = ['value', 'notes', 'evidenceQuote'] as const;
+export const protectRecordHistory = (rows: PersonalRecordHistoryEntry[] | undefined, fn: VaultTransform) =>
+  protectArrayFields(rows, RECORD_HISTORY_SECRETS, fn);
+export const revealRecordHistory = (rows: PersonalRecordHistoryEntry[] | undefined, fn: VaultTransform) =>
+  revealArrayFields(rows, RECORD_HISTORY_SECRETS, fn);
 
 export const protectHousehold = (h: HouseholdInfo | undefined, fn: VaultTransform) =>
   protectFields(h, REDACTED_HOUSEHOLD_KEYS, fn);

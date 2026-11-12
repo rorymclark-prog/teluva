@@ -111,7 +111,7 @@ export const REDACTED_HOUSEHOLD_KEYS = HOUSEHOLD_SECRET_KEYS;
 export const REDACTED_BANK_KEYS = BANK_SECRET_KEYS;
 
 /** Member-profile keys that must never leave the browser in AI context. */
-export const REDACTED_MEMBER_KEYS = ['identifiers', 'financialAccounts'] as const;
+export const REDACTED_MEMBER_KEYS = ['identifiers', 'financialAccounts', 'recordHistory'] as const;
 
 /** NationalIdentifiers keys — see the header note above. `notes` stays plain. */
 export const REDACTED_NATIONAL_ID_KEYS = NATIONAL_ID_SECRET_KEYS;

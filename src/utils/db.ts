@@ -17,6 +17,7 @@ import {
 import { readGoogleRemovals, rememberGoogleRemovals, acknowledgeGoogleRemovals, markDirty, clearDirty, isDirty } from './pendingSync';
 import {
   protectIdentity, revealIdentity, protectPassports, revealPassports,
+  protectRecordHistory, revealRecordHistory,
   protectVisas, revealVisas, protectIdentifiers, revealIdentifiers,
   protectFinancialAccounts, revealFinancialAccounts,
   protectHousehold, revealHousehold, protectFinances, revealFinances, setSharedRevealEnabled,
@@ -141,6 +142,7 @@ async function revealMemberSensitive(raw: FamilyMember, spaceId = FAMILY_ID): Pr
   return {
     ...raw,
     identity: await revealIdentity(raw.identity, reveal),
+    recordHistory: await revealRecordHistory(raw.recordHistory, reveal),
     passports: await revealPassports(raw.passports, reveal),
     travel: raw.travel
       ? { ...raw.travel, visas: await revealVisas(raw.travel.visas, reveal) }
@@ -156,6 +158,7 @@ async function protectMemberSensitive(merged: FamilyMember, spaceId = FAMILY_ID)
   return {
     ...merged,
     identity: await protectIdentity(merged.identity, protect),
+    recordHistory: await protectRecordHistory(merged.recordHistory, protect),
     passports: await protectPassports(merged.passports, protect),
     travel: merged.travel
       ? { ...merged.travel, visas: await protectVisas(merged.travel.visas, protect) }

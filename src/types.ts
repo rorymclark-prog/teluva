@@ -311,6 +311,22 @@ export interface SurnameMeaning extends NameMeaning {
   key: string;
 }
 
+export interface PersonalRecordHistoryEntry {
+  id: string;
+  kind: 'phone' | 'email' | 'medical-aid' | 'health-insurance' | 'insurance' | 'other';
+  value: string;
+  label?: string;
+  provider?: string;
+  status: 'previous' | 'current' | 'unknown';
+  startDate?: string;
+  endDate?: string;
+  observedDate?: string;
+  notes?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  evidenceQuote?: string;
+}
+
 export interface FamilyMember {
   id: string;
   name: string;
@@ -371,6 +387,7 @@ export interface FamilyMember {
   // (members can live at different addresses, e.g. an adult child or relative).
   address?: string;
   addressHistory?: PreviousAddress[];
+  recordHistory?: PersonalRecordHistoryEntry[];
   phone?: string;
   email?: string;
 
