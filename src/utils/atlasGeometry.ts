@@ -24,3 +24,25 @@ export function visibleAtlasPoint(lng: number, lat: number, mode: 'globe' | 'map
   return point && point[0] >= 0 && point[0] <= 960 && point[1] >= 0 && point[1] <= 560 ? point : null;
 }
 export const atlasPath = (mode: 'globe' | 'map', camera: AtlasCamera) => geoPath(atlasProjection(mode, camera));
+
+/** Group overlapping touch targets. Stable IDs keep groups deterministic;
+ * dense points collapse before the pairwise merge, so repeated visits to one
+ * place do not create hundreds of coincident controls. */
+export function clusterAtlasPoints(points: { id: string; point: [number, number] }[], threshold: number) {
+  const groups: { ids: string[]; point: [number, number] }[] = [];
+  const close = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1]) < threshold;
+  const merge = (target: typeof groups[number], source: typeof groups[number]) => {
+    const total = target.ids.length + source.ids.length;
+    target.point = [(target.point[0] * target.ids.length + source.point[0] * source.ids.length) / total, (target.point[1] * target.ids.length + source.point[1] * source.ids.length) / total];
+    target.ids.push(...source.ids);
+  };
+  for (const item of [...points].sort((a, b) => a.id.localeCompare(b.id))) {
+    const group = groups.find(group => close(group.point, item.point));
+    const next = { ids: [item.id], point: [...item.point] as [number, number] };
+    if (group) merge(group, next); else groups.push(next);
+  }
+  for (let i = 0; i < groups.length; i++) for (let j = i + 1; j < groups.length; j++) {
+    if (close(groups[i].point, groups[j].point)) { merge(groups[i], groups[j]); groups.splice(j, 1); i = -1; break; }
+  }
+  return groups;
+}

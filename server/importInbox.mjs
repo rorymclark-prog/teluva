@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import express from 'express';
+import { MEMORY_SCHEMA, sanitizeMemory, assertMemoryEvidence, memoryIdentity } from './memoryProposal.mjs';
 
 export const IMPORT_LIMITS = Object.freeze({ sourceChars: 40_000, sourceBytes: 100_000, proposalBytes: 24_000, inputBytes: 150_000, list: 100, analysisLeaseMs: 5 * 60_000 });
 export class ImportInboxError extends Error {
@@ -24,6 +25,7 @@ const DOCUMENT_STRINGS = { name: 200, notes: 4000 };
 const stringSchema = limits => Object.fromEntries(Object.entries(limits).map(([key, maxLength]) => [key, { type: 'string', maxLength }]));
 export const IMPORT_PROPOSAL_SCHEMA = {
   oneOf: [
+    { type: 'object', additionalProperties: false, required: ['kind', 'memory'], properties: { kind: { const: 'memory' }, memory: MEMORY_SCHEMA } },
     { type: 'object', additionalProperties: false, required: ['kind', 'preferences'], properties: { kind: { const: 'preferences' }, preferences: {
       type: 'object', additionalProperties: false, minProperties: 1, properties: { language: { enum: PREFERENCE_LANGUAGES }, theme: { enum: ['system', 'light', 'dark'] } },
     } } },
@@ -67,6 +69,7 @@ function strings(input, limits, required = [], keepEmpty = false) {
 }
 export function sanitizeImportProposal(input) {
   if (!plain(input) || bytes(input) > IMPORT_LIMITS.proposalBytes) fail(400, 'INVALID_IMPORT', 'The proposed record is invalid or too large.');
+  if (input.kind === 'memory') { allowedKeys(input, ['kind', 'memory']); return { kind: 'memory', memory: sanitizeMemory(input.memory, fail) }; }
   if (input.kind === 'preferences') {
     allowedKeys(input, ['kind', 'preferences']); allowedKeys(input.preferences, ['language', 'theme']);
     const preferences = {};
@@ -223,10 +226,13 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
     if (sourceText && Buffer.byteLength(sourceText, 'utf8') > IMPORT_LIMITS.sourceBytes) fail(413, 'IMPORT_TOO_LARGE', 'The submitted text is too large.');
     const proposal = input.proposal === undefined ? undefined : sanitizeImportProposal(input.proposal);
     if (proposal?.kind === 'preferences' && documentId) fail(400, 'INVALID_IMPORT', 'Personal preferences must come from an explicit named request, not inferred document facts.');
+    if (proposal?.kind === 'memory' && documentId) fail(400, 'INVALID_IMPORT', 'Memory suggestions need named source text. Import selected photo covers through Life Atlas.');
+    assertMemoryEvidence(proposal, sourceText, fail);
     const payloadHash = digest({ documentId, sourceText, sourceName, proposal });
     const id = createHash('sha256').update(`${actor.uid}\n${input.requestId}`).digest('hex').slice(0, 40);
     return db.runTransaction(async transaction => {
-      await authorize(actor, spaceId, transaction);
+      const membership = await authorize(actor, spaceId, transaction);
+      if (proposal?.kind === 'memory' && membership.type === 'business') fail(403, 'FAMILY_MEMORY_ONLY', 'Family memories belong in a family space.');
       const ref = refs(spaceId).inbox.doc(id);
       const previous = await transaction.get(ref);
       if (previous.exists) {
@@ -254,6 +260,8 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       const membership = await authorize(actor, spaceId, transaction);
       const { ref, item } = await readItem(actor, spaceId, id, transaction, membership);
       pending(item); revisionCheck(item, input);
+      if (proposal.kind === 'memory' && membership.type === 'business') fail(403, 'FAMILY_MEMORY_ONLY', 'Family memories belong in a family space.');
+      assertMemoryEvidence(proposal, item.source.sourceText, fail);
       if (proposal.kind === 'preferences' && item.source.documentId) fail(400, 'INVALID_IMPORT', 'Personal preferences need an explicit request, not document inference.');
       await original(actor, spaceId, item, transaction, true);
       const next = { ...item, proposal, analysis: { status: 'ready',
@@ -271,6 +279,7 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       const { ref, item } = await readItem(actor, spaceId, id, transaction, membership);
       pending(item); revisionCheck(item, options);
       if (item.proposal?.kind === 'preferences') fail(400, 'INVALID_IMPORT', 'Preferences come from your request and do not need paid analysis.');
+      if (item.proposal?.kind === 'memory') fail(400, 'INVALID_IMPORT', 'Memory highlights are already curated. Review their source excerpt instead of analyzing them as paperwork.');
       if (item.analysis?.status === 'running' && now().getTime() - Date.parse(item.analysis.startedAt) < IMPORT_LIMITS.analysisLeaseMs) fail(409, 'ANALYSIS_RUNNING', 'This import is already being analyzed.');
       const resolved = await original(actor, spaceId, item, transaction);
       const source = resolved ? sourceSnapshot(resolved.document) : item.source;
@@ -337,9 +346,32 @@ export function createImportInbox({ db, resolveMembership, canReadDocument, extr
       pending(item); revisionCheck(item, options);
       if (item.analysis?.status !== 'ready' || !item.proposal) fail(409, 'PROPOSAL_REQUIRED', 'Analyze or enter a proposal, then review it before applying.');
       const proposal = sanitizeImportProposal(item.proposal);
+      if (proposal.kind === 'memory' && membership.type === 'business') fail(403, 'FAMILY_MEMORY_ONLY', 'Family memories belong in a family space.');
+      assertMemoryEvidence(proposal, item.source.sourceText, fail);
       const stamp = timestamp();
       let appliedRecordId;
-      if (proposal.kind === 'preferences') {
+      if (proposal.kind === 'memory') {
+        const memory = proposal.memory;
+        const target = memory.atlas ? 'travelTimeline' : 'timeline';
+        const targetRef = db.doc(`families/${spaceId}/reference/${target}`);
+        const targetSnapshot = await transaction.get(targetRef);
+        const data = targetSnapshot.exists ? targetSnapshot.data() : {};
+        if (data.entries !== undefined && !Array.isArray(data.entries)) fail(409, 'MEMORY_REGISTER_UNREADABLE', 'The existing memory register could not be read safely. Your suggestion is kept for review.');
+        const entries = Array.isArray(data.entries) ? data.entries : [];
+        appliedRecordId = `memory-${digest({ sourceName: item.source.sourceName, ...memoryIdentity(memory) }).slice(0, 32)}`;
+        if (entries.some(entry => entry.id === appliedRecordId)) fail(409, 'DUPLICATE_MEMORY', 'This source memory has already been added. Nothing was overwritten.');
+        for (const memberId of memory.memberIds || []) {
+          const member = await transaction.get(db.doc(`families/${spaceId}/family_members/${memberId}`));
+          if (!member.exists) fail(400, 'MEMORY_PERSON_CHANGED', 'A tagged person is no longer in this family. Review the people before saving.');
+        }
+        const note = [memory.note, `Source: ${item.source.sourceName}`, `“${memory.evidenceQuote}”`].filter(Boolean).join('\n\n');
+        const entry = { id: appliedRecordId, title: memory.title, date: memory.date, memberIds: memory.memberIds || [], ...(memory.datePrecision ? { datePrecision: memory.datePrecision } : {}), ...(memory.place ? { place: memory.place } : {}) };
+        const record = memory.atlas ? { ...entry, ...memory.atlas, country: memory.atlas.country || '', source: 'manual', notes: note }
+          : { ...entry, category: memory.category, note, source: 'assistant', importBatchId: `inbox-${id}` };
+        const next = { ...data, entries: [...entries, record] };
+        if (bytes(next) > 850_000) fail(413, 'MEMORY_REGISTER_FULL', 'The memory register needs more storage before this record can be added. Your draft is kept.');
+        transaction.set(targetRef, next);
+      } else if (proposal.kind === 'preferences') {
         appliedRecordId = actor.uid;
         transaction.set(db.doc(`users/${actor.uid}/preferences/teluva`), { ...proposal.preferences, reviewedAt: stamp, sourceInboxId: id }, { merge: true });
       } else if (proposal.kind === 'asset') {

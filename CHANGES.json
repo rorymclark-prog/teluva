@@ -1,9 +1,9 @@
 {
-  "label": "v391",
+  "label": "v392",
   "changes": [
-    "Life Atlas replaces the travel list with a rotatable globe, a 2D map and a gallery of family homes, holidays, visits and special events.",
-    "Import selected photos from your device or Google Photos, review dates and locations, and choose the covers to keep. Original exports can supply GPS; Google Photos imports need manually placed pins.",
-    "Atlas stories keep their people, date accuracy and photos when shown in the family timeline. Unknown dates and locations stay unknown."
+    "Prepare up to five curated memory suggestions from named chat/email text or a WhatsApp TXT/ZIP export. Review exact excerpts, dates and people before adding a story.",
+    "Connected assistants can submit pending memory suggestions; approval adds a timeline story or a single Atlas story that already appears in the timeline.",
+    "Switch Life Atlas between Whole family and selected individuals, and add a chosen cover photo to an existing story without creating a duplicate."
   ],
   "feature": {
     "id": "family-memories-v385",

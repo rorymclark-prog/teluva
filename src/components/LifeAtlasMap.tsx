@@ -2,7 +2,7 @@ import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { geoGraticule10 } from 'd3-geo';
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Globe2, Map, Minus, Plus, RotateCcw } from 'lucide-react';
 import type { TravelTimelineEntry } from '../types';
-import { atlasCountries, atlasPath, atlasProjection, initialAtlasCamera, visibleAtlasPoint, type AtlasCamera } from '../utils/atlasGeometry';
+import { atlasCountries, atlasPath, atlasProjection, clusterAtlasPoints, initialAtlasCamera, visibleAtlasPoint, type AtlasCamera } from '../utils/atlasGeometry';
 import { atlasDateLabel, atlasKind, atlasTitle, hasAtlasPoint, validAtlasPoint } from '../utils/lifeAtlas';
 import './LifeAtlas.css';
 
@@ -14,13 +14,16 @@ export default function LifeAtlasMap({ entries, selectedId, onSelect, onPlacePin
   const svg = useRef<SVGSVGElement>(null), drag = useRef<{ x: number; y: number; camera: AtlasCamera; moved: boolean } | null>(null);
   const frame = useRef<number | null>(null), pendingCamera = useRef(camera);
   const [displayWidth, setDisplayWidth] = useState(960);
+  const [choices, setChoices] = useState<string[]>([]);
+  const entryIds = entries.map(entry => entry.id).join('|');
+  useEffect(() => { setChoices([]); }, [mode, selectedId, entryIds]);
   const id = useId().replace(/:/g, '');
   const selected = entries.find(entry => entry.id === selectedId);
   const cancelMotion = () => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; drag.current = null; };
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
   useEffect(() => {
     if (!svg.current || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(entries => { if (entries[0]?.contentRect.width) setDisplayWidth(entries[0].contentRect.width); });
+    const observer = new ResizeObserver(() => { const matrix = svg.current?.getScreenCTM(); if (matrix) setDisplayWidth(Math.hypot(matrix.a, matrix.b) * 960 || 960); });
     observer.observe(svg.current); return () => observer.disconnect();
   }, []);
   useEffect(() => {
@@ -37,6 +40,8 @@ export default function LifeAtlasMap({ entries, selectedId, onSelect, onPlacePin
     const point = visibleAtlasPoint(entry.lng!, entry.lat!, mode, camera);
     return point ? [{ entry, point }] : [];
   });
+  const hitRadius = Math.max(14, 22 * 960 / displayWidth);
+  const groups = clusterAtlasPoints(points.map(({ entry, point }) => ({ id: entry.id, point })), hitRadius * 2 + 4 * 960 / displayWidth);
   const move = (x: number, y: number) => { cancelMotion(); setCamera(old => mode === 'globe'
     ? { ...old, longitude: old.longitude + x * 10, latitude: Math.max(-80, Math.min(80, old.latitude + y * 10)) }
     : { ...old, x: old.x - x * 60, y: old.y + y * 60 }); };
@@ -91,12 +96,19 @@ export default function LifeAtlasMap({ entries, selectedId, onSelect, onPlacePin
         <path d={path(geoGraticule10()) || ''} fill="none" stroke="#9DBAC6" strokeWidth="0.5" strokeOpacity="0.15" />
         {mode === 'globe' && <path d={path({ type: 'Sphere' }) || ''} fill={`url(#shade-${id})`} pointerEvents="none" />}
       </g>
-      {points.map(({ entry, point }) => <g key={entry.id} data-atlas-pin="true" transform={`translate(${point[0]},${point[1]})`} role="button" tabIndex={0}
-        aria-label={`${atlasTitle(entry)}, ${atlasDateLabel(entry)}`} aria-pressed={entry.id === selectedId}
-        onPointerDown={event => event.stopPropagation()} onClick={() => onSelect(entry.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); onSelect(entry.id); } }}
-        className={`atlas-pin atlas-pin-${atlasKind(entry)} ${entry.id === selectedId ? 'is-selected' : ''}`}>
-        <title>{atlasTitle(entry)} · {atlasDateLabel(entry)}</title><circle r={Math.max(20, 22 * 960 / displayWidth)} fill="transparent" /><circle className="atlas-pin-halo" r={entry.id === selectedId ? 15 : 10} /><circle className="atlas-pin-core" r={entry.id === selectedId ? 7 : 5} />
-      </g>)}
+      {groups.map(group => {
+        const entry = entries.find(entry => entry.id === group.ids[0])!, multiple = group.ids.length > 1, active = group.ids.includes(selectedId || '');
+        const label = multiple ? `${group.ids.length} memories in this area: ${group.ids.map(id => atlasTitle(entries.find(entry => entry.id === id)!)).join(', ')}` : `${atlasTitle(entry)}, ${atlasDateLabel(entry)}`;
+        const choose = () => multiple ? setChoices(group.ids) : onSelect(entry.id);
+        const radius = multiple ? Math.max(12, 12 * 960 / displayWidth) : active ? 7 : 5;
+        return <g key={group.ids.join('|')} data-atlas-pin="true" transform={`translate(${group.point[0]},${group.point[1]})`} role="button" tabIndex={onPlacePin ? -1 : 0} pointerEvents={onPlacePin ? 'none' : undefined}
+          aria-label={label} aria-pressed={active} onPointerDown={event => event.stopPropagation()} onClick={choose}
+          onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); choose(); } }}
+          className={`atlas-pin atlas-pin-${atlasKind(entry)} ${active ? 'is-selected' : ''}`}>
+          <title>{label}</title><circle r={hitRadius} fill="transparent" /><circle className="atlas-pin-halo" r={radius + 5} /><circle className="atlas-pin-core" r={radius} />
+          {multiple && <text textAnchor="middle" dominantBaseline="central" fontSize={Math.max(10, 11 * 960 / displayWidth)} fill="#122332" fontWeight="700" pointerEvents="none">{group.ids.length > 99 ? '99+' : group.ids.length}</text>}
+        </g>;
+      })}
     </svg>
     <div className="atlas-map-footer">
       <div className="atlas-legend"><span><i className="holiday" />Holidays</span><span><i className="home" />Homes</span><span><i className="event" />Events</span><span><i className="visit" />Visits</span></div>
@@ -107,6 +119,7 @@ export default function LifeAtlasMap({ entries, selectedId, onSelect, onPlacePin
         <button type="button" aria-label="Reset world view" onClick={() => { cancelMotion(); setCamera(initialAtlasCamera); }}><RotateCcw size={16} /></button>
       </div>
     </div>
+    {!!choices.length && !onPlacePin && <div className="atlas-place-choices" role="group" aria-label="Choose a memory at this place"><div className="flex items-center justify-between gap-2"><p>Choose a story from this area</p><button type="button" onClick={() => setChoices([])}>Close place memories</button></div>{choices.map(id => { const entry = entries.find(entry => entry.id === id); return entry ? <button key={id} type="button" onClick={() => { onSelect(id); setChoices([]); }}>{atlasTitle(entry)} · {atlasDateLabel(entry)}</button> : null; })}</div>}
     <p className="atlas-attribution">Natural Earth geography · map stays on your device · borders are illustrative</p>
   </section>;
 }

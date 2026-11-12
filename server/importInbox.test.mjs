@@ -79,7 +79,7 @@ function fixture(extractor) {
   const resolveMembership = async (who, space, { transaction } = {}) => {
     const ref = makeRef(`families/${space}/roles/${who.uid}`);
     const snap = transaction ? await transaction.get(ref) : await ref.get();
-    return { role: snap.data()?.role, type: 'business' };
+    return { role: snap.data()?.role, type: space === 'business' ? 'business' : 'family' };
   };
   const service = createImportInbox({ db, resolveMembership,
     canReadDocument: async (who, space, document) => records.get(`families/${space}/roles/${who.uid}`)?.role === 'admin' || document.ownerUid === who.uid,
@@ -88,6 +88,44 @@ function fixture(extractor) {
   });
   return { service, records, writes, extracts, bump, db, advance: ms => { clock = new Date(clock.getTime() + ms); } };
 }
+
+test('curated memory drafts require source evidence and only an adult admin can add a family story', async () => {
+  const f = fixture();
+  for (const [uid, role] of [['admin', 'admin'], ['staff', 'member'], ['child', 'child']]) f.bump(`families/family/roles/${uid}`, { role });
+  const proposal = { kind: 'memory', memory: { title: 'A first step', date: '2020-02-03', category: 'milestone', evidenceQuote: 'Today Jamie took a first step!', memberIds: ['jamie'] } };
+  f.bump('families/family/family_members/jamie', { name: 'Jamie' });
+  f.bump('families/family/reference/timeline', { retained: 'metadata', entries: [{ id: 'old', title: 'Keep me', date: '' }] });
+  const input = { requestId: 'memory-first-step', sourceName: 'Synthetic family chat', sourceText: '[03/02/2020] Today Jamie took a first step!', proposal };
+  const item = await f.service.create(actor('staff'), 'family', input);
+  assert.equal(f.records.get('families/family/reference/timeline').entries.length, 1, 'draft creation never applies');
+  await assert.rejects(f.service.create(actor('staff'), 'business', input), rejectCode('FAMILY_MEMORY_ONLY'));
+  await assert.rejects(f.service.create(actor('child'), 'family', input), rejectCode('IMPORT_ADULT_REQUIRED'));
+  await assert.rejects(f.service.apply(actor('staff'), 'family', item.id), rejectCode('IMPORT_ADMIN_REQUIRED'));
+  await assert.rejects(f.service.analyze(actor('staff'), 'family', item.id), rejectCode('INVALID_IMPORT'));
+  await assert.rejects(f.service.update(actor('staff'), 'family', item.id, { proposal: { kind: 'memory', memory: { ...proposal.memory, evidenceQuote: 'An invented milestone' } } }), rejectCode('MEMORY_EVIDENCE_REQUIRED'));
+  const applied = await f.service.apply(actor('admin'), 'family', item.id);
+  const timeline = f.records.get('families/family/reference/timeline');
+  assert.equal(timeline.retained, 'metadata'); assert.equal(timeline.entries.length, 2); assert.deepEqual(timeline.entries[1].memberIds, ['jamie']);
+  assert.match(timeline.entries[1].note, /Today Jamie took a first step!/); assert.equal(f.extracts.length, 0);
+  assert.equal((await f.service.apply(actor('admin'), 'family', item.id)).appliedRecordId, applied.appliedRecordId, 'approval retry is idempotent');
+  const duplicate = await f.service.create(actor('staff'), 'family', { ...input, requestId: 'different-id' });
+  await assert.rejects(f.service.apply(actor('admin'), 'family', duplicate.id), rejectCode('DUPLICATE_MEMORY'));
+  assert.equal(f.records.get('families/family/reference/timeline').entries.length, 2);
+});
+
+test('Atlas memory approval creates one derived timeline source and rejects missing people or invalid pins', async () => {
+  const f = fixture(); f.bump('families/family/roles/admin', { role: 'admin' });
+  const memory = { title: 'Our first home', date: '', category: 'home', evidenceQuote: 'We moved to Vienna.', atlas: { kind: 'home', country: 'Austria' } };
+  const input = { requestId: 'atlas-home', sourceName: 'Synthetic email', sourceText: 'We moved to Vienna.', proposal: { kind: 'memory', memory } };
+  const item = await f.service.create(actor('admin'), 'family', input); await f.service.apply(actor('admin'), 'family', item.id);
+  const entry = f.records.get('families/family/reference/travelTimeline').entries[0];
+  assert.equal(entry.date, ''); assert.equal(entry.lat, undefined); assert.equal(entry.title, 'Our first home');
+  assert.equal(f.records.has('families/family/reference/timeline'), false, 'Atlas already supplies its row in the family timeline');
+  assert.throws(() => sanitizeImportProposal({ kind: 'memory', memory: { ...memory, atlas: { kind: 'home', lat: 91, lng: 0 } } }), rejectCode('INVALID_IMPORT'));
+  assert.throws(() => sanitizeImportProposal({ kind: 'memory', memory: { ...memory, date: '2020-02-29', datePrecision: 'year' } }), rejectCode('INVALID_IMPORT'));
+  const changed = await f.service.create(actor('admin'), 'family', { ...input, sourceName: 'Missing person check', requestId: 'missing-person', proposal: { kind: 'memory', memory: { ...memory, memberIds: ['missing'] } } });
+  await assert.rejects(f.service.apply(actor('admin'), 'family', changed.id), rejectCode('MEMORY_PERSON_CHANGED'));
+});
 
 test('older unfinished imports remain reachable beyond completed history, including timestamp ties', async () => {
   const f = fixture();

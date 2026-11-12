@@ -226,9 +226,12 @@ test('server.js wires the route with the member/quota preamble and the sanitiser
   const start = server.indexOf("app.post('/api/timeline/parse'");
   assert.ok(start > 0, 'POST /api/timeline/parse must exist');
   const body = server.slice(start, server.indexOf('\n});', start));
-  for (const needle of ['requireMember(req)', 'aiRateLimited(caller.uid)', 'aiGateBlocked(caller)', 'checkAiUsage(caller.familyId)', 'recordAiUsage(caller.familyId)', 'sanitizeTimelineRows(parsed, memberList, text)', 'TIMELINE_PARSE_MAX_CHARS']) {
+  for (const needle of ['requireRequestedMember(req)', 'aiRateLimited(caller.uid)', 'aiGateBlocked(caller)', 'checkAiUsage(caller.familyId)', 'recordAiUsage(caller.familyId)', 'sanitizeTimelineRows(parsed, memberList, text)', 'TIMELINE_PARSE_MAX_CHARS']) {
     assert.ok(body.includes(needle), `route must call ${needle}`);
   }
+  assert.ok(body.includes('res.json({ rows, spaceId: caller.familyId })'), 'the response must echo the explicit destination');
+  assert.ok(body.indexOf('const currentCaller = await requireRequestedMember(req)') > body.indexOf('await generateContent('), 'revalidate membership and consent after the provider response');
+  assert.ok(body.includes('memoryReview ? 5 : 80'), 'curated review is bounded to five suggestions');
   // CONTROL: the slice really is the route body, not the whole file.
   assert.ok(!body.includes("app.post('/api/doc-key-facts'"), 'the route slice must stop at its own closing brace');
 });

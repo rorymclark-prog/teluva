@@ -85,11 +85,12 @@ export async function prepareAtlasPhotoDrafts(files: File[], options: {
   return result;
 }
 
-export function filterAtlas(entries: TravelTimelineEntry[], filter: { query?: string; kind?: string; year?: string; memberId?: string; unmapped?: boolean }): TravelTimelineEntry[] {
+export function filterAtlas(entries: TravelTimelineEntry[], filter: { query?: string; kind?: string; year?: string; memberId?: string; memberIds?: string[]; peopleOnly?: boolean; unmapped?: boolean }): TravelTimelineEntry[] {
   const query = filter.query?.trim().toLocaleLowerCase();
   return entries.filter(entry => (!filter.kind || atlasKind(entry) === filter.kind)
     && (!filter.year || entry.date?.slice(0, 4) === filter.year)
     && (!filter.memberId || entry.memberIds?.includes(filter.memberId))
+    && (!filter.peopleOnly || !!filter.memberIds?.length && entry.memberIds?.some(id => filter.memberIds!.includes(id)))
     && (!filter.unmapped || !hasAtlasPoint(entry))
     && (!query || [entry.title, entry.place, entry.country, entry.notes].filter(Boolean).join(' ').toLocaleLowerCase().includes(query)))
     .sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.id.localeCompare(b.id));

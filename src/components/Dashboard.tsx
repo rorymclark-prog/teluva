@@ -3314,7 +3314,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           demo ? <DemoUnavailable label="The document vault" isBusinessSpace={isBusinessSpace} /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} canEdit={canWrite} onMembersChange={persistChanges} emberMode={emberInterface} openUploadSignal={captureVaultSignal} incomingFile={sharedFile} onIncomingConsumed={() => setSharedFile(null)} />
         )}
 
-        {mainView === 'inbox' && (demo ? <DemoUnavailable label="The AI import inbox" isBusinessSpace={isBusinessSpace} /> : canWrite ? <div key={`${accountUid}:${activeSpaceId}`}><ImportInbox /></div> : null)}
+        {mainView === 'inbox' && (demo ? <DemoUnavailable label="The AI import inbox" isBusinessSpace={isBusinessSpace} /> : canWrite ? <div key={`${accountUid}:${activeSpaceId}`}><ImportInbox members={members} /></div> : null)}
         {mainView === 'connectors' && (demo ? <DemoUnavailable label="AI connections" isBusinessSpace={isBusinessSpace} /> : canWrite ? <div key={`${accountUid}:${activeSpaceId}`}><ConnectorCenter /></div> : null)}
 
         {mainView === 'shopping' && (

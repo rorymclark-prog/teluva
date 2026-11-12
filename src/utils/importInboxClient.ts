@@ -1,9 +1,10 @@
-import type { AssetItem, VaultCategory } from '../types';
+import type { AssetItem, VaultCategory, LifeCategory } from '../types';
 import type { LangCode } from '../i18n/locales';
 export const PREFERENCE_LANGUAGES = ['en', 'de', 'es', 'fr', 'pt', 'it', 'nl', 'pl', 'af', 'ro'] as const;
 
 export interface ReviewPreferences { language?: LangCode; theme?: 'system' | 'light' | 'dark' }
-export type ImportProposal = { kind: 'asset'; asset: Partial<AssetItem> } | { kind: 'document'; document: { name: string; category: VaultCategory; docDate?: string; notes?: string } } | { kind: 'preferences'; preferences: ReviewPreferences };
+export interface MemoryProposal { title: string; date: string; datePrecision?: 'month' | 'year'; category: LifeCategory; note?: string; place?: string; memberIds?: string[]; evidenceQuote: string; atlas?: { kind: 'holiday' | 'home' | 'event' | 'visit'; country?: string; lat?: number; lng?: number } }
+export type ImportProposal = { kind: 'asset'; asset: Partial<AssetItem> } | { kind: 'document'; document: { name: string; category: VaultCategory; docDate?: string; notes?: string } } | { kind: 'preferences'; preferences: ReviewPreferences } | { kind: 'memory'; memory: MemoryProposal };
 export interface ImportInboxItem {
   id: string; spaceId: string; createdBy: string;
   status: 'pending' | 'applied' | 'dismissed';
