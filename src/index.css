@@ -617,11 +617,10 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Ember Thread — reversible 2027 presentation layer
+   Ember Thread — Teluva's interface
 
-   Every rule is scoped to data-interface="ember". Choosing Classic removes
-   that attribute value and reveals the exact pre-existing presentation; no
-   family data, route or component is migrated to make the switch work.
+   Scoped to data-interface="ember", applied before the first paint and by
+   the appearance provider. Light, dark and system themes remain selectable.
 --------------------------------------------------------------------------- */
 [data-interface="ember"] {
   --color-cream-50: #FFFDF9;
@@ -861,20 +860,6 @@ html[data-interface="ember"] body {
 }
 .appearance-segment button.is-active { color: var(--ember-nav-text); background: var(--ember-text); }
 [data-theme="dark"] .appearance-segment button.is-active { color: #151316; background: #FFF9F6; }
-.appearance-interface-toggle {
-  width: 100%;
-  min-height: 2.4rem;
-  padding: .45rem .65rem;
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  color: var(--ember-muted);
-  font-size: .69rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-.ember-sidebar .appearance-interface-toggle { color: rgba(255, 249, 246, .5); }
-.appearance-interface-toggle:hover { color: var(--ember-action); }
 
 .ember-mobile-nav {
   min-height: 4.65rem;

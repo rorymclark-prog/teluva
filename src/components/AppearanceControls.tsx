@@ -1,4 +1,4 @@
-import { Check, Monitor, Moon, RotateCcw, Sparkles, Sun } from 'lucide-react';
+import { Check, Monitor, Moon, Sun } from 'lucide-react';
 import { ThemePreference, useAppearance } from '../contexts/AppearanceContext';
 
 const themes: { id: ThemePreference; label: string; icon: typeof Sun }[] = [
@@ -8,7 +8,7 @@ const themes: { id: ThemePreference; label: string; icon: typeof Sun }[] = [
 ];
 
 export default function AppearanceControls({ compact = false }: { compact?: boolean }) {
-  const { theme, interfacePreference, setTheme, setInterfacePreference } = useAppearance();
+  const { theme, setTheme } = useAppearance();
   return (
     <div className={compact ? 'space-y-2' : 'space-y-3'}>
       <div className="appearance-segment" aria-label="Choose display theme">
@@ -20,10 +20,6 @@ export default function AppearanceControls({ compact = false }: { compact?: bool
           </button>
         ))}
       </div>
-      <button type="button" onClick={() => setInterfacePreference(interfacePreference === 'ember' ? 'classic' : 'ember')} className="appearance-interface-toggle">
-        {interfacePreference === 'ember' ? <RotateCcw className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
-        <span>{interfacePreference === 'ember' ? 'Use classic Teluva' : 'Try Ember Thread'}</span>
-      </button>
     </div>
   );
 }

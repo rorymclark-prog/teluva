@@ -1,5 +1,20 @@
 [
   {
+    "label": "v394",
+    "date": "2026-11-12",
+    "changes": [
+      "Teluva now uses the new interface for everyone. The Classic switch has been removed from family and business spaces.",
+      "Previously saved Classic preferences and old preview links open the current interface immediately, while keeping your selected theme and destination.",
+      "System, Light and Dark appearance choices remain available."
+    ],
+    "feature": {
+      "id": "family-memories-v385",
+      "demo": "family-memories",
+      "title": "Your family memories, rediscovered",
+      "description": "On this day and Flashback bring back dated moments saved to your family timeline, alongside family sayings and milestones."
+    }
+  },
+  {
     "label": "v393",
     "date": "2026-11-12",
     "changes": [

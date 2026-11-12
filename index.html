@@ -19,18 +19,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Teluva" />
     <!-- Appearance is applied before React and CSS paint. This prevents a
-         bright frame when a returning reader uses dark mode and also keeps
-         the Classic/Ember rollback preference stable across reloads. -->
+         bright frame when a returning reader uses dark mode. The current
+         interface also applies immediately for former Classic users. -->
     <script>
       var theme = 'system';
-      var ui = 'ember';
       try { theme = localStorage.getItem('teluva.theme') || theme; } catch (e) {}
-      try { ui = localStorage.getItem('teluva.interface') || ui; } catch (e) {}
-      var requestedUi = new URLSearchParams(window.location.search).get('ui');
-      if (requestedUi === 'classic' || requestedUi === 'ember') ui = requestedUi;
+      try { localStorage.removeItem('teluva.interface'); } catch (e) {}
       var dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
       document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-      document.documentElement.dataset.interface = ui;
+      document.documentElement.dataset.interface = 'ember';
       document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
     </script>
     <!-- Text size, applied before the first paint. It has to run here rather

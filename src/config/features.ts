@@ -29,8 +29,3 @@ export const INSURANCE_READER_ENABLED = true;
 // this and the server's FEATURE_MEDICAL_READER to false to restore the original
 // refusal in one step.
 export const MEDICAL_READER_ENABLED = true;
-
-// Ember Thread is the 2027 shell and Family Pulse experience. The classic
-// dashboard remains compiled and can be selected instantly from Appearance,
-// so this is a reversible presentation rollout rather than a data migration.
-export const EMBER_THREAD_ENABLED = true;

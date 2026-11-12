@@ -1,9 +1,9 @@
 {
-  "label": "v393",
+  "label": "v394",
   "changes": [
-    "Keep previous phone numbers, email addresses, medical-aid and insurance memberships in each person’s Essentials → Past numbers. Current contact and ID details stay separate.",
-    "Review source-backed records prepared by a connected assistant before saving them to the named person’s history. Unknown dates stay unknown and duplicate entries are skipped.",
-    "History numbers, private notes and exact evidence use the existing encrypted shared vault and are excluded from general AI chat context."
+    "Teluva now uses the new interface for everyone. The Classic switch has been removed from family and business spaces.",
+    "Previously saved Classic preferences and old preview links open the current interface immediately, while keeping your selected theme and destination.",
+    "System, Light and Dark appearance choices remain available."
   ],
   "feature": {
     "id": "family-memories-v385",

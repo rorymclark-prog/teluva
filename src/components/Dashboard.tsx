@@ -119,7 +119,6 @@ import MemberGuardians from './MemberGuardians';
 import MemberOverview from './MemberOverview';
 import NeedsAttention from './NeedsAttention';
 import ReadinessCard from './ReadinessCard';
-import ImportantComingUp from './ImportantComingUp';
 import { importantComingUp } from '../utils/importantEvents';
 import { todayIsoLocal } from '../utils/memberAppointments';
 import MemberIDs from './MemberIDs';
@@ -167,7 +166,6 @@ import FamilyActions from './FamilyActions';
 import { useFamilyActions } from '../hooks/useFamilyActions';
 import { actionPeople, type ActionDirectoryStatus, type ActionPerson } from '../utils/actions';
 import EmberViewHeader from './EmberViewHeader';
-import { useAppearance } from '../contexts/AppearanceContext';
 import {
   Users, UserPlus, FileText, Search, Bell, User, ShieldCheck,
   Scissors, Trash2, Key, TrendingUp, Calendar, Heart,
@@ -443,8 +441,6 @@ interface DashboardProps {
 
 export default function Dashboard({ familySettingsButton, settingsVersion = 0 }: DashboardProps = {}) {
   const demo = isDemoMode();
-  const { interfacePreference } = useAppearance();
-  const emberInterface = interfacePreference === 'ember';
   const { isAdmin: ctxIsAdmin, canWrite: ctxCanWrite, role, aiEligible, aiConsent, setAiConsent, spaces, familyId: activeSpaceId, uid: accountUid, loading: ctxLoading } = useFamilyCtx();
   // Wills & Estate has its own access answer, separate from role — see
   // hooks/useWillsAccess.ts and the carve-out in firestore.rules.
@@ -555,7 +551,6 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     try { return localStorage.getItem('teluva.familyListCollapsed') === '1'; } catch { return false; }
   });
   const [initialFirstJob] = useState<'week' | 'vault' | 'story' | null>(() => {
-    if (!emberInterface) return null;
     try {
       const firstJob = localStorage.getItem('teluva.firstJob');
       return firstJob === 'week' || firstJob === 'vault' || firstJob === 'story' ? firstJob : null;
@@ -648,21 +643,11 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     const requested = new URLSearchParams(window.location.search).get('open');
     if (requested === 'inbox' || requested === 'connectors' || requested === 'vault' || requested === 'drive') return requested;
     if (demo && new URLSearchParams(window.location.search).get('view') === 'timeline') return 'timeline';
-    if (!emberInterface) return 'profiles';
     if (initialFirstJob === 'week') return 'calendar';
     if (initialFirstJob === 'vault') return 'vault';
     if (initialFirstJob === 'story') return 'timeline';
     return 'pulse';
   });
-
-  // Switching presentation systems never reloads or rewrites family data.
-  // It only chooses which already-mounted entry surface is visible.
-  const previousInterface = useRef(interfacePreference);
-  useEffect(() => {
-    if (previousInterface.current === interfacePreference) return;
-    previousInterface.current = interfacePreference;
-    setMainView(interfacePreference === 'ember' ? 'pulse' : 'profiles');
-  }, [interfacePreference]);
 
   // Switching section must put you at the TOP of the new one.
   //
@@ -1088,7 +1073,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   };
 
   const cardClass = (member: FamilyMember) =>
-    `w-full text-left rounded-2xl border transition-all flex items-center justify-between ${emberInterface ? 'ember-person-card ' : ''}${
+    `w-full text-left rounded-2xl border transition-all flex items-center justify-between ember-person-card ${
       selectedMemberId === member.id ? 'p-3.5' : 'py-2 px-3'
     } ${
       selectedMemberId === member.id
@@ -1103,11 +1088,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const memberCardInner = (member: FamilyMember, grip?: React.ReactNode) => {
     const isSelected = selectedMemberId === member.id;
     const today = new Date().toLocaleDateString('en-CA');
-    const nextMemberEvent = emberInterface
-      ? events
+    const nextMemberEvent = events
           .filter(event => event.date >= today && event.memberIds?.includes(member.id))
-          .sort((a, b) => `${a.date} ${a.time || ''}`.localeCompare(`${b.date} ${b.time || ''}`))[0]
-      : undefined;
+          .sort((a, b) => `${a.date} ${a.time || ''}`.localeCompare(`${b.date} ${b.time || ''}`))[0];
 
     if (!isSelected) {
       return (
@@ -1128,13 +1111,13 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           )}
           <span className="min-w-0 grid">
             <b className="text-sm font-semibold text-ink-900 truncate">{memberName(member)}</b>
-            {emberInterface && (
-              <small className="mt-0.5 text-[10px] text-ink-400 truncate">
-                {nextMemberEvent
-                  ? `${member.role} · Next: ${nextMemberEvent.title} · ${nextMemberEvent.date}`
-                  : `${member.role} · Nothing pressing on their horizon`}
-              </small>
-            )}
+
+            <small className="mt-0.5 text-[10px] text-ink-400 truncate">
+              {nextMemberEvent
+                ? `${member.role} · Next: ${nextMemberEvent.title} · ${nextMemberEvent.date}`
+                : `${member.role} · Nothing pressing on their horizon`}
+            </small>
+
           </span>
         </div>
       );
@@ -2641,7 +2624,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const trips = useMemo(() => buildTrips(events), [events]);
   const pulseTrips = useMemo(() => currentTrips(trips), [trips]);
 
-  // "Important — coming up" on both homes (Pulse and the classic one). Derived
+  // "Important — coming up" on Pulse. Derived
   // from `events` like the trips above; booked referral visits follow the
   // calendar's own Medical checks switch, and a business space lists nothing
   // medical at all (utils/importantEvents.ts).
@@ -3063,7 +3046,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
     label: lens.id === 'life' ? 'Work' : lens.label,
     note: lens.id === 'life' ? 'CV, preferences and travel' : lens.id === 'health' ? 'Medical details' : lens.note,
   })) : PROFILE_LENSES;
-  const emergencyFocus = emberInterface && mainView === 'emergency';
+  const emergencyFocus = mainView === 'emergency';
 
   return (
     /* Whose dates this account has chosen not to see. A family-only idea —
@@ -3093,8 +3076,8 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       members={members}
       extendedBirthdays={homeExtendedBirthdays}
     >
-    <div className={`min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans ${emberInterface ? 'ember-app' : ''} ${emergencyFocus ? 'ember-emergency-mode' : ''}`}>
-      {emberInterface && !emergencyFocus && (
+    <div className={`min-h-screen bg-cream-100 text-ink-900 pb-12 font-sans ember-app ${emergencyFocus ? 'ember-emergency-mode' : ''}`}>
+      {!emergencyFocus && (
         <EmberNavigation
           current={mainView}
           onSelect={(destination: EmberDestination) => setMainView(destination as ViewId)}
@@ -3112,7 +3095,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           theme is active. Everything inside therefore uses literal dark-
           surface colours rather than the cream/ink tokens (which invert
           under dark mode and would fight this bar's own fixed intent). */}
-      {!emergencyFocus && <header className={`bg-[#0b0b0d] backdrop-blur border-b border-white/10 sticky top-0 z-40 ${emberInterface ? 'ember-header' : ''}`}>
+      {!emergencyFocus && <header className="bg-[#0b0b0d] backdrop-blur border-b border-white/10 sticky top-0 z-40 ember-header">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-nowrap items-center justify-between gap-3">
           {/* One control, not seven. The hub name IS the menu: spaces, settings,
               backup and sign-out all live behind it, the way a workspace name
@@ -3175,10 +3158,10 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
       </header>}
 
       <main
-        className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6 ${emberInterface ? 'ember-main' : ''} ${emergencyFocus ? 'ember-emergency-main' : ''}`}
-        data-view={emberInterface ? mainView : undefined}
+        className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6 ember-main ${emergencyFocus ? 'ember-emergency-main' : ''}`}
+        data-view={mainView}
       >
-        {emberInterface && mainView !== 'pulse' && !emergencyFocus && (
+        {mainView !== 'pulse' && !emergencyFocus && (
           <EmberViewHeader
             current={mainView === 'profiles' && peoplePane === 'todo' ? 'profilesTodo' : mainView}
             views={availableViewItems}
@@ -3215,7 +3198,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             tagDirectoryAvailable={actionDirectoryStatus === 'ready'}
             onRetryTagDirectory={() => setActionDirectoryVersion(version => version + 1)}
             events={events}
-            emberMode={emberInterface}
+            emberMode
             openAddSignal={capturePlanSignal}
             isBusinessSpace={isBusinessSpace}
             onSaveEvents={handleSaveEvents}
@@ -3270,9 +3253,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             moment you looked at the Info tab. */}
         {mainView === 'info' && <ImportantInfo canEdit={canWrite} demo={demo} refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} country={settings.country || 'AT'} onContactsChange={demo ? undefined : setContacts} />}
 
-        {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} emberMode={emberInterface} packScope={emergencyPackScope} trips={pulseTrips} onOpenTrip={openTripPack} onExit={emberInterface ? () => setMainView('profiles') : undefined} />}
+        {mainView === 'emergency' && <EmergencyView members={members} country={settings.country || 'AT'} emberMode packScope={emergencyPackScope} trips={pulseTrips} onOpenTrip={openTripPack} onExit={() => setMainView('profiles')} />}
 
-        {mainView === 'household' && <HouseholdView canEdit={canWrite} refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} country={settings.country || 'AT'} openAddSignal={captureHouseSignal} emberMode={emberInterface} demo={demo} />}
+        {mainView === 'household' && <HouseholdView canEdit={canWrite} refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} country={settings.country || 'AT'} openAddSignal={captureHouseSignal} emberMode demo={demo} />}
 
         {mainView === 'finances' && <FinancesView refreshKey={aiDataVersion} isBusinessSpace={isBusinessSpace} onOpenPrivacy={() => setLegalTab('privacy')} />}
         {mainView === 'insurance' && <InsuranceView members={members} canUseAI={canUseAI} isBusinessSpace={isBusinessSpace} />}
@@ -3294,7 +3277,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           <TimelineView
             key={aiDataVersion}
             openAddSignal={captureStorySignal}
-            emberMode={emberInterface}
+            emberMode
             members={members}
             events={events}
             isBusinessSpace={isBusinessSpace}
@@ -3314,7 +3297,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
           // onMembersChange lets a vault delete also strip the per-member copy
           // of the same document — the vault component has no other way to
           // persist member records (Dashboard owns that write).
-          demo ? <DemoUnavailable label="The document vault" isBusinessSpace={isBusinessSpace} /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} canEdit={canWrite} onMembersChange={persistChanges} emberMode={emberInterface} openUploadSignal={captureVaultSignal} incomingFile={sharedFile} onIncomingConsumed={() => setSharedFile(null)} />
+          demo ? <DemoUnavailable label="The document vault" isBusinessSpace={isBusinessSpace} /> : <DocumentVault members={members} isBusinessSpace={isBusinessSpace} canEdit={canWrite} onMembersChange={persistChanges} emberMode openUploadSignal={captureVaultSignal} incomingFile={sharedFile} onIncomingConsumed={() => setSharedFile(null)} />
         )}
 
         {mainView === 'inbox' && (demo ? <DemoUnavailable label="The AI import inbox" isBusinessSpace={isBusinessSpace} /> : canWrite ? <div key={`${accountUid}:${activeSpaceId}`}><ImportInbox members={members} /></div> : null)}
@@ -3360,7 +3343,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         )}
 
         {mainView === 'inMemory' && (
-          demo ? <DemoUnavailable label="In Memory" isBusinessSpace={isBusinessSpace} /> : <InMemoryView key={aiDataVersion} emberMode={emberInterface} />
+          demo ? <DemoUnavailable label="In Memory" isBusinessSpace={isBusinessSpace} /> : <InMemoryView key={aiDataVersion} emberMode />
         )}
 
         {mainView === 'willsEstate' && (
@@ -3406,28 +3389,28 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                 before showing any value. Silent in demo mode. */}
             {!demo && <InstallPrompt hasContent={members.length > 0} />}
 
-            {emberInterface && (
-              <nav className="card flex items-center gap-1 p-1.5" aria-label={isBusinessSpace ? 'Team sections' : 'People sections'}>
-                <button
-                  type="button"
-                  onClick={() => setPeoplePane('profiles')}
-                  aria-current={peoplePane === 'profiles' ? 'page' : undefined}
-                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-bold transition-colors ${peoplePane === 'profiles' ? 'bg-ink-900 text-white' : 'text-ink-500 hover:bg-cream-100'}`}
-                >
-                  {isBusinessSpace ? 'Team profiles' : 'Family profiles'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPeoplePane('todo')}
-                  aria-current={peoplePane === 'todo' ? 'page' : undefined}
-                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-bold transition-colors ${peoplePane === 'todo' ? 'bg-ink-900 text-white' : 'text-ink-500 hover:bg-cream-100'}`}
-                >
-                  To-do &amp; readiness
-                </button>
-              </nav>
-            )}
 
-            {(!emberInterface || peoplePane === 'todo') && (
+            <nav className="card flex items-center gap-1 p-1.5" aria-label={isBusinessSpace ? 'Team sections' : 'People sections'}>
+              <button
+                type="button"
+                onClick={() => setPeoplePane('profiles')}
+                aria-current={peoplePane === 'profiles' ? 'page' : undefined}
+                className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-bold transition-colors ${peoplePane === 'profiles' ? 'bg-ink-900 text-white' : 'text-ink-500 hover:bg-cream-100'}`}
+              >
+                {isBusinessSpace ? 'Team profiles' : 'Family profiles'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPeoplePane('todo')}
+                aria-current={peoplePane === 'todo' ? 'page' : undefined}
+                className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-bold transition-colors ${peoplePane === 'todo' ? 'bg-ink-900 text-white' : 'text-ink-500 hover:bg-cream-100'}`}
+              >
+                To-do &amp; readiness
+              </button>
+            </nav>
+
+
+            {peoplePane === 'todo' && (
               <>
 
             <div key={actionScope}><FamilyActions
@@ -3483,12 +3466,6 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
               />
             )}
 
-            {/* Pulse carries its own copy of this card; the classic home gets
-                it here, above what needs doing, as the thing to see first. */}
-            {!emberInterface && (
-              <ImportantComingUp variant="classic" items={importantItems} members={members} onOpenCalendar={() => setMainView('calendar')} />
-            )}
-
             <div key={`${accountUid}:${activeSpaceId}:${aiDataVersion}`}><NeedsAttention members={members} extendedBirthdays={homeExtendedBirthdays} onGo={goToMemberTab} onGoView={(v) => setMainView(v as ViewId)} /></div>
 
             {/* BELOW Needs attention, never above it. One card is what you must
@@ -3501,7 +3478,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
             )}
             <CelebrationOverlay members={members} />
 
-            {(!emberInterface || peoplePane === 'profiles') && (
+            {peoplePane === 'profiles' && (
               <>
             {initialLoadDone && members.length === 0 ? (
               <div className="card text-center py-20 px-6">
@@ -3522,9 +3499,9 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                 )}
               </div>
             ) : (
-              <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 items-start ${emberInterface ? 'ember-people-layout' : ''}`}>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start ember-people-layout">
                 {/* Family directory */}
-                <section className={`lg:col-span-4 space-y-5 ${emberInterface ? 'ember-people-directory' : ''}`}>
+                <section className="lg:col-span-4 space-y-5 ember-people-directory">
 
                   <div data-tour="family-list" className="card p-5 space-y-4">
                     {/* An employee in a business space sees only their own
@@ -3659,7 +3636,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                 </section>
 
                 {/* Selected member detail */}
-                <section ref={memberPanelRef} className={`lg:col-span-8 space-y-5 scroll-mt-24 ${emberInterface ? 'ember-living-profile' : ''}`}>
+                <section ref={memberPanelRef} className="lg:col-span-8 space-y-5 scroll-mt-24 ember-living-profile">
                   {householdView ? (
                     <SharedHousehold
                       householdName={householdView.link.otherName || 'Connected family'}
@@ -3687,7 +3664,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                     />
                   ) : selectedMember ? (
                     <div className="card overflow-hidden min-h-[500px] flex flex-col">
-                      <div className={`p-5 sm:p-6 border-b border-cream-200 flex flex-col gap-5 ${emberInterface ? 'ember-profile-hero' : 'xl:flex-row xl:items-center justify-between gap-4'}`}>
+                      <div className="p-5 sm:p-6 border-b border-cream-200 flex flex-col gap-5 ember-profile-hero">
                         <div className="flex items-center gap-4 min-w-0">
                           <div className="relative shrink-0">
                             {selectedMember.avatarUrl ? (
@@ -3890,69 +3867,41 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                           </div>
                         </div>
 
-                        {emberInterface ? (
-                          <div className="ember-profile-navigation">
-                            <div className="ember-profile-lenses" role="tablist" aria-label="Profile lenses">
-                              {profileLenses.map((lens) => {
-                                const lensTabs = visibleProfileTabs.filter((tab) => lens.tabs.includes(tab.id));
-                                if (!lensTabs.length) return null;
-                                return (
-                                  <button
-                                    key={lens.id}
-                                    type="button"
-                                    role="tab"
-                                    aria-selected={activeProfileLens === lens.id}
-                                    className={activeProfileLens === lens.id ? 'is-active' : ''}
-                                    onClick={() => setActiveTab(lensTabs[0].id)}
-                                  >
-                                    <b>{lens.label}</b><small>{lens.note}</small>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            <div className="ember-profile-subtabs" aria-label={`${profileLenses.find((lens) => lens.id === activeProfileLens)?.label || 'Profile'} sections`}>
-                              {visibleProfileTabs.filter((tab) => profileLensFor(tab.id) === activeProfileLens).map((tab) => (
+
+                        <div className="ember-profile-navigation">
+                          <div className="ember-profile-lenses" role="tablist" aria-label="Profile lenses">
+                            {profileLenses.map((lens) => {
+                              const lensTabs = visibleProfileTabs.filter((tab) => lens.tabs.includes(tab.id));
+                              if (!lensTabs.length) return null;
+                              return (
                                 <button
-                                  key={tab.id}
+                                  key={lens.id}
                                   type="button"
-                                  onClick={() => setActiveTab(tab.id)}
-                                  aria-current={activeTab === tab.id ? 'page' : undefined}
-                                  className={activeTab === tab.id ? 'is-active' : ''}
+                                  role="tab"
+                                  aria-selected={activeProfileLens === lens.id}
+                                  className={activeProfileLens === lens.id ? 'is-active' : ''}
+                                  onClick={() => setActiveTab(lensTabs[0].id)}
                                 >
-                                  <tab.icon className="h-3.5 w-3.5" /><span>{tab.label}</span>
+                                  <b>{lens.label}</b><small>{lens.note}</small>
                                 </button>
-                              ))}
-                            </div>
+                              );
+                            })}
                           </div>
-                        ) : (
-                        <div className="flex flex-wrap gap-1 bg-cream-200 p-1 rounded-2xl w-fit self-start md:self-auto select-none">
-                          {/* 'secrets' is admin-only — it holds this person's saved
-                              logins (digitalAccounts[].passwordPlain). Same gate as
-                              the shared password vault ('passwords' in the nav filter
-                              above). The real enforcement is server-side in
-                              /api/vault/reveal; this just stops showing a tab that
-                              can no longer decrypt anything. */}
-                          {visibleProfileTabs.map(tab => (
-                            <button
-                              key={tab.id}
-                              type="button"
-                              onClick={() => setActiveTab(tab.id)}
-                              // The label below is display:none under `sm`, which takes it out
-                              // of the accessibility tree as well as off the screen — so on a
-                              // phone, where nearly everyone is, these 14 tabs were unnamed
-                              // icons. title carries the name for assistive tech and gives
-                              // desktop a tooltip it didn't have either.
-                              title={tab.label}
-                              aria-label={tab.label}
-                              aria-current={activeTab === tab.id ? 'page' : undefined}
-                              className={`tab-pill px-3 ${activeTab === tab.id ? 'tab-pill-active' : ''}`}
-                            >
-                              <tab.icon className={`w-4 h-4 ${tab.id === 'favorites' ? 'fill-rosa-500 text-rosa-500' : ''}`} />
-                              <span>{tab.label}</span>
-                            </button>
-                          ))}
+                          <div className="ember-profile-subtabs" aria-label={`${profileLenses.find((lens) => lens.id === activeProfileLens)?.label || 'Profile'} sections`}>
+                            {visibleProfileTabs.filter((tab) => profileLensFor(tab.id) === activeProfileLens).map((tab) => (
+                              <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveTab(tab.id)}
+                                aria-current={activeTab === tab.id ? 'page' : undefined}
+                                className={activeTab === tab.id ? 'is-active' : ''}
+                              >
+                                <tab.icon className="h-3.5 w-3.5" /><span>{tab.label}</span>
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                        )}
+
                       </div>
 
                       <div className="p-5 sm:p-6 flex-1">
@@ -4238,19 +4187,19 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         }}
       />
 
-      {emberInterface && (
-        <CaptureMenu
-          open={isCaptureOpen}
-          onClose={() => setIsCaptureOpen(false)}
-          onAddPerson={() => setIsAddModalOpen(true)}
-          onPlan={() => { setMainView('calendar'); setCapturePlanSignal(signal => signal + 1); }}
-          onOpenVault={() => { setMainView('vault'); setCaptureVaultSignal(signal => signal + 1); }}
-          onOpenStory={() => { setMainView('timeline'); setCaptureStorySignal(signal => signal + 1); }}
-          onOpenHouse={() => { setMainView('household'); setCaptureHouseSignal(signal => signal + 1); }}
-          onCreateAction={demo || canWrite ? () => { setPeoplePane('todo'); setMainView('profiles'); setActionCreateSignal(signal => signal + 1); } : undefined}
-          isBusinessSpace={isBusinessSpace}
-        />
-      )}
+
+      <CaptureMenu
+        open={isCaptureOpen}
+        onClose={() => setIsCaptureOpen(false)}
+        onAddPerson={() => setIsAddModalOpen(true)}
+        onPlan={() => { setMainView('calendar'); setCapturePlanSignal(signal => signal + 1); }}
+        onOpenVault={() => { setMainView('vault'); setCaptureVaultSignal(signal => signal + 1); }}
+        onOpenStory={() => { setMainView('timeline'); setCaptureStorySignal(signal => signal + 1); }}
+        onOpenHouse={() => { setMainView('household'); setCaptureHouseSignal(signal => signal + 1); }}
+        onCreateAction={demo || canWrite ? () => { setPeoplePane('todo'); setMainView('profiles'); setActionCreateSignal(signal => signal + 1); } : undefined}
+        isBusinessSpace={isBusinessSpace}
+      />
+
 
       <AddMemberModal
         isOpen={isAddModalOpen}
