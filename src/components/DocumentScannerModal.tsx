@@ -107,10 +107,12 @@ function ScopedScanner({
   const recovery = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [hydrated, setHydrated] = useState(!draftId);
   const snapshot = recovery.snapshot;
-  const field = <K extends keyof ScanSnapshot>(key: K) => (value: SetStateAction<ScanSnapshot[K]>) => {
-    const previous = session.getSnapshot().snapshot[key];
-    void session.change({ [key]: typeof value === 'function' ? (value as (p: ScanSnapshot[K]) => ScanSnapshot[K])(previous) : value }, key !== 'capturedPhoto').catch(() => {});
-  };
+  function field<K extends keyof ScanSnapshot>(key: K) {
+    return (value: SetStateAction<ScanSnapshot[K]>) => {
+      const previous = session.getSnapshot().snapshot[key];
+      void session.change({ [key]: typeof value === 'function' ? (value as (p: ScanSnapshot[K]) => ScanSnapshot[K])(previous) : value }, key !== 'capturedPhoto').catch(() => {});
+    };
+  }
   const { pickedType, pages, capturedPhoto, pristinePhoto, turns, enhanceMode, side } = snapshot;
   const setPickedType = field('pickedType'), setPages = field('pages'), setCapturedPhoto = field('capturedPhoto'), setTurns = field('turns'), setEnhanceMode = field('enhanceMode'), setSide = field('side');
   /* Pages already added to this scan (multi-page documents, or the front of an
