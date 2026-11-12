@@ -1189,6 +1189,13 @@ export interface TravelTimelineEntry {
   lng?: number;
   source: 'exif' | 'manual';
   notes?: string;
+  /** Life Atlas additions; legacy travel entries remain ordinary visits. */
+  kind?: 'holiday' | 'home' | 'event' | 'visit';
+  title?: string;
+  endDate?: string;
+  datePrecision?: 'day' | 'month' | 'year';
+  memberIds?: string[];
+  sourceFileName?: string;
 }
 
 export interface TravelTimelineDoc {

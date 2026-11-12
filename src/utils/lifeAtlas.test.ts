@@ -1,0 +1,69 @@
+import assert from 'node:assert/strict';
+import { atlasCountry, atlasDate, atlasDateFromInput, atlasDateInput, atlasDateLabel, atlasPhotoMetadata, changeAtlasPrecision, filterAtlas, hasAtlasPoint, prepareAtlasPhotoDrafts, validAtlasPoint, validateAtlasEntry } from './lifeAtlas';
+import { atlasProjection, initialAtlasCamera, visibleAtlasPoint } from './atlasGeometry';
+import { createFileOperationScope } from './fileOperationScope';
+import type { TravelTimelineEntry } from '../types';
+import { buildLifeTimeline } from './lifeTimeline';
+import { buildFamilyTimeline } from './familyTimeline';
+
+const row = (patch: Partial<TravelTimelineEntry> = {}): TravelTimelineEntry => ({ id: 'one', country: 'Austria', date: '', source: 'manual', ...patch });
+assert.equal(atlasDate('2020:02:29 23:58:11'), '2020-02-29');
+for (const value of ['2019-02-29', '2020-13-01', '', '2020-01-32', undefined, new Date(NaN)]) assert.equal(atlasDate(value), null);
+assert.equal(atlasDate(new Date(2020, 0, 2, 0, 1)), '2020-01-02', 'local capture date does not shift through UTC');
+assert.equal(atlasDateLabel(row()), 'Date unknown');
+assert.equal(atlasDateLabel(row({ date: '2001-01-01', datePrecision: 'year' })), '2001');
+assert.match(atlasDateLabel(row({ date: '2001-02-01', datePrecision: 'month' })), /February 2001/);
+assert.equal(atlasDateInput('2001-02-03', 'year'), '2001');
+assert.equal(atlasDateFromInput('2001', 'year'), '2001-01-01');
+assert.equal(atlasDateFromInput('2001-02', 'month'), '2001-02-01');
+assert.equal(atlasDateFromInput('', 'year'), '');
+assert.equal(changeAtlasPrecision(row({ date: '2001-05-03' }), 'year').date, '2001-01-01');
+assert.equal(changeAtlasPrecision(row({ date: '2001-01-01', datePrecision: 'year' }), 'day').date, '', 'more precise dates need evidence instead of treating an anchor as exact');
+assert.deepEqual(atlasPhotoMetadata({ DateTimeOriginal: '2000:03:04 12:00:00', ModifyDate: '2026:01:01' }), { date: '2000-03-04', source: 'manual' }, 'capture date survives without GPS');
+assert.deepEqual(atlasPhotoMetadata({ ModifyDate: '2026:01:01' }), { date: '', source: 'manual' }, 'editing time is never a capture date');
+assert.equal(atlasPhotoMetadata({ DateTimeOriginal: '2001:04:03', latitude: 999, longitude: 2 }).lat, undefined);
+assert.equal(atlasPhotoMetadata({ latitude: 0, longitude: 0 }).lat, 0, 'zero is a valid coordinate');
+assert.equal(validAtlasPoint(90, 180), true);
+for (const [lat, lng] of [[NaN, 0], [0, Infinity], [91, 1], [1, -181], [undefined, 1]]) assert.equal(validAtlasPoint(lat, lng), false);
+assert.equal(atlasCountry(48.2, 16.37).countryCode, 'AT');
+assert.equal(hasAtlasPoint(row()), false);
+const legacy = row({ id: 'legacy', place: 'First home', date: '2019-07-01' });
+const event = row({ id: 'event', title: 'Graduation', date: '2020-01-02', kind: 'event', lat: 48, lng: 16, memberIds: ['child'] });
+assert.deepEqual(filterAtlas([legacy, event], { query: 'first', kind: 'visit', unmapped: true }).map(entry => entry.id), ['legacy']);
+assert.deepEqual(filterAtlas([legacy, event], { memberId: 'child', year: '2020' }).map(entry => entry.id), ['event']);
+assert.equal(validateAtlasEntry(row({ title: 'A memory', country: '' })), null, 'unknown date/location is allowed');
+assert.ok(validateAtlasEntry(row({ country: '' })));
+assert.ok(validateAtlasEntry(row({ endDate: '2020-01-01' })));
+assert.ok(validateAtlasEntry(row({ date: '2020-02-01', endDate: '2020-01-01' })));
+assert.ok(validateAtlasEntry(row({ lat: 1 })));
+const home = row({ title: 'Our first home', kind: 'home', date: '2001-01-01', datePrecision: 'year', memberIds: ['child'] });
+const life = buildLifeTimeline({ members: [], events: [], entries: [], travel: [home, row({ id: 'undated', title: 'Uncertain year' })], now: new Date(2026, 0, 1) });
+const homeMoment = life.years.flatMap(year => year.items).find(item => item.sourceId === 'one')!;
+assert.equal(homeMoment.category, 'home'); assert.equal(homeMoment.precision, 'year'); assert.equal(homeMoment.title, 'Our first home'); assert.deepEqual(homeMoment.memberIds, ['child']);
+assert.equal(life.undated.length, 1);
+const visualHome = buildFamilyTimeline({ members: [], travel: [home] })[0];
+assert.equal(visualHome.category, 'addresses'); assert.equal(visualHome.dateLabel, '2001 · year only');
+assert.ok(visibleAtlasPoint(15, 12, 'globe', initialAtlasCamera));
+assert.equal(visibleAtlasPoint(-165, -12, 'globe', initialAtlasCamera), null, 'far hemisphere has no clickable ghost pins');
+for (const mode of ['globe', 'map'] as const) {
+  const projection = atlasProjection(mode, initialAtlasCamera), point = projection([16.37, 48.2])!;
+  const inverse = projection.invert!(point)!;
+  assert.ok(Math.abs(inverse[0] - 16.37) < 0.00001 && Math.abs(inverse[1] - 48.2) < 0.00001);
+}
+const files = ['one.jpg', 'two.jpg', 'three.jpg'].map(name => new File(['fixture'], name, { type: 'image/jpeg' }));
+const log: string[] = [];
+let identity = 'family'; const scope = createFileOperationScope(() => [identity]);
+const drafts = await prepareAtlasPhotoDrafts(files, { scope,
+  metadata: async file => { log.push(`metadata:${file.name}`); return { date: '2020-01-01', lat: 48, lng: 16 }; },
+  thumbnail: async file => { log.push(`cover:${file.name}`); if (file.name === 'three.jpg') throw Error('unsupported image'); return 'data:image/jpeg;base64,Zml4dHVyZQ=='; },
+});
+assert.deepEqual(log, ['metadata:one.jpg', 'cover:one.jpg', 'metadata:two.jpg', 'cover:two.jpg', 'metadata:three.jpg', 'cover:three.jpg']);
+assert.equal(drafts[0].selected, true); assert.equal(drafts[1].selected, false, 'same known place/day is an alternative cover');
+assert.match(drafts[2].error!, /unsupported/); assert.equal(drafts[2].selected, false);
+const unknown = await prepareAtlasPhotoDrafts(files.slice(0, 2), { scope, metadata: async () => ({}), thumbnail: async () => 'cover' });
+assert.ok(unknown.every(value => value.selected && value.entry.date === ''), 'unknown photos are not merged using guessed dates/places');
+await assert.rejects(() => prepareAtlasPhotoDrafts(Array(21).fill(files[0]), { scope, thumbnail: async () => '' }), /up to 20/);
+let madeCover = false;
+await assert.rejects(() => prepareAtlasPhotoDrafts([files[0]], { scope, metadata: async () => { identity = 'other family'; return {}; }, thumbnail: async () => { madeCover = true; return ''; } }), /account, space/);
+assert.equal(madeCover, false, 'a changed space stops before compression or adoption');
+console.log('lifeAtlas: metadata, legacy records, unknown dates, projections, bounded review and space fencing passed');

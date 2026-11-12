@@ -50,7 +50,7 @@ const copy: Record<string, { kicker: string; title: string; note: string }> = {
   familyTree: { kicker: 'People · Family tree', title: 'See how everyone connects.', note: 'Relationships, generations and imported family history in one calm map.' },
   chat: { kicker: 'People · Family chat', title: 'Keep the conversation together.', note: 'A private thread for the family decisions and moments that belong here.' },
   calendar: { kicker: 'Plan · Family horizon', title: 'The next seven days first.', note: 'People, preparation and the dates that shape the family’s week.' },
-  travelTimeline: { kicker: 'Plan · Trips', title: 'The whole journey in one scene.', note: 'Itinerary, people, documents and memories connected around the trip.' },
+  travelTimeline: { kicker: 'Family · Life Atlas', title: 'A world of stories to pass on.', note: 'Explore the homes, holidays and special places in your family’s story.' },
   recipes: { kicker: 'Plan · Food', title: 'Dinner, decided.', note: 'Family recipes and useful context for the people gathering around the table.' },
   shopping: { kicker: 'Plan · Shopping', title: 'One list, already in order.', note: 'The practical things the household needs, grouped for the way you shop.' },
   gifts: { kicker: 'Plan · Gifts', title: 'Remember what would delight them.', note: 'Ideas, wishes and occasions kept with the person they belong to.' },
