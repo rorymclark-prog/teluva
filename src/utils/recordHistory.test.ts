@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import { appendHistoryRecords, maskedHistoryValue, parseHistoryImport, safeHistorySource, validateHistoryRecord } from './recordHistory';
+import { protectRecordHistory, revealRecordHistory, setSharedRevealEnabled } from './vaultFields';
+import { redactMember } from './aiRedact';
+import type { PersonalRecordHistoryEntry } from '../types';
+
+const row: PersonalRecordHistoryEntry = { id: 'existing', kind: 'medical-aid', value: 'SYNTHETIC-1234', provider: 'Example scheme', status: 'unknown', notes: 'Synthetic private reference', sourceName: 'Synthetic letter', evidenceQuote: 'Example member number: SYNTHETIC-1234' };
+const payload = (records: unknown[], personName = 'Jamie Example') => JSON.stringify({ version: 1, personName, records });
+const parsed = parseHistoryImport(payload([row]), 'Jamie Example');
+assert.equal(parsed[0].value, row.value); assert.notEqual(parsed[0].id, 'existing', 'a file cannot select an existing ID to overwrite');
+assert.throws(() => parseHistoryImport(payload([row], 'Another person'), 'Jamie Example'), /person whose profile/);
+assert.throws(() => parseHistoryImport(payload([{ ...row, evidenceQuote: 'Different number' }]), 'Jamie Example'), /excerpt containing/);
+assert.throws(() => validateHistoryRecord({ ...row, startDate: '2026-02-30' }), /calendar date/);
+assert.throws(() => validateHistoryRecord({ ...row, startDate: '2026-03-01', endDate: '2026-01-01' }), /end date/);
+assert.throws(() => validateHistoryRecord({ ...row, sourceUrl: 'javascript:alert(1)' }), /HTTPS/);
+assert.equal(safeHistorySource('https://user:secret@example.com'), undefined);
+assert.equal(maskedHistoryValue(row.value), '•••• 1234'); assert.equal(maskedHistoryValue('123'), '••••');
+assert.equal(appendHistoryRecords([row], [{ ...parsed[0], value: 'synthetic 1234' }]).length, 1, 'format-only differences do not duplicate a number');
+assert.equal(appendHistoryRecords([row], [{ ...parsed[0], startDate: '2025-01-01' }]).length, 2, 'separately recorded usage periods survive');
+assert.equal(appendHistoryRecords([row], [{ ...parsed[0], value: 'SYNTHETIC-5678' }])[0], row, 'existing history is retained');
+assert.equal('recordHistory' in redactMember({ name: 'Jamie', phone: 'current phone', recordHistory: [row] }), false, 'no history/evidence reaches general AI context');
+
+const encode = async (values: string[]) => values.map(value => `enc:test:${Buffer.from(value).toString('base64')}`);
+const decode = async (values: string[]) => values.map(value => Buffer.from(value.slice('enc:test:'.length), 'base64').toString('utf8'));
+const protectedRows = await protectRecordHistory([row], encode);
+assert.ok(protectedRows![0].value.startsWith('enc:')); assert.ok(protectedRows![0].notes!.startsWith('enc:')); assert.ok(protectedRows![0].evidenceQuote!.startsWith('enc:'));
+assert.equal(protectedRows![0].provider, row.provider);
+assert.deepEqual(await revealRecordHistory(protectedRows, decode), [row]);
+setSharedRevealEnabled(false); assert.equal((await revealRecordHistory(protectedRows, decode))![0].value, '', 'child projections do not reveal cached history numbers'); setSharedRevealEnabled(true);
+console.log('recordHistory: grounded person-scoped imports, date conflicts, duplicate preservation, encryption and AI redaction verified');

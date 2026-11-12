@@ -152,6 +152,7 @@ import { computeBirthChart } from '../utils/birthChart';
 import MemberCV from './MemberCV';
 import MemberEducation from './MemberEducation';
 import MemberAddresses from './MemberAddresses';
+import MemberRecordHistory from './MemberRecordHistory';
 import { GraduationCap } from 'lucide-react';
 import CelebrationOverlay from './CelebrationOverlay';
 import InstallPrompt from './InstallPrompt';
@@ -268,7 +269,7 @@ function isJoinLinkVisit(): boolean {
   return /^\/join\/.+/.test(window.location.pathname);
 }
 
-type TabId = 'education' | 'addresses' | 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians' | 'timeline';
+type TabId = 'education' | 'addresses' | 'recordHistory' | 'overview' | 'sizes' | 'favorites' | 'growth' | 'timelapse' | 'medical' | 'care' | 'ids' | 'travel' | 'preferences' | 'documents' | 'secrets' | 'sayings' | 'cv' | 'guardians' | 'timeline';
 type ViewId = 'pulse' | 'profiles' | 'assistant' | 'calendar' | 'info' | 'emergency' | 'household' | 'finances' | 'insurance' | 'timeline' | 'travelTimeline' | 'vault' | 'inbox' | 'connectors' | 'shopping' | 'chat' | 'drive' | 'assets' | 'passwords' | 'familyWords' | 'vehicles' | 'recipes' | 'inMemory' | 'willsEstate' | 'slips' | 'gifts' | 'anniversaries' | 'extendedBirthdays' | 'pets' | 'familyTree' | 'medicineCabinet';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -287,6 +288,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'timeline', label: 'Timeline', icon: CalendarHeart },
   { id: 'education', label: 'Education', icon: GraduationCap },
   { id: 'addresses', label: 'Addresses', icon: Home },
+  { id: 'recordHistory', label: 'Past numbers', icon: Phone },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'secrets', label: 'Secrets', icon: Key },
   { id: 'cv', label: 'Work', icon: Briefcase },
@@ -294,7 +296,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 
 type ProfileLens = 'essentials' | 'health' | 'life' | 'story';
 const PROFILE_LENSES: { id: ProfileLens; label: string; note: string; tabs: TabId[] }[] = [
-  { id: 'essentials', label: 'Essentials', note: 'Identity, access and records', tabs: ['overview', 'ids', 'addresses', 'guardians', 'documents', 'secrets'] },
+  { id: 'essentials', label: 'Essentials', note: 'Identity, access and records', tabs: ['overview', 'ids', 'addresses', 'recordHistory', 'guardians', 'documents', 'secrets'] },
   { id: 'health', label: 'Health', note: 'Care, check-ups and growth', tabs: ['medical', 'care', 'growth', 'timelapse'] },
   { id: 'life', label: 'Life', note: 'Daily needs, travel and wishes', tabs: ['education', 'sizes', 'favorites', 'travel', 'preferences', 'cv'] },
   { id: 'story', label: 'Story', note: 'Words and moments worth keeping', tabs: ['timeline', 'sayings'] },
@@ -309,7 +311,7 @@ function profileLensFor(tab: TabId): ProfileLens {
 // family-custody concept with no equivalent for an employee's HR record.
 // 'timeline' too: a person's life timeline carries their health history,
 // which has no place in an employee's record (lifeTimeline.ts rule 4).
-const HIDDEN_IN_BUSINESS: TabId[] = ['education', 'addresses', 'care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse', 'guardians', 'timeline'];
+const HIDDEN_IN_BUSINESS: TabId[] = ['education', 'addresses', 'recordHistory', 'care', 'sizes', 'favorites', 'growth', 'sayings', 'timelapse', 'guardians', 'timeline'];
 // Work/CV belongs in personal as well as business profiles.
 const HIDDEN_IN_FAMILY: TabId[] = [];
 // Same idea, one level up — top-level nav sections that are family-only (the
@@ -3051,6 +3053,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
   const visibleProfileTabs = selectedMember ? TABS.filter(tab =>
     (tab.id !== 'growth' || selectedMember.role === 'Child')
     && !(tab.id === 'secrets' && !isAdmin)
+    && !(tab.id === 'recordHistory' && !canWrite && !demo)
     && !(isBusinessSpace && HIDDEN_IN_BUSINESS.includes(tab.id))
     && !(!isBusinessSpace && HIDDEN_IN_FAMILY.includes(tab.id))
   ) : [];
@@ -4064,6 +4067,14 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
                                   onUpdate={async (patch) => {
                                     if (!demo && !canWrite) return;
                                     await persistChanges(membersRef.current.map(m => m.id === selectedMember.id ? { ...m, ...patch } : m));
+                                  }} />
+                              )}
+                              {activeTab === 'recordHistory' && !isBusinessSpace && (demo || canWrite) && (
+                                <MemberRecordHistory member={selectedMember} canEdit={demo || canWrite}
+                                  onUpdate={async (patch) => {
+                                    if (!demo && !canWrite) return;
+                                    const ok = await persistChanges(membersRef.current.map(m => m.id === selectedMember.id ? { ...m, ...patch } : m));
+                                    if (ok === false) throw new Error('Cloud saving was not confirmed. Keep this review open and retry when connected.');
                                   }} />
                               )}
                               {activeTab === 'education' && (

@@ -50,6 +50,7 @@ check('the hidden lists were actually parsed', () => {
 const WORDS_FOR: Record<string, string[]> = {
   education: ['school year', 'class photo', 'school report'],
   addresses: ['previous home', 'childhood home'],
+  recordHistory: ['past numbers', 'previous phone numbers', 'medical-aid memberships'],
   familyWords: ['family word', 'things people said', 'the things people said'],
   timeline: ['family memory'],
   shopping: ['shopping list'],

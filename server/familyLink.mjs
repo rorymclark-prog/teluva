@@ -57,6 +57,7 @@ export const SHAREABLE_MEMBER_FIELDS = [
 // two lists together account for the whole type. Grouped by why it is out.
 export const NEVER_SHARE_MEMBER_FIELDS = [
   'addressHistory', // Former homes remain private to the originating household.
+  'recordHistory', // Historical contacts, medical-aid and insurance references stay in this household.
   // Identity documents and government numbers
   'passport', 'passports', 'identifiers', 'identity', 'taxNumber', 'nationality',
   // Health — special-category data under GDPR Art. 9. `medical` moved to the
