@@ -1,9 +1,9 @@
 {
-  "label": "v394",
+  "label": "v395",
   "changes": [
-    "Teluva now uses the new interface for everyone. The Classic switch has been removed from family and business spaces.",
-    "Previously saved Classic preferences and old preview links open the current interface immediately, while keeping your selected theme and destination.",
-    "System, Light and Dark appearance choices remain available."
+    "Captured scans now save on this device as you work, including original pages, page order and completed files waiting to be sent.",
+    "Recover unfinished scans after reopening Teluva in the same account and space. Failed uploads keep the recovery copy; download a backup or explicitly discard it when ready.",
+    "The scanner shows saving and storage-error status, supports retry when device storage is unavailable, and lets a recovered batch continue from uploaded photos."
   ],
   "feature": {
     "id": "family-memories-v385",
