@@ -1483,14 +1483,17 @@ export async function uploadVaultPhoto(dataUrl: string, docId: string, options: 
 // inlining base64 there like Assets does would blow the ~1MB doc cap after a
 // handful of photos). Takes a compressed data URL (post-EXIF-parse, see
 // utils/travelGeo.ts) and uploads it, mirroring uploadVaultFile exactly.
-export async function uploadTravelPhoto(dataUrl: string, entryId: string): Promise<{ storagePath: string; downloadUrl: string }> {
+export async function uploadTravelPhoto(dataUrl: string, entryId: string, options: { scope?: import('./fileOperationScope').FileOperationScope } = {}): Promise<{ storagePath: string; downloadUrl: string }> {
   const spaceAtStart = FAMILY_ID;
   const accountAtStart = auth.currentUser?.uid;
+  options.scope?.check();
   const blob = await fetchFileBlob(dataUrl);
   const storagePath = `families/${spaceAtStart}/travel-photos/${entryId}.jpg`;
-  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart) throw new Error('Your account changed. Please upload the file again.');
+  options.scope?.check();
+  if (!accountAtStart || auth.currentUser?.uid !== accountAtStart || FAMILY_ID !== spaceAtStart) throw new Error('Your account or space changed. Please upload the file again.');
   const r = ref(storage, storagePath);
   await uploadBytes(r, blob, { contentType: blob.type || 'image/jpeg' });
+  options.scope?.check();
   const downloadUrl = await getDownloadURL(r);
   return { storagePath, downloadUrl };
 }

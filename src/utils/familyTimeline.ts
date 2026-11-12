@@ -84,8 +84,9 @@ export function buildFamilyTimeline({ members, events = [], memories = [], trave
     items.push({ id: `event:${event.id}`, category: isMedicalCalendarEvent(event) ? 'medical' : event.category === 'School' ? 'education' : event.category === 'Travel' ? 'travel' : 'calendar',
       date: validDate(event.date), title: event.title, note: event.description, memberIds: event.memberIds || [], sourceLabel: 'Calendar', target: { view: 'calendar' } });
   }
-  for (const trip of travel) items.push({ id: `trip:${trip.id}`, category: 'travel', date: validDate(trip.date),
-    imageUrl: trip.photoUrl, title: [trip.place, trip.country].filter(Boolean).join(', '), note: trip.notes, memberIds: [], sourceLabel: 'Travel history', target: { view: 'travelTimeline' } });
+  for (const trip of travel) items.push({ id: `trip:${trip.id}`, category: trip.kind === 'home' ? 'addresses' : trip.kind === 'event' ? 'memories' : 'travel', date: validDate(trip.date), endDate: validDate(trip.endDate),
+    dateLabel: validDate(trip.date) && trip.datePrecision === 'year' ? `${trip.date.slice(0, 4)} · year only` : validDate(trip.date) && trip.datePrecision === 'month' ? new Date(trip.date + 'T12:00:00Z').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : undefined,
+    imageUrl: trip.photoUrl, title: trip.title?.trim() || [trip.place, trip.country].filter(Boolean).join(', ') || 'A family memory', note: trip.notes, memberIds: trip.memberIds || [], sourceLabel: 'Life Atlas', target: { view: 'travelTimeline' } });
   return items;
 }
 

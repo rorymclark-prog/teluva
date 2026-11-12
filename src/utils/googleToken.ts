@@ -46,7 +46,7 @@ import { GOOGLE_SCOPES } from './googleScopes';
 // A client ID is public information — it is visible in every OAuth request the
 // app already makes. (Its client SECRET is not, and appears nowhere in this
 // repo.) Overridable so a different deployment can point at its own client.
-const CLIENT_ID =
+export const GOOGLE_OAUTH_CLIENT_ID =
   (import.meta.env.VITE_GOOGLE_OAUTH_CLIENT_ID as string | undefined) ||
   '1000796646145-mdg6rjnq1st5viudretgquthrm42f2fp.apps.googleusercontent.com';
 
@@ -67,6 +67,7 @@ interface TokenResponse {
   expires_in?: number;
   error?: string;
   error_description?: string;
+  scope?: string;
 }
 
 interface TokenClient {
@@ -83,6 +84,7 @@ declare global {
           initTokenClient: (cfg: {
             client_id: string;
             scope: string;
+            include_granted_scopes?: boolean;
             callback: (r: TokenResponse) => void;
             error_callback?: (e: { type?: string; message?: string }) => void;
           }) => TokenClient;
@@ -96,7 +98,7 @@ declare global {
 let scriptPromise: Promise<boolean> | null = null;
 
 /** Load the GIS script once. Resolves false — never rejects — if it can't. */
-function loadGis(): Promise<boolean> {
+export function loadGis(): Promise<boolean> {
   if (window.google?.accounts?.oauth2) return Promise.resolve(true);
   if (scriptPromise) return scriptPromise;
 
@@ -138,7 +140,7 @@ async function getClient(): Promise<TokenClient | null> {
   if (!oauth2) return null;
   try {
     client = oauth2.initTokenClient({
-      client_id: CLIENT_ID,
+      client_id: GOOGLE_OAUTH_CLIENT_ID,
       scope: SCOPES,
       // Both are replaced per-request in requestToken() below; GIS requires
       // them at construction time, so these are placeholders.

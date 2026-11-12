@@ -206,7 +206,7 @@ const PetsView = React.lazy(() => import('./PetsView'));
 const MedicineCabinetView = React.lazy(() => import('./MedicineCabinetView'));
 const FamilyTreeView = React.lazy(() => import('./FamilyTreeView'));
 const TimelineView = React.lazy(() => import('./TimelineView'));
-const TravelTimelineView = React.lazy(() => import('./TravelTimelineView'));
+const LifeAtlasView = React.lazy(() => import('./LifeAtlasView'));
 const DocumentVault = React.lazy(() => import('./DocumentVault'));
 const ImportInbox = React.lazy(() => import('./ImportInbox'));
 const ConnectorCenter = React.lazy(() => import('./ConnectorCenter'));
@@ -371,7 +371,7 @@ function viewLabel(id: ViewId, t: Strings, isBusinessSpace: boolean): string {
     household: isBusinessSpace ? 'Locations' : t.nav_household,
     finances: t.nav_finances,
     timeline: isBusinessSpace ? 'Business timeline' : t.nav_timeline,
-    travelTimeline: 'Travel timeline',
+    travelTimeline: 'Life Atlas',
     vault: t.nav_documents,
     inbox: 'AI import inbox',
     connectors: 'AI connections',
@@ -3304,7 +3304,7 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         )}
 
         {mainView === 'travelTimeline' && (
-          demo ? <DemoUnavailable label="The travel timeline" isBusinessSpace={isBusinessSpace} /> : <TravelTimelineView key={aiDataVersion} />
+          demo ? <DemoUnavailable label="The Life Atlas" isBusinessSpace={isBusinessSpace} /> : <LifeAtlasView key={aiDataVersion} members={members} />
         )}
 
         {mainView === 'vault' && (

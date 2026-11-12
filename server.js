@@ -844,7 +844,7 @@ const CSP_REPORT_ONLY = [
   // sign-in is proxied same-origin (see authProxy above); accounts.google.com is
   // here for the SEPARATE Google Identity token flow the Drive/Calendar features
   // use, which talks to its own origin.
-  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://accounts.google.com",
+  "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://accounts.google.com https://*.googleusercontent.com",
   "worker-src 'self'",
   // The document viewer renders a PDF in an iframe whose src is a Storage
   // download URL, a blob:, or (for older records) an inline data: URL. The

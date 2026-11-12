@@ -65,7 +65,7 @@ const SOURCE_LABEL: Record<LifeSource, string> = {
   profile: 'their profile',
   entry: '',
   health: 'health records',
-  travel: 'the travel timeline',
+  travel: 'the Life Atlas',
   trip: 'the calendar',
   event: 'the calendar',
   birth: 'their profile',
@@ -492,7 +492,7 @@ export default function TimelineView({
             )}
             {onOpenView && !isBusinessSpace && (
               <button type="button" onClick={() => onOpenView('travelTimeline')} className="btn-quiet text-xs px-3 py-1.5 ml-auto">
-                <Plane className="w-3.5 h-3.5" /> Travel timeline
+                <Plane className="w-3.5 h-3.5" /> Life Atlas
               </button>
             )}
           </div>
