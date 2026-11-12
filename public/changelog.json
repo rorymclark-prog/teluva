@@ -1,5 +1,21 @@
 [
   {
+    "label": "v396",
+    "date": "2026-11-12",
+    "changes": [
+      "Protected document previews use the current sign-in, retry expired authentication once, and show clear retry, permission and missing-original messages.",
+      "Passports, card scans and other PDFs render inside Teluva, including protected files whose URL has no extension. Switching documents resets page navigation.",
+      "Life Atlas globe dragging works with mouse and touch, including browsers without SVG pointer capture. Valid GPS pins, including zero coordinates, stay visible.",
+      "Atlas distinguishes unchecked, unreadable and missing photo GPS. Read details from an original photo to review its location without replacing the cover or overwriting the recorded story date."
+    ],
+    "feature": {
+      "id": "family-memories-v385",
+      "demo": "family-memories",
+      "title": "Your family memories, rediscovered",
+      "description": "On this day and Flashback bring back dated moments saved to your family timeline, alongside family sayings and milestones."
+    }
+  },
+  {
     "label": "v395",
     "date": "2026-11-12",
     "changes": [

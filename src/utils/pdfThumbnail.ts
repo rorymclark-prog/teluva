@@ -27,7 +27,7 @@ export function loadPdfjs() {
       const workerUrl = (await import('./pdfWorkerUrl')).default;
       pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
       return pdfjs;
-    })();
+    })().catch(error => { pdfjsReady = null; throw error; });
   }
   return pdfjsReady;
 }

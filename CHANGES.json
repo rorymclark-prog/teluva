@@ -1,9 +1,10 @@
 {
-  "label": "v395",
+  "label": "v396",
   "changes": [
-    "Captured scans now save on this device as you work, including original pages, page order and completed files waiting to be sent.",
-    "Recover unfinished scans after reopening Teluva in the same account and space. Failed uploads keep the recovery copy; download a backup or explicitly discard it when ready.",
-    "The scanner shows saving and storage-error status, supports retry when device storage is unavailable, and lets a recovered batch continue from uploaded photos."
+    "Protected document previews use the current sign-in, retry expired authentication once, and show clear retry, permission and missing-original messages.",
+    "Passports, card scans and other PDFs render inside Teluva, including protected files whose URL has no extension. Switching documents resets page navigation.",
+    "Life Atlas globe dragging works with mouse and touch, including browsers without SVG pointer capture. Valid GPS pins, including zero coordinates, stay visible.",
+    "Atlas distinguishes unchecked, unreadable and missing photo GPS. Read details from an original photo to review its location without replacing the cover or overwriting the recorded story date."
   ],
   "feature": {
     "id": "family-memories-v385",

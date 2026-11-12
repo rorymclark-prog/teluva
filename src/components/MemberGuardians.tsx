@@ -4,6 +4,7 @@ import { hashDataUrl, findLikelyDuplicate, DupMatch } from '../utils/documentDed
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import ConfirmDeleteButton from './ConfirmDeleteButton';
 import PdfThumbnail from './PdfThumbnail';
+import { DocumentFilePreview } from './DocumentPreview';
 import {
   Plus, Trash2, Pencil, Check, X, UserRoundCheck, Phone, Mail, MapPin,
   FileText, Upload, AlertCircle, AlertTriangle, ExternalLink,
@@ -499,8 +500,7 @@ function DocumentPreview({ doc, guardianName, onClose }: { doc: FamilyDocument; 
   // MemberReferrals.tsx's ReferralPreview.
   useBodyScrollLock(true);
 
-  const isPdf = doc.fileType === 'application/pdf';
-  return (
+    return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div onClick={onClose} className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm" />
       <div className="relative w-full max-w-2xl card rounded-3xl overflow-hidden max-h-[90dvh] flex flex-col">
@@ -514,11 +514,7 @@ function DocumentPreview({ doc, guardianName, onClose }: { doc: FamilyDocument; 
           </button>
         </div>
         <div className="flex-1 overflow-y-auto bg-cream-100 flex items-center justify-center p-4">
-          {isPdf ? (
-            <iframe src={doc.fileData} title={doc.fileName} className="w-full h-[70dvh] border-0 rounded-xl bg-white" />
-          ) : (
-            <img src={doc.fileData} alt={doc.fileName} className="max-w-full max-h-[70dvh] object-contain rounded-xl" />
-          )}
+          <div className="w-full h-[70dvh] rounded-xl bg-white"><DocumentFilePreview source={doc.fileData} name={doc.fileName} mimeType={doc.fileType} /></div>
         </div>
         <div className="p-4 border-t border-cream-200 flex items-center justify-end gap-3">
           {doc.fileData && (
