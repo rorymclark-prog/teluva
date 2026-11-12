@@ -48,6 +48,7 @@ Historical values are masked in the saved list; children do not receive the adul
 history interface or decrypted shared history values. The entire history is
 removed from general AI chat context. These protections reuse current family
 membership, vault-purpose and revocation rules; no access rules are relaxed.
+The register is explicitly excluded from linked-household profile sharing.
 
 Verification includes actual React intake/save/retry/scope-change interactions,
 source/name validation, date conflicts, append/deduplication, encrypt/reveal
