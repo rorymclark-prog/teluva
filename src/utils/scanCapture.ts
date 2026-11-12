@@ -92,6 +92,7 @@ export async function blobToCanvas(blob: Blob): Promise<HTMLCanvasElement> {
 
 export interface Still {
   canvas: HTMLCanvasElement;
+  original?: Blob;
   /** 'photo' = a full sensor still from ImageCapture; 'video' = a frame of the preview stream. */
   kind: 'photo' | 'video';
 }
@@ -123,7 +124,7 @@ export async function takeStill(video: HTMLVideoElement, track: MediaStreamTrack
       // native landscape while the preview is portrait; a sideways page is a
       // worse result than a lower-resolution upright one.
       const sameWayUp = (canvas.width >= canvas.height) === (frame.width >= frame.height);
-      if (sameWayUp && canvas.width * canvas.height > frame.width * frame.height) return { canvas, kind: 'photo' };
+      if (sameWayUp && canvas.width * canvas.height > frame.width * frame.height) return { canvas, kind: 'photo', original: blob };
     } catch (err) {
       console.warn('takePhoto unavailable, using the video frame:', err);
     }

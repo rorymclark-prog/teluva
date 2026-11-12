@@ -158,6 +158,7 @@ import InstallPrompt from './InstallPrompt';
 import FirstRunTour from './FirstRunTour';
 import FamilyInterview from './FamilyInterview';
 import AppearanceControls from './AppearanceControls';
+import ScanDraftRecovery from './ScanDraftRecovery';
 import FeedbackModal from './FeedbackModal';
 import EmberNavigation, { EmberDestination } from './EmberNavigation';
 import FamilyPulse, { PulseExpiryWarning } from './FamilyPulse';
@@ -3161,6 +3162,12 @@ export default function Dashboard({ familySettingsButton, settingsVersion = 0 }:
         className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6 ember-main ${emergencyFocus ? 'ember-emergency-main' : ''}`}
         data-view={mainView}
       >
+        {!demo && !emergencyFocus && <ScanDraftRecovery onUse={async (scan) => {
+          const blob = await (await fetch(scan.data)).blob();
+          if (auth.currentUser?.uid !== accountUid || activeSpaceRef.current !== activeSpaceId || FAMILY_ID !== activeSpaceId) throw new Error('The account or space changed. Reopen scan recovery in the original space.');
+          setSharedFile(new File([blob], scan.name, { type: scan.type }));
+          setMainView('vault');
+        }} />}
         {mainView !== 'pulse' && !emergencyFocus && (
           <EmberViewHeader
             current={mainView === 'profiles' && peoplePane === 'todo' ? 'profilesTodo' : mainView}

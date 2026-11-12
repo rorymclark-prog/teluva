@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useSyncExternalStore, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Camera, X, RefreshCcw, AlertCircle, Sparkles, IdCard, BookOpen, FileText, Crop, RotateCw, RotateCcw,
@@ -16,12 +16,16 @@ import { isAppleTouch } from '../utils/platform';
 import { useLiveQuad, type LiveHint } from '../hooks/useLiveQuad';
 import SheetGrabber from './SheetGrabber';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { useFamilyCtx } from '../contexts/FamilyContext';
+import { ScanDraftSession, scanDraftBackup, downloadScanBackup, type ScanScope, type ScanSnapshot } from '../utils/scanDrafts';
+import { appConfirm } from '../utils/appConfirm';
 
 export interface ScannedFile {
   data: string;
   name: string;
   type: string;
   size: number;
+  draftId?: string;
 }
 
 export type ScanType = 'id' | 'passport' | 'document';
@@ -29,13 +33,14 @@ export type ScanType = 'id' | 'passport' | 'document';
 interface DocumentScannerModalProps {
   open: boolean;
   onClose: () => void;
-  onUse: (file: ScannedFile) => void;
+  onUse: (file: ScannedFile) => void | Promise<void>;
   title?: string;
   subtitle?: string;
   // When given, skips the "what are you scanning?" picker and goes straight to
   // the camera with that type's behavior. Omit to let the user choose.
   scanType?: ScanType;
   filePrefix?: string;
+  draftId?: string;
 }
 
 const MAX_UPLOAD_BYTES = SCAN_MAX_UPLOAD_BYTES;
@@ -49,12 +54,6 @@ const SCAN_TYPE_OPTIONS: { type: ScanType; label: string; hint: string; icon: ty
 /** Where the pixels of the current page came from. */
 type Origin = 'camera' | 'cameraApp' | 'upload';
 type ScanStage = 'capturing' | 'classical' | 'ml' | 'straightening' | 'reading';
-
-/** A page already added to a multi-page scan, rendered as it will be saved. */
-interface ScanPage {
-  id: number;
-  image: string;
-}
 
 const STAGE_MESSAGE: Record<ScanStage, string> = {
   capturing: 'Taking the photo…',
@@ -82,7 +81,13 @@ function isPdf(file: File): boolean {
   return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
 }
 
-export default function DocumentScannerModal({
+export default function DocumentScannerModal(props: DocumentScannerModalProps) {
+  const { uid, familyId, canWrite } = useFamilyCtx();
+  if (!props.open || !uid || !familyId || !canWrite) return null;
+  return <ScopedScanner key={JSON.stringify([uid, familyId, props.draftId])} {...props} scope={{ uid, spaceId: familyId }} />;
+}
+
+function ScopedScanner({
   open,
   onClose,
   onUse,
@@ -90,23 +95,31 @@ export default function DocumentScannerModal({
   subtitle,
   scanType,
   filePrefix,
-}: DocumentScannerModalProps) {
+  draftId,
+  scope,
+}: DocumentScannerModalProps & { scope: ScanScope; key?: string }) {
   // Called unconditionally, ahead of the `if (!open) return null` below —
   // required by the rules of hooks. The hook itself is a no-op while open
   // is false.
   useBodyScrollLock(open);
 
-  const [pickedType, setPickedType] = useState<ScanType | null>(null);
+  const [session] = useState(() => new ScanDraftSession(scope, title));
+  const recovery = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const [hydrated, setHydrated] = useState(!draftId);
+  const snapshot = recovery.snapshot;
+  const field = <K extends keyof ScanSnapshot>(key: K) => (value: SetStateAction<ScanSnapshot[K]>) => {
+    const previous = session.getSnapshot().snapshot[key];
+    void session.change({ [key]: typeof value === 'function' ? (value as (p: ScanSnapshot[K]) => ScanSnapshot[K])(previous) : value }, key !== 'capturedPhoto').catch(() => {});
+  };
+  const { pickedType, pages, capturedPhoto, pristinePhoto, turns, enhanceMode, side } = snapshot;
+  const setPickedType = field('pickedType'), setPages = field('pages'), setCapturedPhoto = field('capturedPhoto'), setTurns = field('turns'), setEnhanceMode = field('enhanceMode'), setSide = field('side');
   /* Pages already added to this scan (multi-page documents, or the front of an
    * ID while the back is being taken). Each is stored as it will be saved —
    * rotated and enhanced — and only squeezed to its share of the byte budget
    * when the PDF is compiled, so adding a page never degrades the ones before
    * it more than the final page count requires. */
-  const [pages, setPages] = useState<ScanPage[]>([]);
   // The CURRENT page: pristinePhoto is the perspective-corrected capture and is
   // never written to again; capturedPhoto is what is shown, derived from it.
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
-  const [pristinePhoto, setPristinePhoto] = useState<string | null>(null);
   // Bumped on every new page. Adjust -> Apply with unchanged corners yields a
   // byte-identical pristinePhoto, and React would then skip the presentation
   // effect and leave the review spinning forever (caught at 375px in the
@@ -130,7 +143,6 @@ export default function DocumentScannerModal({
   /* Quarter-turns clockwise the user has asked for, applied to the pristine
    * capture rather than compounded onto the last rotation — four taps must
    * cost one re-encode, not four. See rotateDataUrl(). */
-  const [turns, setTurns] = useState(0);
   const [isRotating, setIsRotating] = useState(false);
   /* How the page is processed for legibility. 'color' by default because that
    * is what makes a photographed certificate look like a scan rather than a
@@ -138,11 +150,9 @@ export default function DocumentScannerModal({
    * are irreplaceable documents, and anyone who thinks the processing has eaten
    * a faint stamp needs a way to keep the original pixels. The choice carries
    * over to the next page, as it does in Apple's scanner. */
-  const [enhanceMode, setEnhanceMode] = useState<EnhanceMode>('color');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
-  const [side, setSide] = useState<'front' | 'back'>('front');
   const [streamSize, setStreamSize] = useState<{ width: number; height: number } | null>(null);
   const [debugLines, setDebugLines] = useState<string[]>([]);
   const debug = useMemo(() => (open ? scanDebugEnabled() : false), [open]);
@@ -169,7 +179,7 @@ export default function DocumentScannerModal({
   const cameraAppInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  const effectiveType = scanType ?? pickedType;
+  const effectiveType = pickedType ?? scanType;
   const requireBothSides = effectiveType === 'id';
 
   const live = useLiveQuad(videoRef, (hint) => {
@@ -178,12 +188,29 @@ export default function DocumentScannerModal({
 
   useEffect(() => {
     openRef.current = open;
+    return () => { openRef.current = false; };
   }, [open]);
 
+  useEffect(() => {
+    if (!draftId) return;
+    let active = true;
+    session.restore(draftId).then(async () => {
+      if (!active) return;
+      const restored = session.getSnapshot().snapshot;
+      if (restored.originalCapture && !restored.pristinePhoto) {
+        const blob = await (await fetch(restored.originalCapture)).blob();
+        const canvas = await blobToCanvas(blob);
+        if (!active) return;
+        await session.change({ pristinePhoto: canvas.toDataURL('image/png') });
+      }
+      pageIdRef.current = Math.max(0, ...session.getSnapshot().snapshot.pages.map(p => p.id));
+      setHydrated(true);
+    }).catch(error => { if (active) setFileError(error.message); });
+    return () => { active = false; };
+  }, [draftId, session]);
+
   const clearCurrent = () => {
-    setCapturedPhoto(null);
-    setPristinePhoto(null);
-    setTurns(0);
+    void session.change({ capturedPhoto: null, pristinePhoto: null, originalCapture: null, originalName: undefined, turns: 0 }, true).catch(() => {});
     setDetectedCorners(null);
     rawRef.current = null;
     setHasRaw(false);
@@ -266,10 +293,8 @@ export default function DocumentScannerModal({
   });
 
   const showPage = (dataUrl: string, cropped: boolean) => {
-    setPristinePhoto(dataUrl);
+    void session.change({ pristinePhoto: dataUrl, capturedPhoto: null, turns: 0 }, true).catch(() => {});
     setPageVersion((v) => v + 1);
-    setCapturedPhoto(null);
-    setTurns(0);
     setCroppedUpload(cropped);
   };
 
@@ -289,6 +314,10 @@ export default function DocumentScannerModal({
     setScanStage('classical');
     setFileError(null);
     try {
+      // Commit the unprocessed capture BEFORE edge detection, enhancement or PDF work.
+      const original = session.getSnapshot().snapshot.originalCapture || canvas.toDataURL('image/png');
+      await session.change({ originalCapture: original, pristinePhoto: canvas.toDataURL('image/png'), pickedType: effectiveType || 'document' }, true).catch(() => {});
+      if (!openRef.current) return;
       await paint();
       const img = canvasPixels(canvas);
       const centred = looksLikeCameraFrame(img.width, img.height);
@@ -300,6 +329,7 @@ export default function DocumentScannerModal({
       const sameShape = hint && Math.abs(hint.width / hint.height / (img.width / img.height) - 1) < 0.01;
       const scaledHint = hint && sameShape ? scaleQuad(hint.quad, img.width / hint.width, img.height / hint.height) : null;
       const det = await detectPage(canvas, img, { hint: scaledHint, onStage: setScanStage });
+      if (!openRef.current) return;
       setDetectedCorners(det.corners);
       const lines = [
         `${origin}/${kind} ${img.width}×${img.height}${centred ? ' (camera frame)' : ''}`,
@@ -339,6 +369,7 @@ export default function DocumentScannerModal({
   // The shutter — pressed by hand, or by the live detector once the page has
   // held still. `hint` is the verified quad the viewfinder was showing.
   const captureFromCamera = async (hint: LiveHint | null) => {
+    if (session.getSnapshot().status === 'error') { setFileError(session.getSnapshot().error); return; }
     const video = videoRef.current;
     if (!video || busyRef.current || !activeStreamRef.current) return;
     busyRef.current = true;
@@ -347,6 +378,8 @@ export default function DocumentScannerModal({
     try {
       const track = activeStreamRef.current.getVideoTracks()[0] ?? null;
       const still = await takeStill(video, track);
+      await session.change({ originalCapture: still.original ? await readFileAsDataUrl(still.original) : still.canvas.toDataURL('image/png'), originalName: still.original?.type === 'image/jpeg' ? 'camera-capture.jpg' : 'camera-capture.png' }, true).catch(() => {});
+      if (!openRef.current) return;
       stopCamera();
       setIsShooting(false);
       await processCanvas(still.canvas, 'camera', hint, still.kind);
@@ -366,22 +399,27 @@ export default function DocumentScannerModal({
    * one is re-rendered page by page into the same budget a scan gets. Images go
    * through the same pipeline as a camera capture. */
   const handleFile = async (file: File, origin: Origin) => {
+    if (session.getSnapshot().status === 'error') { setFileError(session.getSnapshot().error); return; }
     setFileError(null);
     // Any failure below leaves the person where they were: the camera comes
     // back on (it was released for the file), with the reason shown under it.
     const fail = (message: string) => {
       setFileError(message);
-      void startCamera();
+      const saved = session.getSnapshot().snapshot;
+      if (!saved.originalCapture && !saved.sourceFile) void startCamera();
+      else setCameraError(message);
     };
     if (isPdf(file)) {
+      if (session.getSnapshot().snapshot.pages.length) { setFileError('Save the captured pages first, or choose a photo to add another page. A separate PDF will not replace this batch.'); return; }
       let done = false;
       try {
         const data = await readFileAsDataUrl(file);
+        await session.change({ sourceFile: { data, name: file.name, type: file.type || 'application/pdf', size: file.size }, pickedType: effectiveType || 'document' }, true);
+        if (!openRef.current) return;
         if (file.size <= MAX_UPLOAD_BYTES) {
           stopCamera();
-          onUse({ data, name: file.name, type: 'application/pdf', size: file.size });
+          await deliver({ data, name: file.name, type: 'application/pdf', size: file.size });
           done = true;
-          handleClose();
           return;
         }
         stopCamera();
@@ -403,9 +441,8 @@ export default function DocumentScannerModal({
         if (compiled.size > MAX_UPLOAD_BYTES) {
           return fail(`That PDF still comes to ${formatBytes(compiled.size)} — over the 700 KB sync limit.`);
         }
-        onUse({ data: compiled.data, name: compiled.name, type: 'application/pdf', size: compiled.size });
+        await deliver({ data: compiled.data, name: compiled.name, type: 'application/pdf', size: compiled.size });
         done = true;
-        handleClose();
       } catch (err) {
         console.error('PDF upload failed:', err);
         if (!done) fail('That PDF could not be read.');
@@ -423,6 +460,8 @@ export default function DocumentScannerModal({
     setScanStage('classical');
     setIsScanning(true);
     try {
+      await session.change({ originalCapture: await readFileAsDataUrl(file), originalName: file.name, pickedType: effectiveType || 'document' }, true).catch(() => {});
+      if (!openRef.current) return;
       const canvas = await blobToCanvas(file);
       await processCanvas(canvas, origin, null, file.type || 'image');
     } catch (err) {
@@ -449,28 +488,19 @@ export default function DocumentScannerModal({
   });
 
   useEffect(() => {
-    if (open) {
-      setPickedType(null);
-      setSide('front');
-      setPages([]);
-      clearCurrent();
-      setFileError(null);
-      setCameraError(null);
-    } else {
+    return () => {
+      openRef.current = false;
       stopCamera();
       live.dispose();
-    }
-    return () => {
-      stopCamera();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Camera only opens once a scan type is known (either passed in, or picked).
   useEffect(() => {
-    if (open && effectiveType && !activeStreamRef.current) startCamera();
+    if (open && hydrated && effectiveType && !snapshot.originalCapture && !snapshot.sourceFile && !snapshot.file && !activeStreamRef.current) void startCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, effectiveType]);
+  }, [open, hydrated, effectiveType]);
 
   // Mounts scanic's manual corner-adjustment editor over the full capture
   // whenever adjustMode is entered — either the user tapped "Adjust" on a
@@ -548,12 +578,12 @@ export default function DocumentScannerModal({
         // q0.95: this is still an intermediate — the byte budget is spent once,
         // by fitToBudget, when the scan is saved.
         const shown = enhanceMode === 'off' ? rotated : await enhanceDataUrl(rotated, { mode: enhanceMode, quality: 0.95 });
-        if (!cancelled) setCapturedPhoto(shown);
+        if (!cancelled && openRef.current) setCapturedPhoto(shown);
       } catch (err) {
         // Show the unprocessed page rather than nothing. A scan that looks
         // flat is recoverable; a review screen with no image is not.
         console.error('Scan processing failed:', err);
-        if (!cancelled) setCapturedPhoto(pristinePhoto);
+        if (!cancelled && openRef.current) setCapturedPhoto(pristinePhoto);
       } finally {
         if (!cancelled) setIsRotating(false);
       }
@@ -561,12 +591,24 @@ export default function DocumentScannerModal({
     return () => { cancelled = true; };
   }, [pristinePhoto, turns, enhanceMode, pageVersion]);
 
+  if (!hydrated) return createPortal(<div className="fixed inset-0 z-50 bg-ink-900/40 flex items-center justify-center p-4"><div className="card p-6"><p role={fileError ? 'alert' : 'status'}>{fileError || 'Restoring saved scan…'}</p><button type="button" className="btn-quiet mt-3" onClick={onClose}>Close</button></div></div>, document.body);
   if (!open) return null;
 
-  const handleClose = () => {
+  const handleClose = async () => {
     stopCamera();
     live.dispose();
-    onClose();
+    try { await session.flush(); if (openRef.current) onClose(); }
+    catch (error) { setFileError((error as Error).message); }
+  };
+
+  const deliver = async (file: ScannedFile) => {
+    setIsCompiling(true); setFileError(null);
+    try {
+      await session.change({ file });
+      if (!openRef.current) return;
+      await onUse({ ...file, draftId: session.id });
+      if (openRef.current) await handleClose();
+    } finally { if (openRef.current) setIsCompiling(false); }
   };
 
   const typePrefix = effectiveType === 'id' ? 'id_scan' : effectiveType === 'passport' ? 'passport_scan' : 'camera_scan';
@@ -605,8 +647,7 @@ export default function DocumentScannerModal({
         );
         return;
       }
-      onUse({ data: fitted.data, name: nameFor('jpg'), type: 'image/jpeg', size: fitted.bytes });
-      handleClose();
+      await deliver({ data: fitted.data, name: nameFor('jpg'), type: 'image/jpeg', size: fitted.bytes });
     } catch (err) {
       console.error(err);
       setFileError('Failed to process the photo. Please try again.');
@@ -620,8 +661,9 @@ export default function DocumentScannerModal({
   const handleAddPage = async () => {
     const page = currentPage();
     if (!page) return;
-    setPages((p) => [...p, { id: ++pageIdRef.current, image: page }]);
+    setPages((p) => [...p, { id: ++pageIdRef.current, image: page, original: snapshot.originalCapture || pristinePhoto || page, originalName: snapshot.originalName }]);
     if (requireBothSides) setSide('back');
+    try { await session.flush(); } catch { return; }
     await startCamera();
   };
 
@@ -658,8 +700,7 @@ export default function DocumentScannerModal({
         return;
       }
       stopCamera();
-      onUse({ data: compiled.data, name: compiled.name, type: 'application/pdf', size: compiled.size });
-      handleClose();
+      await deliver({ data: compiled.data, name: compiled.name, type: 'application/pdf', size: compiled.size });
     } catch (err) {
       console.error(err);
       setFileError('Failed to compile the scan into a PDF.');
@@ -726,7 +767,7 @@ export default function DocumentScannerModal({
     : '';
 
   const errorBox = fileError && (
-    <div className="p-3 rounded-xl bg-rosa-50 border border-rosa-100 text-[13px] text-rosa-700 flex items-start gap-2 leading-normal">
+    <div role="alert" className="p-3 rounded-xl bg-rosa-50 border border-rosa-100 text-[13px] text-rosa-700 flex items-start gap-2 leading-normal">
       <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rosa-500" />
       <span>{fileError}</span>
     </div>
@@ -809,16 +850,16 @@ export default function DocumentScannerModal({
           />
         </label>
       )}
-      {pages.length === 0 && !showingBack && (
+      {(
         <p className="text-[12px] text-ink-400 text-center leading-snug">
-          Already scanned it with your iPhone (Notes, Files) or a Mac (Preview)?{' '}
+          {pages.length ? 'Add the next page from a photo. ' : <>Already scanned it with your iPhone (Notes, Files) or a Mac (Preview)?{' '}</>}
           <button
             type="button"
             onClick={() => uploadInputRef.current?.click()}
             className="inline-flex items-center gap-1 font-semibold text-clay-600 hover:text-clay-500 underline underline-offset-2 cursor-pointer"
           >
             <FileUp className="w-3.5 h-3.5" />
-            Upload the PDF
+            {pages.length ? 'Add a photo' : 'Upload the PDF'}
           </button>
           <input
             ref={uploadInputRef}
@@ -879,6 +920,19 @@ export default function DocumentScannerModal({
           </button>
         </div>
 
+        <div className="px-4 py-2 border-b border-cream-200 text-[12px] shrink-0">
+          <p role={recovery.status === 'error' ? 'alert' : 'status'}>
+            {recovery.status === 'saving' ? 'Saving scan on this device…' : recovery.status === 'saved' ? 'Saved on this device · kept until you discard the recovery copy' : recovery.status === 'error' ? recovery.error : 'Captured pages will be saved on this device automatically.'}
+          </p>
+          {errorBox}
+          {(snapshot.originalCapture || pages.length > 0 || snapshot.sourceFile || snapshot.file) && <div className="flex flex-wrap gap-2 mt-2">
+            <button type="button" className="btn-quiet text-xs" onClick={async () => { try { downloadScanBackup(await scanDraftBackup(session.getSnapshot().snapshot), 'teluva-scan-backup.zip'); } catch { setFileError('Could not download a backup. Keep this scan open and try again.'); } }}>Download backup</button>
+            {recovery.status === 'error' && <button type="button" className="btn-quiet text-xs" onClick={() => { void session.retry().catch(() => {}); }}>Retry saving draft</button>}
+            <button type="button" className="btn-quiet text-xs" onClick={async () => { if (await appConfirm('Discard this local scan and all its original pages? This cannot be undone.', { danger: true, confirmLabel: 'Discard scan' })) { openRef.current = false; try { await session.discard(); stopCamera(); onClose(); } catch (error) { openRef.current = true; setFileError((error as Error).message); } } }}>Discard scan</button>
+          </div>}
+          {snapshot.file && <button type="button" className="btn-primary text-xs mt-2" disabled={isCompiling} onClick={() => { void deliver(snapshot.file!).catch(error => setFileError(error.message)); }}>Continue with saved scan · {snapshot.file.name}</button>}
+        </div>
+
         {/* Modal Body */}
         {/* No `justify-center` here, and `min-h-0` rather than a positive
             min-height: both fight overflow-y-auto on a short viewport. A flex
@@ -929,7 +983,6 @@ export default function DocumentScannerModal({
                 </div>
               </div>
               {otherWays}
-              {errorBox}
             </div>
           ) : stage === 'adjust' ? (
             <div className="space-y-3">
@@ -949,7 +1002,6 @@ export default function DocumentScannerModal({
                   ? 'Drag the corners to match the document exactly, then tap Apply.'
                   : 'We could not find all four edges of the page for certain. Drag the corners onto the page, then tap Apply.'}
               </p>
-              {errorBox}
             </div>
           ) : stage === 'working' ? (
             <div className="space-y-3">
@@ -1035,7 +1087,6 @@ export default function DocumentScannerModal({
                 </p>
               )}
               {debugBox}
-              {errorBox}
             </div>
           ) : (
             <div className="space-y-3">
@@ -1105,7 +1156,6 @@ export default function DocumentScannerModal({
               </div>
               {pageStrip}
               {otherWays}
-              {errorBox}
             </div>
           )}
         </div>
@@ -1202,7 +1252,7 @@ export default function DocumentScannerModal({
             ) : (
               <div className="flex items-center justify-between gap-2">
                 <div className="w-24 flex justify-start">
-                  {stage === 'camera' && pages.length > 0 && !requireBothSides && (
+                  {(stage === 'camera' || stage === 'error') && pages.length > 0 && !requireBothSides && (
                     <button
                       type="button"
                       onClick={() => handleSavePdf(false)}
