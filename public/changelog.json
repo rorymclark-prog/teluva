@@ -6,7 +6,13 @@
       "Life Atlas replaces the travel list with a rotatable globe, a 2D map and a gallery of family homes, holidays, visits and special events.",
       "Import selected photos from your device or Google Photos, review dates and locations, and choose the covers to keep. Original exports can supply GPS; Google Photos imports need manually placed pins.",
       "Atlas stories keep their people, date accuracy and photos when shown in the family timeline. Unknown dates and locations stay unknown."
-    ]
+    ],
+    "feature": {
+      "id": "family-memories-v385",
+      "demo": "family-memories",
+      "title": "Your family memories, rediscovered",
+      "description": "On this day and Flashback bring back dated moments saved to your family timeline, alongside family sayings and milestones."
+    }
   },
   {
     "label": "v390",
