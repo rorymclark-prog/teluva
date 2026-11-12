@@ -22,6 +22,7 @@ const css = read('src/index.css');
 const scanner = read('src/components/DocumentScannerModal.tsx');
 const ask = read('src/components/DocumentAskModal.tsx');
 const lightbox = read('src/components/ImageLightbox.tsx');
+const preview = read('src/components/DocumentPreview.tsx');
 const bubble = read('src/components/AssistantBubble.tsx');
 const tour = read('src/components/FirstRunTour.tsx');
 
@@ -63,18 +64,21 @@ assert.match(tour, /useBodyScrollLock\(status === 'active', \{ keepChrome: true 
 // photo viewer answers to did nothing, and a photo sized to the viewport leaves
 // almost no backdrop to hit instead. Assert the two escapes that do not depend
 // on hitting a 40px target in a corner.
-assert.match(lightbox, /onClick=\{onClose\}\n\s*className="max-w-\[92vw\]/,
-  'the photo itself must close the lightbox, not stopPropagation');
+assert.match(lightbox, /<DocumentFilePreview[^>]+onImageClick=\{onClose\}/,
+  'the photo must receive the lightbox close action');
+assert.match(preview, /onClick=\{onImageClick\}/,
+  'the image itself must invoke the supplied close action');
 assert.match(lightbox, /e\.key === 'Escape'/, 'Escape must close the lightbox');
 assert.match(lightbox, /window\.addEventListener\('keydown', onKey\)/,
   'the Escape handler must actually be bound');
 assert.match(lightbox, /window\.removeEventListener\('keydown', onKey\)/,
   'and unbound — a lightbox opened twice must not stack handlers');
-// The PDF branch keeps stopPropagation on purpose: it is a document you scroll
-// and click inside, so a stray click must not dismiss it.
-assert.match(lightbox, /<iframe[\s\S]{0,400}?\n\s*\)/,
-  'the PDF branch still exists');
-assert.match(lightbox, /onClick=\{\(e\) => e\.stopPropagation\(\)\}\n\s*style=\{\{ width: 'min\(92vw, 850px\)'/,
-  'the PDF must NOT close on click — you interact with it');
+// The shared container absorbs PDF page controls; only the image gets the
+// close callback. Protected PDFs render in-app rather than in a sandboxed frame.
+assert.match(lightbox, /onClick=\{event => event\.stopPropagation\(\)\}/,
+  'the document container must NOT close on click — you interact with it');
+assert.doesNotMatch(lightbox, /<iframe/, 'protected PDFs use the in-app renderer');
+assert.match(preview, /pdf \? <PdfPreview[^>]+retrySource=\{file\.retry\} \/>/,
+  'PDF page controls must not receive the image close callback');
 
 console.log('ModalLayer.test.ts: all assertions passed');

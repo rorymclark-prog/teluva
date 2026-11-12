@@ -8,6 +8,7 @@ import { buildReferralGroups, ReferralSeries } from '../utils/referralGrouping';
 import { appConfirm } from '../utils/appConfirm';
 import { referralStatusOnSave } from '../utils/referralAppointment';
 import PdfThumbnail from './PdfThumbnail';
+import { DocumentFilePreview } from './DocumentPreview';
 import type { ScannedFile } from './DocumentScannerModal';
 const DocumentScannerModal = React.lazy(() => import('./DocumentScannerModal'));
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
@@ -841,7 +842,6 @@ function ReferralPreview({ record, memberName, onClose }: { record: ReferralReco
   // for this component's whole lifetime.
   useBodyScrollLock(true);
 
-  const isPdf = record.fileType === 'application/pdf';
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div onClick={onClose} className="fixed inset-0 bg-ink-900/40 backdrop-blur-sm" />
@@ -856,11 +856,7 @@ function ReferralPreview({ record, memberName, onClose }: { record: ReferralReco
           </button>
         </div>
         <div className="flex-1 overflow-y-auto bg-cream-100 flex items-center justify-center p-4">
-          {isPdf ? (
-            <iframe src={record.downloadUrl} title={record.fileName} className="w-full h-[70dvh] border-0 rounded-xl bg-white" />
-          ) : (
-            <img src={record.downloadUrl} alt={record.fileName} className="max-w-full max-h-[70dvh] object-contain rounded-xl" referrerPolicy="no-referrer" />
-          )}
+          <div className="w-full h-[70dvh] rounded-xl bg-white"><DocumentFilePreview source={record.downloadUrl} name={record.fileName} mimeType={record.fileType} /></div>
         </div>
         <div className="p-4 border-t border-cream-200 flex items-center justify-between gap-3">
           {record.notes ? <p className="text-[12px] text-ink-500 italic truncate flex-1">{record.notes}</p> : <span />}

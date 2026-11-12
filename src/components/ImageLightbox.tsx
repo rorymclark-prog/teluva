@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { X, Download, Share2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { looksLikePdf } from '../utils/fileType';
 import { canShare, srcToFile, shareFile } from '../utils/share';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { DocumentFilePreview } from './DocumentPreview';
 
 interface Props {
   src: string | null;
@@ -33,7 +33,6 @@ export default function ImageLightbox({ src, videoSrc, onClose, name = 'Teluva d
     return () => window.removeEventListener('keydown', onKey);
   }, [src, onClose]);
 
-  const isPdf = !!src && looksLikePdf(src, mimeType);
   async function handleDownload() {
     if (!src) return;
     try {
@@ -87,33 +86,15 @@ export default function ImageLightbox({ src, videoSrc, onClose, name = 'Teluva d
               onClick={e => e.stopPropagation()}
               className="max-h-[85dvh] max-w-full rounded-3xl bg-black shadow-2xl"
             />
-          ) : isPdf ? (
+          ) : (
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 260, damping: 26 }}
-              onClick={(e) => e.stopPropagation()}
-              style={{ width: 'min(92vw, 850px)', height: '90vh' }}
-              className="rounded-3xl shadow-2xl bg-white overflow-hidden"
-            >
-              <iframe src={src} title={name} className="w-full h-full border-0" />
-            </motion.div>
-          ) : (
-            <motion.img
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 260, damping: 26 }}
-              src={src}
-              alt={name}
-              /* Clicking the picture closes it, like every photo viewer. It used
-                 to stopPropagation — correct for the PDF below, which is a
-                 document you interact with, but on a photo it made the most
-                 obvious gesture do nothing at all. */
-              onClick={onClose}
-              className="max-w-[92vw] max-h-[90dvh] w-auto h-auto rounded-3xl shadow-2xl object-contain cursor-zoom-out"
-            />
+              onClick={event => event.stopPropagation()}
+              className="w-[min(92vw,1000px)] h-[85dvh] rounded-3xl shadow-2xl overflow-hidden cursor-default"
+            ><DocumentFilePreview source={src} name={name} mimeType={mimeType} onImageClick={onClose} /></motion.div>
           )}
           <div className="absolute top-5 right-5 z-10 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
             <button onClick={handleDownload} className={btn} title="Download">

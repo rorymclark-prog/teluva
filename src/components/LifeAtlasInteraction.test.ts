@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { build } from 'esbuild';
 import React from 'react';
 const require = createRequire(import.meta.url), { create, act } = require('react-test-renderer');
@@ -111,4 +112,26 @@ console.log('LifeAtlasInteraction: actual review handlers, explicit save, failed
   assert.match(text(f.renderer.toJSON()), /First home/);
   await f.click('Whole family'); assert.match(text(f.renderer.toJSON()), /First home/);
   assert.equal(f.state.saves.length, 0, 'view toggles never rewrite people or memories'); await f.close();
+}
+
+{
+  const f = await fixture(); await f.click('Add a place'); await f.change('Memory title', 'Synthetic original metadata review');
+  await f.change('Country', 'Austria'); await f.change('Start / capture date', '2000-01-02');
+  await f.click('Choose a cover photo');
+  const coverInput = f.renderer.root.findAllByType('input').find((node: any) => node.props.type === 'file' && !node.props.multiple);
+  await act(async () => coverInput.props.onChange({ target: { files: [new File(['synthetic cover'], 'cover.jpg', { type: 'image/jpeg' })], value: '' } }));
+  const coverReads = [...f.state.coverOrder];
+  await f.click('Read details from an original photo');
+  const metadataInput = f.renderer.root.findAllByType('input').find((node: any) => node.props.type === 'file' && node.props.accept?.includes('.tiff'));
+  const original = new File([readFileSync(resolve(root, 'src/utils/fixtures/atlas/gps-vienna.jpg'))], 'gps-vienna.jpg', { type: 'image/jpeg' });
+  await act(async () => { metadataInput.props.onChange({ target: { files: [original], value: '' } }); });
+  assert.deepEqual(f.state.coverOrder, coverReads, 'metadata-only backfill never converts or replaces the existing cover');
+  assert.equal(f.state.uploads, 0, 'reading the original is entirely local');
+  await f.click('Use photo details for blank fields'); await f.click('Save memory');
+  const saved = f.state.doc.entries.find((entry: any) => entry.id !== 'legacy') as any;
+  assert.equal(saved.lat, 48.2, 'a known country must not block valid GPS');
+  assert.equal(saved.country, 'Austria'); assert.equal(saved.date, '2000-01-02', 'a recorded story date is never overwritten by a capture date');
+  assert.equal(saved.photoMetadata.status, 'gps'); assert.equal(saved.photoMetadata.date, '2020-06-20');
+  assert.equal(saved.photoUrl, '/fixture-cover.jpg'); assert.equal(f.state.uploads, 1);
+  await f.close();
 }

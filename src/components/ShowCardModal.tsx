@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { X, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { looksLikePdf } from '../utils/fileType';
 import { canShare, shareFile } from '../utils/share';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import CopyableValue from './CopyableValue';
+import { DocumentFilePreview } from './DocumentPreview';
 
 export interface ShowCardField {
   label: string;
@@ -29,7 +29,6 @@ export default function ShowCardModal({ open, onClose, title, subtitle, fields =
   useBodyScrollLock(open);
 
   const wakeRef = useRef<{ release: () => void } | null>(null);
-  const scanIsPdf = !!scanSrc && looksLikePdf(scanSrc);
 
   // Keep the screen awake while the card is shown (best-effort; ignored where unsupported).
   useEffect(() => {
@@ -90,21 +89,7 @@ export default function ShowCardModal({ open, onClose, title, subtitle, fields =
                 {subtitle && <p className="text-[15px] font-medium text-ink-500 mt-1">{subtitle}</p>}
               </div>
 
-              {scanSrc && (
-                scanIsPdf ? (
-                  <iframe
-                    src={scanSrc}
-                    title={title}
-                    className="w-full h-[42dvh] rounded-2xl bg-white border border-cream-200"
-                  />
-                ) : (
-                  <img
-                    src={scanSrc}
-                    alt={title}
-                    className="w-full max-h-[42dvh] rounded-2xl object-contain bg-white border border-cream-200"
-                  />
-                )
-              )}
+              {scanSrc && <div className="w-full h-[42dvh] rounded-2xl bg-white border border-cream-200"><DocumentFilePreview source={scanSrc} name={title} /></div>}
 
               {fields.length > 0 && (
                 <div className="space-y-3.5 pt-1">

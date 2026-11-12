@@ -1213,6 +1213,13 @@ export interface TravelTimelineEntry {
   datePrecision?: 'day' | 'month' | 'year';
   memberIds?: string[];
   sourceFileName?: string;
+  /** What was actually read from a selected original; absent on legacy covers. */
+  photoMetadata?: {
+    status: 'gps' | 'no-gps' | 'read-error' | 'invalid-gps' | 'provider-limited';
+    date?: string;
+    dateOrigin?: 'embedded' | 'provider';
+    originalName?: string;
+  };
 }
 
 export interface TravelTimelineDoc {

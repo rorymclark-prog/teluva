@@ -45,13 +45,31 @@ export function atlasCountry(lat: number, lng: number): { country: string; count
 /** Read original metadata before any canvas conversion. Never replace a
  * missing capture date with upload time or the file's modification date. */
 export async function readAtlasPhotoMetadata(file: File): Promise<Partial<TravelTimelineEntry>> {
-  const metadata = await exifr.parse(await file.arrayBuffer(), { gps: true, exif: true, reviveValues: false }).catch(() => null);
-  return atlasPhotoMetadata(metadata);
+  try {
+    const metadata = await exifr.parse(await file.arrayBuffer(), { gps: true, exif: true, reviveValues: false });
+    const result = atlasPhotoMetadata(metadata);
+    return { ...result, photoMetadata: { ...result.photoMetadata!, originalName: file.name } };
+  } catch { return { date: '', source: 'manual', photoMetadata: { status: 'read-error', originalName: file.name } }; }
 }
 export function atlasPhotoMetadata(metadata: Record<string, unknown> | null | undefined): Partial<TravelTimelineEntry> {
   const date = atlasDate(metadata?.DateTimeOriginal) || atlasDate(metadata?.CreateDate) || '';
   const lat = metadata?.latitude, lng = metadata?.longitude;
-  return { date, ...(validAtlasPoint(lat, lng) ? { lat: lat as number, lng: lng as number, ...atlasCountry(lat as number, lng as number), source: 'exif' as const } : { source: 'manual' as const }) };
+  const valid = validAtlasPoint(lat, lng);
+  const hadGps = lat !== undefined || lng !== undefined || metadata?.GPSLatitude !== undefined || metadata?.GPSLongitude !== undefined;
+  return { date, ...(valid ? { lat: lat as number, lng: lng as number, ...atlasCountry(lat as number, lng as number), source: 'exif' as const } : { source: 'manual' as const }),
+    photoMetadata: { status: valid ? 'gps' : hadGps ? 'invalid-gps' : 'no-gps', ...(date ? { date, dateOrigin: 'embedded' } : {}) } };
+}
+
+export function atlasLocationStatus(entry: Partial<TravelTimelineEntry>): string {
+  if (validAtlasPoint(entry.lat, entry.lng)) return entry.source === 'exif' ? 'Photo GPS' : 'Map location set';
+  switch (entry.photoMetadata?.status) {
+    case 'gps': return 'Photo GPS available — not applied to this memory';
+    case 'no-gps': return 'No GPS in the chosen original';
+    case 'read-error': return 'Photo metadata could not be read';
+    case 'invalid-gps': return 'Photo GPS is invalid — choose a location';
+    case 'provider-limited': return 'This photo source supplied no GPS';
+    default: return entry.photoUrl || entry.sourceFileName ? 'Original photo metadata not checked' : 'Location not set';
+  }
 }
 
 export interface AtlasPhotoDraft { entry: TravelTimelineEntry; selected: boolean; error?: string }
