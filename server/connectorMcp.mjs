@@ -1,5 +1,6 @@
 import express from 'express';
 import { ImportInboxError, IMPORT_LIMITS, IMPORT_PROPOSAL_SCHEMA } from './importInbox.mjs';
+import { MEMORY_SCHEMA } from './memoryProposal.mjs';
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 const MAX_TEXT = 60_000;
@@ -19,6 +20,9 @@ const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: t
 const sourceSchema = objectSchema({ provider: { enum: ['drive', 'gmail', 'local', 'chatgpt', 'other'] }, sourceId: { type: 'string', maxLength: 500 },
   url: { type: 'string', maxLength: 2000, description: 'Original source page, never a temporary download URL or token.' }, label: { type: 'string', maxLength: 200 }, representation: { enum: ['original', 'export'] } }, ['provider', 'label', 'representation']);
 const TOOLS = [
+  { name: 'submit_memory', title: 'Suggest a family memory for review', description: 'Prepare one meaningful family memory from explicitly authorized WhatsApp exports, email excerpts or other named source text. Copy an exact evidence excerpt, keep unknown dates/people/coordinates unknown, and curate highlights rather than every journey. Optional atlas chooses a meaningful place; Atlas records already appear in the timeline. Imports only a pending draft; an administrator approves inside Teluva. Never reads new sources, invokes paid AI, applies records or grants access. Photo covers are added through Life Atlas.',
+    inputSchema: objectSchema({ requestId: { type: 'string', maxLength: 128 }, sourceName: { type: 'string', maxLength: 200 }, sourceText: { type: 'string', maxLength: IMPORT_LIMITS.sourceChars }, memory: MEMORY_SCHEMA }, ['requestId', 'sourceName', 'sourceText', 'memory']),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
   { name: 'import_original', title: 'Import an original attachment for review', description: 'Copy an explicitly authorized original attachment into protected Teluva storage, preserve its checksum and reported source, and prepare a pending asset/document draft. Use host file references for files up to 12 MiB; exact base64 bytes up to 96 KiB are a fallback for compatible hosts. Never generate a substitute original from extracted text. Native Google documents must be exported and labelled export. Does not analyze with paid AI or apply records.',
     inputSchema: objectSchema({ requestId: { type: 'string', minLength: 1, maxLength: 100 }, file: objectSchema({ download_url: { type: 'string' }, file_id: { type: 'string' }, mime_type: { type: 'string' }, file_name: { type: 'string' } }, ['download_url', 'file_id']),
       contentBase64: { type: 'string', maxLength: 131072, description: 'Exact source bytes only; never reconstruct a receipt from text.' }, fileName: { type: 'string', maxLength: 180 }, mimeType: { type: 'string', maxLength: 100 }, sha256: { type: 'string', pattern: '^[a-f0-9]{64}$' }, source: sourceSchema, proposal: IMPORT_PROPOSAL_SCHEMA }, ['requestId', 'source']),
@@ -38,6 +42,7 @@ const TOOLS = [
 const textSchema = { type: 'string' };
 const objectResult = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
 const OUTPUT_SCHEMAS = {
+  submit_memory: objectResult({ spaceId: textSchema, item: { type: 'object', additionalProperties: true }, pendingReviewOnly: { const: true }, message: textSchema }),
   search: objectResult({ results: { type: 'array', items: objectResult({ id: textSchema, title: textSchema, url: textSchema }) } }),
   fetch: objectResult({ id: textSchema, title: textSchema, text: textSchema, url: textSchema, metadata: { type: 'object', additionalProperties: true } }),
   get_connection: objectResult({ spaceId: textSchema, spaceName: textSchema, spaceType: textSchema, scopes: { type: 'array', items: textSchema }, selectedDocumentCount: { type: 'integer' }, pendingReviewOnly: { const: true }, reviewUrl: textSchema, originalImportsSupported: { type: 'boolean' } }),
@@ -100,12 +105,12 @@ export function createConnectorMcpRouter({ authenticateConnector, recordConnecto
       return res.status(400).json(rpcError(null, -32600, 'Tool operations require a request ID.'));
     }
     const reply = value => res.json({ jsonrpc: '2.0', id, result: value });
-    if (message.method === 'initialize') return reply({ protocolVersion: MCP_PROTOCOL_VERSION, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'teluva-connector', version: '1.1.0' }, instructions: 'First call get_connection to verify Teluva OAuth, destination and permissions; plugin installation alone is not account connection. Search external email/Drive only with the host’s separately authorized source tools and the user’s bounded scope. Use import_original for exact authorized attachments, never fabricated files. Prepare only pending drafts; review in Teluva applies records or the requesting person’s language/appearance. Never infer private profile facts.' });
+    if (message.method === 'initialize') return reply({ protocolVersion: MCP_PROTOCOL_VERSION, capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'teluva-connector', version: '1.2.0' }, instructions: 'First call get_connection to verify Teluva OAuth, destination and permissions; plugin installation alone is not account connection. Search external email/Drive only with the host’s separately authorized source tools and the user’s bounded scope. Use import_original for exact authorized attachments, never fabricated files. Prepare only pending drafts; review in Teluva applies records or the requesting person’s language/appearance. Never infer private profile facts.' });
     if (message.method === 'ping') return reply({});
     if (message.method === 'tools/list') return reply({ tools: TOOLS.filter(tool => tool.name !== 'import_original' || originals)
       .filter(tool => publicDiscovery || !['search', 'fetch'].includes(tool.name) || has(grant, 'documents:read'))
-      .filter(tool => publicDiscovery || !['submit_import', 'import_original'].includes(tool.name) || has(grant, 'inbox:write'))
-      .map(tool => { const scopes = ['search', 'fetch'].includes(tool.name) ? ['documents:read'] : ['submit_import', 'import_original'].includes(tool.name) ? ['inbox:write'] : [];
+      .filter(tool => publicDiscovery || !['submit_import', 'submit_memory', 'import_original'].includes(tool.name) || has(grant, 'inbox:write'))
+      .map(tool => { const scopes = ['search', 'fetch'].includes(tool.name) ? ['documents:read'] : ['submit_import', 'submit_memory', 'import_original'].includes(tool.name) ? ['inbox:write'] : [];
         const securitySchemes = [{ type: 'oauth2', scopes }]; return { ...tool, outputSchema: OUTPUT_SCHEMAS[tool.name], securitySchemes, _meta: { ...tool._meta, securitySchemes } }; }) });
     if (message.method !== 'tools/call') return res.json(rpcError(id, -32601, 'Method not found.'));
     const params = message.params;
@@ -151,6 +156,11 @@ export function createConnectorMcpRouter({ authenticateConnector, recordConnecto
         requireScope('inbox:write');
         if (!originals) throw new ToolError('TOOL_UNAVAILABLE', 'Original import is unavailable in this host.');
         return await toolReply(await originals.importOriginal(actor, args));
+      }
+      if (params.name === 'submit_memory') {
+        keys(args, ['requestId', 'sourceName', 'sourceText', 'memory']); requireScope('inbox:write');
+        const item = await inbox.create(actor, grant.spaceId, { requestId: args.requestId, sourceName: args.sourceName, sourceText: args.sourceText, proposal: { kind: 'memory', memory: args.memory } });
+        return await toolReply({ spaceId: grant.spaceId, item, pendingReviewOnly: true, message: 'Memory suggestion kept for review in Teluva. No timeline or Atlas record was applied.' });
       }
       keys(args, ['documentId', 'sourceText', 'sourceName', 'proposal', 'requestId', 'analyze']); requireScope('inbox:write');
       if (args.analyze !== undefined && typeof args.analyze !== 'boolean') bad('The analyze option must be true or false.');

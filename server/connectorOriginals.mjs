@@ -115,6 +115,7 @@ export function createConnectorOriginals({ db, bucket, resolveMembership, canRea
     if (!!input.file === (input.contentBase64 !== undefined)) fail(400, 'INVALID_ORIGINAL', 'Send one authorized file reference or original bytes.');
     const source = originalSource(input.source);
     const proposal = input.proposal === undefined ? undefined : sanitizeImportProposal(input.proposal);
+    if (proposal?.kind === 'memory') fail(400, 'INVALID_IMPORT', 'Use submit_memory with named source text for a story. Import photo covers through Life Atlas.');
     if (proposal?.kind === 'preferences') fail(400, 'INVALID_IMPORT', 'Use an explicit named text request for preferences, not an attachment.');
     if (input.file) {
       allowed(input.file, ['download_url', 'file_id', 'file_name', 'mime_type']);

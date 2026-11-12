@@ -1937,7 +1937,7 @@ app.post('/api/timeline/parse', async (req, res) => {
     if (!AI_READY) return res.status(500).json({ error: 'AI is not configured on the server.' });
 
     // Auth / rate / quota preamble — identical to /api/doc-key-facts.
-    const caller = await requireMember(req);
+    const caller = await requireRequestedMember(req);
     if (caller.error) return res.status(caller.status).json({ error: caller.error });
     if (aiRateLimited(caller.uid)) return res.status(429).json({ error: 'Too many requests — please wait a minute and try again.' });
     const gateErr = aiGateBlocked(caller);
@@ -1959,8 +1959,14 @@ app.post('/api/timeline/parse', async (req, res) => {
     // Log sizes only — never the family's text.
     console.log('[timeline-parse] request from', who(caller), '—', `${text.length} chars, ${memberList.length} members`);
 
+    const memoryReview = req.body?.memoryReview === true;
+    if (memoryReview) {
+      const selectedMembership = await connectorIntegration.resolveMembership({ uid: caller.uid }, caller.familyId);
+      if (!selectedMembership || selectedMembership.type === 'business') return res.status(403).json({ error: 'Family memory reviews belong in a family space.' });
+    }
+    const memoryInstructions = memoryReview ? '\nCURATED FAMILY MEMORY REVIEW: return at most 5 strong, distinct highlights worth retelling to grandchildren. Prioritize milestones, firsts, moves, celebrations, meaningful holidays, affectionate poems or memorable sayings, and significant personal experiences. Omit routine logistics, errands, commutes, shift schedules, parcel pickups, marketing, duplicate chatter, proposed plans and bookings without evidence the event happened. A repeated destination needs a distinct story. Do not fill a quota; zero highlights is valid. Use a message timestamp only when the message clearly describes that event occurring then. Otherwise keep the date unknown. Do not infer who appears in a photograph, relationships, visits from a booking, or precise coordinates. Preserve exact source excerpts and uncertainty. Export date format supplied by the user: ' + (req.body?.dateOrder === 'mdy' ? 'month/day/year' : 'day/month/year') + '.' : '';
     const gRes = await generateContent(MODEL_TEXT, {
-      systemInstruction: { parts: [{ text: timelineParseSystem(memberList, todayStr, req.body?.document === true) }] },
+      systemInstruction: { parts: [{ text: timelineParseSystem(memberList, todayStr, req.body?.document === true) + memoryInstructions }] },
       contents: [{ role: 'user', parts: [{ text }] }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0 },
     });
@@ -1976,10 +1982,12 @@ app.post('/api/timeline/parse', async (req, res) => {
     try { parsed = JSON.parse(outText); }
     catch { return res.status(502).json({ error: 'Could not parse the result — please try again.' }); }
 
-    const rows = sanitizeTimelineRows(parsed, memberList, text);
+    const rows = sanitizeTimelineRows(parsed, memberList, text).slice(0, memoryReview ? 5 : 80);
+    const currentCaller = await requireRequestedMember(req);
+    if (currentCaller.error || currentCaller.uid !== caller.uid || currentCaller.familyId !== caller.familyId || aiGateBlocked(currentCaller)) return res.status(403).json({ error: 'Your account, space access or AI consent changed. Nothing was imported.' });
     await recordAiUsage(caller.familyId);
     console.log('[timeline-parse] returning', rows.length, 'rows');
-    res.json({ rows });
+    res.json({ rows, spaceId: caller.familyId });
   } catch (e) {
     console.error('[timeline-parse] error', e);
     res.status(502).json({ error: 'Something went wrong reading that text — please try again.' });

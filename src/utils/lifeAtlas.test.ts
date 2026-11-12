@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { atlasCountry, atlasDate, atlasDateFromInput, atlasDateInput, atlasDateLabel, atlasPhotoMetadata, changeAtlasPrecision, filterAtlas, hasAtlasPoint, prepareAtlasPhotoDrafts, validAtlasPoint, validateAtlasEntry } from './lifeAtlas';
-import { atlasProjection, initialAtlasCamera, visibleAtlasPoint } from './atlasGeometry';
+import { atlasProjection, clusterAtlasPoints, initialAtlasCamera, visibleAtlasPoint } from './atlasGeometry';
 import { createFileOperationScope } from './fileOperationScope';
 import type { TravelTimelineEntry } from '../types';
 import { buildLifeTimeline } from './lifeTimeline';
@@ -31,6 +31,9 @@ const legacy = row({ id: 'legacy', place: 'First home', date: '2019-07-01' });
 const event = row({ id: 'event', title: 'Graduation', date: '2020-01-02', kind: 'event', lat: 48, lng: 16, memberIds: ['child'] });
 assert.deepEqual(filterAtlas([legacy, event], { query: 'first', kind: 'visit', unmapped: true }).map(entry => entry.id), ['legacy']);
 assert.deepEqual(filterAtlas([legacy, event], { memberId: 'child', year: '2020' }).map(entry => entry.id), ['event']);
+assert.deepEqual(filterAtlas([legacy, event], { peopleOnly: true, memberIds: ['child', 'other'] }).map(entry => entry.id), ['event']);
+assert.deepEqual(filterAtlas([legacy, event], { peopleOnly: true, memberIds: [] }), [], 'individual mode never falls back to everybody');
+assert.equal(filterAtlas([legacy, event], {}).length, 2, 'whole family still includes untagged stories');
 assert.equal(validateAtlasEntry(row({ title: 'A memory', country: '' })), null, 'unknown date/location is allowed');
 assert.ok(validateAtlasEntry(row({ country: '' })));
 assert.ok(validateAtlasEntry(row({ endDate: '2020-01-01' })));
@@ -45,6 +48,9 @@ const visualHome = buildFamilyTimeline({ members: [], travel: [home] })[0];
 assert.equal(visualHome.category, 'addresses'); assert.equal(visualHome.dateLabel, '2001 · year only');
 assert.ok(visibleAtlasPoint(15, 12, 'globe', initialAtlasCamera));
 assert.equal(visibleAtlasPoint(-165, -12, 'globe', initialAtlasCamera), null, 'far hemisphere has no clickable ghost pins');
+const clustered = clusterAtlasPoints([{ id: 'one', point: [100, 100] }, { id: 'two', point: [120, 100] }, { id: 'far', point: [300, 300] }], 48);
+assert.equal(clustered.length, 2); assert.deepEqual(clustered.find(group => group.ids.includes('one'))!.ids, ['one', 'two']);
+assert.equal(clusterAtlasPoints([{ id: 'one', point: [100, 100] }, { id: 'two', point: [120, 100] }], 10).length, 2, 'zoomed-apart points split into separate touch targets');
 for (const mode of ['globe', 'map'] as const) {
   const projection = atlasProjection(mode, initialAtlasCamera), point = projection([16.37, 48.2])!;
   const inverse = projection.invert!(point)!;

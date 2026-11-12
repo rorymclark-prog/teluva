@@ -1,5 +1,20 @@
 [
   {
+    "label": "v392",
+    "date": "2026-11-12",
+    "changes": [
+      "Prepare up to five curated memory suggestions from named chat/email text or a WhatsApp TXT/ZIP export. Review exact excerpts, dates and people before adding a story.",
+      "Connected assistants can submit pending memory suggestions; approval adds a timeline story or a single Atlas story that already appears in the timeline.",
+      "Switch Life Atlas between Whole family and selected individuals, and add a chosen cover photo to an existing story without creating a duplicate."
+    ],
+    "feature": {
+      "id": "family-memories-v385",
+      "demo": "family-memories",
+      "title": "Your family memories, rediscovered",
+      "description": "On this day and Flashback bring back dated moments saved to your family timeline, alongside family sayings and milestones."
+    }
+  },
+  {
     "label": "v391",
     "date": "2026-11-12",
     "changes": [

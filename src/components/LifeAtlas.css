@@ -25,6 +25,10 @@
 .atlas-legend i { width: .45rem; height: .45rem; border-radius: 50%; display: inline-block; background: #EAA568; }
 .atlas-legend .home { background: #89C6A6; }.atlas-legend .event { background: #D7A4E0; }.atlas-legend .visit { background: #85BFD9; }
 .atlas-attribution { padding: 0 1rem .8rem; color: #8CA9B9; font-size: .62rem; }
+.atlas-place-choices { margin: 0 1rem 1rem; padding: .75rem; border: 1px solid #557D91; border-radius: 1rem; background: #152637; max-height: 45dvh; overflow: auto; font-size: .8rem; }
+.atlas-place-choices > button { display: block; width: 100%; text-align: left; border-top: 1px solid #294151; }
+.atlas-place-choices button { min-height: 44px; padding: .5rem; border-radius: .5rem; color: #EDF5F6; }
+.atlas-place-choices button:hover, .atlas-place-choices button:focus-visible { background: #304B5C; outline: 2px solid #90B3C3; }
 .atlas-memory-cover { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; background: var(--color-cream-200); }
 .atlas-empty-cover { background: linear-gradient(135deg, var(--color-dusk-100), var(--color-cream-100)); display: grid; place-items: center; }
 @media (max-width: 480px) { .atlas-map-toolbar, .atlas-map-footer { padding: .65rem; }.atlas-controls { gap: .1rem; }.atlas-controls button { min-width: 36px; }.atlas-world { min-height: 245px; } }

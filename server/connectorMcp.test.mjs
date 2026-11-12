@@ -109,11 +109,11 @@ test('tool discovery exposes only consented scopes and truthful read/write annot
   assert.deepEqual(read.map(tool => tool.name), ['search', 'fetch', 'get_connection']);
   assert.ok(read.every(tool => tool.annotations.readOnlyHint && !tool.annotations.destructiveHint && !tool.annotations.openWorldHint));
   const write = (await f.rpc('tools/list', {}, { token: 'write' }).then(response => response.json())).result.tools;
-  assert.deepEqual(write.map(tool => tool.name), ['get_connection', 'submit_import']);
+  assert.deepEqual(write.map(tool => tool.name), ['submit_memory', 'get_connection', 'submit_import']);
   const submit = write.find(tool => tool.name === 'submit_import');
   assert.equal(submit.annotations.readOnlyHint, false); assert.equal(submit.annotations.destructiveHint, false); assert.equal(submit.annotations.idempotentHint, true);
   assert.equal(submit.inputSchema.additionalProperties, false);
-  assert.equal(submit.inputSchema.properties.proposal.oneOf.length, 3, 'hosts discover fixed asset/document/personal-preference proposals');
+  assert.equal(submit.inputSchema.properties.proposal.oneOf.length, 4, 'hosts discover fixed asset/document/personal-preference/memory proposals');
   const connection = (await f.tool('get_connection', {}, { token: 'read' }).then(response => response.json())).result.structuredContent;
   assert.equal(connection.spaceId, 'selected-space'); assert.deepEqual(connection.scopes, ['documents:read']);
   assert.equal(connection.selectedDocumentCount, 2); assert.equal(connection.pendingReviewOnly, true);
@@ -188,6 +188,15 @@ test('submit_import writes pending drafts only, auto-analyzes selected originals
   assert.equal(failed.structuredContent.item.analysis.status, 'failed');
   assert.equal(failed.structuredContent.item.status, 'pending');
   assert.match(failed.structuredContent.item.analysis.error, /allowance/);
+}));
+
+test('submit_memory uses only its selected space and returns pending evidence-backed proposals without paid analysis', () => withFixture(async f => {
+  const input = { requestId: 'weekly-first-step', sourceName: 'Synthetic family export', sourceText: 'Jamie took a first step.', memory: { title: 'A first step', date: '', category: 'milestone', evidenceQuote: 'Jamie took a first step.' } };
+  const result = (await f.tool('submit_memory', input, { token: 'write' }).then(response => response.json())).result.structuredContent;
+  assert.equal(result.pendingReviewOnly, true); assert.equal(result.item.proposal.kind, 'memory');
+  assert.equal(f.calls.create.at(-1).space, 'selected-space'); assert.equal(f.calls.analyze.length, 0);
+  assert.equal((await f.tool('submit_memory', input, { token: 'read' }).then(response => response.json())).result.isError, true);
+  assert.equal((await f.tool('submit_memory', { ...input, spaceId: 'other-space' }).then(response => response.json())).result.isError, true);
 }));
 
 test('protocol/body/rate-limit failures are bounded and provider errors do not disclose credentials', () => withFixture(async f => {
